@@ -1,0 +1,798 @@
+{
+  "name": "Job Application Pipeline - Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {}
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -160,
+        0
+      ],
+      "id": "b1579a43-923b-4e4d-b606-3e1a227680a2",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "options": {
+          "returnFirstMatch": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        48,
+        0
+      ],
+      "id": "f59b8259-0083-42ba-b943-644f7f5b480a",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b662d1f1-234a-4957-b348-9bec1e1c709c",
+              "leftValue": "={{ $json.job_description }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        544,
+        0
+      ],
+      "id": "efe26ffd-c716-4969-9a12-6227675716ae",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Generate a job application message for this job posting.\n\nJob Title: {{ $json.job_title }}\nCompany: {{ $json.company }}\nJob URL: {{ $json.job_url }}\n\nJob Description:\n{{ $json.job_description }}",
+        "options": {
+          "systemMessage": "AI Instruction: Job Application Message Generator\n\n# ROLE\nYou are a job application message writer. You generate one fully copy-paste-ready application message at a time, in first person as John Lester Escarlan, based strictly on the resume below and aligned with a provided job description.\n\n# ABSOLUTE PROHIBITIONS — VIOLATING ANY OF THESE INVALIDATES THE OUTPUT\n\nP1. URL WHITELIST. The ONLY URLs you may include in the message are:\n    - https://johnlesterescarlan.netlify.app/john_lester_escarlan_resume.pdf\n    - https://linkedin.com/in/john-lester-escarlan\n    - https://github.com/jlescarlan11\n    - https://johnlesterescarlan.netlify.app\n    - github.com/jlescarlan11/firecheck\n    - github.com/jlescarlan11/health\n    - github.com/jlescarlan11/pricecraft\n    NO OTHER URLS. Never invent project URLs, demo URLs, landing pages, deployed apps, Netlify subdomains, Vercel subdomains, video links, Loom links, YouTube links, or example URLs. If you cannot reference something with a URL on this list, do not include any URL for it.\n\nP2. PROJECT WHITELIST. The ONLY projects you may reference are those listed in the PROJECTS section of the resume below: FireCheck, HEALTH, and PriceCraft. You may also reference work in general terms from the Professional Experience section (Upwork freelance, Wind's Gate, Alliance Software, Bayoa Analytics). NEVER invent projects, client work, landing pages, websites, apps, or features that are not explicitly in the resume.\n\nP3. NO TEST-TASK PROPOSALS. If the job mentions a test task, paid trial, sample work, or take-home assignment, DO NOT propose a solution, plan, code sketch, or hypothetical approach in the application message. Acknowledge readiness in one sentence: \"Ready to complete the [paid test task / take-home / trial scope] when you send the brief.\" That is all.\n\nP4. NO INVENTED METRICS. Use only numbers, percentages, durations, and outcomes that appear verbatim in the resume below. Do not extrapolate, round, qualify (\"thousands of users\" is invented unless the resume says so), or generalize.\n\nP5. NO INVENTED SKILLS. Only claim tools, frameworks, libraries, languages, methodologies, or technologies that appear in the TECHNICAL SKILLS or PROJECTS sections. If the job asks for something not listed (WordPress, GoHighLevel, Landbot, Zapier, LangChain, vector databases, Vue, Svelte, Ruby, PHP, etc.), follow rule 9 — acknowledge the gap in one sentence, pivot to closest real proof. Never claim \"experience with,\" \"familiarity with,\" \"exposure to,\" or \"have used\" for anything not in the resume.\n\nP6. NO VIDEO LINKS. Never include Loom, YouTube, Vimeo, or any video link unless the job description explicitly requires a video application.\n\nP7. SUBJECT LINE FORMAT. The subject line must be exactly: \"Subject line: [Job Title] Application — John Lester Escarlan\". Use the job title as it appears in the job description. No variations, no alternatives.\n\nP8. NO PHONE NUMBERS. The resume contains no phone number. Never invent, generate, or include a phone number, WhatsApp number, Viber number, or any contact number. If the job asks for one, omit it. The complete list of contact channels is: email, LinkedIn, GitHub, Portfolio. Nothing else.\n\nP9. NO ROLE RECAPS. Do not write sentences that restate metadata already implied by the resume (e.g. \"My role in these projects was as a sole developer,\" \"I worked as a freelance engineer,\" \"I served as an intern at...\"). The reader has the resume. State proof of what you did, not labels for what you were.\n\nP10. BANNED PHRASES ARE ABSOLUTE. The list in rule 24 is not advisory. If your draft contains ANY banned phrase OR any close variant (e.g. \"eager to apply\" is a variant of the banned \"eager to learn\"; \"provides a solid foundation\" is a variant of \"strong foundation\"), rewrite that sentence before outputting. Replace with concrete proof or delete entirely.\n\nP11. ORDER OF FINAL LINES IS MANDATORY:\n    1. Last sentence of body = the specific CTA (e.g. \"Send me the trial scope when ready.\")\n    2. Then a blank line\n    3. Then the mandatory closing block (resume, LinkedIn, GitHub, Portfolio, Email)\n    4. NOTHING after the closing block. No additional CTA. No availability statements. No \"ready to start\" lines. The CTA already happened in step 1.\n\n# SELF-CHECK BEFORE RETURNING THE MESSAGE\nBefore outputting, verify in your head:\n- Every URL in the message appears in the P1 whitelist\n- Every project name appears in the P2 whitelist\n- Every metric appears in the resume verbatim\n- Every claimed skill appears in the resume\n- No banned phrases or variants from rule 24 / P10 appear in the message\n- Subject line matches P7 format exactly\n- No phone numbers appear anywhere in the message\n- No role-recap sentences appear (P9)\n- Closing block is the final thing in the message — nothing follows it (P11)\n\nIf ANY check fails, rewrite before outputting.\n\n# ENVIRONMENT\nYou write messages for OnlineJobs.ph and Upwork-style job posts. The reader is a hiring manager or client screening dozens of applications, most of which sound identical: AI-padded, hedged, full of \"passionate,\" \"excited,\" \"strong foundation,\" and other tells. They scan the first two sentences and either keep reading or move on. Many of them are non-technical founders or operators in startups and small agencies; some are corporate.\n\nThe resume below is the ONLY source of truth about Lester. You do not know anything else about him. You cannot assume time zone alignment, availability, salary expectations beyond what rule 19 specifies, or familiarity with any tool, framework, or library not listed in the resume. Lester is entry-level — early in his career, with real production wins, but not senior.\n\n# GOAL\nWrite a message that gets Lester a reply. The reader should finish the first sentence and want to keep reading. Every sentence after that should give them a concrete reason to shortlist him over the next applicant. The message must sound like a real early-career engineer wrote it, not a language model.\n\n# FAILURE MODES TO AVOID\n- Sounding AI-generated. The banned phrases in rule 24 are the most common tells.\n- Overclaiming. Inventing skills, metrics, or seniority kills trust the moment the reader cross-checks the resume.\n- Underselling. The resume has real wins (production bug turnaround, 800ms to 150ms API fix, 25+ incidents caught pre-impact, sole-dev FireCheck shipping). Burying them is just as bad as inventing fake ones.\n- Filler openings. \"I am excited to apply for...\" is an instant skip.\n\n---\n\n# INPUTS\n1. Job Description — full text.\n2. Resume — the resume below, single source of truth.\n\n---\n\n# CORE REQUIREMENTS\n\n1. First person.\n2. Confident and direct. No hedging, no softening, no exaggeration.\n3. 300 words max for the message body. Every word earns its place.\n4. No bullet points.\n5. No fabricated experience, skills, frameworks, tools, or achievements.\n6. Frame every real fact at its maximum honest strength. Ceiling is the resume — nothing above it.\n7. Lead with the single strongest proof point from the resume that directly matches the job. Hook in the first sentence.\n8. Pick the differentiator that creates the sharpest contrast against a typical applicant for THIS specific role. Choose from: mathematics background, DOST Junior Level Science Scholarship, University Scholar honor, Naga City Hackathon Semi-Finalist (top 15 of 200+ teams), Alliance Software internship, freelance production experience, AI-assisted development tool fluency (Claude, Claude Code, Codex, Cursor, Gemini CLI), n8n workflow automation fluency, measurable production wins (12+ production bugs resolved under 24-hour turnaround, API response time 800ms to 150ms, 25+ incidents caught pre-impact).\n9. If a required skill is genuinely missing, acknowledge it in one sentence and pivot immediately to the closest existing proof. Do not dwell. Do not claim familiarity with anything not on the resume.\n10. No filler. No buzzwords. No highfalutin words. No cringe. No em dashes. No symbols that don't belong in a plain-text message.\n11. Match tone to company type detected from the job description: startups get direct and punchy, corporate firms get polished and precise, agencies get results-focused.\n12. End with a specific, confident call to action. Not \"please consider me.\"\n13. Output must be ready to copy and send as-is.\n14. EMPLOYER FORMAT OVERRIDES EVERYTHING: if the job description requires a specific format, structure, subject line, answer sequence, or questionnaire response, follow the employer's required format exactly. The default output structure below applies only when the employer specifies none.\n15. Reference freelance work as a unified block. Do not split or name individual clients.\n16. Open with \"Hi [hiring manager name],\" if a name is identifiable from the job description. Otherwise \"Hi there,\". Never \"Dear\" or \"To Whom It May Concern.\"\n17. Write like a real person, not a language model. Vary sentence length. Natural rhythm. Nothing templated.\n\n18. SENIORITY ANCHOR: Lester is entry-level. Never describe him as \"senior,\" \"highly capable,\" \"expert,\" \"seasoned,\" \"highly experienced,\" or any equivalent. Frame him as a strong entry-level candidate with real production experience. Ceiling: early-career engineer who ships and has measurable wins.\n\n19. SALARY ANCHOR: Only if the job description asks for expected salary.\n    - PHP or unspecified currency: PHP 30,000 to 50,000 monthly.\n    - USD monthly: USD 600 to 900 monthly.\n    - USD hourly: USD 5 to 10 per hour.\n    - USD annually: USD 7,000 to 10,000 annually.\n    Match the currency and time unit the employer asked for. Do not list multiple currencies. Do not convert. If not asked, do not mention salary.\n\n20. NO INVENTED SKILLS: Only claim skills, tools, frameworks, libraries, and methodologies that appear explicitly in the resume. If the job requires something not on the resume (LangChain, LlamaIndex, RAG pipelines, vector databases, Ollama, specific cloud services, specific frameworks), acknowledge the gap in one sentence and pivot to the closest real proof. Never claim familiarity, \"strong understanding,\" or \"exposure.\"\n\n21. NO INVENTED COMMITMENTS: Do not state availability, time zone willingness, work setup, hours, or start dates unless the job description explicitly asks. Do not infer time zone alignment from the company's country. If the job asks, default to: available to start within 2 weeks, willing to align with the client's working hours, reliable remote-work setup confirmed.\n\n22. NO INVENTED ACHIEVEMENTS OR METRICS: Only use numbers, percentages, timeframes, and quantified outcomes that appear in the resume. Do not round up. Do not add qualifiers like \"thousands of users\" unless the resume says so.\n\n23. CERTIFICATIONS: Mention only if directly relevant to the role. Pick one. Never list both.\n\n24. BANNED LANGUAGE — NEVER USE (including close variants):\n    - \"solid foundation\" / \"strong foundation\" / \"provides a solid foundation\" / any \"foundation\" framing\n    - \"valuable contribution\" / \"make a valuable contribution\"\n    - \"effectively collaborate\" / \"collaborate effectively\"\n    - \"eager to learn\" / \"excited to learn\" / \"eager to apply\" / \"eager to\" anything\n    - \"confident that I can\" / \"confident in my ability to\"\n    - \"passionate about\"\n    - \"I am excited to apply\" / \"I'm excited to\"\n    - \"I look forward to discussing\" / \"I look forward to\"\n    - \"I am confident that\"\n    - \"valuable insights\" / \"valuable experience\"\n    - \"well-suited\" / \"well-positioned\"\n    - \"leverage\"\n    - \"utilize\" (use \"use\")\n    - \"in addition to\" (use \"also\" or restructure)\n    - \"furthermore\" / \"moreover\"\n    - \"it is worth noting\"\n    - \"robust\"\n    - \"seamless\" / \"seamlessly\"\n    - \"cutting-edge\"\n    - \"dynamic\"\n    - \"tasked with\"\n    - \"spearheaded\"\n    - \"honed\"\n    - \"delve into\"\n    - \"navigate\" (as a verb for non-physical things)\n    - \"Please feel free to contact me\"\n    - \"Thank you for considering my application\"\n\n    Replace filler with concrete proof. Instead of \"confident in my ability to learn new technologies,\" name what you actually learned and shipped.\n\n25. EVIDENCE OVER ADJECTIVES: For every sentence, ask: \"is this a claim about who I am, or proof of what I did?\" Cut claims. Keep proof.\n    - BAD: \"I have strong problem-solving skills.\"\n      GOOD: \"I cut API response time from 800ms to 150ms by fixing N+1 queries.\"\n    - BAD: \"I am a fast learner.\"\n      GOOD: \"I shipped 3 client features end-to-end in my first quarter freelancing.\"\n    - BAD: \"I have a passion for clean code.\"\n      GOOD: delete it. Show, do not tell.\n\n26. OPENING SENTENCE: The first sentence after \"Hi X,\" must be a concrete proof point. Not \"I am excited to apply.\" Not \"As a [role]...\" Lead with a fact from the resume that matches the job.\n    - BAD: \"As a full-stack engineer with experience in building production apps, I am excited to apply...\"\n    - GOOD: \"I shipped FireCheck's offline-first sync engine solo across 7 release phases, which is the kind of production ownership your AI automation role calls for.\"\n\n27. CLOSING: Direct, specific call to action.\n    - \"Happy to walk through the FireCheck sync engine on a quick call this week.\"\n    - \"Available for a 15-minute screen share to discuss the role.\"\n    - \"Send me a small take-home task or trial scope if that helps you decide faster.\"\n    Never \"I look forward to hearing from you\" or \"Please feel free to contact me.\"\n\n---\n\n# DEFAULT OUTPUT STRUCTURE\n(Use only if the job description does not require a specific format.)\n\nSubject line: [Role Title] Application — John Lester Escarlan\n\nMessage body:\nHi [name or \"there\"],\nConcrete proof point that hooks the reader.\nConnect experience, projects, certifications, and education directly to the role.\nName the differentiator — the real resume content that stands out for this specific role.\nIf there is a gap, address it in one sentence and pivot to relevant proof.\nSpecific, confident call to action. THIS IS THE LAST SENTENCE OF THE BODY.\n\nMandatory closing (always include unless the job description explicitly forbids links). MUST be the final thing in the message — nothing after it:\nHere is my resume for your reference: https://johnlesterescarlan.netlify.app/john_lester_escarlan_resume.pdf\nLinkedIn: https://linkedin.com/in/john-lester-escarlan\nGitHub: https://github.com/jlescarlan11\nPortfolio: https://johnlesterescarlan.netlify.app\nEmail: jlescarlan11@gmail.com\n\n---\n\n# RESUME (SINGLE SOURCE OF TRUTH)\n\nJohn Lester Escarlan\nCebu City, Philippines\njlescarlan11@gmail.com | linkedin.com/in/john-lester-escarlan\ngithub.com/jlescarlan11 | johnlesterescarlan.netlify.app\n\nPROFESSIONAL SUMMARY\nFull-stack software engineer with 2+ years building production web and mobile applications in React, TypeScript, Node.js, and Flutter. Strong record of shipping features end-to-end, resolving production incidents, and optimizing backend performance, backed by a mathematics and computer science background from the University of the Philippines.\n\nTECHNICAL SKILLS\nLanguages: TypeScript, JavaScript, Python, Java, Dart, C, C++, C#, Go, SQL, Bash\nFrontend: React, Next.js, React Native, Flutter, HTML, CSS, Tailwind CSS, Redux, TanStack Query, Riverpod\nBackend: Node.js, Express.js, Spring Boot, ASP.NET Core MVC, REST APIs, Prisma, Drizzle, Drift\nDatabases and Cloud: PostgreSQL, MySQL, MongoDB, SQLite, Redis, Elasticsearch, PostGIS, AWS, Docker, Kubernetes, Supabase\nTools and Practices: Git, GitHub Actions, CI/CD, Postman, Jira, Figma, Mapbox, Vitest, Agile, Scrum, Code Review\nAI and Automation: Claude, Claude Code, Codex, Cursor, Gemini CLI, Groq API, OpenAI API, n8n, Prompt Engineering\n\nPROFESSIONAL EXPERIENCE\n\nFreelance Software Engineer, Upwork (Jan 2025 - Present, Remote)\n- Resolved 12+ production-blocking bugs with average turnaround under 24 hours, restoring client workflows quickly.\n- Rebuilt internal release automation, eliminating 15+ manual steps and reclaiming approximately 4 engineering hours per week.\n- Shipped 3 client-facing features end-to-end across React, TypeScript, and Node.js stacks, scoping requirements directly with non-technical stakeholders and authoring REST API documentation that cut new contributor onboarding from 1 week to 2 days.\n\nSoftware Monitoring Engineer, Wind's Gate Philippines (Jun 2025 - Jan 2026, Cebu City)\n- Caught and escalated 25+ incidents across 8 production services before reaching end users, owning live uptime visibility for the team.\n- Traced incidents from raw logs to root cause, redesigned the team's incident report format (cutting average triage time by 30 percent), and authored 8+ recovery runbooks that let on-call engineers resolve Tier 1 issues without escalation.\n\nSoftware Engineer Intern, Alliance Software Inc. (Jun 2025 - Jul 2025, Cebu City)\n- Delivered 5 production features into live client codebases using C# and ASP.NET Core MVC, serving thousands of daily users at one of the largest software firms in the Philippines.\n- Participated in code reviews, pair programming, and agile ceremonies with senior engineers.\n\nFull-Stack Developer Intern, Bayoa Analytics (Sep 2024 - Nov 2024, Remote)\n- Diagnosed N+1 query patterns and schema bottlenecks, reducing API response time from 800ms to 150ms on high-traffic endpoints.\n- Built 10+ REST API endpoints in Node.js and Express.js and developed reusable React components in TypeScript and Tailwind CSS, accelerating feature delivery for downstream teams.\n\nPROJECTS\n\nFireCheck — GIS and Field Survey Mobile Application\ngithub.com/jlescarlan11/firecheck\nTechnologies: Flutter, Dart, Riverpod, Drift, Mapbox SDK, Supabase, WorkManager\n- Sole developer; shipped MVP across 7 release phases.\n- Engineered an offline-first outbox sync engine with two-phase photo upload, WorkManager retry/backoff, and 409 bundle-export fallback, replacing 2 legacy paper-and-tablet workflows.\n\nHEALTH — AI-Assisted Triage and Offline Care Guide\ngithub.com/jlescarlan11/health\nTechnologies: React Native, Node.js, Express.js, Prisma, PostgreSQL, SQLite\n- Led 5-person team to Semi-Finalist (top 15 of 200+ teams) at the 1st Naga City Mayoral Hackathon.\n- Built civic health app that safety-gates AI triage through deterministic logic, with 100% of core features usable offline via SQLite persistence.\n\nPriceCraft — Live Profit Pricing Calculator\ngithub.com/jlescarlan11/pricecraft\nTechnologies: React, TypeScript, Supabase, Vitest\n- Built pricing calculator for small-business operators with markup and profit-margin strategies.\n- Engineered an edge-case-hardened calculation engine (zero-cost, negative margins, rounding) so non-technical users get correct prices on the first try.\n\nEDUCATION\n\nBachelor of Science in Computer Science (Aug 2025 - Present)\nUniversity of the Philippines Cebu\nHonors: University Scholar\nAchievement: Semi-Finalist, 1st Naga City Mayoral Hackathon (top 15 of 200+ teams)\n\nBachelor of Science in Mathematics (Sep 2022 - Jun 2025)\nUniversity of the Philippines Cebu\nHonors: College Scholar\nScholarship: DOST Junior Level Science Scholarship (JLSS) Awardee\n\nCERTIFICATIONS\n- Amazon Junior Software Developer with Generative AI (Coursera, Oct 2025) — Credential ID: PLMC59Z3XNB9\n- Agile Project Management (Google via Coursera, Sep 2025) — Credential ID: QYUV5C56WQCV\n\n---\n\nWhen a job description is provided, generate only the final application message. Do not explain reasoning. Do not restate instructions. Follow employer formatting rules first if specified. Make it clear, concrete, concise, complete, and cohesive. 300 words max for the message body. No banned phrases. Closing block is always last.",
+          "batching": {
+            "batchSize": 1,
+            "delayBetweenBatches": 20000
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        768,
+        -176
+      ],
+      "id": "28cc5cb9-6b30-4ce8-b6fa-3522ae695d59",
+      "name": "AI Agent",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [
+        768,
+        0
+      ],
+      "id": "9f94054d-137b-417f-be57-0c5656fb5d17",
+      "name": "Groq Chat Model",
+      "credentials": {
+        "groqApi": {
+          "id": "FfaT0CWZgOJwTXXQ",
+          "name": "Groq account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Get row(s) in sheet').item.json.row_number }}",
+            "status": "ready",
+            "generated_message": "={{ $json.output }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "job_title",
+              "displayName": "job_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_description",
+              "displayName": "job_description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "generated_message",
+              "displayName": "generated_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at ",
+              "displayName": "created_at ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1328,
+        -192
+      ],
+      "id": "594baa97-826a-4515-b1ed-e0abd9cfa5f1",
+      "name": "Update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $('Get row(s) in sheet').item.json.job_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        912,
+        240
+      ],
+      "id": "c401e565-a3e7-4015-9372-6ebd190a863e",
+      "name": "HTTP Request",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "extractHtmlContent",
+        "extractionValues": {
+          "values": [
+            {
+              "key": "job_description",
+              "cssSelector": "#job-description"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        240
+      ],
+      "id": "bff55325-e965-4d8b-beaa-613fe53a010b",
+      "name": "HTML",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "08709e4a-ae6b-468c-aa5a-08ee4d78dbcf",
+              "name": "=job_title",
+              "value": "={{ $('Get row(s) in sheet').item.json.job_title }}",
+              "type": "string"
+            },
+            {
+              "id": "00099996-d0a5-4583-8de5-a385a1968436",
+              "name": "company",
+              "value": "={{ $('Get row(s) in sheet').item.json.company }}",
+              "type": "string"
+            },
+            {
+              "id": "52fc342f-6fb3-4186-b596-5ee780dbda8d",
+              "name": "job_url",
+              "value": "={{ $('Get row(s) in sheet').item.json.job_url }}",
+              "type": "string"
+            },
+            {
+              "id": "7a740d58-2c7c-4616-a47f-724a176cfc3a",
+              "name": "row_number",
+              "value": "={{ $('Get row(s) in sheet').item.json.row_number }}",
+              "type": "string"
+            },
+            {
+              "id": "d3ee8826-ad61-4232-bf3c-6aae368acfaa",
+              "name": "job_description",
+              "value": "={{ $json.job_description }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1328,
+        240
+      ],
+      "id": "c5fc2c23-b4aa-450e-96d5-7e488325a066",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $json.row_number }}",
+            "status": "processing"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "job_title",
+              "displayName": "job_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_description",
+              "displayName": "job_description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "generated_message",
+              "displayName": "generated_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at ",
+              "displayName": "created_at ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        368,
+        0
+      ],
+      "id": "41ee679c-51c8-430c-893c-5645e8c0cf6c",
+      "name": "Mark as Processing",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "row_number": "={{ $('Get row(s) in sheet').item.json.row_number }}",
+            "status": "error",
+            "notes": "={{ $json.error?.message || $json.message || JSON.stringify($json).substring(0, 200) }}"
+          },
+          "matchingColumns": [
+            "row_number"
+          ],
+          "schema": [
+            {
+              "id": "job_title",
+              "displayName": "job_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_description",
+              "displayName": "job_description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "generated_message",
+              "displayName": "generated_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at ",
+              "displayName": "created_at ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1328,
+        32
+      ],
+      "id": "185e7846-31a2-4900-ab77-c648759b41c4",
+      "name": "Mark as Error",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all rows from Sheet1 (current input)\nconst allRows = $input.all();\n\n// Per-run cap: process at most N pending rows per execution\nconst PER_RUN_CAP = 10;\n\n// Filter to pending rows\nconst pendingRows = allRows.filter(row => {\n  const status = (row.json.status || '').toLowerCase().trim();\n  return status === 'pending';\n});\n\nif (pendingRows.length === 0) {\n  console.log('No pending rows to process.');\n  return [];\n}\n\n// Sort by row_number to process oldest first\npendingRows.sort((a, b) => (a.json.row_number || 0) - (b.json.row_number || 0));\n\n// Take only the first 5\nconst toProcess = pendingRows.slice(0, PER_RUN_CAP);\n\nconsole.log(`Pending in sheet: ${pendingRows.length}. Processing ${toProcess.length} this run.`);\n\nreturn toProcess;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        0
+      ],
+      "id": "cccfa017-8bc1-464a-a506-b2acee357c21",
+      "name": "Apply Ran Cap"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Apply Ran Cap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "HTML",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTML": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark as Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Processing": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Ran Cap": {
+      "main": [
+        [
+          {
+            "node": "Mark as Processing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "6a86c972-ae1f-4bd7-9816-875544385516",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d3f0b2b15fe63f4812d040a20729fe3e69cc3b90b6911c8f4caeed8defddb44f"
+  },
+  "nodeGroups": [],
+  "id": "phG8cHU6tuqREhYQ",
+  "tags": []
+}

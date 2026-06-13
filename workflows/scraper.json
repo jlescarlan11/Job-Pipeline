@@ -1,0 +1,520 @@
+{
+  "name": "Job Application Pipeline - Scraper",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 4
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "3bdfd25a-53af-48a4-8209-e0b1a9ed36e8",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "babacfdc-48df-4d71-8bd4-8d6d1f2d3457",
+              "name": "keywords",
+              "value": "[\"react developer\", \"nextjs developer\", \"typescript developer\", \"full stack developer\", \"nodejs developer\", \"frontend developer\", \"web developer\", \"flutter developer\", \"n8n developer\", \"automation developer\", \"ai automation\", \"workflow automation\", \"ai engineer\", \"ai agent developer\"]",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "247d3c08-b4f0-48d3-9e7f-f62ed75d76c2",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "keywords",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "228e1fe3-b6e2-4f85-af83-fb02030c2c61",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "url": "=https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword={{ encodeURIComponent($json.keywords) }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+          ]
+        },
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 2000
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        624,
+        0
+      ],
+      "id": "e2bcd2ad-0627-4260-b2b1-ad038bf8999a",
+      "name": "HTTP Request",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\nconst result = [];\n\n// Calculate cutoff date: 7 days ago from now\nconst cutoffDate = new Date();\ncutoffDate.setDate(cutoffDate.getDate() - 7);\n\nfor (const item of allItems) {\n  const html = item.json.data || '';\n  if (!html) continue;\n  \n  // Each job card is wrapped in: <a href=\"/jobseekers/job/...\"> ... <div class=\"jobpost-cat-box\"> ... </div> ... </a>\n  // We capture the URL and the inner content of the card together, guaranteed aligned.\n  const cardRegex = /<a\\s+href=\"(\\/jobseekers\\/job\\/[^\"]+)\"[^>]*>\\s*<div[^>]*class=\"[^\"]*jobpost-cat-box[^\"]*\"[^>]*>([\\s\\S]*?)<\\/div>\\s*<\\/a>/g;\n  \n  let match;\n  while ((match = cardRegex.exec(html)) !== null) {\n    const urlPath = match[1];\n    const cardHtml = match[2];\n    \n    // Skip URLs that are just numeric IDs (See More links — shouldn't happen with this selector, but defensive)\n    const slug = urlPath.replace('/jobseekers/job/', '');\n    if (/^\\d+$/.test(slug)) continue;\n    \n    // Extract title from <h4 class=\"...\"> ... </h4>, strip the badge span first\n    const h4Match = cardHtml.match(/<h4[^>]*>([\\s\\S]*?)<\\/h4>/);\n    if (!h4Match) continue;\n    let titleHtml = h4Match[1];\n    // Remove the type badge (Full Time / Part Time / etc.)\n    titleHtml = titleHtml.replace(/<span[^>]*class=\"[^\"]*badge[^\"]*\"[^>]*>[\\s\\S]*?<\\/span>/g, '');\n    // Strip remaining HTML tags\nlet title = titleHtml.replace(/<[^>]+>/g, '').trim().replace(/\\s+/g, ' ');\n// Decode common HTML entities\ntitle = title\n  .replace(/&#039;/g, \"'\")\n  .replace(/&amp;/g, '&')\n  .replace(/&quot;/g, '\"')\n  .replace(/&lt;/g, '<')\n  .replace(/&gt;/g, '>')\n  .replace(/&nbsp;/g, ' ');\n    \n    // Extract posted date from <p data-temp=\"...\"> <em>Posted on YYYY-MM-DD HH:MM:SS</em> </p>\n    const dateMatch = cardHtml.match(/<em>\\s*Posted on\\s+([0-9\\-\\s:]+)<\\/em>/);\n    if (!dateMatch) continue;\n    const postedDate = dateMatch[1].trim();\n    \n    // Extract salary from <dd class=\"col\">...</dd> within the salary block\n    let salary = '';\n    const salaryMatch = cardHtml.match(/<dd class=\"col\">([\\s\\S]*?)<\\/dd>/);\n    if (salaryMatch) {\nsalary = salaryMatch[1].replace(/<[^>]+>/g, '').trim()\n  .replace(/&#039;/g, \"'\")\n  .replace(/&amp;/g, '&')\n  .replace(/&quot;/g, '\"')\n  .replace(/&nbsp;/g, ' ');\n    }\n    \n    // Parse date and apply 7-day filter\n    const dt = new Date(postedDate);\n    if (isNaN(dt.getTime())) continue;\n    if (dt < cutoffDate) continue;\n    \n    result.push({\n      json: {\n        job_url: 'https://www.onlinejobs.ph' + urlPath,\n        job_title: title,\n        posted_date: postedDate,\n        salary: salary,\n      }\n    });\n  }\n}\n\nreturn result;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1040,
+        -96
+      ],
+      "id": "39bc6420-28cd-4e2a-9784-4aac36341232",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "2628e30f-e7f0-418a-9114-42674f8e2501",
+              "leftValue": "={{ !/(?:senior|sr\\.?|lead|principal|staff|architect|head of|director|tech lead|engineering lead|5\\+? ?years?|6\\+? ?years?|7\\+? ?years?|8\\+? ?years?|10\\+? ?years?)/i.test($json.job_title + ' ' + $json.job_url) }}",
+              "rightValue": "(?i)\\b(senior|sr\\.?|lead|principal|staff|architect|head of|director|tech lead|engineering lead|5\\+? ?years?|6\\+? ?years?|7\\+? ?years?|8\\+? ?years?|10\\+? ?years?)\\b",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1248,
+        -96
+      ],
+      "id": "346d62c9-c0c8-4dfc-84c8-39fa93e5abdb",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1680,
+        -176
+      ],
+      "id": "7a82e1b5-696e-44f9-9641-b7cd94c595d9",
+      "name": "Get row(s) in sheet",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "scraped_jobs",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1504,
+        -176
+      ],
+      "id": "4f51b339-ca84-49a0-af54-6d94e8c9335c",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get Sheet1 rows from the new Aggregate node\nconst sheet1Aggregate = $('Aggregate Sheet1').first().json;\nconst sheet1Rows = sheet1Aggregate.sheet1_rows || [];\n\n// Get Archive rows (current input — should be a small number of items)\nconst archiveRows = $input.all();\n\n// Build a combined Set of URLs from both sheets\nconst existingUrls = new Set([\n  ...sheet1Rows.map(row => row.job_url).filter(url => url),\n  ...archiveRows.map(row => row.json.job_url).filter(url => url),\n]);\n\n// Get the scraped jobs from the first Aggregate (named \"Aggregate\")\nconst aggregateOutput = $('Aggregate').first().json;\nconst scrapedJobs = aggregateOutput.scraped_jobs || [];\n\n// Filter: keep only jobs whose URL is NOT in either sheet\nconst newJobs = scrapedJobs.filter(job => !existingUrls.has(job.job_url));\n\n// Dedupe within scraped batch\nconst seenInBatch = new Set();\nconst uniqueNewJobs = newJobs.filter(job => {\n  if (seenInBatch.has(job.job_url)) return false;\n  seenInBatch.add(job.job_url);\n  return true;\n});\n\nreturn uniqueNewJobs.map(job => ({ json: job }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2256,
+        -176
+      ],
+      "id": "2e8bb181-be15-4819-b609-271bbd96dac6",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_title": "={{ $json.job_title }}",
+            "company": "=Not Given",
+            "job_url": "={{ $json.job_url }}",
+            "status": "pending",
+            "created_at ": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "job_title",
+              "displayName": "job_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_description",
+              "displayName": "job_description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "generated_message",
+              "displayName": "generated_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at ",
+              "displayName": "created_at ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2464,
+        -176
+      ],
+      "id": "991bde4e-da9a-4617-a2a7-72c0ae24818d",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1897695400,
+          "mode": "list",
+          "cachedResultName": "Archive",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=1897695400"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2064,
+        -176
+      ],
+      "id": "f742291c-e93d-4f17-afce-8ab05c76a065",
+      "name": "Get rows from Archive",
+      "executeOnce": false,
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "sheet1_rows",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1872,
+        -176
+      ],
+      "id": "5ccf5a2d-693d-4e3b-85bc-e1ae55c70aca",
+      "name": "Aggregate Sheet1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get rows from Archive": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Sheet1": {
+      "main": [
+        [
+          {
+            "node": "Get rows from Archive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "72cc38db-8f11-4b81-b025-01f4ae946451",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d3f0b2b15fe63f4812d040a20729fe3e69cc3b90b6911c8f4caeed8defddb44f"
+  },
+  "nodeGroups": [],
+  "id": "rj2vK8hhdBtcetOo",
+  "tags": []
+}

@@ -1,0 +1,301 @@
+{
+  "name": "Job Application Pipeline - Archiver",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 45
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "905d8287-46b5-455f-b0b2-06629879b779",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        0
+      ],
+      "id": "56d34442-aee4-4f7c-a018-6343a46abdb4",
+      "name": "Get row(s) in sheet",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all rows from Sheet1\nconst allRows = $input.all();\n\n// Filter to rows that should be archived (status = applied, skipped, or error)\nconst archivableStatuses = ['applied', 'skipped', 'error'];\n\nconst rowsToArchive = allRows.filter(row => {\n  const status = (row.json.status || '').toLowerCase().trim();\n  return archivableStatuses.includes(status);\n});\n\nif (rowsToArchive.length === 0) {\n  console.log('No rows to archive this run.');\n  return [];\n}\n\nconsole.log(`Found ${rowsToArchive.length} rows to archive.`);\n\n// Sort by row_number DESCENDING — important!\n// We delete from bottom up so row indices don't shift mid-delete\nrowsToArchive.sort((a, b) => (b.json.row_number || 0) - (a.json.row_number || 0));\n\n// Build output items with all fields explicit\nreturn rowsToArchive.map(row => ({\n  json: {\n    row_number: row.json.row_number,\n    job_title: row.json.job_title || '',\n    company: row.json.company || '',\n    job_url: row.json.job_url || '',\n    job_description: row.json.job_description || '',\n    status: row.json.status || '',\n    generated_message: row.json.generated_message || '',\n    created_at: row.json.created_at || '',\n    notes: row.json.notes || '',\n    archived_at: new Date().toISOString(),\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "eae62e08-0dfa-4f91-9545-af1a7ae8bd98",
+      "name": "Filter Archivable Rows"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1897695400,
+          "mode": "list",
+          "cachedResultName": "Archive",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=1897695400"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "job_title": "={{ $json.job_title }}",
+            "company": "={{ $json.company }}",
+            "job_url": "={{ $json.job_url }}",
+            "job_description": "={{ $json.job_description }}",
+            "status": "={{ $json.status }}",
+            "generated_message": "={{ $json.generated_message }}",
+            "created_at ": "={{ $json.created_at }}",
+            "notes": "={{ $json.notes }}",
+            "archived_at": "={{ $json.archived_at }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "job_title",
+              "displayName": "job_title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "company",
+              "displayName": "company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_url",
+              "displayName": "job_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "job_description",
+              "displayName": "job_description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "generated_message",
+              "displayName": "generated_message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at ",
+              "displayName": "created_at ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "archived_at",
+              "displayName": "archived_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        624,
+        0
+      ],
+      "id": "e15131bc-7f01-4625-8ac1-130e58c9a1a3",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "startIndex": "={{ $('Filter Archivable Rows').item.json.row_number }}"
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        864,
+        0
+      ],
+      "id": "4c000cde-0823-45e9-b902-8189b2d2d620",
+      "name": "Delete rows or columns from sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Filter Archivable Rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Archivable Rows": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Delete rows or columns from sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "92aee366-1fa6-4161-9405-eb7ac7a06f5e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d3f0b2b15fe63f4812d040a20729fe3e69cc3b90b6911c8f4caeed8defddb44f"
+  },
+  "nodeGroups": [],
+  "id": "cj6ty1mKwyjS65h2",
+  "tags": []
+}
