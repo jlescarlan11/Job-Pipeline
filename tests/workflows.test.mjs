@@ -114,6 +114,11 @@ test("all checked-in workflow exports are disabled, connected, and syntactically
     }
     for (const node of workflow.nodes.filter((entry) => entry.type === "n8n-nodes-base.code")) {
       compileCodeNode(node);
+      assert.doesNotMatch(
+        node.parameters.jsCode,
+        /\bnew\s+URL\s*\(/,
+        `${file}/${node.name} relies on URL, which is unavailable in the n8n Code-node sandbox`
+      );
     }
   }
 });

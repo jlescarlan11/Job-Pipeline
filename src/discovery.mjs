@@ -116,15 +116,13 @@ export function buildSearchRequests(plan) {
     for (let pageNumber = 1; pageNumber <= plan.max_pages_per_query; pageNumber += 1) {
       const offset = (pageNumber - 1) * plan.page_size;
       const path = pageNumber === 1 ? "/jobseekers/jobsearch" : `/jobseekers/jobsearch/${offset}`;
-      const url = new URL(path, "https://www.onlinejobs.ph");
-      url.searchParams.set("jobkeyword", query.query);
       requests.push({
         query_id: query.id,
         query: query.query,
         role_family: query.role_family,
         evidence_refs: query.evidence_refs,
         page_number: pageNumber,
-        request_url: url.toString()
+        request_url: `https://www.onlinejobs.ph${path}?jobkeyword=${encodeURIComponent(query.query)}`
       });
     }
   }

@@ -1,23 +1,78 @@
-export function normalizeCanonicalUrl(value) {
-  if (!value) return "";
-  let parsed;
-  try {
-    parsed = new URL(String(value).trim(), "https://www.onlinejobs.ph");
-  } catch {
-    return "";
+export function parseHttpUrl(value, { baseOrigin = "" } = {}) {
+  let input = String(value ?? "").trim();
+  if (!input) return null;
+
+  if (input.startsWith("/")) {
+    const base = parseHttpUrl(baseOrigin);
+    if (!base) return null;
+    input = `${base.protocol}//${base.hostname}${base.port ? `:${base.port}` : ""}${input}`;
   }
-  if (!["http:", "https:"].includes(parsed.protocol)) return "";
-  if (parsed.username || parsed.password || (parsed.port && parsed.port !== "443")) return "";
-  parsed.protocol = "https:";
-  parsed.hostname = parsed.hostname.toLowerCase();
-  if (parsed.hostname === "www.onlinejobs.ph") parsed.hostname = "onlinejobs.ph";
-  if (parsed.hostname !== "onlinejobs.ph") return "";
-  parsed.hash = "";
-  parsed.search = "";
-  parsed.pathname = parsed.pathname.replace(/\/+/g, "/").replace(/\/$/, "");
-  if (!/^\/jobseekers\/job\/[^/]+$/i.test(parsed.pathname)) return "";
-  parsed.port = "";
-  return parsed.toString();
+
+  if (/[\u0000-\u0020\u007f\\]/.test(input)) return null;
+  const match = input.match(
+    /^(https?):\/\/([^/?#]+)(\/[^?#]*)?(\?[^#]*)?(#.*)?$/i
+  );
+  if (!match) return null;
+
+  const protocol = `${match[1].toLowerCase()}:`;
+  const authority = match[2];
+  if (!authority || authority.includes("@") || authority.includes("[")) return null;
+
+  const colonIndex = authority.lastIndexOf(":");
+  let hostname = authority;
+  let port = "";
+  if (colonIndex >= 0) {
+    if (authority.indexOf(":") !== colonIndex) return null;
+    hostname = authority.slice(0, colonIndex);
+    port = authority.slice(colonIndex + 1);
+    if (!/^\d{1,5}$/.test(port)) return null;
+    const portNumber = Number(port);
+    if (portNumber < 1 || portNumber > 65535) return null;
+  }
+
+  hostname = hostname.toLowerCase();
+  if (
+    hostname.length > 253 ||
+    hostname.split(".").some(
+      (label) =>
+        !label ||
+        label.length > 63 ||
+        !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)
+    )
+  ) {
+    return null;
+  }
+
+  const pathname = match[3] || "/";
+  const search = match[4] || "";
+  const hash = match[5] || "";
+  return {
+    protocol,
+    hostname,
+    port,
+    pathname,
+    search,
+    hash,
+    username: "",
+    password: "",
+    href: `${protocol}//${hostname}${port ? `:${port}` : ""}${pathname}${search}${hash}`
+  };
+}
+
+export function normalizeCanonicalUrl(value) {
+  const parsed = parseHttpUrl(value, {
+    baseOrigin: "https://www.onlinejobs.ph"
+  });
+  if (!parsed) return "";
+  if (parsed.port && parsed.port !== "443") return "";
+  const hostname =
+    parsed.hostname === "www.onlinejobs.ph"
+      ? "onlinejobs.ph"
+      : parsed.hostname;
+  if (hostname !== "onlinejobs.ph") return "";
+  const pathname = parsed.pathname.replace(/\/+/g, "/").replace(/\/$/, "");
+  if (!/^\/jobseekers\/job\/[^/]+$/i.test(pathname)) return "";
+  return `https://${hostname}${pathname}`;
 }
 
 export function extractOnlineJobsId(url) {

@@ -2,6 +2,7 @@ import {
   isStaleClaim,
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
+  parseHttpUrl,
   releaseClaim
 } from "./contracts.mjs";
 
@@ -125,10 +126,8 @@ export function validateAlertProviderConfiguration(
   policy
 ) {
   const errors = [];
-  let webhook;
-  try {
-    webhook = new URL(webhookUrl);
-  } catch {
+  const webhook = parseHttpUrl(webhookUrl);
+  if (!webhook) {
     errors.push("provider webhook URL is missing or invalid");
   }
   if (
@@ -141,10 +140,8 @@ export function validateAlertProviderConfiguration(
       "provider webhook URL must use an approved bounded Slack HTTPS host"
     );
   }
-  let review;
-  try {
-    review = new URL(reviewUrl);
-  } catch {
+  const review = parseHttpUrl(reviewUrl);
+  if (!review) {
     errors.push("review URL is missing or invalid");
   }
   if (
@@ -419,20 +416,12 @@ export function renderAlert(record, policy, { reviewUrl }) {
     normalizedSourceUrl.length <= policy.maximum_action_url_characters
       ? normalizedSourceUrl
       : "";
-  let safeReviewUrl = "";
-  try {
-    const parsed = new URL(reviewUrl);
-    if (
-      parsed.protocol === "https:" &&
-      !parsed.username &&
-      !parsed.password &&
-      parsed.toString().length <= policy.maximum_action_url_characters
-    ) {
-      safeReviewUrl = parsed.toString();
-    }
-  } catch {
-    // Configuration validation is surfaced as a terminal delivery failure.
-  }
+  const parsedReviewUrl = parseHttpUrl(reviewUrl);
+  const safeReviewUrl =
+    parsedReviewUrl?.protocol === "https:" &&
+    parsedReviewUrl.href.length <= policy.maximum_action_url_characters
+      ? parsedReviewUrl.href
+      : "";
   const age = evaluateAlertEligibility(
     record,
     policy,

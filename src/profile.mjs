@@ -1,3 +1,5 @@
+import { parseHttpUrl } from "./contracts.mjs";
+
 const OBSOLETE_PROFILE_TERMS = [
   "johnlesterescarlan.netlify.app",
   "FireCheck",
@@ -37,11 +39,11 @@ function findDuplicates(values) {
 }
 
 function validateHttpsUrl(value, field, errors) {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:") errors.push(`${field} must use https`);
-  } catch {
+  const url = parseHttpUrl(value);
+  if (!url) {
     errors.push(`${field} must be a valid URL`);
+  } else if (url.protocol !== "https:") {
+    errors.push(`${field} must use https`);
   }
 }
 

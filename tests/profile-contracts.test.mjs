@@ -14,6 +14,7 @@ import {
   claimRecord,
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
+  parseHttpUrl,
   stateGuard,
   transitionRecord,
   validatePipelineSchema,
@@ -68,6 +69,27 @@ test("canonical identity uses OnlineJobs source id and normalized legacy URL", (
     ""
   );
   assert.equal(normalizeCanonicalUrl("https://onlinejobs.ph/jobseekers/jobsearch"), "");
+});
+
+test("HTTP URL parsing is sandbox-safe and rejects unsafe authority forms", () => {
+  assert.deepEqual(
+    parseHttpUrl("https://github.com/jlescarlan11"),
+    {
+      protocol: "https:",
+      hostname: "github.com",
+      port: "",
+      pathname: "/jlescarlan11",
+      search: "",
+      hash: "",
+      username: "",
+      password: "",
+      href: "https://github.com/jlescarlan11"
+    }
+  );
+  assert.equal(parseHttpUrl("javascript:alert(1)"), null);
+  assert.equal(parseHttpUrl("https://user:secret@example.com/path"), null);
+  assert.equal(parseHttpUrl("https://example.com:99999/path"), null);
+  assert.equal(parseHttpUrl("https://example.com/path with spaces"), null);
 });
 
 test("legacy records preserve decisions and generated messages", () => {
