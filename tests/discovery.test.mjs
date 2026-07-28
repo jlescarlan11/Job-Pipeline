@@ -73,6 +73,10 @@ test("multi-page and multi-query discoveries merge into one canonical record", (
   const duplicate = reconciled.new_jobs.find((job) => job.source_job_id === "1001");
   assert.deepEqual(duplicate.search_queries.sort(), ["react developer", "typescript developer"]);
   assert.deepEqual(duplicate.role_families.sort(), ["frontend", "full-stack"]);
+  assert.deepEqual(first.jobs[0].search_queries, ["typescript developer"]);
+  assert.deepEqual(first.jobs[0].role_families, ["full-stack"]);
+  assert.notEqual(duplicate.search_queries, first.jobs[0].search_queries);
+  assert.notEqual(duplicate.role_families, first.jobs[0].role_families);
 });
 
 test("active and archive legacy records prevent rediscovery without losing manual state", () => {

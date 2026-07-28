@@ -278,6 +278,14 @@ function unionValues(...collections) {
   return [...new Set(collections.flat().filter(Boolean))];
 }
 
+function cloneDiscoveryJob(job) {
+  return {
+    ...job,
+    search_queries: [...(job.search_queries ?? [])],
+    role_families: [...(job.role_families ?? [])]
+  };
+}
+
 export function reconcileDiscovery(
   pageResults,
   activeRows,
@@ -313,7 +321,7 @@ export function reconcileDiscovery(
         current.search_queries = unionValues(current.search_queries, job.search_queries);
         current.role_families = unionValues(current.role_families, job.role_families);
       } else {
-        discovered.set(job.canonical_job_id, structuredClone(job));
+        discovered.set(job.canonical_job_id, cloneDiscoveryJob(job));
       }
     }
   }
