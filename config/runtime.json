@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "generator": {
+    "schedule_minutes": 15,
+    "per_run_cap": 5,
+    "claim_lease_ms": 600000,
+    "request_retry_backoff_ms": 5000,
+    "retry": {
+      "max_attempts": 3,
+      "backoff_ms": 300000
+    },
+    "http_timeout_ms": 15000
+  },
+  "archiver": {
+    "schedule_minutes": 45,
+    "claim_lease_ms": 600000,
+    "eligible_statuses": [
+      "applied",
+      "skipped",
+      "not_recommended",
+      "terminal_error"
+    ]
+  }
+}

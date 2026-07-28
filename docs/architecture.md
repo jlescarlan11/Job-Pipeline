@@ -1,120 +1,102 @@
 # Architecture
 
-JobPipeline consists of three independent n8n workflows sharing a Google Sheets database. Each workflow runs on its own schedule and operates independently — if one fails, the others continue.
+## System boundary
 
-## Data Flow
-OnlineJobs.ph
+Job Pipeline is four disabled-by-default n8n workflows sharing Google Sheets as durable state. OnlineJobs.ph is read-only. Groq is used only after deterministic evaluation routing. The candidate remains the only actor authorized to submit an application or record an application decision.
 
-↓
+```text
+OnlineJobs.ph search pages
+        |
+        v
+Scraper (4h) -- discovery claims --> ProcessingClaims
+        |
+        v
+Sheet1: discovered jobs
+        |
+        v
+Generator (15m, cap 5) -- evaluation/generation claims --> ProcessingClaims
+        |
+        v
+Sheet1: recommended / review_required / ready / recovery
+        |
+        v
+Reviewer (5m) <-- explicit manual_action
+        |
+        +--> Dashboard: current funnel summary
+        |
+        v
+Archiver (45m) -- archive claims --> ProcessingClaims
+        |
+        v
+Archive: terminal history and employer outcomes
+```
 
-[Scraper workflow]
+Configured schedules are scraper every 4 hours, generator every 15 minutes, reviewer every 5 minutes, and archiver every 45 minutes.
 
-↓
+## Shared contracts
 
-Google Sheets: Sheet1 (status=pending)
+`config/candidate-profile.json` is the only factual resume source. `config/application-policy.json` is separate so writing preferences cannot become candidate facts. Every evaluation and generated message records the profile version used.
 
-↓
+`config/pipeline-schema.json` defines the logical record. `canonical_job_id` is `onlinejobs.ph:<source_job_id>` when OnlineJobs.ph exposes an ID; otherwise it is a deterministic hash of the normalized canonical URL. Mutable Sheet row numbers are transport metadata only.
 
-[Generator workflow]
+`state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Final evaluation/generation commits match the unique `processing_token`, so a manual action that clears or replaces the token prevents a stale result from overwriting the decision. Completed commits leave the last token as an optimistic-concurrency sentinel while clearing the processing stage/start time; the next legitimate claim overwrites it. There is no canonical-ID cleanup write that could erase a newer claim.
 
-↓
+`ProcessingClaims` is append-only. For a canonical job and stage, the lowest valid Sheet row number wins until its 10-minute lease expires. This arbitrates concurrent discovery, evaluation, generation, and archival executions without treating a mutable active-row number as identity.
 
-Google Sheets: Sheet1 (status=ready, with generated_message)
+## Discovery workflow
 
-↓
+`config/search-plan.json` defines 22 enabled, evidence-linked queries across full-stack, frontend, backend/API, React/Next.js/TypeScript/Node.js, database, Flutter/mobile, ASP.NET Core/C#, automation/AI integration, production support, and payment integration. Validation rejects duplicate queries and evidence references absent from the profile.
 
-[Manual review — Lester applies or skips]
+Each scheduled run emits at most 66 page requests: 22 queries multiplied by 3 pages. Requests are paced one every 2 seconds, time out after 15 seconds, and retry up to 3 times with 5-second waits. Saved search pages are parsed as parent cards to keep title, URL, date, description, badge, and salary aligned. A seven-day cutoff and seniority exclusion remain configured.
 
-↓
+Successful pages are retained when another page/query fails. Coverage records `complete`, `empty`, `partial`, or `failed` per query; reaching the configured page cap while a next page exists is `partial`, never `complete`.
 
-Google Sheets: Sheet1 (status=applied or skipped)
+Discovery reconciliation combines query and role-family provenance, updates `last_seen_at`, and preserves existing evaluation, message, manual decision, and outcome fields. Active and Archive legacy URLs participate in deduplication. Concurrent new rows pass through append-only discovery claims before insertion.
 
-↓
+## Evaluation and generation workflow
 
-[Archiver workflow]
+Eligible records are ordered by generation stage, match score, then oldest posted/created time, and capped at 5 per execution. Existing application decisions and historical ready messages are not selected.
 
-↓
+Evaluation work uses a stored description when available; otherwise it fetches the detail page once and persists parsed metadata for reuse. Deleted/unavailable pages route to `unavailable`; insufficient content routes to `unscorable`. Deterministic evaluation uses full description evidence, known skills, role family, unsupported requirements, and seniority. It stores score, tier, decision, reasons, gaps, profile version, and timestamp.
 
-Google Sheets: Archive
+Only `recommended` records or explicit supported promotions reach Groq. The generated system message is built from the canonical profile plus application policy. Post-generation validation rejects empty output, excess length, unapproved URLs, obsolete projects, unsupported technologies, unsupported numeric claims, phone numbers, and banned phrases. A validated message preserves line breaks and becomes `ready`; no node submits it.
 
-## Workflow 1: Scraper
+The workflow runs every 15 minutes. It makes at most 5 generation selections per run. Detail HTTP calls time out after 15 seconds and retry up to 3 times with 5-second in-node waits, which stay below the 10-minute claim lease. Retryable stage failures record stage, category, sanitized summary, attempt count, and exponential next-retry time starting at 5 minutes. The third failed attempt, validation failure, or non-retryable request becomes `terminal_error`.
 
-**Schedule:** Every 4 hours
+## Review workflow
 
-**Purpose:** Discover new job postings on OnlineJobs.ph and add them to the active queue.
+The Sheet is the human interface. Only `manual_action` and `notes` are intended for direct editing. Supported actions are:
 
-**Steps:**
-1. Schedule trigger fires
-2. Edit Fields node defines 14 keyword variants (react developer, n8n developer, ai engineer, etc.)
-3. Split Out converts the keyword array into 14 individual items
-4. HTTP Request fetches each OnlineJobs.ph search results page (batched at 1 request per 2 seconds)
-5. Code node extracts job cards using regex (URL + card content captured together to guarantee field alignment)
-6. IF node filters out senior/lead/architect roles via regex
-7. Aggregate collapses all scraped jobs into one item
-8. Read current Sheet1 rows + Aggregate them
-9. Read current Archive rows (with Always Output Data enabled for empty case)
-10. Code node dedups scraped URLs against both Sheet1 and Archive
-11. Append remaining unique jobs to Sheet1 with status=pending
+- `promote`, `regenerate`, `retry`
+- `mark_applied`, `mark_skipped`
+- `outcome_no_response`, `outcome_replied`, `outcome_interview`, `outcome_offer`, `outcome_rejected`, `clear_outcome`
 
-**Key design decision: regex over HTML parser**
+No action means no lifecycle change. Unsupported actions or invalid transitions are logged and leave the previous record intact. Application decision and employer outcome are separate from processing/error state. Outcomes can be updated on archived applied records without replacing the message, profile version, evaluation, or application decision.
 
-Cheerio is blocked in n8n Code nodes due to module restrictions. The first attempt used n8n's built-in HTML Extract with 4 parallel CSS selectors, which produced misaligned title/URL pairs because OnlineJobs.ph cards have varying DOM structures. The fix: one regex captures the entire <a href=URL>...<div class=jobpost-cat-box>...</div></a> block, then sub-regexes extract title/date/salary from within that single captured card. Each card produces exactly one item with all fields aligned.
+The Dashboard upserts one deduplicated current summary and never infers a reply, interview, offer, or rejection from `applied`.
 
-## Workflow 2: Generator
+## Archive workflow
 
-**Schedule:** Every 15 minutes
+Archival is eligible only for configured `applied`, `skipped`, `not_recommended`, and `terminal_error` records. `retryable_error` remains active.
 
-**Purpose:** Generate tailored application messages for pending jobs, capped at 5 per run.
+For each winning archive claim:
 
-**Steps:**
-1. Schedule trigger fires
-2. Read all rows from Sheet1
-3. Apply Run Cap Code node: filter to pending rows, sort by row_number, slice to first 5
-4. Mark as Processing updates those rows to status=processing
-5. IF node checks if job_description is empty
-6. (True branch) Send directly to AI Agent
-7. (False branch) HTTP Request fetches the OnlineJobs.ph job page → HTML Extract pulls #job-description → passes to AI Agent
-8. AI Agent uses Groq llama-3.3-70b with master prompt to generate tailored message
-9. Update row in sheet with status=ready and generated_message
-10. Error branches from HTTP Request, HTML Extract, and AI Agent all route to Mark as Error (sets status=error with short notes string)
+1. Merge with any existing archive history by canonical identity/legacy URL.
+2. Upsert the complete record into Archive by `canonical_job_id`.
+3. Reread Archive and Sheet1.
+4. Reject deletion if the active row identity changed, any supported source field changed after planning, or the archive copy is missing/stale.
+5. Delete confirmed Sheet1 rows in descending row order.
 
-**Key design decision: per-run cap over daily cap**
+An interrupted run may temporarily leave one copy in both tabs; retry reconciliation treats that as recoverable. It cannot authorize deletion merely because a minimal archive row exists.
 
-Original design tried to maintain a daily cap by counting ready rows in Sheet1, but this got entangled with archiver timing and review pace. Simpler approach: cap each run to 5 generations. Combined with the 15-minute schedule and Groq's 100k TPD limit on free tier, this naturally produces ~30-40 generations per day before token exhaustion — well within manageable review volume.
+## Physical storage and compatibility
 
-## Workflow 3: Archiver
+Arrays such as query provenance, role families, reasons, and gaps are serialized as JSON strings in Sheets and normalized on read. Blank company, salary, outcome, or profile metadata means unknown, not “Not Given.”
 
-**Schedule:** Every 45 minutes
+`google-apps-script/SheetSetup.gs` is additive: it creates missing tabs/headers, copies legacy `created_at ` values into `created_at`, populates canonical identity/state guards and legacy versions, orders human review columns, applies manual-action validation, and uses warning-only protection for generated fields. Existing legacy headers remain for rollback compatibility.
 
-**Purpose:** Move applied/skipped/error rows out of the active Sheet1 into the Archive tab.
+## Operational visibility
 
-**Steps:**
-1. Schedule trigger fires
-2. Read all rows from Sheet1
-3. Filter Archivable Rows Code node: filter to status in [applied, skipped, error], sort by row_number DESCENDING, add archived_at timestamp
-4. Append filtered rows to Archive tab
-5. Delete corresponding rows from Sheet1 (using row_number)
+Workflow execution logs emit structured summaries for discovery coverage, claim winners/losses, archive planning/reconciliation, and invalid review actions. Durable recovery data lives in `pipeline_status`, `processing_stage`, `attempt_count`, `failed_stage`, `next_retry_at`, `error_category`, and `error_summary`. Logs must remain sanitized: no API keys, authorization headers, raw provider responses, or full resume/job-description payloads.
 
-**Key design decision: sort DESCENDING before delete**
-
-Google Sheets row indices shift after each delete operation. Deleting row 3 first would cause row 5 to become row 4, breaking subsequent deletes. Sorting DESC means we delete from the bottom up, so earlier row indices remain valid throughout the batch.
-
-## Shared Schema
-
-**Sheet1 columns:** job_title, company, job_url, job_description, status, generated_message, created_at, notes
-
-**Archive columns:** same as Sheet1 plus archived_at
-
-**Status values (data validation dropdown on column E):**
-- pending — scraped, awaiting generation
-- processing — currently being generated
-- ready — generated message ready for review
-- applied — Lester sent the application
-- skipped — Lester decided not to apply
-- error — generation failed (timeout, dead URL, rate limit)
-
-## Rate Limit Strategy
-
-- **OnlineJobs.ph:** HTTP Request batching set to 1 request per 2 seconds during scraping. Per-page fetch in generator uses 30-second timeout with 3 retries at 5-second intervals.
-- **Groq API:** Free tier limits are 12,000 TPM and 100,000 TPD on llama-3.3-70b-versatile. Per-run cap of 5 in generator keeps usage predictable.
-- **Google Sheets API:** Per-minute read quota historically caused failures when downstream nodes ran once per input item. Mitigated via Aggregate nodes that collapse N items to 1 before Sheets reads.
+Workflow JSON contains credential and Sheet references inherited from the existing exports but no secret material. Operators must rebind those references to the intended environment after import.

@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-28",
+  "candidate_profile_version": "2026-07-28",
+  "manual_submission_required": true,
+  "max_body_words": 300,
+  "subject_template": "Subject line: {{job_title}} Application — John Lester Escarlan",
+  "default_greeting": "Hi there,",
+  "employer_format_overrides_default": true,
+  "approved_candidate_url_keys": [
+    "linkedin",
+    "github",
+    "portfolio"
+  ],
+  "approved_project_ids": [
+    "rent-n-roll",
+    "job-pipeline"
+  ],
+  "required_style": [
+    "first person",
+    "direct and evidence-led",
+    "specific to the job description",
+    "copy-ready after manual review",
+    "no unsupported claims"
+  ],
+  "prohibited_claims": [
+    "skills absent from the candidate profile",
+    "projects absent from the candidate profile",
+    "metrics absent from the candidate profile",
+    "unapproved URLs",
+    "phone numbers",
+    "salary expectations unless separately configured",
+    "availability or schedule commitments unless separately configured",
+    "automatic application submission"
+  ],
+  "banned_phrases": [
+    "solid foundation",
+    "strong foundation",
+    "valuable contribution",
+    "eager to learn",
+    "eager to apply",
+    "passionate about",
+    "I am excited to apply",
+    "I look forward to",
+    "confident that I can",
+    "leverage",
+    "utilize",
+    "robust",
+    "seamless",
+    "cutting-edge",
+    "spearheaded",
+    "Thank you for considering my application"
+  ]
+}

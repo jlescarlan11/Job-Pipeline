@@ -1,0 +1,223 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+import {
+  archiveRecordIsComplete,
+  confirmArchiveDeletions,
+  prepareArchiveCandidates
+} from "../src/archive.mjs";
+
+const schema = JSON.parse(
+  await readFile(new URL("../config/pipeline-schema.json", import.meta.url), "utf8")
+);
+const now = "2026-07-28T09:00:00.000Z";
+
+const active = (overrides = {}) => ({
+  row_number: 5,
+  source: "onlinejobs.ph",
+  source_job_id: "4001",
+  canonical_job_id: "onlinejobs.ph:4001",
+  canonical_url: "https://onlinejobs.ph/jobseekers/job/example-4001",
+  job_title: "Example job",
+  pipeline_status: "applied",
+  application_decision: "applied",
+  application_decided_at: "2026-07-27T10:00:00.000Z",
+  generated_message: "Keep this message",
+  profile_version: "2026-07-28",
+  ...overrides
+});
+
+test("retryable failures remain active while configured terminal states are eligible", () => {
+  const plan = prepareArchiveCandidates(
+    [
+      active({ pipeline_status: "retryable_error", application_decision: "" }),
+      active({ row_number: 6, source_job_id: "4002", canonical_job_id: "onlinejobs.ph:4002", canonical_url: "https://onlinejobs.ph/jobseekers/job/example-4002", pipeline_status: "terminal_error", application_decision: "" }),
+      active({ row_number: 7, source_job_id: "4003", canonical_job_id: "onlinejobs.ph:4003", canonical_url: "https://onlinejobs.ph/jobseekers/job/example-4003", pipeline_status: "not_recommended", application_decision: "" })
+    ],
+    [],
+    schema,
+    { now }
+  );
+  assert.equal(plan.candidates.length, 2);
+  assert.equal(plan.retained.length, 1);
+  assert.equal(plan.retained[0].reason, "retryable_error");
+});
+
+test("archive candidates preserve generated, evaluation, decision, and outcome data", () => {
+  const record = active({
+    match_score: 82,
+    match_reasons: ["Matched skill: TypeScript"],
+    outcome: "interview",
+    outcome_at: "2026-07-28T08:00:00.000Z"
+  });
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const archived = plan.candidates[0].archive_record;
+  assert.equal(archived.pipeline_status, "archived");
+  assert.equal(archived.archived_from_status, "applied");
+  assert.equal(archived.generated_message, "Keep this message");
+  assert.equal(archived.match_score, 82);
+  assert.equal(archived.application_decision, "applied");
+  assert.equal(archived.outcome, "interview");
+  assert.equal(archived.archived_at, now);
+  assert.equal(archiveRecordIsComplete(archived), true);
+});
+
+test("existing archive history wins over stale active outcome data", () => {
+  const record = active({ outcome: "" });
+  const existing = {
+    ...record,
+    row_number: 20,
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-27T12:00:00.000Z",
+    outcome: "offer",
+    outcome_at: "2026-07-28T08:30:00.000Z"
+  };
+  const plan = prepareArchiveCandidates([record], [existing], schema, { now });
+  assert.equal(plan.candidates.length, 1);
+  assert.equal(plan.candidates[0].archive_already_complete, true);
+  assert.equal(plan.candidates[0].archive_record.outcome, "offer");
+  assert.equal(plan.candidates[0].archive_record.archived_at, existing.archived_at);
+});
+
+test("source deletion requires a complete archive copy and unchanged row identity", () => {
+  const plan = prepareArchiveCandidates([active()], [], schema, { now });
+  const candidate = plan.candidates[0];
+
+  const missingCopy = confirmArchiveDeletions([candidate], [active()], [], schema, now);
+  assert.equal(missingCopy.confirmed.length, 0);
+  assert.equal(missingCopy.rejected[0].reason, "archive_copy_not_confirmed");
+
+  const changedRow = confirmArchiveDeletions(
+    [candidate],
+    [active({ canonical_job_id: "onlinejobs.ph:9999" })],
+    [candidate.archive_record],
+    schema,
+    now
+  );
+  assert.equal(changedRow.confirmed.length, 0);
+  assert.equal(changedRow.rejected[0].reason, "active_row_identity_changed");
+
+  const confirmed = confirmArchiveDeletions(
+    [candidate],
+    [active()],
+    [candidate.archive_record],
+    schema,
+    now
+  );
+  assert.deepEqual(confirmed.confirmed, [
+    { row_number: 5, canonical_job_id: "onlinejobs.ph:4001" }
+  ]);
+});
+
+test("a concurrent manual update blocks deletion until the archive copy is refreshed", () => {
+  const record = active({ outcome: "" });
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const changed = active({
+    outcome: "interview",
+    outcome_at: "2026-07-28T08:30:00.000Z",
+    updated_at: "2026-07-28T08:30:00.000Z"
+  });
+  const staleArchive = plan.candidates[0].archive_record;
+  const result = confirmArchiveDeletions(
+    plan.candidates,
+    [changed],
+    [staleArchive],
+    schema,
+    now
+  );
+  assert.equal(result.confirmed.length, 0);
+  assert.equal(result.rejected[0].reason, "active_record_changed_after_plan");
+});
+
+test("an archive copy missing supported history does not authorize deletion", () => {
+  const record = active({ notes: "Keep this context" });
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const incomplete = {
+    ...plan.candidates[0].archive_record,
+    generated_message: "",
+    notes: ""
+  };
+  const result = confirmArchiveDeletions(
+    plan.candidates,
+    [record],
+    [incomplete],
+    schema,
+    now
+  );
+  assert.equal(result.confirmed.length, 0);
+  assert.equal(result.rejected[0].reason, "archive_copy_not_confirmed");
+});
+
+test("multiple confirmed deletions are sorted from bottom to top", () => {
+  const rows = [
+    active({ row_number: 3, source_job_id: "4010", canonical_job_id: "onlinejobs.ph:4010", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-4010" }),
+    active({ row_number: 9, source_job_id: "4011", canonical_job_id: "onlinejobs.ph:4011", canonical_url: "https://onlinejobs.ph/jobseekers/job/b-4011" })
+  ];
+  const plan = prepareArchiveCandidates(rows, [], schema, { now });
+  const confirmation = confirmArchiveDeletions(
+    plan.candidates,
+    rows,
+    plan.candidates.map((candidate) => candidate.archive_record),
+    schema,
+    now
+  );
+  assert.deepEqual(confirmation.confirmed.map((entry) => entry.row_number), [9, 3]);
+});
+
+test("legacy archive rows reconcile by URL and empty input is safe", () => {
+  const legacyActive = {
+    row_number: 4,
+    job_url: "https://www.onlinejobs.ph/jobseekers/job/legacy-5001",
+    status: "applied",
+    generated_message: "Legacy message",
+    "created_at ": "2026-07-01T00:00:00.000Z"
+  };
+  const legacyArchive = {
+    row_number: 10,
+    job_url: "https://onlinejobs.ph/jobseekers/job/legacy-5001",
+    status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-02T00:00:00.000Z"
+  };
+  const plan = prepareArchiveCandidates([legacyActive], [legacyArchive], schema, { now });
+  assert.equal(plan.candidates.length, 1);
+  assert.equal(plan.candidates[0].archive_already_complete, true);
+  assert.equal(plan.candidates[0].archive_record.generated_message, "Legacy message");
+
+  assert.deepEqual(prepareArchiveCandidates([], [], schema, { now }), {
+    candidates: [],
+    retained: []
+  });
+});
+
+test("archive write failure and delete failure are safely retryable", () => {
+  const record = active();
+  const firstPlan = prepareArchiveCandidates([record], [], schema, { now });
+  const beforeAppend = confirmArchiveDeletions(firstPlan.candidates, [record], [], schema, now);
+  assert.equal(beforeAppend.confirmed.length, 0);
+  assert.equal(beforeAppend.rejected[0].reason, "archive_copy_not_confirmed");
+
+  const archived = firstPlan.candidates[0].archive_record;
+  const afterAppend = confirmArchiveDeletions(
+    firstPlan.candidates,
+    [record],
+    [archived],
+    schema,
+    now
+  );
+  assert.equal(afterAppend.confirmed.length, 1);
+
+  // Simulate a delete failure by leaving the active row in place and rerunning.
+  const retryPlan = prepareArchiveCandidates([record], [archived], schema, { now });
+  assert.equal(retryPlan.candidates.length, 1);
+  assert.equal(retryPlan.candidates[0].archive_already_complete, true);
+  const uniqueArchive = new Map(
+    [archived, retryPlan.candidates[0].archive_record].map((entry) => [
+      entry.canonical_job_id,
+      entry
+    ])
+  );
+  assert.equal(uniqueArchive.size, 1);
+});

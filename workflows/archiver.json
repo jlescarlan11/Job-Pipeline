@@ -1,5 +1,5 @@
 {
-  "name": "Job Application Pipeline - Archiver",
+  "name": "Job Application Pipeline - Idempotent Archive",
   "nodes": [
     {
       "parameters": {
@@ -15,8 +15,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.3,
       "position": [
-        0,
-        0
+        -1320,
+        220
       ],
       "id": "905d8287-46b5-455f-b0b2-06629879b779",
       "name": "Schedule Trigger"
@@ -42,11 +42,11 @@
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        208,
-        0
+        -1120,
+        220
       ],
       "id": "56d34442-aee4-4f7c-a018-6343a46abdb4",
-      "name": "Get row(s) in sheet",
+      "name": "Get Active Rows",
       "alwaysOutputData": true,
       "credentials": {
         "googleSheetsOAuth2Api": {
@@ -57,20 +57,21 @@
     },
     {
       "parameters": {
-        "jsCode": "// Get all rows from Sheet1\nconst allRows = $input.all();\n\n// Filter to rows that should be archived (status = applied, skipped, or error)\nconst archivableStatuses = ['applied', 'skipped', 'error'];\n\nconst rowsToArchive = allRows.filter(row => {\n  const status = (row.json.status || '').toLowerCase().trim();\n  return archivableStatuses.includes(status);\n});\n\nif (rowsToArchive.length === 0) {\n  console.log('No rows to archive this run.');\n  return [];\n}\n\nconsole.log(`Found ${rowsToArchive.length} rows to archive.`);\n\n// Sort by row_number DESCENDING — important!\n// We delete from bottom up so row indices don't shift mid-delete\nrowsToArchive.sort((a, b) => (b.json.row_number || 0) - (a.json.row_number || 0));\n\n// Build output items with all fields explicit\nreturn rowsToArchive.map(row => ({\n  json: {\n    row_number: row.json.row_number,\n    job_title: row.json.job_title || '',\n    company: row.json.company || '',\n    job_url: row.json.job_url || '',\n    job_description: row.json.job_description || '',\n    status: row.json.status || '',\n    generated_message: row.json.generated_message || '',\n    created_at: row.json.created_at || '',\n    notes: row.json.notes || '',\n    archived_at: new Date().toISOString(),\n  }\n}));"
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "active_rows",
+        "options": {}
       },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
       "position": [
-        416,
-        0
+        -900,
+        220
       ],
-      "id": "eae62e08-0dfa-4f91-9545-af1a7ae8bd98",
-      "name": "Filter Archivable Rows"
+      "id": "7106c36a-a814-4ea8-9100-000000000002",
+      "name": "Aggregate Active Rows"
     },
     {
       "parameters": {
-        "operation": "append",
         "documentId": {
           "__rl": true,
           "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
@@ -85,21 +86,331 @@
           "cachedResultName": "Archive",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=1897695400"
         },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -700,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000003",
+      "name": "Get Archive Rows",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeCanonicalUrl(value) {\n  if (!value) return \"\";\n  let parsed;\n  try {\n    parsed = new URL(String(value).trim(), \"https://www.onlinejobs.ph\");\n  } catch {\n    return \"\";\n  }\n  if (![\"http:\", \"https:\"].includes(parsed.protocol)) return \"\";\n  if (parsed.username || parsed.password || (parsed.port && parsed.port !== \"443\")) return \"\";\n  parsed.protocol = \"https:\";\n  parsed.hostname = parsed.hostname.toLowerCase();\n  if (parsed.hostname === \"www.onlinejobs.ph\") parsed.hostname = \"onlinejobs.ph\";\n  if (parsed.hostname !== \"onlinejobs.ph\") return \"\";\n  parsed.hash = \"\";\n  parsed.search = \"\";\n  parsed.pathname = parsed.pathname.replace(/\\/+/g, \"/\").replace(/\\/$/, \"\");\n  if (!/^\\/jobseekers\\/job\\/[^/]+$/i.test(parsed.pathname)) return \"\";\n  parsed.port = \"\";\n  return parsed.toString();\n}\n\nfunction extractOnlineJobsId(url) {\n  const canonicalUrl = normalizeCanonicalUrl(url);\n  if (!canonicalUrl) return \"\";\n  const match = canonicalUrl.match(/\\/jobseekers\\/job\\/[^/]*?(\\d+)$/i);\n  return match?.[1] ?? \"\";\n}\n\nfunction canonicalJobId(record) {\n  const source = String(record.source || \"onlinejobs.ph\").trim().toLowerCase();\n  const sourceJobId = String(record.source_job_id || extractOnlineJobsId(record.canonical_url || record.job_url) || \"\").trim();\n  if (sourceJobId) return `${source}:${sourceJobId}`;\n  const canonicalUrl = normalizeCanonicalUrl(record.canonical_url || record.job_url);\n  if (!canonicalUrl) return \"\";\n  let hash = 2166136261;\n  for (let index = 0; index < canonicalUrl.length; index += 1) {\n    hash ^= canonicalUrl.charCodeAt(index);\n    hash = Math.imul(hash, 16777619);\n  }\n  const digest = (hash >>> 0).toString(16).padStart(8, \"0\");\n  return `${source}:url:${digest}`;\n}\n\nfunction stateGuard(record) {\n  const canonicalId = String(record.canonical_job_id || canonicalJobId(record) || \"\");\n  if (!canonicalId) return \"\";\n  const state = [\n    canonicalId,\n    String(record.pipeline_status || \"\"),\n    String(record.application_decision || \"\"),\n    String(record.outcome || \"\")\n  ].join(\"\\u001f\");\n  let hash = 2166136261;\n  for (let index = 0; index < state.length; index += 1) {\n    hash ^= state.charCodeAt(index);\n    hash = Math.imul(hash, 16777619);\n  }\n  return `${canonicalId}|${(hash >>> 0).toString(16).padStart(8, \"0\")}`;\n}\n\nfunction parseList(value) {\n  if (Array.isArray(value)) return value.filter(Boolean);\n  if (!value) return [];\n  try {\n    const parsed = JSON.parse(value);\n    if (Array.isArray(parsed)) return parsed.filter(Boolean);\n  } catch {\n    // Legacy sheets may use comma-separated values.\n  }\n  return String(value)\n    .split(\",\")\n    .map((part) => part.trim())\n    .filter(Boolean);\n}\n\nfunction normalizeLegacyRecord(input, schema, now = new Date().toISOString()) {\n  const record = { ...input };\n  for (const [legacy, canonical] of Object.entries(schema.legacy_header_mapping ?? {})) {\n    if (record[canonical] === undefined && record[legacy] !== undefined) {\n      record[canonical] = record[legacy];\n    }\n  }\n\n  const legacyStatus = String(record.pipeline_status || \"\").trim().toLowerCase();\n  record.pipeline_status =\n    schema.legacy_status_mapping?.[legacyStatus] ||\n    (schema.pipeline_statuses.includes(legacyStatus) ? legacyStatus : \"discovered\");\n  record.source = String(record.source || \"onlinejobs.ph\").trim().toLowerCase();\n  record.canonical_url = normalizeCanonicalUrl(record.canonical_url || record.job_url);\n  record.source_job_id = String(record.source_job_id || extractOnlineJobsId(record.canonical_url) || \"\");\n  record.canonical_job_id = String(record.canonical_job_id || canonicalJobId(record));\n  record.search_queries = parseList(record.search_queries);\n  record.role_families = parseList(record.role_families);\n  record.attempt_count = Number.isFinite(Number(record.attempt_count))\n    ? Number(record.attempt_count)\n    : 0;\n  record.created_at = record.created_at || now;\n  record.updated_at = record.updated_at || now;\n  record.source_availability = record.source_availability || \"unknown\";\n  record.profile_version = record.profile_version || \"legacy/unknown\";\n  record.message_profile_version =\n    record.message_profile_version ||\n    (record.generated_message ? \"legacy/unknown\" : \"\");\n  record.application_decision =\n    record.application_decision ||\n    (record.pipeline_status === \"applied\" ? \"applied\" : record.pipeline_status === \"skipped\" ? \"skipped\" : \"\");\n  record.outcome = record.outcome || \"\";\n  record.manual_action = record.manual_action || \"\";\n  record.state_guard = record.state_guard || stateGuard(record);\n  return record;\n}\n\nfunction validatePipelineSchema(schema) {\n  const errors = [];\n  if (schema?.schema_version !== 1) errors.push(\"schema_version must be 1\");\n  if (!Array.isArray(schema?.fields) || schema.fields.length === 0) errors.push(\"fields are required\");\n  if (!Array.isArray(schema?.pipeline_statuses) || schema.pipeline_statuses.length === 0) {\n    errors.push(\"pipeline_statuses are required\");\n  }\n  const duplicateFields = schema?.fields?.filter((field, index, all) => all.indexOf(field) !== index) ?? [];\n  if (duplicateFields.length > 0) errors.push(`duplicate fields: ${[...new Set(duplicateFields)].join(\", \")}`);\n\n  const statuses = new Set(schema?.pipeline_statuses ?? []);\n  for (const [from, destinations] of Object.entries(schema?.transitions ?? {})) {\n    if (!statuses.has(from)) errors.push(`transition source is not a status: ${from}`);\n    for (const to of destinations) {\n      if (!statuses.has(to)) errors.push(`transition destination is not a status: ${to}`);\n    }\n  }\n  for (const status of statuses) {\n    if (!(status in (schema?.transitions ?? {}))) errors.push(`missing transitions for status: ${status}`);\n  }\n  return errors;\n}\n\nfunction canTransition(schema, from, to) {\n  return (schema.transitions?.[from] ?? []).includes(to);\n}\n\nfunction transitionRecord(record, to, schema, now = new Date().toISOString()) {\n  const from = record.pipeline_status;\n  if (!canTransition(schema, from, to)) {\n    throw new Error(`Invalid pipeline transition: ${from} -> ${to}`);\n  }\n  const next = {\n    ...record,\n    pipeline_status: to,\n    updated_at: now\n  };\n  return { ...next, state_guard: stateGuard(next) };\n}\n\nfunction isStaleClaim(record, nowMs, leaseMs) {\n  if (!record.processing_token || !record.processing_started_at) return true;\n  const startedAt = Date.parse(record.processing_started_at);\n  return !Number.isFinite(startedAt) || nowMs - startedAt >= leaseMs;\n}\n\nfunction claimRecord(record, { stage, token, now, leaseMs }) {\n  const nowMs = Date.parse(now);\n  if (!stage || !token || !Number.isFinite(nowMs) || !Number.isFinite(leaseMs) || leaseMs < 1) {\n    throw new Error(\"stage, token, valid now, and positive leaseMs are required\");\n  }\n  if (record.processing_token && !isStaleClaim(record, nowMs, leaseMs)) {\n    return { claimed: false, record };\n  }\n  return {\n    claimed: true,\n    record: {\n      ...record,\n      processing_stage: stage,\n      processing_token: token,\n      processing_started_at: now,\n      updated_at: now\n    }\n  };\n}\n\nfunction releaseClaim(record, token, now = new Date().toISOString()) {\n  if (record.processing_token && record.processing_token !== token) {\n    throw new Error(\"processing token mismatch\");\n  }\n  const next = {\n    ...record,\n    processing_stage: \"\",\n    processing_token: \"\",\n    processing_started_at: \"\",\n    updated_at: now\n  };\n  return { ...next, state_guard: stateGuard(next) };\n}\n\nfunction createProcessingClaim(record, executionId, now, leaseMs) {\n  const token = `${executionId}:${record.canonical_job_id}:${record.work_stage}`;\n  return {\n    canonical_job_id: record.canonical_job_id,\n    processing_stage: record.work_stage,\n    processing_token: token,\n    created_at: now,\n    expires_at: new Date(Date.parse(now) + leaseMs).toISOString()\n  };\n}\n\nfunction chooseWinningClaims(proposedRecords, allClaims, now = new Date().toISOString()) {\n  const nowMs = Date.parse(now);\n  const validClaims = allClaims.filter((claim) => {\n    const createdAt = Date.parse(claim.created_at);\n    const expiresAt = Date.parse(claim.expires_at);\n    return claim.canonical_job_id && claim.processing_stage && claim.processing_token &&\n      Number.isFinite(createdAt) && Number.isFinite(expiresAt) && expiresAt > nowMs;\n  });\n  const winners = new Map();\n  for (const claim of validClaims) {\n    const key = `${claim.canonical_job_id}:${claim.processing_stage}`;\n    const current = winners.get(key);\n    const claimRow = Number(claim.row_number);\n    const currentRow = Number(current?.row_number);\n    const bothHaveRows = Number.isFinite(claimRow) && Number.isFinite(currentRow);\n    if (\n      !current ||\n      (bothHaveRows && claimRow < currentRow) ||\n      (!bothHaveRows && Date.parse(claim.created_at) < Date.parse(current.created_at)) ||\n      (!bothHaveRows &&\n        claim.created_at === current.created_at &&\n        claim.processing_token < current.processing_token)\n    ) {\n      winners.set(key, claim);\n    }\n  }\n  return proposedRecords.filter((record) => {\n    const key = `${record.canonical_job_id}:${record.work_stage}`;\n    return winners.get(key)?.processing_token === record.processing_token;\n  });\n}\n\n\nfunction hasValue(value) {\n  return value !== undefined && value !== null && value !== \"\";\n}\n\nfunction comparableValue(value) {\n  if (Array.isArray(value)) return JSON.stringify(value);\n  if (typeof value === \"string\") {\n    try {\n      const parsed = JSON.parse(value);\n      if (Array.isArray(parsed)) return JSON.stringify(parsed);\n    } catch {\n      // Plain strings, including formatted application messages, remain exact.\n    }\n  }\n  return String(value ?? \"\");\n}\n\nfunction recordSnapshot(record, schema) {\n  return JSON.stringify(\n    Object.fromEntries(\n      schema.fields.map((field) => [field, comparableValue(record[field])])\n    )\n  );\n}\n\nfunction archiveMatchesPlanned(current, planned, schema) {\n  return schema.fields.every(\n    (field) =>\n      !hasValue(planned[field]) ||\n      comparableValue(current[field]) === comparableValue(planned[field])\n  );\n}\n\nfunction mergeArchiveRecord(active, existing, schema, now) {\n  const merged = {};\n  for (const field of schema.fields) {\n    if (hasValue(active[field])) merged[field] = active[field];\n    if (hasValue(existing?.[field])) merged[field] = existing[field];\n  }\n  const fromStatus =\n    existing?.archived_from_status ||\n    active.archived_from_status ||\n    active.pipeline_status;\n  const archived = {\n    ...merged,\n    source: active.source,\n    source_job_id: active.source_job_id,\n    canonical_job_id: active.canonical_job_id,\n    canonical_url: active.canonical_url,\n    pipeline_status: \"archived\",\n    archived_from_status: fromStatus,\n    archived_at: existing?.archived_at || now,\n    updated_at: now\n  };\n  return { ...archived, state_guard: stateGuard(archived) };\n}\n\nfunction archiveRecordIsComplete(record) {\n  return Boolean(\n    record?.canonical_job_id &&\n    record?.canonical_url &&\n    record?.pipeline_status === \"archived\" &&\n    record?.archived_from_status &&\n    record?.archived_at\n  );\n}\n\nfunction prepareArchiveCandidates(\n  activeRows,\n  archiveRows,\n  schema,\n  {\n    now = new Date().toISOString(),\n    eligibleStatuses = [\"applied\", \"skipped\", \"not_recommended\", \"terminal_error\"]\n  } = {}\n) {\n  const allowed = new Set(eligibleStatuses);\n  const archiveById = new Map();\n  const archiveByUrl = new Map();\n  for (const raw of archiveRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);\n    if (record.canonical_url) archiveByUrl.set(record.canonical_url, record);\n  }\n\n  const candidates = [];\n  const retained = [];\n  for (const raw of activeRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.pipeline_status === \"retryable_error\") {\n      retained.push({ record, reason: \"retryable_error\" });\n      continue;\n    }\n    if (!allowed.has(record.pipeline_status)) continue;\n    if (!record.canonical_job_id || !record.canonical_url || !record.row_number) {\n      retained.push({ record, reason: \"invalid_identity_or_row\" });\n      continue;\n    }\n    const existing =\n      archiveById.get(record.canonical_job_id) ||\n      archiveByUrl.get(record.canonical_url);\n    candidates.push({\n      ...record,\n      work_stage: \"archival\",\n      source_row_number: Number(record.row_number),\n      source_snapshot_at: now,\n      source_snapshot: recordSnapshot(record, schema),\n      archive_record: mergeArchiveRecord(record, existing, schema, now),\n      archive_already_complete: archiveRecordIsComplete(existing)\n    });\n  }\n\n  return {\n    candidates: candidates.sort((left, right) => right.source_row_number - left.source_row_number),\n    retained\n  };\n}\n\nfunction confirmArchiveDeletions(\n  plannedCandidates,\n  currentActiveRows,\n  currentArchiveRows,\n  schema,\n  now = new Date().toISOString()\n) {\n  const currentByRow = new Map();\n  for (const raw of currentActiveRows) {\n    currentByRow.set(Number(raw.row_number), raw);\n  }\n  const archiveById = new Map();\n  for (const raw of currentArchiveRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);\n  }\n\n  const confirmed = [];\n  const rejected = [];\n  for (const planned of plannedCandidates) {\n    const currentRaw = currentByRow.get(Number(planned.source_row_number));\n    const current = currentRaw\n      ? normalizeLegacyRecord(currentRaw, schema, planned.source_snapshot_at || now)\n      : undefined;\n    const archived = archiveById.get(planned.canonical_job_id);\n    if (!current || current.canonical_job_id !== planned.canonical_job_id) {\n      rejected.push({ planned, reason: \"active_row_identity_changed\" });\n      continue;\n    }\n    if (\n      planned.source_snapshot &&\n      recordSnapshot(current, schema) !== planned.source_snapshot\n    ) {\n      rejected.push({ planned, reason: \"active_record_changed_after_plan\" });\n      continue;\n    }\n    if (\n      !archiveRecordIsComplete(archived) ||\n      !archiveMatchesPlanned(archived, planned.archive_record, schema)\n    ) {\n      rejected.push({ planned, reason: \"archive_copy_not_confirmed\" });\n      continue;\n    }\n    confirmed.push({\n      row_number: Number(planned.source_row_number),\n      canonical_job_id: planned.canonical_job_id\n    });\n  }\n  confirmed.sort((left, right) => right.row_number - left.row_number);\n  return { confirmed, rejected };\n}\n\n\nconst SCHEMA = {\"schema_version\":1,\"storage_version\":\"2026-07-28\",\"canonical_identity\":{\"source\":\"onlinejobs.ph\",\"preferred\":\"source_job_id\",\"fallback\":\"canonical_url\"},\"fields\":[\"source\",\"source_job_id\",\"canonical_job_id\",\"state_guard\",\"canonical_url\",\"job_title\",\"company\",\"job_description\",\"salary_text\",\"posted_at\",\"discovered_at\",\"last_seen_at\",\"search_queries\",\"role_families\",\"source_availability\",\"match_score\",\"match_tier\",\"match_decision\",\"match_reasons\",\"requirement_gaps\",\"profile_version\",\"evaluated_at\",\"pipeline_status\",\"processing_stage\",\"processing_token\",\"processing_started_at\",\"attempt_count\",\"failed_stage\",\"next_retry_at\",\"error_category\",\"error_summary\",\"generated_message\",\"message_profile_version\",\"message_validation_status\",\"generated_at\",\"manual_action\",\"application_decision\",\"application_decided_at\",\"outcome\",\"outcome_at\",\"created_at\",\"updated_at\",\"archived_at\",\"archived_from_status\",\"notes\"],\"pipeline_statuses\":[\"discovered\",\"evaluating\",\"recommended\",\"review_required\",\"not_recommended\",\"unscorable\",\"generating\",\"ready\",\"retryable_error\",\"terminal_error\",\"unavailable\",\"applied\",\"skipped\",\"archived\"],\"manual_actions\":[\"\",\"promote\",\"mark_applied\",\"mark_skipped\",\"retry\",\"regenerate\",\"outcome_no_response\",\"outcome_replied\",\"outcome_interview\",\"outcome_offer\",\"outcome_rejected\",\"clear_outcome\"],\"application_decisions\":[\"\",\"applied\",\"skipped\"],\"outcomes\":[\"\",\"no_response\",\"replied\",\"interview\",\"offer\",\"rejected\"],\"transitions\":{\"discovered\":[\"evaluating\"],\"evaluating\":[\"recommended\",\"review_required\",\"not_recommended\",\"unscorable\",\"unavailable\",\"retryable_error\",\"terminal_error\"],\"recommended\":[\"generating\",\"skipped\"],\"review_required\":[\"generating\",\"skipped\"],\"not_recommended\":[\"archived\"],\"unscorable\":[\"evaluating\",\"generating\",\"skipped\"],\"generating\":[\"ready\",\"retryable_error\",\"terminal_error\"],\"ready\":[\"generating\",\"applied\",\"skipped\"],\"retryable_error\":[\"evaluating\",\"generating\",\"terminal_error\"],\"terminal_error\":[\"archived\"],\"unavailable\":[\"evaluating\",\"archived\"],\"applied\":[\"archived\"],\"skipped\":[\"archived\"],\"archived\":[]},\"legacy_status_mapping\":{\"pending\":\"discovered\",\"processing\":\"evaluating\",\"ready\":\"ready\",\"applied\":\"applied\",\"skipped\":\"skipped\",\"error\":\"terminal_error\"},\"legacy_header_mapping\":{\"created_at \":\"created_at\",\"job_url\":\"canonical_url\",\"status\":\"pipeline_status\"}};\nconst activeRows = $('Aggregate Active Rows').first().json.active_rows || [];\nconst archiveRows = $input.all().map((item) => item.json).filter((row) => row && Object.keys(row).length > 0);\nconst now = new Date().toISOString();\nconst plan = prepareArchiveCandidates(activeRows, archiveRows, SCHEMA, {\n  now,\n  eligibleStatuses: [\"applied\",\"skipped\",\"not_recommended\",\"terminal_error\"]\n});\nconsole.log(JSON.stringify({\n  event: 'archive_plan',\n  candidates: plan.candidates.length,\n  new_archive_writes: plan.candidates.filter((entry) => !entry.archive_already_complete).length,\n  already_archived: plan.candidates.filter((entry) => entry.archive_already_complete).length,\n  retained_for_retry: plan.retained.filter((entry) => entry.reason === 'retryable_error').length,\n  retained: plan.retained.length,\n  retained_reasons: plan.retained.map((entry) => entry.reason)\n}));\nreturn plan.candidates.map((record) => {\n  const claim = createProcessingClaim(record, String($execution.id), now, 600000);\n  return {\n    json: {\n      ...record,\n      processing_token: claim.processing_token,\n      claim_created_at: claim.created_at,\n      claim_expires_at: claim.expires_at\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -480,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000004",
+      "name": "Prepare Archive Candidates"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ProcessingClaims",
+          "mode": "name",
+          "cachedResultName": "ProcessingClaims"
+        },
+        "options": {},
+        "operation": "append",
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "job_title": "={{ $json.job_title }}",
-            "company": "={{ $json.company }}",
-            "job_url": "={{ $json.job_url }}",
-            "job_description": "={{ $json.job_description }}",
-            "status": "={{ $json.status }}",
-            "generated_message": "={{ $json.generated_message }}",
-            "created_at ": "={{ $json.created_at }}",
-            "notes": "={{ $json.notes }}",
-            "archived_at": "={{ $json.archived_at }}"
+            "canonical_job_id": "={{ $json.canonical_job_id }}",
+            "processing_stage": "archival",
+            "processing_token": "={{ $json.processing_token }}",
+            "created_at": "={{ $json.claim_created_at }}",
+            "expires_at": "={{ $json.claim_expires_at }}"
           },
           "matchingColumns": [],
           "schema": [
+            {
+              "id": "canonical_job_id",
+              "displayName": "canonical_job_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processing_stage",
+              "displayName": "processing_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processing_token",
+              "displayName": "processing_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "expires_at",
+              "displayName": "expires_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -260,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000006",
+      "name": "Append Archive Claims",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "claims_written",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000007",
+      "name": "Aggregate Archive Claims"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "ProcessingClaims",
+          "mode": "name",
+          "cachedResultName": "ProcessingClaims"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        160,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000008",
+      "name": "Get Processing Claims",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeCanonicalUrl(value) {\n  if (!value) return \"\";\n  let parsed;\n  try {\n    parsed = new URL(String(value).trim(), \"https://www.onlinejobs.ph\");\n  } catch {\n    return \"\";\n  }\n  if (![\"http:\", \"https:\"].includes(parsed.protocol)) return \"\";\n  if (parsed.username || parsed.password || (parsed.port && parsed.port !== \"443\")) return \"\";\n  parsed.protocol = \"https:\";\n  parsed.hostname = parsed.hostname.toLowerCase();\n  if (parsed.hostname === \"www.onlinejobs.ph\") parsed.hostname = \"onlinejobs.ph\";\n  if (parsed.hostname !== \"onlinejobs.ph\") return \"\";\n  parsed.hash = \"\";\n  parsed.search = \"\";\n  parsed.pathname = parsed.pathname.replace(/\\/+/g, \"/\").replace(/\\/$/, \"\");\n  if (!/^\\/jobseekers\\/job\\/[^/]+$/i.test(parsed.pathname)) return \"\";\n  parsed.port = \"\";\n  return parsed.toString();\n}\n\nfunction extractOnlineJobsId(url) {\n  const canonicalUrl = normalizeCanonicalUrl(url);\n  if (!canonicalUrl) return \"\";\n  const match = canonicalUrl.match(/\\/jobseekers\\/job\\/[^/]*?(\\d+)$/i);\n  return match?.[1] ?? \"\";\n}\n\nfunction canonicalJobId(record) {\n  const source = String(record.source || \"onlinejobs.ph\").trim().toLowerCase();\n  const sourceJobId = String(record.source_job_id || extractOnlineJobsId(record.canonical_url || record.job_url) || \"\").trim();\n  if (sourceJobId) return `${source}:${sourceJobId}`;\n  const canonicalUrl = normalizeCanonicalUrl(record.canonical_url || record.job_url);\n  if (!canonicalUrl) return \"\";\n  let hash = 2166136261;\n  for (let index = 0; index < canonicalUrl.length; index += 1) {\n    hash ^= canonicalUrl.charCodeAt(index);\n    hash = Math.imul(hash, 16777619);\n  }\n  const digest = (hash >>> 0).toString(16).padStart(8, \"0\");\n  return `${source}:url:${digest}`;\n}\n\nfunction stateGuard(record) {\n  const canonicalId = String(record.canonical_job_id || canonicalJobId(record) || \"\");\n  if (!canonicalId) return \"\";\n  const state = [\n    canonicalId,\n    String(record.pipeline_status || \"\"),\n    String(record.application_decision || \"\"),\n    String(record.outcome || \"\")\n  ].join(\"\\u001f\");\n  let hash = 2166136261;\n  for (let index = 0; index < state.length; index += 1) {\n    hash ^= state.charCodeAt(index);\n    hash = Math.imul(hash, 16777619);\n  }\n  return `${canonicalId}|${(hash >>> 0).toString(16).padStart(8, \"0\")}`;\n}\n\nfunction parseList(value) {\n  if (Array.isArray(value)) return value.filter(Boolean);\n  if (!value) return [];\n  try {\n    const parsed = JSON.parse(value);\n    if (Array.isArray(parsed)) return parsed.filter(Boolean);\n  } catch {\n    // Legacy sheets may use comma-separated values.\n  }\n  return String(value)\n    .split(\",\")\n    .map((part) => part.trim())\n    .filter(Boolean);\n}\n\nfunction normalizeLegacyRecord(input, schema, now = new Date().toISOString()) {\n  const record = { ...input };\n  for (const [legacy, canonical] of Object.entries(schema.legacy_header_mapping ?? {})) {\n    if (record[canonical] === undefined && record[legacy] !== undefined) {\n      record[canonical] = record[legacy];\n    }\n  }\n\n  const legacyStatus = String(record.pipeline_status || \"\").trim().toLowerCase();\n  record.pipeline_status =\n    schema.legacy_status_mapping?.[legacyStatus] ||\n    (schema.pipeline_statuses.includes(legacyStatus) ? legacyStatus : \"discovered\");\n  record.source = String(record.source || \"onlinejobs.ph\").trim().toLowerCase();\n  record.canonical_url = normalizeCanonicalUrl(record.canonical_url || record.job_url);\n  record.source_job_id = String(record.source_job_id || extractOnlineJobsId(record.canonical_url) || \"\");\n  record.canonical_job_id = String(record.canonical_job_id || canonicalJobId(record));\n  record.search_queries = parseList(record.search_queries);\n  record.role_families = parseList(record.role_families);\n  record.attempt_count = Number.isFinite(Number(record.attempt_count))\n    ? Number(record.attempt_count)\n    : 0;\n  record.created_at = record.created_at || now;\n  record.updated_at = record.updated_at || now;\n  record.source_availability = record.source_availability || \"unknown\";\n  record.profile_version = record.profile_version || \"legacy/unknown\";\n  record.message_profile_version =\n    record.message_profile_version ||\n    (record.generated_message ? \"legacy/unknown\" : \"\");\n  record.application_decision =\n    record.application_decision ||\n    (record.pipeline_status === \"applied\" ? \"applied\" : record.pipeline_status === \"skipped\" ? \"skipped\" : \"\");\n  record.outcome = record.outcome || \"\";\n  record.manual_action = record.manual_action || \"\";\n  record.state_guard = record.state_guard || stateGuard(record);\n  return record;\n}\n\nfunction validatePipelineSchema(schema) {\n  const errors = [];\n  if (schema?.schema_version !== 1) errors.push(\"schema_version must be 1\");\n  if (!Array.isArray(schema?.fields) || schema.fields.length === 0) errors.push(\"fields are required\");\n  if (!Array.isArray(schema?.pipeline_statuses) || schema.pipeline_statuses.length === 0) {\n    errors.push(\"pipeline_statuses are required\");\n  }\n  const duplicateFields = schema?.fields?.filter((field, index, all) => all.indexOf(field) !== index) ?? [];\n  if (duplicateFields.length > 0) errors.push(`duplicate fields: ${[...new Set(duplicateFields)].join(\", \")}`);\n\n  const statuses = new Set(schema?.pipeline_statuses ?? []);\n  for (const [from, destinations] of Object.entries(schema?.transitions ?? {})) {\n    if (!statuses.has(from)) errors.push(`transition source is not a status: ${from}`);\n    for (const to of destinations) {\n      if (!statuses.has(to)) errors.push(`transition destination is not a status: ${to}`);\n    }\n  }\n  for (const status of statuses) {\n    if (!(status in (schema?.transitions ?? {}))) errors.push(`missing transitions for status: ${status}`);\n  }\n  return errors;\n}\n\nfunction canTransition(schema, from, to) {\n  return (schema.transitions?.[from] ?? []).includes(to);\n}\n\nfunction transitionRecord(record, to, schema, now = new Date().toISOString()) {\n  const from = record.pipeline_status;\n  if (!canTransition(schema, from, to)) {\n    throw new Error(`Invalid pipeline transition: ${from} -> ${to}`);\n  }\n  const next = {\n    ...record,\n    pipeline_status: to,\n    updated_at: now\n  };\n  return { ...next, state_guard: stateGuard(next) };\n}\n\nfunction isStaleClaim(record, nowMs, leaseMs) {\n  if (!record.processing_token || !record.processing_started_at) return true;\n  const startedAt = Date.parse(record.processing_started_at);\n  return !Number.isFinite(startedAt) || nowMs - startedAt >= leaseMs;\n}\n\nfunction claimRecord(record, { stage, token, now, leaseMs }) {\n  const nowMs = Date.parse(now);\n  if (!stage || !token || !Number.isFinite(nowMs) || !Number.isFinite(leaseMs) || leaseMs < 1) {\n    throw new Error(\"stage, token, valid now, and positive leaseMs are required\");\n  }\n  if (record.processing_token && !isStaleClaim(record, nowMs, leaseMs)) {\n    return { claimed: false, record };\n  }\n  return {\n    claimed: true,\n    record: {\n      ...record,\n      processing_stage: stage,\n      processing_token: token,\n      processing_started_at: now,\n      updated_at: now\n    }\n  };\n}\n\nfunction releaseClaim(record, token, now = new Date().toISOString()) {\n  if (record.processing_token && record.processing_token !== token) {\n    throw new Error(\"processing token mismatch\");\n  }\n  const next = {\n    ...record,\n    processing_stage: \"\",\n    processing_token: \"\",\n    processing_started_at: \"\",\n    updated_at: now\n  };\n  return { ...next, state_guard: stateGuard(next) };\n}\n\nfunction createProcessingClaim(record, executionId, now, leaseMs) {\n  const token = `${executionId}:${record.canonical_job_id}:${record.work_stage}`;\n  return {\n    canonical_job_id: record.canonical_job_id,\n    processing_stage: record.work_stage,\n    processing_token: token,\n    created_at: now,\n    expires_at: new Date(Date.parse(now) + leaseMs).toISOString()\n  };\n}\n\nfunction chooseWinningClaims(proposedRecords, allClaims, now = new Date().toISOString()) {\n  const nowMs = Date.parse(now);\n  const validClaims = allClaims.filter((claim) => {\n    const createdAt = Date.parse(claim.created_at);\n    const expiresAt = Date.parse(claim.expires_at);\n    return claim.canonical_job_id && claim.processing_stage && claim.processing_token &&\n      Number.isFinite(createdAt) && Number.isFinite(expiresAt) && expiresAt > nowMs;\n  });\n  const winners = new Map();\n  for (const claim of validClaims) {\n    const key = `${claim.canonical_job_id}:${claim.processing_stage}`;\n    const current = winners.get(key);\n    const claimRow = Number(claim.row_number);\n    const currentRow = Number(current?.row_number);\n    const bothHaveRows = Number.isFinite(claimRow) && Number.isFinite(currentRow);\n    if (\n      !current ||\n      (bothHaveRows && claimRow < currentRow) ||\n      (!bothHaveRows && Date.parse(claim.created_at) < Date.parse(current.created_at)) ||\n      (!bothHaveRows &&\n        claim.created_at === current.created_at &&\n        claim.processing_token < current.processing_token)\n    ) {\n      winners.set(key, claim);\n    }\n  }\n  return proposedRecords.filter((record) => {\n    const key = `${record.canonical_job_id}:${record.work_stage}`;\n    return winners.get(key)?.processing_token === record.processing_token;\n  });\n}\n\n\nfunction hasValue(value) {\n  return value !== undefined && value !== null && value !== \"\";\n}\n\nfunction comparableValue(value) {\n  if (Array.isArray(value)) return JSON.stringify(value);\n  if (typeof value === \"string\") {\n    try {\n      const parsed = JSON.parse(value);\n      if (Array.isArray(parsed)) return JSON.stringify(parsed);\n    } catch {\n      // Plain strings, including formatted application messages, remain exact.\n    }\n  }\n  return String(value ?? \"\");\n}\n\nfunction recordSnapshot(record, schema) {\n  return JSON.stringify(\n    Object.fromEntries(\n      schema.fields.map((field) => [field, comparableValue(record[field])])\n    )\n  );\n}\n\nfunction archiveMatchesPlanned(current, planned, schema) {\n  return schema.fields.every(\n    (field) =>\n      !hasValue(planned[field]) ||\n      comparableValue(current[field]) === comparableValue(planned[field])\n  );\n}\n\nfunction mergeArchiveRecord(active, existing, schema, now) {\n  const merged = {};\n  for (const field of schema.fields) {\n    if (hasValue(active[field])) merged[field] = active[field];\n    if (hasValue(existing?.[field])) merged[field] = existing[field];\n  }\n  const fromStatus =\n    existing?.archived_from_status ||\n    active.archived_from_status ||\n    active.pipeline_status;\n  const archived = {\n    ...merged,\n    source: active.source,\n    source_job_id: active.source_job_id,\n    canonical_job_id: active.canonical_job_id,\n    canonical_url: active.canonical_url,\n    pipeline_status: \"archived\",\n    archived_from_status: fromStatus,\n    archived_at: existing?.archived_at || now,\n    updated_at: now\n  };\n  return { ...archived, state_guard: stateGuard(archived) };\n}\n\nfunction archiveRecordIsComplete(record) {\n  return Boolean(\n    record?.canonical_job_id &&\n    record?.canonical_url &&\n    record?.pipeline_status === \"archived\" &&\n    record?.archived_from_status &&\n    record?.archived_at\n  );\n}\n\nfunction prepareArchiveCandidates(\n  activeRows,\n  archiveRows,\n  schema,\n  {\n    now = new Date().toISOString(),\n    eligibleStatuses = [\"applied\", \"skipped\", \"not_recommended\", \"terminal_error\"]\n  } = {}\n) {\n  const allowed = new Set(eligibleStatuses);\n  const archiveById = new Map();\n  const archiveByUrl = new Map();\n  for (const raw of archiveRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);\n    if (record.canonical_url) archiveByUrl.set(record.canonical_url, record);\n  }\n\n  const candidates = [];\n  const retained = [];\n  for (const raw of activeRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.pipeline_status === \"retryable_error\") {\n      retained.push({ record, reason: \"retryable_error\" });\n      continue;\n    }\n    if (!allowed.has(record.pipeline_status)) continue;\n    if (!record.canonical_job_id || !record.canonical_url || !record.row_number) {\n      retained.push({ record, reason: \"invalid_identity_or_row\" });\n      continue;\n    }\n    const existing =\n      archiveById.get(record.canonical_job_id) ||\n      archiveByUrl.get(record.canonical_url);\n    candidates.push({\n      ...record,\n      work_stage: \"archival\",\n      source_row_number: Number(record.row_number),\n      source_snapshot_at: now,\n      source_snapshot: recordSnapshot(record, schema),\n      archive_record: mergeArchiveRecord(record, existing, schema, now),\n      archive_already_complete: archiveRecordIsComplete(existing)\n    });\n  }\n\n  return {\n    candidates: candidates.sort((left, right) => right.source_row_number - left.source_row_number),\n    retained\n  };\n}\n\nfunction confirmArchiveDeletions(\n  plannedCandidates,\n  currentActiveRows,\n  currentArchiveRows,\n  schema,\n  now = new Date().toISOString()\n) {\n  const currentByRow = new Map();\n  for (const raw of currentActiveRows) {\n    currentByRow.set(Number(raw.row_number), raw);\n  }\n  const archiveById = new Map();\n  for (const raw of currentArchiveRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);\n  }\n\n  const confirmed = [];\n  const rejected = [];\n  for (const planned of plannedCandidates) {\n    const currentRaw = currentByRow.get(Number(planned.source_row_number));\n    const current = currentRaw\n      ? normalizeLegacyRecord(currentRaw, schema, planned.source_snapshot_at || now)\n      : undefined;\n    const archived = archiveById.get(planned.canonical_job_id);\n    if (!current || current.canonical_job_id !== planned.canonical_job_id) {\n      rejected.push({ planned, reason: \"active_row_identity_changed\" });\n      continue;\n    }\n    if (\n      planned.source_snapshot &&\n      recordSnapshot(current, schema) !== planned.source_snapshot\n    ) {\n      rejected.push({ planned, reason: \"active_record_changed_after_plan\" });\n      continue;\n    }\n    if (\n      !archiveRecordIsComplete(archived) ||\n      !archiveMatchesPlanned(archived, planned.archive_record, schema)\n    ) {\n      rejected.push({ planned, reason: \"archive_copy_not_confirmed\" });\n      continue;\n    }\n    confirmed.push({\n      row_number: Number(planned.source_row_number),\n      canonical_job_id: planned.canonical_job_id\n    });\n  }\n  confirmed.sort((left, right) => right.row_number - left.row_number);\n  return { confirmed, rejected };\n}\n\n\nconst proposed = $('Prepare Archive Candidates').all().map((item) => item.json);\nconst claims = $input.all().map((item) => item.json).filter((claim) => claim && claim.canonical_job_id);\nconst winners = chooseWinningClaims(proposed, claims, new Date().toISOString());\nconsole.log(JSON.stringify({\n  event: 'archive_claims',\n  proposed: proposed.length,\n  won: winners.length,\n  lost: proposed.length - winners.length\n}));\nreturn winners.map((record) => ({ json: record }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000009",
+      "name": "Keep Winning Archive Claims"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $('Keep Winning Archive Claims').all().map((item) => ({\n  json: {\n    ...item.json.archive_record,\n    source_row_number: item.json.source_row_number,\n    archive_claim_token: item.json.processing_token\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        580,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000010",
+      "name": "Prepare Archive Upserts"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1897695400,
+          "mode": "list",
+          "cachedResultName": "Archive",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=1897695400"
+        },
+        "options": {},
+        "operation": "appendOrUpdate",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "source": "={{ Array.isArray($json.source) ? JSON.stringify($json.source) : ($json.source ?? '') }}",
+            "source_job_id": "={{ Array.isArray($json.source_job_id) ? JSON.stringify($json.source_job_id) : ($json.source_job_id ?? '') }}",
+            "canonical_job_id": "={{ Array.isArray($json.canonical_job_id) ? JSON.stringify($json.canonical_job_id) : ($json.canonical_job_id ?? '') }}",
+            "state_guard": "={{ Array.isArray($json.state_guard) ? JSON.stringify($json.state_guard) : ($json.state_guard ?? '') }}",
+            "canonical_url": "={{ Array.isArray($json.canonical_url) ? JSON.stringify($json.canonical_url) : ($json.canonical_url ?? '') }}",
+            "job_title": "={{ Array.isArray($json.job_title) ? JSON.stringify($json.job_title) : ($json.job_title ?? '') }}",
+            "company": "={{ Array.isArray($json.company) ? JSON.stringify($json.company) : ($json.company ?? '') }}",
+            "job_description": "={{ Array.isArray($json.job_description) ? JSON.stringify($json.job_description) : ($json.job_description ?? '') }}",
+            "salary_text": "={{ Array.isArray($json.salary_text) ? JSON.stringify($json.salary_text) : ($json.salary_text ?? '') }}",
+            "posted_at": "={{ Array.isArray($json.posted_at) ? JSON.stringify($json.posted_at) : ($json.posted_at ?? '') }}",
+            "discovered_at": "={{ Array.isArray($json.discovered_at) ? JSON.stringify($json.discovered_at) : ($json.discovered_at ?? '') }}",
+            "last_seen_at": "={{ Array.isArray($json.last_seen_at) ? JSON.stringify($json.last_seen_at) : ($json.last_seen_at ?? '') }}",
+            "search_queries": "={{ Array.isArray($json.search_queries) ? JSON.stringify($json.search_queries) : ($json.search_queries ?? '') }}",
+            "role_families": "={{ Array.isArray($json.role_families) ? JSON.stringify($json.role_families) : ($json.role_families ?? '') }}",
+            "source_availability": "={{ Array.isArray($json.source_availability) ? JSON.stringify($json.source_availability) : ($json.source_availability ?? '') }}",
+            "match_score": "={{ Array.isArray($json.match_score) ? JSON.stringify($json.match_score) : ($json.match_score ?? '') }}",
+            "match_tier": "={{ Array.isArray($json.match_tier) ? JSON.stringify($json.match_tier) : ($json.match_tier ?? '') }}",
+            "match_decision": "={{ Array.isArray($json.match_decision) ? JSON.stringify($json.match_decision) : ($json.match_decision ?? '') }}",
+            "match_reasons": "={{ Array.isArray($json.match_reasons) ? JSON.stringify($json.match_reasons) : ($json.match_reasons ?? '') }}",
+            "requirement_gaps": "={{ Array.isArray($json.requirement_gaps) ? JSON.stringify($json.requirement_gaps) : ($json.requirement_gaps ?? '') }}",
+            "profile_version": "={{ Array.isArray($json.profile_version) ? JSON.stringify($json.profile_version) : ($json.profile_version ?? '') }}",
+            "evaluated_at": "={{ Array.isArray($json.evaluated_at) ? JSON.stringify($json.evaluated_at) : ($json.evaluated_at ?? '') }}",
+            "pipeline_status": "={{ Array.isArray($json.pipeline_status) ? JSON.stringify($json.pipeline_status) : ($json.pipeline_status ?? '') }}",
+            "processing_stage": "={{ Array.isArray($json.processing_stage) ? JSON.stringify($json.processing_stage) : ($json.processing_stage ?? '') }}",
+            "processing_token": "={{ Array.isArray($json.processing_token) ? JSON.stringify($json.processing_token) : ($json.processing_token ?? '') }}",
+            "processing_started_at": "={{ Array.isArray($json.processing_started_at) ? JSON.stringify($json.processing_started_at) : ($json.processing_started_at ?? '') }}",
+            "attempt_count": "={{ Array.isArray($json.attempt_count) ? JSON.stringify($json.attempt_count) : ($json.attempt_count ?? '') }}",
+            "failed_stage": "={{ Array.isArray($json.failed_stage) ? JSON.stringify($json.failed_stage) : ($json.failed_stage ?? '') }}",
+            "next_retry_at": "={{ Array.isArray($json.next_retry_at) ? JSON.stringify($json.next_retry_at) : ($json.next_retry_at ?? '') }}",
+            "error_category": "={{ Array.isArray($json.error_category) ? JSON.stringify($json.error_category) : ($json.error_category ?? '') }}",
+            "error_summary": "={{ Array.isArray($json.error_summary) ? JSON.stringify($json.error_summary) : ($json.error_summary ?? '') }}",
+            "generated_message": "={{ Array.isArray($json.generated_message) ? JSON.stringify($json.generated_message) : ($json.generated_message ?? '') }}",
+            "message_profile_version": "={{ Array.isArray($json.message_profile_version) ? JSON.stringify($json.message_profile_version) : ($json.message_profile_version ?? '') }}",
+            "message_validation_status": "={{ Array.isArray($json.message_validation_status) ? JSON.stringify($json.message_validation_status) : ($json.message_validation_status ?? '') }}",
+            "generated_at": "={{ Array.isArray($json.generated_at) ? JSON.stringify($json.generated_at) : ($json.generated_at ?? '') }}",
+            "manual_action": "={{ Array.isArray($json.manual_action) ? JSON.stringify($json.manual_action) : ($json.manual_action ?? '') }}",
+            "application_decision": "={{ Array.isArray($json.application_decision) ? JSON.stringify($json.application_decision) : ($json.application_decision ?? '') }}",
+            "application_decided_at": "={{ Array.isArray($json.application_decided_at) ? JSON.stringify($json.application_decided_at) : ($json.application_decided_at ?? '') }}",
+            "outcome": "={{ Array.isArray($json.outcome) ? JSON.stringify($json.outcome) : ($json.outcome ?? '') }}",
+            "outcome_at": "={{ Array.isArray($json.outcome_at) ? JSON.stringify($json.outcome_at) : ($json.outcome_at ?? '') }}",
+            "created_at": "={{ Array.isArray($json.created_at) ? JSON.stringify($json.created_at) : ($json.created_at ?? '') }}",
+            "updated_at": "={{ Array.isArray($json.updated_at) ? JSON.stringify($json.updated_at) : ($json.updated_at ?? '') }}",
+            "archived_at": "={{ Array.isArray($json.archived_at) ? JSON.stringify($json.archived_at) : ($json.archived_at ?? '') }}",
+            "archived_from_status": "={{ Array.isArray($json.archived_from_status) ? JSON.stringify($json.archived_from_status) : ($json.archived_from_status ?? '') }}",
+            "notes": "={{ Array.isArray($json.notes) ? JSON.stringify($json.notes) : ($json.notes ?? '') }}"
+          },
+          "matchingColumns": [
+            "canonical_job_id"
+          ],
+          "schema": [
+            {
+              "id": "source",
+              "displayName": "source",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source_job_id",
+              "displayName": "source_job_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "canonical_job_id",
+              "displayName": "canonical_job_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "state_guard",
+              "displayName": "state_guard",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "canonical_url",
+              "displayName": "canonical_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
             {
               "id": "job_title",
               "displayName": "job_title",
@@ -119,15 +430,6 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "job_url",
-              "displayName": "job_url",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "type": "string",
-              "canBeUsedToMatch": true
-            },
-            {
               "id": "job_description",
               "displayName": "job_description",
               "required": false,
@@ -137,8 +439,206 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "status",
-              "displayName": "status",
+              "id": "salary_text",
+              "displayName": "salary_text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "posted_at",
+              "displayName": "posted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "discovered_at",
+              "displayName": "discovered_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "last_seen_at",
+              "displayName": "last_seen_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "search_queries",
+              "displayName": "search_queries",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "role_families",
+              "displayName": "role_families",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "source_availability",
+              "displayName": "source_availability",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "match_score",
+              "displayName": "match_score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "match_tier",
+              "displayName": "match_tier",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "match_decision",
+              "displayName": "match_decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "match_reasons",
+              "displayName": "match_reasons",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requirement_gaps",
+              "displayName": "requirement_gaps",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "profile_version",
+              "displayName": "profile_version",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "evaluated_at",
+              "displayName": "evaluated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pipeline_status",
+              "displayName": "pipeline_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processing_stage",
+              "displayName": "processing_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processing_token",
+              "displayName": "processing_token",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "processing_started_at",
+              "displayName": "processing_started_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "attempt_count",
+              "displayName": "attempt_count",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "failed_stage",
+              "displayName": "failed_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "next_retry_at",
+              "displayName": "next_retry_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_category",
+              "displayName": "error_category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "error_summary",
+              "displayName": "error_summary",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -155,8 +655,107 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "created_at ",
-              "displayName": "created_at ",
+              "id": "message_profile_version",
+              "displayName": "message_profile_version",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_validation_status",
+              "displayName": "message_validation_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "generated_at",
+              "displayName": "generated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "manual_action",
+              "displayName": "manual_action",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "application_decision",
+              "displayName": "application_decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "application_decided_at",
+              "displayName": "application_decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome",
+              "displayName": "outcome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "outcome_at",
+              "displayName": "outcome_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "archived_at",
+              "displayName": "archived_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "archived_from_status",
+              "displayName": "archived_from_status",
               "required": false,
               "defaultMatch": false,
               "display": true,
@@ -173,35 +772,146 @@
               "canBeUsedToMatch": true
             },
             {
-              "id": "archived_at",
-              "displayName": "archived_at",
+              "id": "row_number",
+              "displayName": "row_number",
               "required": false,
               "defaultMatch": false,
               "display": true,
-              "type": "string",
+              "type": "number",
               "canBeUsedToMatch": true,
-              "removed": false
+              "readOnly": true
             }
           ],
           "attemptToConvertTypes": false,
           "convertFieldsToString": false
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        780,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000011",
+      "name": "Upsert Archive Records",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "archive_upserts",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        880,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000016",
+      "name": "Aggregate Archive Upserts"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1897695400,
+          "mode": "list",
+          "cachedResultName": "Archive",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=1897695400"
         },
         "options": {}
       },
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        624,
-        0
+        980,
+        220
       ],
-      "id": "e15131bc-7f01-4625-8ac1-130e58c9a1a3",
-      "name": "Append row in sheet",
+      "id": "7106c36a-a814-4ea8-9100-000000000012",
+      "name": "Get Archive After Upsert",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4Vxkm1v1ZER0YYlg",
+          "name": "Google Sheets account"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "archive_rows",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000013",
+      "name": "Aggregate Archive After Upsert"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+          "mode": "list",
+          "cachedResultName": "Job Applications Pipeline",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1400,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000014",
+      "name": "Get Active Before Delete",
+      "alwaysOutputData": true,
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "4Vxkm1v1ZER0YYlg",
           "name": "Google Sheets account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "function normalizeCanonicalUrl(value) {\n  if (!value) return \"\";\n  let parsed;\n  try {\n    parsed = new URL(String(value).trim(), \"https://www.onlinejobs.ph\");\n  } catch {\n    return \"\";\n  }\n  if (![\"http:\", \"https:\"].includes(parsed.protocol)) return \"\";\n  if (parsed.username || parsed.password || (parsed.port && parsed.port !== \"443\")) return \"\";\n  parsed.protocol = \"https:\";\n  parsed.hostname = parsed.hostname.toLowerCase();\n  if (parsed.hostname === \"www.onlinejobs.ph\") parsed.hostname = \"onlinejobs.ph\";\n  if (parsed.hostname !== \"onlinejobs.ph\") return \"\";\n  parsed.hash = \"\";\n  parsed.search = \"\";\n  parsed.pathname = parsed.pathname.replace(/\\/+/g, \"/\").replace(/\\/$/, \"\");\n  if (!/^\\/jobseekers\\/job\\/[^/]+$/i.test(parsed.pathname)) return \"\";\n  parsed.port = \"\";\n  return parsed.toString();\n}\n\nfunction extractOnlineJobsId(url) {\n  const canonicalUrl = normalizeCanonicalUrl(url);\n  if (!canonicalUrl) return \"\";\n  const match = canonicalUrl.match(/\\/jobseekers\\/job\\/[^/]*?(\\d+)$/i);\n  return match?.[1] ?? \"\";\n}\n\nfunction canonicalJobId(record) {\n  const source = String(record.source || \"onlinejobs.ph\").trim().toLowerCase();\n  const sourceJobId = String(record.source_job_id || extractOnlineJobsId(record.canonical_url || record.job_url) || \"\").trim();\n  if (sourceJobId) return `${source}:${sourceJobId}`;\n  const canonicalUrl = normalizeCanonicalUrl(record.canonical_url || record.job_url);\n  if (!canonicalUrl) return \"\";\n  let hash = 2166136261;\n  for (let index = 0; index < canonicalUrl.length; index += 1) {\n    hash ^= canonicalUrl.charCodeAt(index);\n    hash = Math.imul(hash, 16777619);\n  }\n  const digest = (hash >>> 0).toString(16).padStart(8, \"0\");\n  return `${source}:url:${digest}`;\n}\n\nfunction stateGuard(record) {\n  const canonicalId = String(record.canonical_job_id || canonicalJobId(record) || \"\");\n  if (!canonicalId) return \"\";\n  const state = [\n    canonicalId,\n    String(record.pipeline_status || \"\"),\n    String(record.application_decision || \"\"),\n    String(record.outcome || \"\")\n  ].join(\"\\u001f\");\n  let hash = 2166136261;\n  for (let index = 0; index < state.length; index += 1) {\n    hash ^= state.charCodeAt(index);\n    hash = Math.imul(hash, 16777619);\n  }\n  return `${canonicalId}|${(hash >>> 0).toString(16).padStart(8, \"0\")}`;\n}\n\nfunction parseList(value) {\n  if (Array.isArray(value)) return value.filter(Boolean);\n  if (!value) return [];\n  try {\n    const parsed = JSON.parse(value);\n    if (Array.isArray(parsed)) return parsed.filter(Boolean);\n  } catch {\n    // Legacy sheets may use comma-separated values.\n  }\n  return String(value)\n    .split(\",\")\n    .map((part) => part.trim())\n    .filter(Boolean);\n}\n\nfunction normalizeLegacyRecord(input, schema, now = new Date().toISOString()) {\n  const record = { ...input };\n  for (const [legacy, canonical] of Object.entries(schema.legacy_header_mapping ?? {})) {\n    if (record[canonical] === undefined && record[legacy] !== undefined) {\n      record[canonical] = record[legacy];\n    }\n  }\n\n  const legacyStatus = String(record.pipeline_status || \"\").trim().toLowerCase();\n  record.pipeline_status =\n    schema.legacy_status_mapping?.[legacyStatus] ||\n    (schema.pipeline_statuses.includes(legacyStatus) ? legacyStatus : \"discovered\");\n  record.source = String(record.source || \"onlinejobs.ph\").trim().toLowerCase();\n  record.canonical_url = normalizeCanonicalUrl(record.canonical_url || record.job_url);\n  record.source_job_id = String(record.source_job_id || extractOnlineJobsId(record.canonical_url) || \"\");\n  record.canonical_job_id = String(record.canonical_job_id || canonicalJobId(record));\n  record.search_queries = parseList(record.search_queries);\n  record.role_families = parseList(record.role_families);\n  record.attempt_count = Number.isFinite(Number(record.attempt_count))\n    ? Number(record.attempt_count)\n    : 0;\n  record.created_at = record.created_at || now;\n  record.updated_at = record.updated_at || now;\n  record.source_availability = record.source_availability || \"unknown\";\n  record.profile_version = record.profile_version || \"legacy/unknown\";\n  record.message_profile_version =\n    record.message_profile_version ||\n    (record.generated_message ? \"legacy/unknown\" : \"\");\n  record.application_decision =\n    record.application_decision ||\n    (record.pipeline_status === \"applied\" ? \"applied\" : record.pipeline_status === \"skipped\" ? \"skipped\" : \"\");\n  record.outcome = record.outcome || \"\";\n  record.manual_action = record.manual_action || \"\";\n  record.state_guard = record.state_guard || stateGuard(record);\n  return record;\n}\n\nfunction validatePipelineSchema(schema) {\n  const errors = [];\n  if (schema?.schema_version !== 1) errors.push(\"schema_version must be 1\");\n  if (!Array.isArray(schema?.fields) || schema.fields.length === 0) errors.push(\"fields are required\");\n  if (!Array.isArray(schema?.pipeline_statuses) || schema.pipeline_statuses.length === 0) {\n    errors.push(\"pipeline_statuses are required\");\n  }\n  const duplicateFields = schema?.fields?.filter((field, index, all) => all.indexOf(field) !== index) ?? [];\n  if (duplicateFields.length > 0) errors.push(`duplicate fields: ${[...new Set(duplicateFields)].join(\", \")}`);\n\n  const statuses = new Set(schema?.pipeline_statuses ?? []);\n  for (const [from, destinations] of Object.entries(schema?.transitions ?? {})) {\n    if (!statuses.has(from)) errors.push(`transition source is not a status: ${from}`);\n    for (const to of destinations) {\n      if (!statuses.has(to)) errors.push(`transition destination is not a status: ${to}`);\n    }\n  }\n  for (const status of statuses) {\n    if (!(status in (schema?.transitions ?? {}))) errors.push(`missing transitions for status: ${status}`);\n  }\n  return errors;\n}\n\nfunction canTransition(schema, from, to) {\n  return (schema.transitions?.[from] ?? []).includes(to);\n}\n\nfunction transitionRecord(record, to, schema, now = new Date().toISOString()) {\n  const from = record.pipeline_status;\n  if (!canTransition(schema, from, to)) {\n    throw new Error(`Invalid pipeline transition: ${from} -> ${to}`);\n  }\n  const next = {\n    ...record,\n    pipeline_status: to,\n    updated_at: now\n  };\n  return { ...next, state_guard: stateGuard(next) };\n}\n\nfunction isStaleClaim(record, nowMs, leaseMs) {\n  if (!record.processing_token || !record.processing_started_at) return true;\n  const startedAt = Date.parse(record.processing_started_at);\n  return !Number.isFinite(startedAt) || nowMs - startedAt >= leaseMs;\n}\n\nfunction claimRecord(record, { stage, token, now, leaseMs }) {\n  const nowMs = Date.parse(now);\n  if (!stage || !token || !Number.isFinite(nowMs) || !Number.isFinite(leaseMs) || leaseMs < 1) {\n    throw new Error(\"stage, token, valid now, and positive leaseMs are required\");\n  }\n  if (record.processing_token && !isStaleClaim(record, nowMs, leaseMs)) {\n    return { claimed: false, record };\n  }\n  return {\n    claimed: true,\n    record: {\n      ...record,\n      processing_stage: stage,\n      processing_token: token,\n      processing_started_at: now,\n      updated_at: now\n    }\n  };\n}\n\nfunction releaseClaim(record, token, now = new Date().toISOString()) {\n  if (record.processing_token && record.processing_token !== token) {\n    throw new Error(\"processing token mismatch\");\n  }\n  const next = {\n    ...record,\n    processing_stage: \"\",\n    processing_token: \"\",\n    processing_started_at: \"\",\n    updated_at: now\n  };\n  return { ...next, state_guard: stateGuard(next) };\n}\n\nfunction createProcessingClaim(record, executionId, now, leaseMs) {\n  const token = `${executionId}:${record.canonical_job_id}:${record.work_stage}`;\n  return {\n    canonical_job_id: record.canonical_job_id,\n    processing_stage: record.work_stage,\n    processing_token: token,\n    created_at: now,\n    expires_at: new Date(Date.parse(now) + leaseMs).toISOString()\n  };\n}\n\nfunction chooseWinningClaims(proposedRecords, allClaims, now = new Date().toISOString()) {\n  const nowMs = Date.parse(now);\n  const validClaims = allClaims.filter((claim) => {\n    const createdAt = Date.parse(claim.created_at);\n    const expiresAt = Date.parse(claim.expires_at);\n    return claim.canonical_job_id && claim.processing_stage && claim.processing_token &&\n      Number.isFinite(createdAt) && Number.isFinite(expiresAt) && expiresAt > nowMs;\n  });\n  const winners = new Map();\n  for (const claim of validClaims) {\n    const key = `${claim.canonical_job_id}:${claim.processing_stage}`;\n    const current = winners.get(key);\n    const claimRow = Number(claim.row_number);\n    const currentRow = Number(current?.row_number);\n    const bothHaveRows = Number.isFinite(claimRow) && Number.isFinite(currentRow);\n    if (\n      !current ||\n      (bothHaveRows && claimRow < currentRow) ||\n      (!bothHaveRows && Date.parse(claim.created_at) < Date.parse(current.created_at)) ||\n      (!bothHaveRows &&\n        claim.created_at === current.created_at &&\n        claim.processing_token < current.processing_token)\n    ) {\n      winners.set(key, claim);\n    }\n  }\n  return proposedRecords.filter((record) => {\n    const key = `${record.canonical_job_id}:${record.work_stage}`;\n    return winners.get(key)?.processing_token === record.processing_token;\n  });\n}\n\n\nfunction hasValue(value) {\n  return value !== undefined && value !== null && value !== \"\";\n}\n\nfunction comparableValue(value) {\n  if (Array.isArray(value)) return JSON.stringify(value);\n  if (typeof value === \"string\") {\n    try {\n      const parsed = JSON.parse(value);\n      if (Array.isArray(parsed)) return JSON.stringify(parsed);\n    } catch {\n      // Plain strings, including formatted application messages, remain exact.\n    }\n  }\n  return String(value ?? \"\");\n}\n\nfunction recordSnapshot(record, schema) {\n  return JSON.stringify(\n    Object.fromEntries(\n      schema.fields.map((field) => [field, comparableValue(record[field])])\n    )\n  );\n}\n\nfunction archiveMatchesPlanned(current, planned, schema) {\n  return schema.fields.every(\n    (field) =>\n      !hasValue(planned[field]) ||\n      comparableValue(current[field]) === comparableValue(planned[field])\n  );\n}\n\nfunction mergeArchiveRecord(active, existing, schema, now) {\n  const merged = {};\n  for (const field of schema.fields) {\n    if (hasValue(active[field])) merged[field] = active[field];\n    if (hasValue(existing?.[field])) merged[field] = existing[field];\n  }\n  const fromStatus =\n    existing?.archived_from_status ||\n    active.archived_from_status ||\n    active.pipeline_status;\n  const archived = {\n    ...merged,\n    source: active.source,\n    source_job_id: active.source_job_id,\n    canonical_job_id: active.canonical_job_id,\n    canonical_url: active.canonical_url,\n    pipeline_status: \"archived\",\n    archived_from_status: fromStatus,\n    archived_at: existing?.archived_at || now,\n    updated_at: now\n  };\n  return { ...archived, state_guard: stateGuard(archived) };\n}\n\nfunction archiveRecordIsComplete(record) {\n  return Boolean(\n    record?.canonical_job_id &&\n    record?.canonical_url &&\n    record?.pipeline_status === \"archived\" &&\n    record?.archived_from_status &&\n    record?.archived_at\n  );\n}\n\nfunction prepareArchiveCandidates(\n  activeRows,\n  archiveRows,\n  schema,\n  {\n    now = new Date().toISOString(),\n    eligibleStatuses = [\"applied\", \"skipped\", \"not_recommended\", \"terminal_error\"]\n  } = {}\n) {\n  const allowed = new Set(eligibleStatuses);\n  const archiveById = new Map();\n  const archiveByUrl = new Map();\n  for (const raw of archiveRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);\n    if (record.canonical_url) archiveByUrl.set(record.canonical_url, record);\n  }\n\n  const candidates = [];\n  const retained = [];\n  for (const raw of activeRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.pipeline_status === \"retryable_error\") {\n      retained.push({ record, reason: \"retryable_error\" });\n      continue;\n    }\n    if (!allowed.has(record.pipeline_status)) continue;\n    if (!record.canonical_job_id || !record.canonical_url || !record.row_number) {\n      retained.push({ record, reason: \"invalid_identity_or_row\" });\n      continue;\n    }\n    const existing =\n      archiveById.get(record.canonical_job_id) ||\n      archiveByUrl.get(record.canonical_url);\n    candidates.push({\n      ...record,\n      work_stage: \"archival\",\n      source_row_number: Number(record.row_number),\n      source_snapshot_at: now,\n      source_snapshot: recordSnapshot(record, schema),\n      archive_record: mergeArchiveRecord(record, existing, schema, now),\n      archive_already_complete: archiveRecordIsComplete(existing)\n    });\n  }\n\n  return {\n    candidates: candidates.sort((left, right) => right.source_row_number - left.source_row_number),\n    retained\n  };\n}\n\nfunction confirmArchiveDeletions(\n  plannedCandidates,\n  currentActiveRows,\n  currentArchiveRows,\n  schema,\n  now = new Date().toISOString()\n) {\n  const currentByRow = new Map();\n  for (const raw of currentActiveRows) {\n    currentByRow.set(Number(raw.row_number), raw);\n  }\n  const archiveById = new Map();\n  for (const raw of currentArchiveRows) {\n    const record = normalizeLegacyRecord(raw, schema, now);\n    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);\n  }\n\n  const confirmed = [];\n  const rejected = [];\n  for (const planned of plannedCandidates) {\n    const currentRaw = currentByRow.get(Number(planned.source_row_number));\n    const current = currentRaw\n      ? normalizeLegacyRecord(currentRaw, schema, planned.source_snapshot_at || now)\n      : undefined;\n    const archived = archiveById.get(planned.canonical_job_id);\n    if (!current || current.canonical_job_id !== planned.canonical_job_id) {\n      rejected.push({ planned, reason: \"active_row_identity_changed\" });\n      continue;\n    }\n    if (\n      planned.source_snapshot &&\n      recordSnapshot(current, schema) !== planned.source_snapshot\n    ) {\n      rejected.push({ planned, reason: \"active_record_changed_after_plan\" });\n      continue;\n    }\n    if (\n      !archiveRecordIsComplete(archived) ||\n      !archiveMatchesPlanned(archived, planned.archive_record, schema)\n    ) {\n      rejected.push({ planned, reason: \"archive_copy_not_confirmed\" });\n      continue;\n    }\n    confirmed.push({\n      row_number: Number(planned.source_row_number),\n      canonical_job_id: planned.canonical_job_id\n    });\n  }\n  confirmed.sort((left, right) => right.row_number - left.row_number);\n  return { confirmed, rejected };\n}\n\n\nconst SCHEMA = {\"schema_version\":1,\"storage_version\":\"2026-07-28\",\"canonical_identity\":{\"source\":\"onlinejobs.ph\",\"preferred\":\"source_job_id\",\"fallback\":\"canonical_url\"},\"fields\":[\"source\",\"source_job_id\",\"canonical_job_id\",\"state_guard\",\"canonical_url\",\"job_title\",\"company\",\"job_description\",\"salary_text\",\"posted_at\",\"discovered_at\",\"last_seen_at\",\"search_queries\",\"role_families\",\"source_availability\",\"match_score\",\"match_tier\",\"match_decision\",\"match_reasons\",\"requirement_gaps\",\"profile_version\",\"evaluated_at\",\"pipeline_status\",\"processing_stage\",\"processing_token\",\"processing_started_at\",\"attempt_count\",\"failed_stage\",\"next_retry_at\",\"error_category\",\"error_summary\",\"generated_message\",\"message_profile_version\",\"message_validation_status\",\"generated_at\",\"manual_action\",\"application_decision\",\"application_decided_at\",\"outcome\",\"outcome_at\",\"created_at\",\"updated_at\",\"archived_at\",\"archived_from_status\",\"notes\"],\"pipeline_statuses\":[\"discovered\",\"evaluating\",\"recommended\",\"review_required\",\"not_recommended\",\"unscorable\",\"generating\",\"ready\",\"retryable_error\",\"terminal_error\",\"unavailable\",\"applied\",\"skipped\",\"archived\"],\"manual_actions\":[\"\",\"promote\",\"mark_applied\",\"mark_skipped\",\"retry\",\"regenerate\",\"outcome_no_response\",\"outcome_replied\",\"outcome_interview\",\"outcome_offer\",\"outcome_rejected\",\"clear_outcome\"],\"application_decisions\":[\"\",\"applied\",\"skipped\"],\"outcomes\":[\"\",\"no_response\",\"replied\",\"interview\",\"offer\",\"rejected\"],\"transitions\":{\"discovered\":[\"evaluating\"],\"evaluating\":[\"recommended\",\"review_required\",\"not_recommended\",\"unscorable\",\"unavailable\",\"retryable_error\",\"terminal_error\"],\"recommended\":[\"generating\",\"skipped\"],\"review_required\":[\"generating\",\"skipped\"],\"not_recommended\":[\"archived\"],\"unscorable\":[\"evaluating\",\"generating\",\"skipped\"],\"generating\":[\"ready\",\"retryable_error\",\"terminal_error\"],\"ready\":[\"generating\",\"applied\",\"skipped\"],\"retryable_error\":[\"evaluating\",\"generating\",\"terminal_error\"],\"terminal_error\":[\"archived\"],\"unavailable\":[\"evaluating\",\"archived\"],\"applied\":[\"archived\"],\"skipped\":[\"archived\"],\"archived\":[]},\"legacy_status_mapping\":{\"pending\":\"discovered\",\"processing\":\"evaluating\",\"ready\":\"ready\",\"applied\":\"applied\",\"skipped\":\"skipped\",\"error\":\"terminal_error\"},\"legacy_header_mapping\":{\"created_at \":\"created_at\",\"job_url\":\"canonical_url\",\"status\":\"pipeline_status\"}};\nconst planned = $('Keep Winning Archive Claims').all().map((item) => item.json);\nconst archiveRows = $('Aggregate Archive After Upsert').first().json.archive_rows || [];\nconst currentActive = $input.all().map((item) => item.json);\nconst confirmation = confirmArchiveDeletions(\n  planned,\n  currentActive,\n  archiveRows,\n  SCHEMA,\n  new Date().toISOString()\n);\nconsole.log(JSON.stringify({\n  event: 'archive_confirmation',\n  confirmed: confirmation.confirmed.length,\n  rejected: confirmation.rejected.length,\n  rejected_reasons: confirmation.rejected.map((entry) => entry.reason)\n}));\nreturn confirmation.confirmed.map((entry) => ({ json: entry }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1610,
+        220
+      ],
+      "id": "7106c36a-a814-4ea8-9100-000000000015",
+      "name": "Confirm Archive Deletions"
     },
     {
       "parameters": {
@@ -220,16 +930,16 @@
           "cachedResultName": "Sheet1",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
         },
-        "startIndex": "={{ $('Filter Archivable Rows').item.json.row_number }}"
+        "startIndex": "={{ $json.row_number }}"
       },
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,
       "position": [
-        864,
-        0
+        1820,
+        220
       ],
       "id": "4c000cde-0823-45e9-b902-8189b2d2d620",
-      "name": "Delete rows or columns from sheet",
+      "name": "Delete Confirmed Active Rows",
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "4Vxkm1v1ZER0YYlg",
@@ -244,40 +954,172 @@
       "main": [
         [
           {
-            "node": "Get row(s) in sheet",
+            "node": "Get Active Rows",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get row(s) in sheet": {
+    "Get Active Rows": {
       "main": [
         [
           {
-            "node": "Filter Archivable Rows",
+            "node": "Aggregate Active Rows",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Filter Archivable Rows": {
+    "Aggregate Active Rows": {
       "main": [
         [
           {
-            "node": "Append row in sheet",
+            "node": "Get Archive Rows",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Append row in sheet": {
+    "Get Archive Rows": {
       "main": [
         [
           {
-            "node": "Delete rows or columns from sheet",
+            "node": "Prepare Archive Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Archive Candidates": {
+      "main": [
+        [
+          {
+            "node": "Append Archive Claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append Archive Claims": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Archive Claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Archive Claims": {
+      "main": [
+        [
+          {
+            "node": "Get Processing Claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Processing Claims": {
+      "main": [
+        [
+          {
+            "node": "Keep Winning Archive Claims",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Keep Winning Archive Claims": {
+      "main": [
+        [
+          {
+            "node": "Prepare Archive Upserts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Archive Upserts": {
+      "main": [
+        [
+          {
+            "node": "Upsert Archive Records",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert Archive Records": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Archive Upserts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Archive Upserts": {
+      "main": [
+        [
+          {
+            "node": "Get Archive After Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Archive After Upsert": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Archive After Upsert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Archive After Upsert": {
+      "main": [
+        [
+          {
+            "node": "Get Active Before Delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Active Before Delete": {
+      "main": [
+        [
+          {
+            "node": "Confirm Archive Deletions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Archive Deletions": {
+      "main": [
+        [
+          {
+            "node": "Delete Confirmed Active Rows",
             "type": "main",
             "index": 0
           }
@@ -285,7 +1127,7 @@
       ]
     }
   },
-  "active": true,
+  "active": false,
   "settings": {
     "executionOrder": "v1",
     "binaryMode": "separate"
@@ -293,7 +1135,9 @@
   "versionId": "92aee366-1fa6-4161-9405-eb7ac7a06f5e",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "d3f0b2b15fe63f4812d040a20729fe3e69cc3b90b6911c8f4caeed8defddb44f"
+    "instanceId": "d3f0b2b15fe63f4812d040a20729fe3e69cc3b90b6911c8f4caeed8defddb44f",
+    "pipelineSchemaVersion": "2026-07-28",
+    "archiveScheduleMinutes": 45
   },
   "nodeGroups": [],
   "id": "cj6ty1mKwyjS65h2",

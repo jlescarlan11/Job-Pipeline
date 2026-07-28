@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "view_version": "2026-07-28",
+  "schedule_minutes": 5,
+  "active_sheet": "Sheet1",
+  "archive_sheet": "Archive",
+  "claims_sheet": "ProcessingClaims",
+  "dashboard_sheet": "Dashboard",
+  "review_columns": [
+    "job_title",
+    "company",
+    "canonical_url",
+    "posted_at",
+    "salary_text",
+    "role_families",
+    "search_queries",
+    "match_score",
+    "match_tier",
+    "match_reasons",
+    "requirement_gaps",
+    "source_availability",
+    "pipeline_status",
+    "processing_stage",
+    "error_summary",
+    "generated_message",
+    "message_profile_version",
+    "manual_action",
+    "application_decision",
+    "application_decided_at",
+    "outcome",
+    "outcome_at",
+    "canonical_job_id",
+    "state_guard",
+    "processing_token",
+    "profile_version",
+    "created_at",
+    "last_seen_at",
+    "updated_at"
+  ],
+  "editable_columns": [
+    "manual_action",
+    "notes"
+  ],
+  "hidden_columns": [
+    "state_guard",
+    "processing_token"
+  ],
+  "manual_action_dropdown": [
+    "",
+    "promote",
+    "mark_applied",
+    "mark_skipped",
+    "retry",
+    "regenerate",
+    "outcome_no_response",
+    "outcome_replied",
+    "outcome_interview",
+    "outcome_offer",
+    "outcome_rejected",
+    "clear_outcome"
+  ],
+  "views": [
+    {
+      "name": "Priority Queue",
+      "statuses": [
+        "ready",
+        "recommended",
+        "review_required"
+      ],
+      "sort": [
+        {
+          "field": "match_score",
+          "direction": "desc"
+        },
+        {
+          "field": "posted_at",
+          "direction": "desc"
+        }
+      ]
+    },
+    {
+      "name": "Needs Recovery",
+      "statuses": [
+        "retryable_error",
+        "terminal_error",
+        "unscorable",
+        "unavailable"
+      ],
+      "sort": [
+        {
+          "field": "updated_at",
+          "direction": "desc"
+        }
+      ]
+    },
+    {
+      "name": "Outcome Follow-up",
+      "application_decisions": [
+        "applied"
+      ],
+      "outcomes": [
+        "",
+        "no_response",
+        "replied",
+        "interview"
+      ],
+      "sort": [
+        {
+          "field": "application_decided_at",
+          "direction": "desc"
+        }
+      ]
+    }
+  ],
+  "dashboard_fields": [
+    "metric_key",
+    "generated_at",
+    "total_unique_jobs",
+    "discovered",
+    "recommended",
+    "review_required",
+    "ready",
+    "applied",
+    "skipped",
+    "replied",
+    "interview",
+    "offer",
+    "rejected",
+    "retryable_error",
+    "terminal_error",
+    "unavailable"
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "profile_version": "2026-07-28",
+  "candidate": {
+    "name": "John Lester Escarlan",
+    "location": "Cebu City, Philippines",
+    "email": "jlescarlan11@gmail.com",
+    "links": {
+      "linkedin": "https://linkedin.com/in/john-lester-escarlan",
+      "github": "https://github.com/jlescarlan11",
+      "portfolio": "https://johnlesterescarlan.pro"
+    }
+  },
+  "summary": "Software developer with experience building and maintaining production web applications using TypeScript, React, Next.js, Node.js, PostgreSQL, and Supabase. Shipped full-stack features, resolved production incidents, improved API performance and release workflows, and built marketplace, payment, and automation systems. Comfortable working across frontend, backend, databases, testing, monitoring, and remote engineering teams.",
+  "skills": {
+    "languages": [
+      "TypeScript",
+      "JavaScript",
+      "SQL",
+      "Python",
+      "C#",
+      "Java",
+      "Dart"
+    ],
+    "frontend": [
+      "React",
+      "Next.js",
+      "Tailwind CSS",
+      "Redux",
+      "TanStack Query",
+      "Flutter",
+      "HTML",
+      "CSS"
+    ],
+    "backend": [
+      "Node.js",
+      "Express.js",
+      "ASP.NET Core MVC",
+      "REST APIs",
+      "Prisma",
+      "Drizzle"
+    ],
+    "databases_and_cloud": [
+      "PostgreSQL",
+      "Supabase",
+      "MySQL",
+      "MongoDB",
+      "Redis",
+      "AWS",
+      "Docker"
+    ],
+    "testing_and_delivery": [
+      "Vitest",
+      "Git",
+      "GitHub Actions",
+      "CI/CD",
+      "Postman",
+      "production monitoring",
+      "code review"
+    ],
+    "automation_and_integrations": [
+      "n8n",
+      "OpenAI API",
+      "Groq API",
+      "Google Sheets API",
+      "Mapbox",
+      "PayMongo"
+    ]
+  },
+  "experience": [
+    {
+      "id": "pharmacy-acute-care-university",
+      "title": "Software Engineer (Contract)",
+      "organization": "Pharmacy & Acute Care University",
+      "location": "Remote",
+      "start": "2026-02",
+      "end": "present",
+      "highlights": [
+        "Build and maintain full-stack features for an online learning platform, including admin workflows, personalized study programs, eBook and reader access, review reminders, and subscription-based access.",
+        "Diagnose production issues involving React and TypeScript interfaces, Node.js APIs, PostgreSQL schemas and migrations, content assets, and entitlement rules; implement targeted fixes that restore blocked learner and administrator workflows.",
+        "Contribute to technical design, code review, automated testing, rollout planning, and reliability improvements across frontend and backend systems."
+      ]
+    },
+    {
+      "id": "upwork",
+      "title": "Freelance Software Engineer",
+      "organization": "Upwork",
+      "location": "Remote",
+      "start": "2025-01",
+      "end": "present",
+      "highlights": [
+        "Resolved 12+ production-blocking defects with an average turnaround of less than 24 hours, restoring affected client workflows.",
+        "Rebuilt release automation to remove 15+ manual steps and save approximately four engineering hours per week.",
+        "Delivered three client-facing features using React, TypeScript, and Node.js and wrote REST API documentation that reduced contributor onboarding from one week to two days."
+      ]
+    },
+    {
+      "id": "winds-gate-philippines",
+      "title": "Software Monitoring Engineer",
+      "organization": "Wind's Gate Philippines",
+      "location": "Cebu City",
+      "start": "2025-06",
+      "end": "present",
+      "highlights": [
+        "Identified and escalated 25+ incidents across eight production services before they reached end users.",
+        "Authored eight recovery runbooks that enabled engineers to resolve Tier 1 issues without escalation and reduced average triage time by 30%."
+      ]
+    },
+    {
+      "id": "alliance-software",
+      "title": "Software Engineer Intern",
+      "organization": "Alliance Software Inc.",
+      "location": "Cebu City",
+      "start": "2025-06",
+      "end": "2025-07",
+      "highlights": [
+        "Delivered five production features using C# and ASP.NET Core MVC while working within an established client codebase, testing process, and code review workflow."
+      ]
+    },
+    {
+      "id": "bayoa-analytics",
+      "title": "Full-Stack Developer Intern",
+      "organization": "Bayoa Analytics",
+      "location": "Remote",
+      "start": "2024-09",
+      "end": "2024-11",
+      "highlights": [
+        "Diagnosed N+1 query patterns and database schema bottlenecks, reducing API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "id": "rent-n-roll",
+      "name": "Rent N Roll",
+      "description": "Camera Rental Marketplace",
+      "url": "https://rentnroll.store",
+      "technologies": [
+        "Next.js",
+        "React",
+        "TypeScript",
+        "Tailwind CSS",
+        "Supabase",
+        "PostgreSQL",
+        "Zod",
+        "PayMongo"
+      ],
+      "highlights": [
+        "Built a pre-launch two-sided camera rental marketplace with listing and photo management, booking and availability workflows, identity verification, digital contracts, handoff confirmations, and payment and deposit handling through PayMongo webhooks.",
+        "Refactored the data layer to replace 24 untyped database queries with typed Supabase RPC patterns and generated types, improving consistency and maintainability."
+      ]
+    },
+    {
+      "id": "job-pipeline",
+      "name": "Job Pipeline",
+      "description": "Automated Job Application Workflow",
+      "url": "https://github.com/jlescarlan11/Job-Pipeline",
+      "technologies": [
+        "n8n",
+        "Groq API",
+        "Google Sheets API",
+        "JavaScript"
+      ],
+      "highlights": [
+        "Built a three-workflow automation system that collects job listings, generates tailored application messages through the Groq API, and archives processed results in Google Sheets.",
+        "Added cross-sheet deduplication, prompt validation, URL and project whitelists, generation limits, and rate-limit-aware batching to prevent repeated processing and unsupported output."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "program": "Bachelor of Science in Computer Science",
+      "institution": "University of the Philippines Cebu",
+      "start": "2025-08",
+      "end": "present",
+      "honor": "University Scholar"
+    },
+    {
+      "program": "Bachelor of Science in Mathematics",
+      "institution": "University of the Philippines Cebu",
+      "start": "2022-09",
+      "end": "2025-06",
+      "honor": "College Scholar"
+    }
+  ],
+  "awards_and_certifications": [
+    "DOST Junior Level Science Scholarship Awardee, 2024",
+    "Semi-Finalist, 1st Naga City Mayoral Hackathon — Top 15 of 200+ teams",
+    "Amazon Junior Software Developer with Generative AI, Coursera, October 2025"
+  ]
+}

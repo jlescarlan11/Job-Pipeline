@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "plan_version": "2026-07-28",
+  "candidate_profile_version": "2026-07-28",
+  "source": "onlinejobs.ph",
+  "schedule_hours": 4,
+  "lookback_days": 7,
+  "page_size": 30,
+  "max_pages_per_query": 3,
+  "request_interval_ms": 2000,
+  "request_timeout_ms": 15000,
+  "claim_lease_ms": 600000,
+  "retry": {
+    "max_attempts": 3,
+    "backoff_ms": 5000
+  },
+  "queries": [
+    {
+      "id": "fullstack-general",
+      "role_family": "full-stack",
+      "query": "full stack developer",
+      "evidence_refs": [
+        "summary",
+        "experience:pharmacy-acute-care-university",
+        "experience:upwork"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "web-general",
+      "role_family": "full-stack",
+      "query": "web developer",
+      "evidence_refs": [
+        "summary",
+        "skills.frontend:React",
+        "skills.backend:Node.js"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "typescript",
+      "role_family": "full-stack",
+      "query": "typescript developer",
+      "evidence_refs": [
+        "skills.languages:TypeScript"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "react",
+      "role_family": "frontend",
+      "query": "react developer",
+      "evidence_refs": [
+        "skills.frontend:React"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "nextjs",
+      "role_family": "frontend",
+      "query": "nextjs developer",
+      "evidence_refs": [
+        "skills.frontend:Next.js"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "frontend-general",
+      "role_family": "frontend",
+      "query": "frontend developer",
+      "evidence_refs": [
+        "skills.frontend:React",
+        "skills.frontend:Tailwind CSS"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "nodejs",
+      "role_family": "backend-api",
+      "query": "nodejs developer",
+      "evidence_refs": [
+        "skills.backend:Node.js",
+        "skills.backend:Express.js"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "backend-general",
+      "role_family": "backend-api",
+      "query": "backend developer",
+      "evidence_refs": [
+        "skills.backend:Node.js",
+        "skills.backend:REST APIs"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "api-development",
+      "role_family": "backend-api",
+      "query": "api developer",
+      "evidence_refs": [
+        "skills.backend:REST APIs",
+        "experience:bayoa-analytics"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "supabase",
+      "role_family": "database-platform",
+      "query": "supabase developer",
+      "evidence_refs": [
+        "skills.databases_and_cloud:Supabase",
+        "projects:rent-n-roll"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "postgresql",
+      "role_family": "database-platform",
+      "query": "postgresql developer",
+      "evidence_refs": [
+        "skills.databases_and_cloud:PostgreSQL",
+        "experience:bayoa-analytics"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "flutter",
+      "role_family": "mobile",
+      "query": "flutter developer",
+      "evidence_refs": [
+        "skills.frontend:Flutter",
+        "skills.languages:Dart"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "dart",
+      "role_family": "mobile",
+      "query": "dart developer",
+      "evidence_refs": [
+        "skills.languages:Dart"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "aspnet-core",
+      "role_family": "dotnet",
+      "query": "asp.net core developer",
+      "evidence_refs": [
+        "skills.backend:ASP.NET Core MVC",
+        "experience:alliance-software"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "csharp-web",
+      "role_family": "dotnet",
+      "query": "c# web developer",
+      "evidence_refs": [
+        "skills.languages:C#",
+        "experience:alliance-software"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "n8n",
+      "role_family": "automation",
+      "query": "n8n developer",
+      "evidence_refs": [
+        "skills.automation_and_integrations:n8n",
+        "projects:job-pipeline"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "workflow-automation",
+      "role_family": "automation",
+      "query": "workflow automation",
+      "evidence_refs": [
+        "experience:upwork",
+        "projects:job-pipeline"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "automation-developer",
+      "role_family": "automation",
+      "query": "automation developer",
+      "evidence_refs": [
+        "skills.automation_and_integrations:n8n",
+        "experience:upwork"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "ai-integration",
+      "role_family": "ai-integration",
+      "query": "ai integration developer",
+      "evidence_refs": [
+        "skills.automation_and_integrations:OpenAI API",
+        "skills.automation_and_integrations:Groq API"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "production-support",
+      "role_family": "production-support",
+      "query": "production support engineer",
+      "evidence_refs": [
+        "experience:winds-gate-philippines",
+        "skills.testing_and_delivery:production monitoring"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "application-support",
+      "role_family": "production-support",
+      "query": "application support engineer",
+      "evidence_refs": [
+        "experience:winds-gate-philippines",
+        "experience:pharmacy-acute-care-university"
+      ],
+      "enabled": true
+    },
+    {
+      "id": "payment-integration",
+      "role_family": "marketplace-integrations",
+      "query": "payment integration developer",
+      "evidence_refs": [
+        "projects:rent-n-roll",
+        "skills.automation_and_integrations:PayMongo"
+      ],
+      "enabled": true
+    }
+  ]
+}

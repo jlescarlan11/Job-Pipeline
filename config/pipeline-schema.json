@@ -1,0 +1,171 @@
+{
+  "schema_version": 1,
+  "storage_version": "2026-07-28",
+  "canonical_identity": {
+    "source": "onlinejobs.ph",
+    "preferred": "source_job_id",
+    "fallback": "canonical_url"
+  },
+  "fields": [
+    "source",
+    "source_job_id",
+    "canonical_job_id",
+    "state_guard",
+    "canonical_url",
+    "job_title",
+    "company",
+    "job_description",
+    "salary_text",
+    "posted_at",
+    "discovered_at",
+    "last_seen_at",
+    "search_queries",
+    "role_families",
+    "source_availability",
+    "match_score",
+    "match_tier",
+    "match_decision",
+    "match_reasons",
+    "requirement_gaps",
+    "profile_version",
+    "evaluated_at",
+    "pipeline_status",
+    "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "attempt_count",
+    "failed_stage",
+    "next_retry_at",
+    "error_category",
+    "error_summary",
+    "generated_message",
+    "message_profile_version",
+    "message_validation_status",
+    "generated_at",
+    "manual_action",
+    "application_decision",
+    "application_decided_at",
+    "outcome",
+    "outcome_at",
+    "created_at",
+    "updated_at",
+    "archived_at",
+    "archived_from_status",
+    "notes"
+  ],
+  "pipeline_statuses": [
+    "discovered",
+    "evaluating",
+    "recommended",
+    "review_required",
+    "not_recommended",
+    "unscorable",
+    "generating",
+    "ready",
+    "retryable_error",
+    "terminal_error",
+    "unavailable",
+    "applied",
+    "skipped",
+    "archived"
+  ],
+  "manual_actions": [
+    "",
+    "promote",
+    "mark_applied",
+    "mark_skipped",
+    "retry",
+    "regenerate",
+    "outcome_no_response",
+    "outcome_replied",
+    "outcome_interview",
+    "outcome_offer",
+    "outcome_rejected",
+    "clear_outcome"
+  ],
+  "application_decisions": [
+    "",
+    "applied",
+    "skipped"
+  ],
+  "outcomes": [
+    "",
+    "no_response",
+    "replied",
+    "interview",
+    "offer",
+    "rejected"
+  ],
+  "transitions": {
+    "discovered": [
+      "evaluating"
+    ],
+    "evaluating": [
+      "recommended",
+      "review_required",
+      "not_recommended",
+      "unscorable",
+      "unavailable",
+      "retryable_error",
+      "terminal_error"
+    ],
+    "recommended": [
+      "generating",
+      "skipped"
+    ],
+    "review_required": [
+      "generating",
+      "skipped"
+    ],
+    "not_recommended": [
+      "archived"
+    ],
+    "unscorable": [
+      "evaluating",
+      "generating",
+      "skipped"
+    ],
+    "generating": [
+      "ready",
+      "retryable_error",
+      "terminal_error"
+    ],
+    "ready": [
+      "generating",
+      "applied",
+      "skipped"
+    ],
+    "retryable_error": [
+      "evaluating",
+      "generating",
+      "terminal_error"
+    ],
+    "terminal_error": [
+      "archived"
+    ],
+    "unavailable": [
+      "evaluating",
+      "archived"
+    ],
+    "applied": [
+      "archived"
+    ],
+    "skipped": [
+      "archived"
+    ],
+    "archived": []
+  },
+  "legacy_status_mapping": {
+    "pending": "discovered",
+    "processing": "evaluating",
+    "ready": "ready",
+    "applied": "applied",
+    "skipped": "skipped",
+    "error": "terminal_error"
+  },
+  "legacy_header_mapping": {
+    "created_at ": "created_at",
+    "job_url": "canonical_url",
+    "status": "pipeline_status"
+  }
+}

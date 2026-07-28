@@ -1,59 +1,65 @@
-# JobPipeline
+# Job Pipeline
 
-Automated job application pipeline built on n8n. Scrapes OnlineJobs.ph, generates tailored application messages via Groq, and auto-archives processed entries.
+A resume-driven OnlineJobs.ph discovery and application-review pipeline built with n8n, Google Sheets, and Groq. It discovers direct and credible adjacent roles, evaluates each listing against one versioned candidate profile, generates only evidence-supported application messages, and keeps application submission manual.
 
-## Architecture
+All checked-in n8n exports have `active: false`. Importing this repository does not scrape, write to Sheets, call Groq, archive data, or submit an application until an operator explicitly configures and activates the workflows.
 
-Three independent n8n workflows that share a Google Sheets database:
+## Workflows
 
-1. **Scraper** — runs every 4 hours, scrapes 14 keyword searches, dedups against existing data, appends new pending rows
-2. **Generator** — runs every 15 minutes, processes up to 5 pending rows per run, fetches job descriptions, generates tailored messages via Groq llama-3.3-70b
-3. **Archiver** — runs every 45 minutes, moves applied/skipped/error rows from Sheet1 to Archive tab
+| Export | Schedule | Responsibility |
+| --- | --- | --- |
+| `workflows/scraper.json` | Every 4 hours | Run 22 evidence-linked queries across at most 3 pages each, preserve result-card alignment, reconcile active/archive history, and append only the winning discovery claim. |
+| `workflows/generator.json` | Every 15 minutes | Select at most 5 eligible jobs, enrich details, evaluate fit, generate approved messages through Groq, validate them, and persist retry or terminal state. |
+| `workflows/reviewer.json` | Every 5 minutes | Apply explicit Sheet actions, update active or archived outcomes, and upsert a deduplicated funnel summary. |
+| `workflows/archiver.json` | Every 45 minutes | Upsert eligible terminal records into Archive, reread both tabs, verify the source snapshot and archive copy, then delete confirmed rows from bottom to top. |
 
-## Tech Stack
+The workflows share four Google Sheet tabs:
 
-- **Orchestration**: n8n (self-hosted)
-- **LLM**: Groq llama-3.3-70b-versatile
-- **Database**: Google Sheets (two-tab schema)
-- **Source**: OnlineJobs.ph (custom regex-based extraction)
-- **Language**: JavaScript (Code nodes)
+- `Sheet1`: active discovery, evaluation, generation, and review records.
+- `Archive`: idempotent terminal history and post-application outcomes.
+- `ProcessingClaims`: append-only discovery, evaluation, generation, and archive leases.
+- `Dashboard`: one `metric_key=current` funnel row.
 
-## Key Design Decisions
+## Source of truth
 
-- **Regex over HTML parser**: Cheerio is blocked in n8n Code nodes; pure regex with parent-anchor capture guarantees field alignment per card
-- **Per-run cap**: Generator processes max 5 jobs per run to manage Groq daily token limit (100k TPD on free tier)
-- **Dedup across two sheets**: New scraped jobs are checked against both active Sheet1 AND archived rows before insertion
-- **Master prompt with explicit prohibitions**: URL whitelist, project whitelist, banned phrase enforcement, self-check before output — prevents LLM hallucinations of fake projects/URLs/metrics
+- `config/candidate-profile.json`: versioned candidate facts and approved public links.
+- `config/application-policy.json`: message style, approved projects/URLs, validation limits, and the manual-submission boundary.
+- `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
+- `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
+- `config/runtime.json`: generator and archiver schedules, caps, leases, and retries.
+- `config/review-sheet.json`: review columns, actions, views, and dashboard fields.
 
-## Files
+Do not edit embedded workflow Code or the AI Agent system message directly. Change the relevant source/configuration and regenerate the exports.
 
-- `workflows/scraper.json` — Scraper workflow export
-- `workflows/generator.json` — Generator workflow export
-- `workflows/archiver.json` — Archiver workflow export
-- `docs/architecture.md` — Full system design
-- `docs/master-prompt.md` — The AI Agent system message
-- `docs/sheet-schema.md` — Google Sheets structure
+## Local validation
 
-## Setup
+Prerequisite: Node.js 20 or newer. The repository has no third-party runtime dependencies.
 
-1. Import the three workflow JSONs into your n8n instance
-2. Set up credentials: Google Sheets OAuth2, Groq API key
-3. Create a Google Sheet with columns: job_title, company, job_url, status, generated_message, created_at, notes
-4. Add a second tab "Archive" with the same columns plus archived_at
-5. Configure the master prompt in the Generator's AI Agent node with your own resume
-6. Publish the workflows
+```bash
+npm run build
+npm run validate
+```
 
-## Notes on Reuse
+`npm run build` regenerates all workflow JSON and `google-apps-script/SheetSetup.gs`. `npm run validate` fails on generated-artifact drift and runs deterministic profile, schema, discovery, evaluation, message, review, archive, Sheet setup, workflow-structure, and synthetic lifecycle tests. Default validation makes no live OnlineJobs.ph, Google Sheets, Groq, or n8n calls.
 
-The master prompt is heavily personalized (my resume, my preferences, banned phrases I find AI-tell). If you want to reuse this, replace the RESUME section and adjust the BANNED LANGUAGE list to your taste.
+## Safe setup
 
-## What I Learned
+1. Follow `docs/operations.md`; back up the current Sheet and n8n workflows first.
+2. On a non-production Sheet copy, attach and run `google-apps-script/SheetSetup.gs`. It adds required tabs/headers, migrates legacy identity and state, retains old columns, orders review fields, and installs controlled actions.
+3. Import all four workflow JSON files into a non-production or disabled n8n context.
+4. Replace the exported environment-specific Sheet and credential references with test resources.
+5. Run the documented dry-run and smoke checks while every workflow remains disabled.
+6. Activate production workflows only in the documented order after the old writers are disabled and verification evidence is recorded.
 
-- LLM prompts need explicit, auditable constraints to prevent hallucination in production
-- API rate limit awareness needs to live in the workflow, not just in error handling
-- Dedup logic must consider both active and archived data to prevent re-scraping
-- Per-run caps are simpler and more predictable than daily caps
+No workflow applies to jobs. A candidate must copy/review the validated message, submit it on OnlineJobs.ph, and explicitly choose `mark_applied` or `mark_skipped`.
 
-## Status
+## Documentation
 
-Active. Currently processing ~5 job applications per day with manual review before sending.
+- `docs/architecture.md`: data flow, ownership, concurrency, retries, and state model.
+- `docs/candidate-profile.md`: profile and application-policy versioning.
+- `docs/data-contract.md`: identity, compatibility, migration, and state semantics.
+- `docs/sheet-schema.md`: complete tab, field, action, and view reference.
+- `docs/master-prompt.md`: how the generated Groq prompt is assembled and validated.
+- `docs/operations.md`: backup, migration, dry run, activation, production checks, and rollback.
+- `docs/acceptance-matrix.md`: issue-by-issue acceptance evidence.
+- `docs/review-report.md`: final security, data-integrity, and operational-readiness review.
