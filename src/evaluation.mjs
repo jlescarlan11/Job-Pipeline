@@ -85,6 +85,27 @@ function includesAlias(text, aliases) {
   });
 }
 
+function aliasOccurrences(text, aliases) {
+  const occurrences = [];
+  for (const alias of aliases) {
+    const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(
+      `(^|[^a-z0-9+#])(${escaped})(?=[^a-z0-9+#]|$)`,
+      "gi"
+    );
+    for (const match of text.matchAll(pattern)) {
+      const start = (match.index ?? 0) + match[1].length;
+      occurrences.push({
+        start,
+        end: start + match[2].length
+      });
+    }
+  }
+  return occurrences.sort(
+    (left, right) => left.start - right.start || right.end - left.end
+  );
+}
+
 function knownSkillsInText(text, profile) {
   const approved = new Set(approvedSkillNames(profile));
   return Object.entries(SKILL_ALIASES)
@@ -117,39 +138,231 @@ function profileSkillReference(skill, profile) {
   return "";
 }
 
+const PREFERENCE_REQUIREMENT_PATTERN =
+  /\b(?:preferred|nice to have|bonus|a plus|optionally|would be useful)\b/i;
+const HARD_REQUIREMENT_PATTERN =
+  /\b(?:must|required|requirement|minimum|need(?:ed)?|proficien|mandatory)\b|\b\d+\+?\s*(?:years?|yrs?)\b/i;
+const ALTERNATIVE_MARKER_PATTERN =
+  /\b(?:any\s+one\s+of|at\s+least\s+one\s+of|one\s+of|either|choose\s+any(?:\s+one)?(?:\s+of)?|select\s+any(?:\s+one)?(?:\s+of)?)\b/gi;
+
+function requirementClassification(text, alternativeMarker = "") {
+  if (PREFERENCE_REQUIREMENT_PATTERN.test(text)) return "preference";
+  if (
+    HARD_REQUIREMENT_PATTERN.test(text) ||
+    /^(?:at\s+least\s+one\s+of|choose\s+any|select\s+any)/i.test(
+      alternativeMarker
+    )
+  ) {
+    return "hard";
+  }
+  return "ambiguous";
+}
+
+function isPhpCurrencyOccurrence(text, occurrence) {
+  const before = text.slice(Math.max(0, occurrence.start - 80), occurrence.start);
+  const after = text.slice(occurrence.end, occurrence.end + 80);
+  const local = `${before}PHP${after}`;
+  if (
+    /^\s*(?:[:=]\s*)?(?:₱\s*)?[\d]/.test(after) ||
+    /[\d][\d,.]*\s*$/.test(before)
+  ) {
+    return true;
+  }
+  if (
+    /\b(?:philippine\s+pesos?|peso-denominated|php-denominated)\b/i.test(local)
+  ) {
+    return true;
+  }
+  if (
+    /^\s*(?:developer|development|programming|experience|proficien|skills?|language|code|applications?|framework)\b/i.test(
+      after
+    )
+  ) {
+    return false;
+  }
+  return (
+    /\b(?:salary|wage|compensation|monthly\s+pay|pay\s+rate|pay|rate|budget|paid)\s*(?:(?:is|will\s+be)\s*)?(?:(?:paid|denominated)\s*)?(?:of|:|=|in|at|using)?\s*$/i.test(
+      before
+    ) ||
+    /^\s*(?:currency|per\s+month|\/\s*month|monthly|salary|wage|compensation|pay|rate|denominated)\b/i.test(
+      after
+    )
+  );
+}
+
+function capabilityAliases(name) {
+  return SKILL_ALIASES[name] ?? [name.toLowerCase()];
+}
+
+function capabilitiesInAlternativeText(text, profile, policy, lineOffset, line) {
+  const approved = new Set(approvedSkillNames(profile));
+  const capabilities = [
+    ...approved,
+    ...policy.qualification.unsupported_technologies.filter(
+      (technology) => !approved.has(technology)
+    )
+  ].sort(
+    (left, right) =>
+      Math.max(...capabilityAliases(right).map((alias) => alias.length)) -
+        Math.max(...capabilityAliases(left).map((alias) => alias.length)) ||
+      left.localeCompare(right)
+  );
+  const claimedSpans = [];
+  const matches = [];
+  for (const capability of capabilities) {
+    for (const occurrence of aliasOccurrences(
+      text,
+      capabilityAliases(capability)
+    )) {
+      const absolute = {
+        start: occurrence.start + lineOffset,
+        end: occurrence.end + lineOffset
+      };
+      if (
+        claimedSpans.some(
+          (span) => absolute.start < span.end && absolute.end > span.start
+        )
+      ) {
+        continue;
+      }
+      if (
+        capability === "PHP" &&
+        isPhpCurrencyOccurrence(line, absolute)
+      ) {
+        continue;
+      }
+      claimedSpans.push(absolute);
+      matches.push({
+        capability,
+        supported: approved.has(capability),
+        ...absolute
+      });
+    }
+  }
+  return matches.sort(
+    (left, right) =>
+      left.start - right.start ||
+      left.capability.localeCompare(right.capability)
+  );
+}
+
+function alternativeRequirementGroups(line, profile, policy) {
+  const markers = [...line.matchAll(ALTERNATIVE_MARKER_PATTERN)];
+  const groups = [];
+  for (const [index, marker] of markers.entries()) {
+    const markerEnd = (marker.index ?? 0) + marker[0].length;
+    const nextMarkerStart = markers[index + 1]?.index ?? line.length;
+    const candidateTail = line.slice(markerEnd, nextMarkerStart);
+    const grammaticalSuffix = candidateTail.search(
+      /\s+(?:is|are)\s+(?:required|mandatory|preferred|optional|a\s+plus)\b/i
+    );
+    const optionTail =
+      grammaticalSuffix >= 0
+        ? candidateTail.slice(0, grammaticalSuffix)
+        : candidateTail;
+    const matches = capabilitiesInAlternativeText(
+      optionTail,
+      profile,
+      policy,
+      markerEnd,
+      line
+    );
+    const options = [
+      ...new Map(matches.map((match) => [match.capability, match])).values()
+    ];
+    if (options.length < 2) continue;
+    const firstOption = options[0];
+    const lastOption = options.at(-1);
+    const optionPrefix = line.slice(markerEnd, firstOption.start);
+    const optionSeparators = line.slice(firstOption.end, lastOption.start);
+    if (
+      !/^\s*(?:(?:the\s+following|these)\s+)?(?:(?:programming\s+)?languages?|technologies|frameworks|stacks|options)?\s*[:=-]?\s*$/i.test(
+        optionPrefix
+      ) ||
+      !/(?:,|\/|\bor\b)/i.test(optionSeparators)
+    ) {
+      continue;
+    }
+    groups.push({
+      start: marker.index ?? 0,
+      end: markerEnd + optionTail.length,
+      marker: marker[0],
+      options,
+      classification: requirementClassification(line, marker[0])
+    });
+  }
+  return groups;
+}
+
 function classifyRequirementGaps(text, profile, policy) {
   const approvedText = approvedSkillNames(profile).join("\n").toLowerCase();
   const lines = String(text || "")
     .slice(0, MAX_RANKING_TEXT_LENGTH)
-    .split(/\n|[.!?]\s+/)
+    .split(/\n|[.!?]\s+|;\s*/)
     .map(normalizeText)
     .filter(Boolean);
   const severity = { preference: 1, ambiguous: 2, hard: 3 };
-  const byTechnology = new Map();
-  for (const technology of policy.qualification.unsupported_technologies) {
-    if (approvedText.includes(technology.toLowerCase())) continue;
-    for (const line of lines) {
-      if (!includesAlias(line, [technology.toLowerCase()])) continue;
-      let classification = "ambiguous";
-      if (/\b(?:preferred|nice to have|bonus|a plus|optionally)\b/i.test(line)) {
-        classification = "preference";
-      } else if (
-        /\b(?:must|required|requirement|minimum|need(?:ed)?|proficien|mandatory)\b/i.test(line) ||
-        /\b\d+\+?\s*(?:years?|yrs?)\b/i.test(line)
+  const byRequirement = new Map();
+  for (const line of lines) {
+    const alternativeGroups = alternativeRequirementGroups(
+      line,
+      profile,
+      policy
+    );
+    for (const group of alternativeGroups) {
+      if (group.options.some((option) => option.supported)) continue;
+      const requirement = `One of: ${group.options
+        .map((option) => option.capability)
+        .sort((left, right) => left.localeCompare(right))
+        .join(" / ")}`;
+      const existing = byRequirement.get(requirement);
+      if (
+        !existing ||
+        severity[group.classification] > severity[existing.classification]
       ) {
-        classification = "hard";
-      }
-      const existing = byTechnology.get(technology);
-      if (!existing || severity[classification] > severity[existing.classification]) {
-        byTechnology.set(technology, {
-          requirement: technology,
-          classification,
+        byRequirement.set(requirement, {
+          requirement,
+          classification: group.classification,
           evidence: line.slice(0, 160)
         });
       }
     }
+
+    for (const technology of policy.qualification.unsupported_technologies) {
+      if (approvedText.includes(technology.toLowerCase())) continue;
+      for (const occurrence of aliasOccurrences(line, [
+        technology.toLowerCase()
+      ])) {
+        if (
+          alternativeGroups.some(
+            (group) =>
+              occurrence.start >= group.start && occurrence.end <= group.end
+          )
+        ) {
+          continue;
+        }
+        if (
+          technology === "PHP" &&
+          isPhpCurrencyOccurrence(line, occurrence)
+        ) {
+          continue;
+        }
+        const classification = requirementClassification(line);
+        const existing = byRequirement.get(technology);
+        if (
+          !existing ||
+          severity[classification] > severity[existing.classification]
+        ) {
+          byRequirement.set(technology, {
+            requirement: technology,
+            classification,
+            evidence: line.slice(0, 160)
+          });
+        }
+      }
+    }
   }
-  return [...byTechnology.values()].sort((left, right) =>
+  return [...byRequirement.values()].sort((left, right) =>
     left.requirement.localeCompare(right.requirement)
   );
 }
@@ -1055,7 +1268,13 @@ export function selectWorkCandidates(
     if (record.pipeline_status === "retryable_error" && isRetryDue(record, nowMs)) {
       workStage = record.failed_stage || "evaluation";
     }
-    if (record.pipeline_status === "recommended") workStage = "generation";
+    if (record.pipeline_status === "recommended") {
+      workStage =
+        record.message_validation_status === "quarantined" &&
+        String(record.job_description || "").trim().length < 40
+          ? "evaluation"
+          : "generation";
+    }
     if (record.pipeline_status === "review_required" && record.manual_action === "promote") {
       workStage = "generation";
     }
@@ -1810,9 +2029,16 @@ export function applyGeneratedApplicationPack(
     policy: applicationPolicy,
     pack
   });
-  if (packErrors.length > 0 || !messageValidation.valid) {
+  if (
+    pack.application_pack_status !== "ready" ||
+    packErrors.length > 0 ||
+    !messageValidation.valid
+  ) {
     throw new Error(
       `Invalid application pack: ${[
+        ...(pack.application_pack_status === "ready"
+          ? []
+          : ["application_pack_status must be ready"]),
         ...packErrors,
         ...messageValidation.errors
       ].join("; ")}`

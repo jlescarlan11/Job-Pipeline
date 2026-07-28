@@ -13,8 +13,28 @@ from the surrounding requirement language:
 
 - `hard`: must, required, minimum, mandatory, proficiency, or an explicit years
   requirement;
-- `preference`: preferred, nice-to-have, bonus, plus, or optional language;
+- `preference`: preferred, nice-to-have, bonus, plus, optional, or
+  “would be useful” language;
 - `ambiguous`: a mentioned unsupported technology without either marker.
+
+A `PHP` occurrence is classified before severity is assigned. An adjacent
+amount, explicit Philippine-peso wording, or an unambiguous
+salary/wage/compensation/pay/rate context is currency evidence and does not
+become a programming gap. The exclusion is occurrence-local: a separate
+`PHP programming experience is required` clause in the same posting remains a
+hard gap. Qualification parsing does not remove or rewrite `salary_text`, so
+the opportunity salary factor continues to parse reliable PHP-per-month
+amounts independently.
+
+Explicit any-one-of constructions—such as `one of`, `either`, `choose any`, or
+`at least one of` with a comma, slash, or `or`-separated capability list—are
+evaluated as one alternative group. One canonical approved profile skill
+satisfies the group and suppresses gaps for unchosen alternatives. If no
+listed option is supported, one deterministic gap named
+`One of: <alphabetized options>` is persisted with the original bounded
+evidence and the clause severity. A slash or comma list without an explicit
+alternative marker remains a set of independent requirements. Unrecognized or
+unclear wording remains ambiguous rather than being discarded.
 
 A hard gap, including a seniority mismatch, routes the job to
 `not_recommended` and forces `save_points`. An ambiguous gap routes to

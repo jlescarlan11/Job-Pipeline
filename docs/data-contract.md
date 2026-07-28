@@ -48,11 +48,14 @@ unexpired Sheet row for one job and stage owns the work; later claims exit
 without performing the guarded write or external generation. Expired claims
 remain audit data and are ignored.
 
-Generator claim marking matches `state_guard`. The guard covers lifecycle,
-first review, actual Apply Points, message strategy, current outcome, and
-outcome events. Evaluation and generation commits match the unique
-`processing_token`. This prevents completed manual review/application/outcome
-state or a newer processing stage from being overwritten by a stale execution.
+Generator and alert claim marking matches `state_guard`. The guard covers
+lifecycle, first review, actual Apply Points, message strategy, current
+outcome, and outcome events. Claim marking writes both the active
+`processing_token` and a hidden `processing_commit_guard`. Terminal evaluation,
+generation, and alert commits match the commit guard while writing blank
+`processing_token`, `processing_stage`, and `processing_started_at` in that
+same guarded update. Manual actions clear both processing keys and newer claims
+replace the guard, so a stale execution cannot overwrite newer state.
 
 ## Opportunity-learning dimensions
 
@@ -65,6 +68,10 @@ state or a newer processing stage from being overwritten by a stale execution.
   explanation and `scoring_policy_version`.
 - Application-pack fields preserve structured instructions, questions, proof
   references, warnings, status, and the profile/policy versions used.
+- `message_validation_status=quarantined` marks active legacy content removed
+  by the confirmed remediation. A message is dispatchable only when current
+  message/profile/policy metadata and a structurally valid current ready pack
+  all pass the shared deterministic content gate.
 - Alert fields preserve delivery status and sanitized provider metadata. They
   never contain credentials or reusable action tokens.
 - `alert_idempotency_key` scopes one initial delivery to canonical identity and
@@ -77,6 +84,13 @@ state or a newer processing stage from being overwritten by a stale execution.
 Structured arrays are serialized as JSON in Sheets and normalized on read.
 Invalid score bounds, enums, timestamps, points, or JSON arrays fail contract
 validation rather than being silently coerced into a valid value.
+
+Every version field declared by the canonical job, analytics, or recommendation
+contracts is stored as plain text. Version identifiers are audit metadata, not
+dates: Sheet setup applies text formatting before migration writes. The only
+numeric-to-text repair currently authorized is the identity-guarded
+`profile_version` serial `46231` that displays as `2026-07-28`; any other
+non-text version value stops migration for manual review.
 
 At the first successful `mark_applied`, the application snapshot copies the
 current qualification/opportunity scores, confidence, ranking policy, Apply
@@ -149,8 +163,12 @@ Legacy headers and statuses are normalized as follows:
 | `status=error` | `pipeline_status=terminal_error` |
 
 Existing `ready`, `applied`, and `skipped` records retain their message and
-manual decision. Records with generated content but no version receive
-`message_profile_version=legacy/unknown`.
+manual decision unless they are one of the eight stable-identity/evidence
+matched unsafe active legacy messages. Those active messages are removed from
+the dispatch field before regeneration; applied/skipped history is never
+quarantined. Other generated content with no version receives
+`message_profile_version=legacy/unknown` and remains non-dispatchable until
+validated under current policy.
 
 Legacy `match_score` remains a legacy value. It is not copied into
 `qualification_score` or `opportunity_score`. Legacy outcomes remain the
@@ -167,6 +185,8 @@ current compatibility value and do not create fabricated `outcome_events`.
    state updates.
 6. Retain the trailing-space legacy header through this rollout; only the
    canonical `created_at` column is written by the new workflows.
+7. Inspect version cells through raw-value reads after setup and confirm that a
+   second setup run reports no version repairs.
 
 ## Rollback
 

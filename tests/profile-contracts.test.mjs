@@ -15,6 +15,7 @@ import {
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
   parseHttpUrl,
+  processingCommitGuard,
   stateGuard,
   transitionRecord,
   validatePipelineSchema,
@@ -265,6 +266,11 @@ test("processing claims reject overlapping work and allow stale recovery", () =>
   });
   assert.equal(recovered.claimed, true);
   assert.equal(recovered.record.processing_token, "token-b");
+  assert.equal(
+    recovered.record.processing_commit_guard,
+    processingCommitGuard("token-b")
+  );
+  assert.equal(processingCommitGuard(""), "");
 });
 
 test("state guards change with manual lifecycle state but not processing metadata", () => {

@@ -57,9 +57,9 @@ Configured schedules are scraper every 4 hours, generator every 15 minutes, aler
 
 `config/pipeline-schema.json` defines the logical record. `canonical_job_id` is `onlinejobs.ph:<source_job_id>` when OnlineJobs.ph exposes an ID; otherwise it is a deterministic hash of the normalized canonical URL. Mutable Sheet row numbers are transport metadata only.
 
-`state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Final evaluation/generation commits match the unique `processing_token`, so a manual action that clears or replaces the token prevents a stale result from overwriting the decision. Completed commits leave the last token as an optimistic-concurrency sentinel while clearing the processing stage/start time; the next legitimate claim overwrites it. There is no canonical-ID cleanup write that could erase a newer claim.
+`state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Claim marking also writes a hidden `processing_commit_guard` derived from the winning token. Final evaluation, generation, and alert commits match that guard while atomically writing blank `processing_token`, `processing_stage`, and `processing_started_at`. The retained commit guard is not an active claim: a new claim replaces it and a manual lifecycle action clears it, so stale results match zero rows. There is no second canonical-ID cleanup write that could erase a newer claim.
 
-`ProcessingClaims` is append-only. For a canonical job and stage, the lowest valid Sheet row number wins until its configured lease expires. This arbitrates concurrent discovery, evaluation, alert, and archival executions without treating a mutable active-row number as identity.
+`ProcessingClaims` is append-only. For a canonical job and stage, the lowest valid Sheet row number wins until its configured lease expires. This arbitrates concurrent discovery, evaluation, generation, alert, and archival executions without treating a mutable active-row number as identity.
 
 ## Discovery workflow
 
@@ -91,6 +91,11 @@ receive the configured neutral contribution and remain listed as missing; they
 are never fabricated. Hard requirements unsupported by profile evidence route
 to `not_recommended` and `save_points`; ambiguous requirements route to manual
 review when the remaining qualification evidence meets the review threshold.
+Requirement classification distinguishes occurrence-local PHP currency
+evidence from PHP programming requirements. Explicit any-one-of capability
+lists are evaluated once against canonical approved skills; a supported option
+satisfies the group, while an unsatisfied group becomes one deterministic gap.
+Unmarked lists and unclear wording retain the independent/fail-closed behavior.
 Apply Points values are advisory categories only.
 
 Only `recommended` records or explicit supported promotions reach Groq. Before
@@ -104,21 +109,32 @@ The generated system message is built from the canonical profile plus
 application policy. Post-generation validation rejects empty output, excess
 length, unapproved URLs, obsolete projects, unsupported technologies,
 unsupported numeric claims, phone numbers, banned phrases, and a missing
-required subject value. A successful processing-token commit writes the
-message and complete pack together. Provider or validation failure starts from
-the pre-generation record, preserving the previous valid pack and message. A
-validated message preserves line breaks and becomes `ready`; the independent
-pack status may remain `review_required` or `blocked`, and no node submits it.
+required subject value. A successful finalization matches the durable
+`processing_commit_guard` written at claim acquisition and writes the message,
+complete pack, and cleared active-claim fields together. Provider or validation
+failure starts from the pre-generation record, preserving the previous valid
+pack and message. A validated message preserves line breaks and becomes
+`ready` only when its pack is also `ready`; no node submits it.
+
+Persisted dispatchability is independently revalidated against the current
+candidate profile, application policy, pack policy, provenance fields, pack
+structure, approved URLs, and banned phrases. The same fail-closed decision
+guards `mark_applied`, Slack eligibility, and alert rendering. The eight
+confirmed unsafe legacy active messages are cleared by stable identity and
+evidence, marked `quarantined`, made alert-ineligible, and routed through
+evaluation first when their stored description is missing. Failed or partial
+replacement work remains non-dispatchable.
 
 The workflow runs every 15 minutes. It makes at most 5 generation selections per run. Detail HTTP calls time out after 15 seconds and retry up to 3 times with 5-second in-node waits, which stay below the 10-minute claim lease. Retryable stage failures record stage, category, sanitized summary, attempt count, and exponential next-retry time starting at 5 minutes. The third failed attempt, validation failure, or non-retryable request becomes `terminal_error`.
 
 ## Alert workflow
 
 The generator evaluates alert eligibility only after the instruction-aware pack
-and message have passed their atomic commit boundary. A ready record meeting the
-versioned qualification, opportunity, confidence, freshness, and major-gap
-thresholds is persisted as `pending` in the same commit; no reviewer poll is
-required to enter the delivery queue.
+and message have passed their atomic commit boundary. A ready record meeting
+the current persisted-message gate plus the versioned qualification,
+opportunity, confidence, freshness, and major-gap thresholds is persisted as
+`pending` in the same commit; no reviewer poll is required to enter the
+delivery queue.
 
 The alerter claims at most the configured per-run cap through
 `ProcessingClaims`, marks a deliverable record `sending`, validates the

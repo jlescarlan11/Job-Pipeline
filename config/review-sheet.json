@@ -32,6 +32,7 @@
     "manual_action",
     "canonical_job_id",
     "state_guard",
+    "processing_commit_guard",
     "processing_token",
     "apply_points_input",
     "application_message_strategy_input",
@@ -64,6 +65,7 @@
   ],
   "hidden_columns": [
     "state_guard",
+    "processing_commit_guard",
     "processing_token"
   ],
   "manual_action_dropdown": [

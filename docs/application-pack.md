@@ -31,10 +31,10 @@ shortfall. `blocked` means a required attachment/test or unsupported evidence
 cannot be completed by the pipeline, the posting is unavailable/insufficient,
 or an unsafe instruction was rejected.
 
-The message lifecycle can still be `ready` for copying while the independent
-pack status is `review_required` or `blocked`. This distinction preserves the
-existing copy-and-review flow while ensuring alerts and review surfaces do not
-describe an incomplete pack as ready. The candidate remains responsible for
+A generation commit can enter lifecycle `ready` only when the pack status is
+also `ready` and the persisted message passes the current shared content and
+provenance gate. A `review_required` or `blocked` pack remains non-copyable and
+cannot be marked applied or alerted. The candidate remains responsible for
 questions, attachments, tests, external navigation, submission, and Apply
 Points.
 
@@ -45,6 +45,9 @@ configuration disclosure, private-data access, or automatic submission/point
 spending are excluded from instructions and prompts. Durable warnings store
 only a category and sanitized summary, never the malicious instruction text.
 
-Regeneration is copy-on-success: extraction and the model response remain
-transient until the processing-token commit. Provider, validation, or commit
-failure preserves the prior validated message and pack for retry.
+Normal regeneration is copy-on-success: extraction and the model response
+remain transient until the guarded commit. Provider, validation, or commit
+failure preserves the prior validated message and pack for retry. The one-time
+confirmed unsafe legacy-message migration is different: it removes
+dispatchable text before regeneration, stores sanitized quarantine evidence,
+and fails closed until a current replacement commits.

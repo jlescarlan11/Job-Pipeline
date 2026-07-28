@@ -11,18 +11,23 @@ open-only.
 
 ## Eligibility and queueing
 
-The generator queues an alert only after committing a record whose lifecycle
-and instruction-aware application pack are ready. The record must meet every
-configured qualification, opportunity, confidence, freshness, and major-gap
-rule, remain active, and have no application decision. Queuing is part of the
-same successful record commit and stores:
+The generator queues an alert only after committing a record whose lifecycle,
+instruction-aware application pack, message content, and provenance are all
+current and ready. The shared safety gate revalidates profile/policy/pack
+versions, validation state, approved URLs, banned phrases, and pack structure.
+The record must also meet every configured qualification, opportunity,
+confidence, freshness, and major-gap rule, remain active, and have no
+application decision. Queuing is part of the same successful record commit and
+stores:
 
 - `alert_status=pending`
 - the configured channel and policy version
 - `alert_idempotency_key=<canonical_job_id>|<alert_policy_version>`
 - zero attempts and an immediately due `alert_next_retry_at`
 
-Ineligible records are explicit `not_eligible` records. A queued job that becomes
+Ineligible records are explicit `not_eligible` records. An unsafe queued or
+sending record is terminalized through a state-only alert claim with the stable
+`message_quarantined` reason and no provider request. A queued job that becomes
 unavailable is changed to `suppressed` under an alert claim and is not sent.
 Changing the versioned policy creates a new idempotency scope; it is therefore
 an operator-visible product change, not an invisible configuration edit.

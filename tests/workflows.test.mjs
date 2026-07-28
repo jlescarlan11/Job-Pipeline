@@ -267,12 +267,36 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   );
   assert.deepEqual(
     nodeByName(workflow, "Commit Generation Result").parameters.columns.matchingColumns,
-    ["processing_token"]
+    ["processing_commit_guard"]
   );
-  assert.match(
-    nodeByName(workflow, "Commit Generation Result").parameters.columns.value.processing_token,
-    /processing_token/
-  );
+  for (const name of [
+    "Commit Evaluation Result",
+    "Commit Generation Result"
+  ]) {
+    const commit = nodeByName(workflow, name);
+    assert.deepEqual(commit.parameters.columns.matchingColumns, [
+      "processing_commit_guard"
+    ]);
+    assert.match(
+      commit.parameters.columns.value.processing_commit_guard,
+      /processing_commit_guard/
+    );
+    assert.match(
+      commit.parameters.columns.value.processing_token,
+      /\$json\.processing_token/
+    );
+    assert.match(
+      commit.parameters.columns.value.processing_stage,
+      /\$json\.processing_stage/
+    );
+    assert.match(
+      commit.parameters.columns.value.processing_started_at,
+      /\$json\.processing_started_at/
+    );
+  }
+  const markClaim = nodeByName(workflow, "Mark Claimed Jobs");
+  assert.ok(markClaim.parameters.columns.value.processing_commit_guard);
+  assert.ok(markClaim.parameters.columns.value.processing_token);
   assertDirectConnection(workflow, "Prepare Application Pack", "AI Agent");
   assertDirectConnection(workflow, "AI Agent", "Validate Generated Message");
   assertDirectConnection(workflow, "Validate Generated Message", "Commit Generation Result");
@@ -292,6 +316,28 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.match(
     evaluationCode,
     /evaluateJob\(record, PROFILE, RANKING_POLICY, now\)/
+  );
+  const evaluationRuntime = evaluationCode.slice(
+    evaluationCode.lastIndexOf("const PROFILE =")
+  );
+  assert.match(evaluationRuntime, /processing_commit_guard:\s*commitGuard/);
+  assert.doesNotMatch(
+    evaluationRuntime,
+    /processing_token:\s*commitToken/
+  );
+  const generationRuntime = nodeByName(
+    workflow,
+    "Validate Generated Message"
+  ).parameters.jsCode.slice(
+    nodeByName(
+      workflow,
+      "Validate Generated Message"
+    ).parameters.jsCode.lastIndexOf("const PROFILE =")
+  );
+  assert.match(generationRuntime, /processing_commit_guard:\s*commitGuard/);
+  assert.doesNotMatch(
+    generationRuntime,
+    /processing_token:\s*commitToken/
   );
   const evaluationCommit = nodeByName(
     workflow,
@@ -319,9 +365,19 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     workflow,
     "Validate Generated Message"
   ).parameters.jsCode;
+  assert.match(
+    generationCode,
+    /function evaluatePersistedMessageSafety\s*\(/
+  );
+  assert.match(generationCode, /function validateGeneratedMessage\s*\(/);
+  assert.match(generationCode, /function validateApplicationPack\s*\(/);
   assert.match(generationCode, /const originalRecord = \$\('Keep Winning Claims'\)/);
   assert.match(generationCode, /applyGeneratedApplicationPack/);
-  assert.match(generationCode, /queueAlertState\(generated, ALERT_POLICY, now\)/);
+  assert.match(
+    generationCode,
+    /queueAlertState\(\s*generated,\s*ALERT_POLICY,\s*now,\s*MESSAGE_SAFETY\s*\)/
+  );
+  assert.match(generationCode, /applicationPolicy:\s*POLICY/);
   assert.match(generationCode, /recordStageFailure\(originalRecord/);
   const generationCommit = nodeByName(
     workflow,
@@ -389,8 +445,20 @@ test("alerter export claims, validates, sends, and commits without state-changin
   );
   assert.deepEqual(
     nodeByName(workflow, "Commit Alert Result").parameters.columns.matchingColumns,
-    ["processing_token"]
+    ["processing_commit_guard"]
   );
+  const alertCommit = nodeByName(workflow, "Commit Alert Result");
+  assert.match(
+    alertCommit.parameters.columns.value.processing_commit_guard,
+    /processing_commit_guard/
+  );
+  assert.match(
+    alertCommit.parameters.columns.value.processing_token,
+    /\$json\.processing_token/
+  );
+  const markAlert = nodeByName(workflow, "Mark Alert Attempts");
+  assert.ok(markAlert.parameters.columns.value.processing_commit_guard);
+  assert.ok(markAlert.parameters.columns.value.processing_token);
   const prepare = nodeByName(
     workflow,
     "Prepare Alert Delivery"
@@ -398,16 +466,42 @@ test("alerter export claims, validates, sends, and commits without state-changin
   assert.match(prepare, /validateAlertProviderConfiguration/);
   assert.match(prepare, /review_confirmation/);
   assert.match(prepare, /configuration_error/);
+  assert.match(prepare, /evaluatePersistedMessageSafety/);
+  assert.match(
+    nodeByName(
+      workflow,
+      "Prepare Alert Candidates"
+    ).parameters.jsCode,
+    /selectAlertCandidates\(\s*[\s\S]*MESSAGE_SAFETY\s*\)/
+  );
+  for (const nodeName of [
+    "Prepare Alert Candidates",
+    "Prepare Alert Delivery"
+  ]) {
+    const code = nodeByName(workflow, nodeName).parameters.jsCode;
+    assert.match(code, /function evaluatePersistedMessageSafety\s*\(/);
+    assert.match(code, /function validateGeneratedMessage\s*\(/);
+    assert.match(code, /function validateApplicationPack\s*\(/);
+  }
   assert.match(prepare, /\$\('Keep Winning Alert Claims'\)\.item\.json/);
   assert.doesNotMatch(prepare, /request_url/);
+  const prepareRuntime = prepare.slice(prepare.lastIndexOf("const POLICY ="));
+  assert.match(prepareRuntime, /processing_commit_guard:\s*commitGuard/);
+  assert.doesNotMatch(
+    prepareRuntime,
+    /processing_token:\s*commitToken/
+  );
   const send = nodeByName(workflow, "Send Slack Alert");
   assert.equal(
     send.parameters.url,
     `={{ $env.${alertPolicy.environment.provider_webhook_url} }}`
   );
+  assert.equal(send.parameters.method, "POST");
+  assert.equal(send.parameters.contentType, "json");
+  assert.equal(send.parameters.specifyBody, "json");
   assert.equal(send.parameters.options.timeout, alertPolicy.provider_timeout_ms);
   assert.equal(send.retryOnFail, false);
-  assert.match(send.parameters.body, /alert_payload\.text/);
+  assert.match(send.parameters.jsonBody, /alert_payload\.text/);
   assert.doesNotMatch(JSON.stringify(send), /hooks\.slack\.com\/services\//);
   const finalize = nodeByName(
     workflow,
@@ -415,6 +509,12 @@ test("alerter export claims, validates, sends, and commits without state-changin
   ).parameters.jsCode;
   assert.match(finalize, /applyAlertProviderResult/);
   const finalizeRuntime = finalize.slice(finalize.lastIndexOf("const POLICY ="));
+  assert.match(finalizeRuntime, /processing_commit_guard:\s*commitGuard/);
+  assert.match(finalizeRuntime, /payload\.error\?\.status/);
+  assert.doesNotMatch(
+    finalizeRuntime,
+    /processing_token:\s*commitToken/
+  );
   assert.doesNotMatch(
     finalizeRuntime,
     /job_description|generated_message|application_prompt/
@@ -425,6 +525,12 @@ test("alerter export claims, validates, sends, and commits without state-changin
         !/submit application|auto.?apply|spend.*points/i.test(node.name) &&
         !/\/apply(?:\b|\/)/i.test(String(node.parameters?.url ?? ""))
     )
+  );
+  assert.ok(
+    workflow.nodes.every(
+      (node) => !/Clear Alert Claim/.test(node.name)
+    ),
+    "an unguarded follow-up cleanup could erase a newer alert claim"
   );
 });
 
@@ -471,7 +577,16 @@ test("reviewer export only applies explicit actions and upserts one deduplicated
   assert.match(prepare, /first_reviewed_at/);
   assert.match(prepare, /application_snapshot_at/);
   assert.match(prepare, /outcome_events/);
+  assert.match(prepare, /evaluatePersistedMessageSafety/);
+  assert.match(prepare, /function evaluatePersistedMessageSafety\s*\(/);
+  assert.match(prepare, /function validateGeneratedMessage\s*\(/);
+  assert.match(prepare, /function validateApplicationPack\s*\(/);
+  assert.match(
+    prepare,
+    /processReviewActions\(\s*activeRows,\s*archiveRows,\s*SCHEMA,\s*now,\s*MESSAGE_SAFETY\s*\)/
+  );
   for (const field of [
+    "processing_commit_guard",
     "first_reviewed_at",
     "apply_points_used",
     "application_message_strategy",

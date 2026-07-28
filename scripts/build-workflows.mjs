@@ -601,6 +601,7 @@ async function buildGenerator() {
     "src/contracts.mjs",
     "src/profile.mjs",
     "src/evaluation.mjs",
+    "src/message-safety.mjs",
     "src/alerts.mjs"
   );
   const { assertValidProfileConfiguration } = await import(
@@ -777,6 +778,7 @@ return selected.map((record) => {
       pipeline_status: record.work_stage === 'evaluation' ? 'evaluating' : 'generating',
       processing_stage: record.work_stage,
       processing_token: claim.processing_token,
+      processing_commit_guard: processingCommitGuard(claim.processing_token),
       processing_started_at: now,
       claim_created_at: claim.created_at,
       claim_expires_at: claim.expires_at,
@@ -821,6 +823,8 @@ const RANKING_POLICY = ${JSON.stringify(rankingPolicy)};
 const record = $json;
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
+const commitGuard =
+  record.processing_commit_guard || processingCommitGuard(commitToken);
 if (record.work_error) {
   const failed = recordStageFailure(record, new Error(record.work_error), {
     stage: 'evaluation',
@@ -831,7 +835,7 @@ if (record.work_error) {
   return {
     json: {
       ...failed,
-      processing_token: commitToken,
+      processing_commit_guard: commitGuard,
       commit_token: commitToken
     }
   };
@@ -841,7 +845,7 @@ const evaluated = applyEvaluation(record, evaluation, now);
 return {
   json: {
     ...evaluated,
-    processing_token: commitToken,
+    processing_commit_guard: commitGuard,
     commit_token: commitToken
   }
 };`;
@@ -852,11 +856,18 @@ const PROFILE = ${JSON.stringify(profile)};
 const POLICY = ${JSON.stringify(policy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
+const MESSAGE_SAFETY = {
+  profile: PROFILE,
+  applicationPolicy: POLICY,
+  packPolicy: PACK_POLICY
+};
 const originalRecord = $('Keep Winning Claims').item.json;
 const record = $('Prepare Application Pack').item.json;
 const payload = $json || {};
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
+const commitGuard =
+  record.processing_commit_guard || processingCommitGuard(commitToken);
 const errorMessage = payload.error?.message || payload.message || '';
 if (errorMessage && !payload.output) {
   const failed = recordStageFailure(originalRecord, new Error(errorMessage), {
@@ -868,7 +879,7 @@ if (errorMessage && !payload.output) {
   return {
     json: {
       ...failed,
-      processing_token: commitToken,
+      processing_commit_guard: commitGuard,
       commit_token: commitToken
     }
   };
@@ -895,7 +906,7 @@ if (!validation.valid) {
   return {
     json: {
       ...failed,
-      processing_token: commitToken,
+      processing_commit_guard: commitGuard,
       commit_token: commitToken
     }
   };
@@ -911,7 +922,12 @@ try {
     PACK_POLICY,
     now
   );
-  generated = queueAlertState(generated, ALERT_POLICY, now);
+  generated = queueAlertState(
+    generated,
+    ALERT_POLICY,
+    now,
+    MESSAGE_SAFETY
+  );
 } catch (error) {
   const failed = recordStageFailure(originalRecord, error, {
     stage: 'generation',
@@ -923,7 +939,7 @@ try {
   return {
     json: {
       ...failed,
-      processing_token: commitToken,
+      processing_commit_guard: commitGuard,
       commit_token: commitToken
     }
   };
@@ -931,7 +947,7 @@ try {
 return {
   json: {
     ...generated,
-    processing_token: commitToken,
+    processing_commit_guard: commitGuard,
     commit_token: commitToken
   }
 };`;
@@ -1045,6 +1061,7 @@ return {
       matchingField: "state_guard",
       fields: [
         "processing_stage",
+        "processing_commit_guard",
         "processing_token",
         "processing_started_at",
         "updated_at"
@@ -1138,11 +1155,10 @@ return {
       id: "ee12f5d9-c0d5-4586-bf62-000000000013",
       name: "Commit Evaluation Result",
       position: [1130, 20],
-      matchingField: "processing_token",
+      matchingField: "processing_commit_guard",
       fields: commitFields.filter(
         (field) =>
           ![
-            "processing_token",
             "generated_message",
             "message_profile_version",
             "message_validation_status",
@@ -1171,8 +1187,8 @@ return {
       id: "ee12f5d9-c0d5-4586-bf62-000000000015",
       name: "Commit Generation Result",
       position: [1140, 440],
-      matchingField: "processing_token",
-      fields: commitFields.filter((field) => field !== "processing_token")
+      matchingField: "processing_commit_guard",
+      fields: commitFields
     })
   ];
 
@@ -1544,7 +1560,20 @@ async function buildReviewer() {
   const archiver = await readJson("workflows/archiver.json");
   const schema = await readJson("config/pipeline-schema.json");
   const reviewConfig = await readJson("config/review-sheet.json");
-  const reviewCore = await bundledCore("src/contracts.mjs", "src/review.mjs");
+  const profile = await readJson("config/candidate-profile.json");
+  const applicationPolicy = await readJson(
+    "config/application-policy.json"
+  );
+  const packPolicy = await readJson(
+    "config/application-pack-policy.json"
+  );
+  const reviewCore = await bundledCore(
+    "src/contracts.mjs",
+    "src/profile.mjs",
+    "src/evaluation.mjs",
+    "src/message-safety.mjs",
+    "src/review.mjs"
+  );
 
   const schedule = nodeByName(generator, "Schedule Trigger");
   schedule.id = "88af9ce3-b45f-4aa8-a980-000000000001";
@@ -1572,10 +1601,21 @@ async function buildReviewer() {
   const sharedCode = `${reviewCore}
 
 const SCHEMA = ${JSON.stringify(schema)};
+const MESSAGE_SAFETY = {
+  profile: ${JSON.stringify(profile)},
+  applicationPolicy: ${JSON.stringify(applicationPolicy)},
+  packPolicy: ${JSON.stringify(packPolicy)}
+};
 const activeRows = $('Aggregate Active Rows').first().json.active_rows || [];
 const archiveRows = $input.all().map((item) => item.json).filter((row) => row && Object.keys(row).length > 0);
 const now = new Date().toISOString();
-const processed = processReviewActions(activeRows, archiveRows, SCHEMA, now);
+const processed = processReviewActions(
+  activeRows,
+  archiveRows,
+  SCHEMA,
+  now,
+  MESSAGE_SAFETY
+);
 `;
 
   const updateFields = [
@@ -1583,6 +1623,7 @@ const processed = processReviewActions(activeRows, archiveRows, SCHEMA, now);
     "pipeline_status",
     "match_decision",
     "processing_stage",
+    "processing_commit_guard",
     "processing_token",
     "processing_started_at",
     "attempt_count",
@@ -1737,7 +1778,20 @@ async function buildAlerter() {
   const template = await readJson("workflows/generator.json");
   const schema = await readJson("config/pipeline-schema.json");
   const policy = await readJson("config/alert-policy.json");
-  const alertCore = await bundledCore("src/contracts.mjs", "src/alerts.mjs");
+  const profile = await readJson("config/candidate-profile.json");
+  const applicationPolicy = await readJson(
+    "config/application-policy.json"
+  );
+  const packPolicy = await readJson(
+    "config/application-pack-policy.json"
+  );
+  const alertCore = await bundledCore(
+    "src/contracts.mjs",
+    "src/profile.mjs",
+    "src/evaluation.mjs",
+    "src/message-safety.mjs",
+    "src/alerts.mjs"
+  );
   const { validateAlertPolicy } = await import(
     new URL("../src/alerts.mjs", import.meta.url)
   );
@@ -1779,6 +1833,7 @@ async function buildAlerter() {
     "alert_error_summary",
     "alert_suppressed_reason",
     "processing_stage",
+    "processing_token",
     "processing_started_at",
     "updated_at"
   ];
@@ -1787,12 +1842,18 @@ async function buildAlerter() {
 
 const SCHEMA = ${JSON.stringify(schema)};
 const POLICY = ${JSON.stringify(policy)};
+const MESSAGE_SAFETY = {
+  profile: ${JSON.stringify(profile)},
+  applicationPolicy: ${JSON.stringify(applicationPolicy)},
+  packPolicy: ${JSON.stringify(packPolicy)}
+};
 const now = new Date().toISOString();
 const selection = selectAlertCandidates(
   $input.all().map((item) => item.json),
   SCHEMA,
   POLICY,
-  now
+  now,
+  MESSAGE_SAFETY
 );
 return selection.candidates.map((record) => {
   const claim = createProcessingClaim(
@@ -1809,6 +1870,7 @@ return selection.candidates.map((record) => {
         : record.alert_status,
       processing_stage: 'alert',
       processing_token: claim.processing_token,
+      processing_commit_guard: processingCommitGuard(claim.processing_token),
       processing_started_at: now,
       alert_last_attempt_at: now,
       claim_created_at: claim.created_at,
@@ -1834,15 +1896,22 @@ return winners.map((record) => ({ json: record }));`;
   const prepareDeliveryCode = `${alertCore}
 
 const POLICY = ${JSON.stringify(policy)};
+const MESSAGE_SAFETY = {
+  profile: ${JSON.stringify(profile)},
+  applicationPolicy: ${JSON.stringify(applicationPolicy)},
+  packPolicy: ${JSON.stringify(packPolicy)}
+};
 const record = $('Keep Winning Alert Claims').item.json;
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
+const commitGuard =
+  record.processing_commit_guard || processingCommitGuard(commitToken);
 if (record.delivery_mode === 'state_only') {
   const finalized = releaseClaim(record, commitToken, now);
   return {
     json: {
       ...finalized,
-      processing_token: commitToken,
+      processing_commit_guard: commitGuard,
       commit_token: commitToken,
       should_send: false
     }
@@ -1867,7 +1936,7 @@ if (configurationErrors.length > 0) {
   return {
     json: {
       ...finalized,
-      processing_token: commitToken,
+      processing_commit_guard: commitGuard,
       commit_token: commitToken,
       should_send: false
     }
@@ -1876,7 +1945,7 @@ if (configurationErrors.length > 0) {
 const alertPayload = renderAlert(
   { ...record, alert_last_attempt_at: now },
   POLICY,
-  { reviewUrl }
+  { reviewUrl, messageSafetyContext: MESSAGE_SAFETY }
 );
 return {
   json: {
@@ -1895,8 +1964,15 @@ const record = $('Prepare Alert Delivery').item.json;
 const payload = $json || {};
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
+const commitGuard =
+  record.processing_commit_guard || processingCommitGuard(commitToken);
 const providerResult = {
-  statusCode: payload.statusCode || payload.status || 0,
+  statusCode:
+    payload.statusCode ||
+    payload.status ||
+    payload.error?.statusCode ||
+    payload.error?.status ||
+    0,
   body: typeof payload.body === 'string'
     ? payload.body
     : typeof payload.data === 'string'
@@ -1915,7 +1991,7 @@ console.log(JSON.stringify({
 return {
   json: {
     ...finalized,
-    processing_token: commitToken,
+    processing_commit_guard: commitGuard,
     commit_token: commitToken
   }
 };`;
@@ -1972,11 +2048,12 @@ return {
 
   const sendSlack = {
     parameters: {
+      method: "POST",
       url: `={{ $env.${policy.environment.provider_webhook_url} }}`,
       sendBody: true,
-      contentType: "raw",
-      rawContentType: "application/json",
-      body: "={{ JSON.stringify({ text: $json.alert_payload.text }) }}",
+      contentType: "json",
+      specifyBody: "json",
+      jsonBody: "={{ { text: $json.alert_payload.text } }}",
       options: {
         response: {
           response: {
@@ -2028,6 +2105,7 @@ return {
       fields: [
         "alert_status",
         "processing_stage",
+        "processing_commit_guard",
         "processing_token",
         "processing_started_at",
         "alert_last_attempt_at",
@@ -2055,7 +2133,7 @@ return {
       id: "a11e7e00-0000-4000-8000-000000000013",
       name: "Commit Alert Result",
       position: [1240, 180],
-      matchingField: "processing_token",
+      matchingField: "processing_commit_guard",
       fields: alertFields
     })
   ];

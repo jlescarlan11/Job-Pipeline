@@ -43,7 +43,7 @@ The repository implementation is ready for disabled import and non-production sm
 
 - One normalized OnlineJobs.ph identity is used for active rows, Archive, discovery deduplication, evaluation/generation claims, review actions, and rediscovery prevention.
 - Append-only `ProcessingClaims` records arbitrate overlapping discovery, evaluation, generation, and archive executions. The earliest non-expired Sheet row wins each identity/stage lease.
-- Generator claim acquisition matches a `state_guard` derived from identity, pipeline state, application decision, and outcome. Final evaluation/generation commits match the winning `processing_token`.
+- Generator claim acquisition matches a `state_guard` derived from identity, pipeline state, application decision, and outcome. Final evaluation/generation commits match the winning `processing_commit_guard` and clear the active processing fields atomically.
 - Reviewer actions replace the guard/token ownership boundary, so stale automation cannot overwrite a manual decision.
 - Application-time score, confidence, recommendation, pack, strategy, and
   posting-age context is frozen on the first valid application decision.
@@ -60,7 +60,7 @@ The repository implementation is ready for disabled import and non-production sm
   Expected row counts and version/window checks prevent partial refreshes from
   replacing the latest identifiable complete report. Recommendation attempts
   are versioned while repeats within one execution remain idempotent.
-- Google Sheets compare keys (`state_guard` and `processing_token`) are placed in the first 26 physical record columns, matching the configured A:Z update range. The current n8n Sheets schema check requires configured fields to exist but does not require saved schema order to equal physical header order.
+- Google Sheets compare keys (`state_guard` and `processing_commit_guard`) are placed in the first 26 physical record columns, matching the configured A:Z update range. The current n8n Sheets schema check requires configured fields to exist but does not require saved schema order to equal physical header order.
 
 ## Operational readiness
 

@@ -37,8 +37,9 @@
 | Evaluation | `profile_version` | Candidate profile used for evaluation; legacy rows use `legacy/unknown`. |
 | Evaluation | `evaluated_at` | Evaluation timestamp. |
 | Lifecycle | `pipeline_status` | Current system lifecycle status; separate from application decision/outcome. |
-| Processing | `processing_stage` | Current `evaluation` or `generation` stage; blank outside active processing. |
-| Processing | `processing_token` | Unique optimistic-concurrency token. A completed stage may retain its last token while stage/start are blank. |
+| Processing | `processing_stage` | Current `evaluation`, `generation`, or `alert` stage; blank outside active processing. |
+| Processing | `processing_commit_guard` | Hidden compare-and-commit guard written at claim acquisition. It may remain after completion but does not represent active processing. |
+| Processing | `processing_token` | Unique active-claim token; blank after every completed evaluation, generation, or alert commit. |
 | Processing | `processing_started_at` | Current claim start time; blank after completion. |
 | Recovery | `attempt_count` | Failed attempts for the current recovery path. |
 | Recovery | `failed_stage` | Stage to retry: normally evaluation or generation. |
@@ -48,7 +49,7 @@
 | Generation | `generated_message` | Validated, copy-ready message with formatting preserved. |
 | Generation | `message_profile_version` | Candidate profile used for the message; legacy messages use `legacy/unknown`. |
 | Generation | `message_policy_version` | Application-writing policy used for the message. |
-| Generation | `message_validation_status` | `valid` only after deterministic validation. |
+| Generation | `message_validation_status` | Blank, `quarantined`, or `valid`; only current `valid` content with current provenance and a current ready pack is dispatchable. |
 | Generation | `generated_at` | Successful generation timestamp. |
 | Pack | `application_instructions` | JSON array of extracted employer instructions and required/optional state. |
 | Pack | `screening_questions` | JSON array of extracted screening questions. |
@@ -102,7 +103,7 @@
 
 Active source of truth for discovery, evaluation, generation, review, and retryable recovery. The Apps Script orders `config/review-sheet.json` fields first, freezes the first three columns, wraps message/evidence/gap/notes cells, applies status colors, adds the manual-action dropdown, and rejects non-integer/out-of-range Apply Points or malformed strategy identifiers in the controlled input columns. Only the two temporary application inputs, `manual_action`, and `notes` are intended for editing. Generated columns use warning-only protection so recovery remains possible without silently blocking the workflow service account.
 
-`state_guard` and `processing_token` are placed inside the first 26 physical columns for n8n match-key compatibility and hidden from the normal reviewer view. They remain available to operators by unhiding columns.
+`state_guard` and `processing_commit_guard` are placed inside the first 26 physical columns for n8n match-key compatibility. Those fields and `processing_token` are hidden from the normal reviewer view and remain available to operators by unhiding columns.
 
 ### `Archive`
 
@@ -170,8 +171,8 @@ partial runs remain history and do not replace the last complete report.
 | --- | --- | --- |
 | `mark_reviewed` | Any supported active/archive record | Records `first_reviewed_at` once; repeated use preserves the original timestamp. |
 | `promote` | `review_required`, `unscorable` | Routes to recommended/generation eligibility. |
-| `regenerate` | `ready` | Returns to recommended without deleting the historical message before a replacement succeeds. |
-| `mark_applied` | `ready` | Validates optional inputs, stores applied decision/time, and freezes the application-time snapshot. Repeats preserve the first decision and snapshot. |
+| `regenerate` | `ready` | Returns a normally valid record to recommended without deleting the previous message before a replacement succeeds. Confirmed unsafe legacy quarantine removes the active text first. |
+| `mark_applied` | current-safe `ready` | Revalidates persisted message/pack content and provenance, validates optional inputs, stores applied decision/time, and freezes the application-time snapshot. Quarantined content is an unchanged denial. |
 | `mark_skipped` | `ready`, `recommended`, `review_required`, `unscorable` | Stores skipped decision and timestamp; repeats preserve the first decision time. |
 | `retry` | `retryable_error`, `terminal_error`, `unavailable` | Clears sanitized error fields, resets attempts, and schedules the failed stage. |
 | `outcome_*` | Any active/archived record with `application_decision=applied` | Appends the explicit milestone and updates the current outcome view. `no_response` is never inferred. |
@@ -202,8 +203,16 @@ Processing status, application decision, and employer outcome remain separate di
 - `status` maps `pending`, `processing`, `ready`, `applied`, `skipped`, and `error` to the new lifecycle.
 - `created_at ` copies into `created_at` only when the canonical cell is blank.
 - Archive rows with a legacy terminal status migrate to `pipeline_status=archived` and retain the mapped value in `archived_from_status`.
-- Existing ready messages are preserved and tagged `message_profile_version=legacy/unknown`.
+- Existing current-safe ready messages are preserved. Unknown-provenance
+  messages are tagged `message_profile_version=legacy/unknown` and fail the
+  apply/alert safety gate.
+- The eight confirmed active messages containing the obsolete Netlify resume
+  URL are identity/evidence-matched, cleared from the dispatch field, marked
+  `quarantined`, and routed to current evaluation/regeneration. Applied/skipped
+  history is never changed.
 - Existing applied/skipped decisions are preserved.
 - Legacy URLs remain part of active/archive deduplication.
 
-`google-apps-script/SheetSetup.gs` performs the additive migration. It does not delete legacy headers, rows, messages, decisions, outcomes, notes, or unrelated conditional formatting.
+`google-apps-script/SheetSetup.gs` performs the additive migration. It does not
+delete legacy headers, rows, decisions, outcomes, notes, unrelated conditional
+formatting, or messages outside the eight confirmed unsafe active targets.

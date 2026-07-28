@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "storage_version": "2026-07-28-opportunity-learning",
+  "storage_version": "2026-07-28-claim-finalization",
   "canonical_identity": {
     "source": "onlinejobs.ph",
     "preferred": "source_job_id",
@@ -11,6 +11,7 @@
     "source_job_id",
     "canonical_job_id",
     "state_guard",
+    "processing_commit_guard",
     "canonical_url",
     "job_title",
     "company",
@@ -257,6 +258,14 @@
         "ready",
         "review_required",
         "blocked"
+      ]
+    },
+    "message_validation_status": {
+      "type": "enum",
+      "values": [
+        "",
+        "valid",
+        "quarantined"
       ]
     },
     "alert_status": {

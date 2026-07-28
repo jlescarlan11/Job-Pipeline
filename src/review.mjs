@@ -5,6 +5,7 @@ import {
   stateGuard,
   validateRecordContract
 } from "./contracts.mjs";
+import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 
 const OUTCOME_ACTIONS = {
   outcome_no_response: "no_response",
@@ -19,6 +20,7 @@ function clearProcessing(record) {
     ...record,
     processing_stage: "",
     processing_token: "",
+    processing_commit_guard: "",
     processing_started_at: ""
   };
 }
@@ -162,7 +164,12 @@ function duplicateDecision(record, decision) {
   );
 }
 
-export function applyManualAction(record, schema, now = new Date().toISOString()) {
+export function applyManualAction(
+  record,
+  schema,
+  now = new Date().toISOString(),
+  messageSafetyContext
+) {
   const action = String(record.manual_action || "").trim();
   if (!action) return { changed: false, valid: true, record };
   if (!schema.manual_actions.includes(action)) {
@@ -222,6 +229,18 @@ export function applyManualAction(record, schema, now = new Date().toISOString()
     }
     if (record.pipeline_status !== "ready") {
       return { changed: false, valid: false, record, error: `mark_applied is invalid from ${record.pipeline_status}` };
+    }
+    const messageSafety = evaluatePersistedMessageSafety(
+      record,
+      messageSafetyContext
+    );
+    if (!messageSafety.safe) {
+      return {
+        changed: false,
+        valid: false,
+        record,
+        error: `message_quarantined: ${messageSafety.reasons.join(",")}`
+      };
     }
     const inputs = normalizeApplicationInputs(record, schema);
     if (!inputs.valid) {
@@ -358,7 +377,13 @@ export function applyManualAction(record, schema, now = new Date().toISOString()
   return { changed: false, valid: false, record, error: `unhandled manual action: ${action}` };
 }
 
-export function processReviewActions(activeRows, archiveRows, schema, now = new Date().toISOString()) {
+export function processReviewActions(
+  activeRows,
+  archiveRows,
+  schema,
+  now = new Date().toISOString(),
+  messageSafetyContext
+) {
   const activeUpdates = [];
   const archiveUpdates = [];
   const invalidActions = [];
@@ -370,7 +395,12 @@ export function processReviewActions(activeRows, archiveRows, schema, now = new 
     for (const raw of rows) {
       const record = normalizeLegacyRecord(raw, schema, now);
       if (!record.manual_action) continue;
-      const result = applyManualAction(record, schema, now);
+      const result = applyManualAction(
+        record,
+        schema,
+        now,
+        messageSafetyContext
+      );
       if (!result.valid) {
         const supportedAction = schema.manual_actions.includes(record.manual_action);
         invalidActions.push({

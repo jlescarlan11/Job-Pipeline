@@ -3,17 +3,49 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
-  applyManualAction,
+  applyManualAction as applyManualActionCore,
   buildFunnelSummary,
   buildReviewQueue,
-  processReviewActions
+  processReviewActions as processReviewActionsCore
 } from "../src/review.mjs";
 import { mergeOutcomeEvents, stateGuard } from "../src/contracts.mjs";
 
 const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
 const schema = await loadJson("../config/pipeline-schema.json");
 const view = await loadJson("../config/review-sheet.json");
+const profile = await loadJson("../config/candidate-profile.json");
+const applicationPolicy = await loadJson(
+  "../config/application-policy.json"
+);
+const packPolicy = await loadJson(
+  "../config/application-pack-policy.json"
+);
+const messageSafetyContext = {
+  profile,
+  applicationPolicy,
+  packPolicy
+};
 const now = "2026-07-28T10:00:00.000Z";
+const applyManualAction = (record, usedSchema, at) =>
+  applyManualActionCore(
+    record,
+    usedSchema,
+    at,
+    messageSafetyContext
+  );
+const processReviewActions = (
+  activeRows,
+  archiveRows,
+  usedSchema,
+  at
+) =>
+  processReviewActionsCore(
+    activeRows,
+    archiveRows,
+    usedSchema,
+    at,
+    messageSafetyContext
+  );
 
 const job = (overrides = {}) => ({
   row_number: 2,
@@ -34,8 +66,21 @@ const job = (overrides = {}) => ({
   match_reasons: ["Matched skill: TypeScript"],
   requirement_gaps: [],
   generated_message: "Copy-ready message",
-  message_profile_version: "2026-07-28",
+  message_profile_version: profile.profile_version,
+  message_policy_version: applicationPolicy.policy_version,
+  message_validation_status: "valid",
+  application_instructions: [],
+  screening_questions: [],
+  selected_proof_refs: [
+    "experience:upwork",
+    "projects:job-pipeline"
+  ],
+  application_warnings: [],
   application_pack_status: "ready",
+  application_pack_version: packPolicy.pack_version,
+  application_pack_profile_version: profile.profile_version,
+  application_pack_policy_version: packPolicy.policy_version,
+  application_pack_generated_at: now,
   outcome_events: [],
   application_decision: "",
   outcome: "",
@@ -77,7 +122,11 @@ test("review configuration exposes required information and controlled actions",
     "manual_action",
     "notes"
   ]);
-  assert.deepEqual(view.hidden_columns, ["state_guard", "processing_token"]);
+  assert.deepEqual(view.hidden_columns, [
+    "state_guard",
+    "processing_commit_guard",
+    "processing_token"
+  ]);
   assert.ok(view.manual_action_dropdown.includes("promote"));
   assert.ok(view.manual_action_dropdown.includes("mark_reviewed"));
   assert.ok(view.manual_action_dropdown.includes("mark_applied"));
@@ -176,7 +225,7 @@ test("mark applied validates controlled inputs and freezes application context",
       application_decision: "",
       qualification_score: 30,
       opportunity_score: 20,
-      application_pack_status: "review_required",
+      application_pack_status: "ready",
       manual_action: "mark_applied"
     },
     schema,
@@ -187,6 +236,31 @@ test("mark applied validates controlled inputs and freezes application context",
   assert.equal(later.record.application_opportunity_score, 78);
   assert.equal(later.record.application_pack_status_at_apply, "ready");
   assert.equal(later.record.application_snapshot_at, now);
+});
+
+test("mark applied rejects quarantined persisted content without mutating decision state", () => {
+  const unsafe = job({
+    generated_message:
+      "I have a strong foundation. Resume: https://johnlesterescarlan.netlify.app/john_lester_escarlan_resume.pdf",
+    message_profile_version: "legacy/unknown",
+    message_policy_version: "",
+    message_validation_status: "",
+    application_pack_status: "",
+    application_pack_version: "",
+    application_pack_profile_version: "",
+    application_pack_policy_version: "",
+    application_pack_generated_at: "",
+    manual_action: "mark_applied"
+  });
+  const snapshot = structuredClone(unsafe);
+  const denied = applyManualAction(unsafe, schema, now);
+  assert.equal(denied.valid, false);
+  assert.equal(denied.changed, false);
+  assert.match(denied.error, /^message_quarantined:/);
+  assert.deepEqual(denied.record, snapshot);
+  assert.equal(denied.record.application_decision, "");
+  assert.equal(denied.record.application_decided_at, undefined);
+  assert.equal(denied.record.application_snapshot_at, undefined);
 });
 
 test("unknown points stay unknown and invalid application input is atomic", () => {
@@ -379,6 +453,7 @@ test("a manual decision changes the guard and invalidates a stale automated clai
   const original = job({
     processing_stage: "generation",
     processing_token: "stale-token",
+    processing_commit_guard: "commit:stale-token",
     processing_started_at: "2026-07-28T09:59:00.000Z"
   });
   original.state_guard = stateGuard(original);
@@ -389,6 +464,7 @@ test("a manual decision changes the guard and invalidates a stale automated clai
   ).record;
   assert.notEqual(applied.state_guard, original.state_guard);
   assert.equal(applied.processing_token, "");
+  assert.equal(applied.processing_commit_guard, "");
   assert.equal(applied.processing_stage, "");
 });
 

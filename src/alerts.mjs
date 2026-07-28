@@ -5,6 +5,7 @@ import {
   parseHttpUrl,
   releaseClaim
 } from "./contracts.mjs";
+import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 
 const ALLOWED_CHANNELS = ["slack"];
 const ENVIRONMENT_NAME = /^[A-Z][A-Z0-9_]{2,63}$/;
@@ -164,7 +165,8 @@ function scoreKnown(value) {
 export function evaluateAlertEligibility(
   record,
   policy,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  messageSafetyContext
 ) {
   const reasons = [];
   if (!record?.canonical_job_id) reasons.push("missing_identity");
@@ -181,6 +183,11 @@ export function evaluateAlertEligibility(
   if (record?.application_pack_status !== policy.eligibility.required_pack_status) {
     reasons.push("pack_not_ready");
   }
+  const messageSafety = evaluatePersistedMessageSafety(
+    record,
+    messageSafetyContext
+  );
+  if (!messageSafety.safe) reasons.push("message_quarantined");
   if (
     !scoreKnown(record?.qualification_score) ||
     record.qualification_score < policy.eligibility.minimum_qualification_score
@@ -220,16 +227,23 @@ export function evaluateAlertEligibility(
   return {
     eligible: reasons.length === 0,
     reasons,
-    posting_age_days: postingAgeDays
+    posting_age_days: postingAgeDays,
+    message_safety: messageSafety
   };
 }
 
 export function queueAlertState(
   record,
   policy,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  messageSafetyContext
 ) {
-  const eligibility = evaluateAlertEligibility(record, policy, now);
+  const eligibility = evaluateAlertEligibility(
+    record,
+    policy,
+    now,
+    messageSafetyContext
+  );
   const key = alertIdempotencyKey(record, policy);
   if (
     record.alert_status === "sent" &&
@@ -297,11 +311,37 @@ export function selectAlertCandidates(
   rawRows,
   schema,
   policy,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  messageSafetyContext
 ) {
   const selected = [];
   for (const raw of rawRows) {
     const record = normalizeLegacyRecord(raw, schema, now);
+    const safetyEligibility = evaluateAlertEligibility(
+      record,
+      policy,
+      now,
+      messageSafetyContext
+    );
+    if (
+      !safetyEligibility.message_safety.safe &&
+      ["pending", "sending", "retryable_failure"].includes(
+        record.alert_status
+      )
+    ) {
+      selected.push({
+        ...queueAlertState(
+          record,
+          policy,
+          now,
+          messageSafetyContext
+        ),
+        row_number: raw.row_number,
+        work_stage: "alert",
+        delivery_mode: "state_only"
+      });
+      continue;
+    }
     if (record.alert_status === "sending") {
       if (
         !isStaleClaim(record, Date.parse(now), policy.claim_lease_ms)
@@ -322,7 +362,12 @@ export function selectAlertCandidates(
       });
       continue;
     }
-    const queued = queueAlertState(record, policy, now);
+    const queued = queueAlertState(
+      record,
+      policy,
+      now,
+      messageSafetyContext
+    );
     const existingDeliveryState = ["pending", "retryable_failure"].includes(
       record.alert_status
     );
@@ -339,7 +384,12 @@ export function selectAlertCandidates(
     if (
       ["pending", "retryable_failure"].includes(queued.alert_status) &&
       retryDue(queued, now) &&
-      evaluateAlertEligibility(queued, policy, now).eligible
+      evaluateAlertEligibility(
+        queued,
+        policy,
+        now,
+        messageSafetyContext
+      ).eligible
     ) {
       selected.push({
         ...queued,
@@ -410,7 +460,20 @@ function fitAlertLines(lines, minimums, maximum) {
   return result.join("\n");
 }
 
-export function renderAlert(record, policy, { reviewUrl }) {
+export function renderAlert(
+  record,
+  policy,
+  { reviewUrl, messageSafetyContext }
+) {
+  const messageSafety = evaluatePersistedMessageSafety(
+    record,
+    messageSafetyContext
+  );
+  if (!messageSafety.safe) {
+    throw new Error(
+      `message_quarantined: ${messageSafety.reasons.join(",")}`
+    );
+  }
   const normalizedSourceUrl = normalizeCanonicalUrl(record.canonical_url);
   const sourceUrl =
     normalizedSourceUrl.length <= policy.maximum_action_url_characters
@@ -425,7 +488,8 @@ export function renderAlert(record, policy, { reviewUrl }) {
   const age = evaluateAlertEligibility(
     record,
     policy,
-    record.alert_last_attempt_at || new Date().toISOString()
+    record.alert_last_attempt_at || new Date().toISOString(),
+    messageSafetyContext
   ).posting_age_days;
   const employer = cleanText(record.company, 120) || "Unknown";
   const salary = cleanText(record.salary_text, 120) || "Unknown";

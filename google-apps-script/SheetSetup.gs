@@ -13,6 +13,7 @@ const JOB_PIPELINE_SETUP = {
     "source_job_id",
     "canonical_job_id",
     "state_guard",
+    "processing_commit_guard",
     "canonical_url",
     "job_title",
     "company",
@@ -222,6 +223,27 @@ const JOB_PIPELINE_SETUP = {
     "error_category",
     "error_summary"
   ],
+  "versionFields": [
+    "alert_policy_version",
+    "application_pack_policy_version",
+    "application_pack_profile_version",
+    "application_pack_version",
+    "application_scoring_policy_version",
+    "band_version",
+    "message_policy_version",
+    "message_profile_version",
+    "metric_definition_version",
+    "profile_version",
+    "recommendation_policy_version",
+    "scoring_policy_version"
+  ],
+  "maximumClaimLeaseMs": 600000,
+  "currentMessageVersions": {
+    "profile_version": "2026-07-28",
+    "message_policy_version": "2026-07-28",
+    "pack_version": "2026-07-28/v1",
+    "pack_policy_version": "2026-07-28/v1"
+  },
   "claimFields": [
     "canonical_job_id",
     "processing_stage",
@@ -255,6 +277,7 @@ const JOB_PIPELINE_SETUP = {
     "manual_action",
     "canonical_job_id",
     "state_guard",
+    "processing_commit_guard",
     "processing_token",
     "apply_points_input",
     "application_message_strategy_input",
@@ -281,6 +304,7 @@ const JOB_PIPELINE_SETUP = {
   ],
   "hiddenColumns": [
     "state_guard",
+    "processing_commit_guard",
     "processing_token"
   ],
   "manualActions": [
@@ -355,6 +379,50 @@ function setupJobPipelineSheets() {
     JOB_PIPELINE_SETUP.recommendationReportFields
   );
 
+  const versionMigration = [
+    repairAndFormatVersionColumns_(active),
+    repairAndFormatVersionColumns_(archive),
+    repairAndFormatVersionColumns_(analytics),
+    repairAndFormatVersionColumns_(analyticsReports),
+    repairAndFormatVersionColumns_(recommendations),
+    repairAndFormatVersionColumns_(recommendationReports)
+  ];
+  const unmappedVersionValues = versionMigration.flatMap(
+    (result) => result.unmapped
+  );
+  if (unmappedVersionValues.length > 0) {
+    throw new Error(
+      'Unmapped non-text version values require manual review before workflow activation. ' +
+      'Count: ' + unmappedVersionValues.length + '; ' +
+      JSON.stringify(unmappedVersionValues.slice(0, 20))
+    );
+  }
+
+  const processingClaimMigration =
+    repairOrphanedProcessingClaims_(active);
+  if (processingClaimMigration.counts.conflicting > 0) {
+    throw new Error(
+      'Confirmed orphan claim targets changed and require manual review before workflow activation. ' +
+      JSON.stringify(processingClaimMigration.records.conflicting)
+    );
+  }
+  const legacyMessageMigration = quarantineLegacyMessages_(active);
+  if (
+    legacyMessageMigration.counts.conflicting > 0 ||
+    legacyMessageMigration.counts.quarantined +
+      legacyMessageMigration.counts.already_quarantined +
+      legacyMessageMigration.counts.current_safe !==
+      8
+  ) {
+    throw new Error(
+      'Confirmed legacy-message targets changed and require manual review before workflow activation. ' +
+      JSON.stringify({
+        counts: legacyMessageMigration.counts,
+        conflicts: legacyMessageMigration.records.conflicting
+      })
+    );
+  }
+
   migrateLegacyCreatedAt_(active);
   migrateLegacyCreatedAt_(archive);
   migrateLegacyIdentityAndState_(active);
@@ -384,8 +452,595 @@ function setupJobPipelineSheets() {
     activeRows: active.getLastRow(),
     archiveRows: archive.getLastRow(),
     activeColumns: active.getLastColumn(),
-    archiveColumns: archive.getLastColumn()
+    archiveColumns: archive.getLastColumn(),
+    versionMigration,
+    processingClaimMigration,
+    legacyMessageMigration
   };
+}
+
+function classifyVersionCell({
+  field,
+  value,
+  displayValue,
+  identity
+}) {
+  const confirmedProfileVersion = "2026-07-28";
+  const confirmedProfileVersionSerial = 46231;
+  if (value === "" || value === null || value === undefined) {
+    return { status: "unchanged" };
+  }
+  if (typeof value === "string") {
+    return { status: "unchanged" };
+  }
+
+  const rawType =
+    value instanceof Date
+      ? "date"
+      : typeof value === "number"
+        ? "number"
+        : typeof value;
+  const isConfirmedProfileVersion =
+    field === "profile_version" &&
+    Boolean(String(identity || "").trim()) &&
+    String(displayValue || "").trim() === confirmedProfileVersion &&
+    ((typeof value === "number" &&
+      value === confirmedProfileVersionSerial) ||
+      (value instanceof Date && Number.isFinite(value.getTime())));
+
+  if (isConfirmedProfileVersion) {
+    return {
+      status: "repair",
+      value: confirmedProfileVersion,
+      raw_type: rawType
+    };
+  }
+
+  return {
+    status: "unmapped",
+    raw_type: rawType
+  };
+}
+
+function classifyOrphanedProcessingClaim({
+  record,
+  nowMs,
+  leaseMs
+}) {
+  const confirmed = {
+    "onlinejobs.ph:1663047": {
+      token: "3634:onlinejobs.ph:1663047:evaluation",
+      pipeline_status: "not_recommended"
+    },
+    "onlinejobs.ph:1696973": {
+      token: "3634:onlinejobs.ph:1696973:evaluation",
+      pipeline_status: "not_recommended"
+    },
+    "onlinejobs.ph:1696907": {
+      token: "3634:onlinejobs.ph:1696907:evaluation",
+      pipeline_status: "not_recommended"
+    },
+    "onlinejobs.ph:1615239": {
+      token: "3634:onlinejobs.ph:1615239:evaluation",
+      pipeline_status: "review_required"
+    },
+    "onlinejobs.ph:1697830": {
+      token: "3634:onlinejobs.ph:1697830:evaluation",
+      pipeline_status: "review_required"
+    }
+  };
+  const identity = String(record?.canonical_job_id || "").trim();
+  const token = String(record?.processing_token || "").trim();
+  const stage = String(record?.processing_stage || "").trim();
+  const startedAt = String(record?.processing_started_at || "").trim();
+  const startedMs = Date.parse(startedAt);
+  const currentMs = Number(nowMs);
+  const lease = Number(leaseMs);
+
+  if (!token) {
+    return { status: "skipped", reason: "no_token" };
+  }
+
+  const hasUnexpiredActiveMetadata =
+    Boolean(stage) &&
+    Boolean(startedAt) &&
+    Number.isFinite(startedMs) &&
+    Number.isFinite(currentMs) &&
+    Number.isFinite(lease) &&
+    lease > 0 &&
+    currentMs - startedMs < lease;
+  if (hasUnexpiredActiveMetadata) {
+    return { status: "preserved_active", reason: "unexpired_claim" };
+  }
+
+  const expected = confirmed[identity];
+  if (!expected) {
+    return { status: "skipped", reason: "unconfirmed_identity" };
+  }
+  if (
+    token !== expected.token ||
+    String(record?.pipeline_status || "").trim() !==
+      expected.pipeline_status
+  ) {
+    return { status: "conflicting", reason: "target_state_changed" };
+  }
+  if (stage || startedAt) {
+    return {
+      status: "conflicting",
+      reason: "target_has_processing_metadata"
+    };
+  }
+
+  return { status: "clear", reason: "confirmed_orphan" };
+}
+
+function classifyLegacyMessageQuarantine(record, current) {
+  const confirmedIdentities = new Set([
+    "onlinejobs.ph:1696828",
+    "onlinejobs.ph:1696881",
+    "onlinejobs.ph:1585711",
+    "onlinejobs.ph:1697174",
+    "onlinejobs.ph:1697248",
+    "onlinejobs.ph:1697386",
+    "onlinejobs.ph:1697330",
+    "onlinejobs.ph:1697526"
+  ]);
+  const identity = String(record?.canonical_job_id || "").trim();
+  if (!confirmedIdentities.has(identity)) {
+    return { status: "skipped", reason: "unconfirmed_identity" };
+  }
+
+  const decision = String(record?.application_decision || "").trim();
+  const status = String(record?.pipeline_status || "").trim();
+  const message = String(record?.generated_message || "");
+  const profileVersion = String(
+    record?.message_profile_version || ""
+  ).trim();
+  const validationStatus = String(
+    record?.message_validation_status || ""
+  ).trim();
+  const alertStatus = String(record?.alert_status || "").trim();
+  const alertSuppressedReason = String(
+    record?.alert_suppressed_reason || ""
+  ).trim();
+  const category = String(record?.error_category || "").trim();
+  const currentSafeMetadata =
+    Boolean(message.trim()) &&
+    !message.includes("johnlesterescarlan.netlify.app") &&
+    profileVersion === current?.profile_version &&
+    String(record?.message_policy_version || "").trim() ===
+      current?.message_policy_version &&
+    record?.message_validation_status === "valid" &&
+    record?.application_pack_status === "ready" &&
+    record?.application_pack_version === current?.pack_version &&
+    record?.application_pack_profile_version ===
+      current?.profile_version &&
+    record?.application_pack_policy_version ===
+      current?.pack_policy_version;
+  if (currentSafeMetadata) {
+    return { status: "current_safe", reason: "current_provenance" };
+  }
+  const alreadyQuarantined =
+    !decision &&
+    !message.trim() &&
+    profileVersion === "legacy/unknown" &&
+    validationStatus === "quarantined" &&
+    alertStatus === "not_eligible" &&
+    alertSuppressedReason
+      .split(",")
+      .map((reason) => reason.trim())
+      .includes("message_quarantined") &&
+    (
+      category === "message_quarantined" ||
+      [
+        "recommended",
+        "generating",
+        "retryable_error",
+        "terminal_error"
+      ].includes(status)
+    );
+  if (alreadyQuarantined) {
+    return { status: "already_quarantined", reason: "unsafe_text_removed" };
+  }
+  if (decision || ["applied", "skipped", "archived"].includes(status)) {
+    return { status: "conflicting", reason: "protected_record_changed" };
+  }
+
+  const hasReportedUnsafeEvidence =
+    status === "ready" &&
+    profileVersion === "legacy/unknown" &&
+    message.includes(
+      "https://johnlesterescarlan.netlify.app/john_lester_escarlan_resume.pdf"
+    );
+  if (hasReportedUnsafeEvidence) {
+    return { status: "quarantine", reason: "confirmed_unsafe_legacy_message" };
+  }
+
+  return { status: "conflicting", reason: "target_state_changed" };
+}
+
+function repairAndFormatVersionColumns_(sheet) {
+  const summary = {
+    sheet: sheet.getName(),
+    formatted: [],
+    repaired: [],
+    unmapped: []
+  };
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const headerIndex = Object.fromEntries(
+    headers.map((header, index) => [header, index])
+  );
+  const rowCount = Math.max(sheet.getLastRow() - 1, 0);
+  const dataRowCount = Math.max(sheet.getMaxRows() - 1, 1);
+  const rawRows =
+    rowCount > 0
+      ? sheet
+          .getRange(2, 1, rowCount, sheet.getLastColumn())
+          .getValues()
+      : [];
+  const displayRows =
+    rowCount > 0
+      ? sheet
+          .getRange(2, 1, rowCount, sheet.getLastColumn())
+          .getDisplayValues()
+      : [];
+  const identityFields = [
+    'canonical_job_id',
+    'analytics_row_id',
+    'report_id',
+    'recommendation_id',
+    'run_id'
+  ];
+  const identityForRow = (row, displayRow) => {
+    for (const field of identityFields) {
+      const column = headerIndex[field];
+      if (column === undefined) continue;
+      const identity = String(row[column] || displayRow[column] || '').trim();
+      if (identity) return identity;
+    }
+    return '';
+  };
+  const repairs = [];
+
+  JOB_PIPELINE_SETUP.versionFields.forEach((field) => {
+    const column = headerIndex[field];
+    if (column === undefined) return;
+    summary.formatted.push(field);
+
+    rawRows.forEach((row, rowIndex) => {
+      const result = classifyVersionCell({
+        field,
+        value: row[column],
+        displayValue: displayRows[rowIndex][column],
+        identity: identityForRow(row, displayRows[rowIndex])
+      });
+      if (result.status === 'repair') {
+        repairs.push({
+          row: rowIndex + 2,
+          column: column + 1,
+          field,
+          identity: identityForRow(row, displayRows[rowIndex]),
+          value: result.value,
+          raw_type: result.raw_type
+        });
+      } else if (result.status === 'unmapped') {
+        summary.unmapped.push({
+          row_number: rowIndex + 2,
+          field,
+          identity: identityForRow(row, displayRows[rowIndex]),
+          raw_type: result.raw_type,
+          display_value: String(displayRows[rowIndex][column] || '').slice(0, 64)
+        });
+      }
+    });
+
+    sheet
+      .getRange(2, column + 1, dataRowCount, 1)
+      .setNumberFormat('@');
+  });
+
+  repairs.forEach((repair) => {
+    sheet.getRange(repair.row, repair.column).setValue(repair.value);
+    summary.repaired.push({
+      row_number: repair.row,
+      field: repair.field,
+      identity: repair.identity,
+      raw_type: repair.raw_type,
+      value: repair.value
+    });
+  });
+  return summary;
+}
+
+function repairOrphanedProcessingClaims_(sheet) {
+  const summary = {
+    sheet: sheet.getName(),
+    counts: {
+      cleared: 0,
+      preserved_active: 0,
+      skipped: 0,
+      conflicting: 0
+    },
+    records: {
+      cleared: [],
+      preserved_active: [],
+      skipped: [],
+      conflicting: []
+    }
+  };
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const headerIndex = Object.fromEntries(
+    headers.map((header, index) => [header, index])
+  );
+  const requiredFields = [
+    'canonical_job_id',
+    'pipeline_status',
+    'processing_stage',
+    'processing_token',
+    'processing_started_at'
+  ];
+  if (requiredFields.some((field) => headerIndex[field] === undefined)) {
+    summary.counts.conflicting += 1;
+    summary.records.conflicting.push({
+      row_number: 1,
+      canonical_job_id: '',
+      reason: 'required_header_missing'
+    });
+    return summary;
+  }
+
+  const rowCount = Math.max(sheet.getLastRow() - 1, 0);
+  if (rowCount === 0) return summary;
+  const rows = sheet
+    .getRange(2, 1, rowCount, sheet.getLastColumn())
+    .getValues();
+  const recordFromRow = (row) =>
+    Object.fromEntries(
+      requiredFields.map((field) => [field, row[headerIndex[field]]])
+    );
+  const recordResult = (bucket, rowNumber, record, reason) => {
+    summary.counts[bucket] += 1;
+    if (summary.records[bucket].length < 20) {
+      summary.records[bucket].push({
+        row_number: rowNumber,
+        canonical_job_id: String(record.canonical_job_id || '').slice(0, 128),
+        reason
+      });
+    }
+  };
+
+  rows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const record = recordFromRow(row);
+    const classification = classifyOrphanedProcessingClaim({
+      record,
+      nowMs: Date.now(),
+      leaseMs: JOB_PIPELINE_SETUP.maximumClaimLeaseMs
+    });
+    if (classification.status !== 'clear') {
+      recordResult(
+        classification.status,
+        rowNumber,
+        record,
+        classification.reason
+      );
+      return;
+    }
+
+    const currentRow = sheet
+      .getRange(rowNumber, 1, 1, sheet.getLastColumn())
+      .getValues()[0];
+    const currentRecord = recordFromRow(currentRow);
+    const rechecked = classifyOrphanedProcessingClaim({
+      record: currentRecord,
+      nowMs: Date.now(),
+      leaseMs: JOB_PIPELINE_SETUP.maximumClaimLeaseMs
+    });
+    if (rechecked.status !== 'clear') {
+      recordResult(
+        'conflicting',
+        rowNumber,
+        currentRecord,
+        'target_changed_during_cleanup'
+      );
+      return;
+    }
+
+    sheet
+      .getRange(rowNumber, headerIndex.processing_token + 1)
+      .setValue('');
+    recordResult(
+      'cleared',
+      rowNumber,
+      currentRecord,
+      classification.reason
+    );
+  });
+  return summary;
+}
+
+function quarantineLegacyMessages_(sheet) {
+  const summary = {
+    sheet: sheet.getName(),
+    counts: {
+      quarantined: 0,
+      already_quarantined: 0,
+      current_safe: 0,
+      skipped: 0,
+      conflicting: 0
+    },
+    records: {
+      quarantined: [],
+      already_quarantined: [],
+      current_safe: [],
+      skipped: [],
+      conflicting: []
+    }
+  };
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const headerIndex = Object.fromEntries(
+    headers.map((header, index) => [header, index])
+  );
+  const classificationFields = [
+    'canonical_job_id',
+    'pipeline_status',
+    'application_decision',
+    'generated_message',
+    'message_profile_version',
+    'message_policy_version',
+    'message_validation_status',
+    'alert_status',
+    'alert_suppressed_reason',
+    'application_pack_status',
+    'application_pack_version',
+    'application_pack_profile_version',
+    'application_pack_policy_version',
+    'error_category'
+  ];
+  if (
+    classificationFields.some(
+      (field) => headerIndex[field] === undefined
+    )
+  ) {
+    summary.counts.conflicting += 1;
+    summary.records.conflicting.push({
+      row_number: 1,
+      canonical_job_id: '',
+      reason: 'required_header_missing'
+    });
+    return summary;
+  }
+  const rowCount = Math.max(sheet.getLastRow() - 1, 0);
+  if (rowCount === 0) return summary;
+  const rows = sheet
+    .getRange(2, 1, rowCount, sheet.getLastColumn())
+    .getValues();
+  const recordFromRow = (row) =>
+    Object.fromEntries(
+      classificationFields.map(
+        (field) => [field, row[headerIndex[field]]]
+      )
+    );
+  const recordResult = (bucket, rowNumber, record, reason) => {
+    summary.counts[bucket] += 1;
+    if (summary.records[bucket].length < 20) {
+      summary.records[bucket].push({
+        row_number: rowNumber,
+        canonical_job_id: String(
+          record.canonical_job_id || ''
+        ).slice(0, 128),
+        reason
+      });
+    }
+  };
+
+  rows.forEach((row, index) => {
+    const rowNumber = index + 2;
+    const record = recordFromRow(row);
+    const classification = classifyLegacyMessageQuarantine(
+      record,
+      JOB_PIPELINE_SETUP.currentMessageVersions
+    );
+    if (classification.status !== 'quarantine') {
+      recordResult(
+        classification.status,
+        rowNumber,
+        record,
+        classification.reason
+      );
+      return;
+    }
+
+    const currentRow = sheet
+      .getRange(rowNumber, 1, 1, sheet.getLastColumn())
+      .getValues()[0];
+    const currentRecord = recordFromRow(currentRow);
+    const rechecked = classifyLegacyMessageQuarantine(
+      currentRecord,
+      JOB_PIPELINE_SETUP.currentMessageVersions
+    );
+    if (rechecked.status !== 'quarantine') {
+      recordResult(
+        'conflicting',
+        rowNumber,
+        currentRecord,
+        'target_changed_during_quarantine'
+      );
+      return;
+    }
+
+    const nextRow = currentRow.slice();
+    const now = new Date().toISOString();
+    const updates = {
+      pipeline_status: 'recommended',
+      processing_stage: '',
+      processing_commit_guard: '',
+      processing_token: '',
+      processing_started_at: '',
+      attempt_count: 0,
+      failed_stage: 'evaluation',
+      next_retry_at: '',
+      error_category: 'message_quarantined',
+      error_summary:
+        'Legacy application message was quarantined; re-evaluate and regenerate through current validation.',
+      generated_message: '',
+      message_policy_version: '',
+      message_validation_status: 'quarantined',
+      generated_at: '',
+      application_instructions: '[]',
+      screening_questions: '[]',
+      selected_proof_refs: '[]',
+      application_warnings: '[]',
+      application_pack_status: '',
+      application_pack_version: '',
+      application_pack_profile_version: '',
+      application_pack_policy_version: '',
+      application_pack_generated_at: '',
+      alert_status: 'not_eligible',
+      alert_channel: '',
+      alert_policy_version: '',
+      alert_idempotency_key: '',
+      alert_attempt_count: 0,
+      alert_last_attempt_at: '',
+      alert_next_retry_at: '',
+      alert_sent_at: '',
+      alert_provider_reference: '',
+      alert_error_category: '',
+      alert_error_summary: '',
+      alert_suppressed_reason: 'message_quarantined',
+      manual_action: '',
+      updated_at: now
+    };
+    Object.entries(updates).forEach(([field, value]) => {
+      nextRow[headerIndex[field]] = value;
+    });
+    nextRow[headerIndex.state_guard] = stateGuard_(
+      nextRow[headerIndex.canonical_job_id],
+      nextRow[headerIndex.pipeline_status],
+      nextRow[headerIndex.application_decision],
+      nextRow[headerIndex.first_reviewed_at],
+      nextRow[headerIndex.apply_points_used],
+      nextRow[headerIndex.application_message_strategy],
+      nextRow[headerIndex.outcome],
+      nextRow[headerIndex.outcome_events]
+    );
+    sheet
+      .getRange(rowNumber, 1, 1, sheet.getLastColumn())
+      .setValues([nextRow]);
+    recordResult(
+      'quarantined',
+      rowNumber,
+      currentRecord,
+      classification.reason
+    );
+  });
+  return summary;
 }
 
 function duplicateCanonicalIds_(sheet) {

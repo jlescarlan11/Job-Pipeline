@@ -57,6 +57,19 @@ Do not continue if either the Sheet or workflow export backup cannot be opened.
 The script must:
 
 - add missing headers without deleting legacy ones;
+- format every contract-declared version column as plain text before migration
+  writes, repair the confirmed `profile_version` serial `46231` only when the
+  row has stable identity and displays `2026-07-28`, and stop for manual review
+  on any other non-text version value;
+- add the hidden `processing_commit_guard` compare key and clear only the five
+  identity/status/token-matched orphaned evaluation claims whose stage and
+  start time are blank; preserve unexpired active claims and stop when a
+  confirmed target has conflicting state;
+- quarantine only the eight stable-identity active ready records that still
+  carry `legacy/unknown` provenance and the confirmed obsolete Netlify resume
+  URL; remove the active dispatch text, clear pending/sending alert state, keep
+  scores/decisions/outcomes unchanged, and route missing-description rows
+  through current evaluation before regeneration;
 - copy `created_at ` into blank `created_at`;
 - populate normalized identity, canonical state, legacy versions, and state guards;
 - classify legacy Archive rows as archived while preserving their previous status;
@@ -65,6 +78,20 @@ The script must:
 - preserve unrelated conditional-formatting rules.
 
 Stop and restore the workbook copy if row counts change, a ready message/decision disappears, or canonical IDs collide.
+Also inspect version cells through a raw-value API or n8n read: displayed date
+text alone does not prove that the stored value is a string. Run setup twice
+and confirm the second `versionMigration` summary reports no repairs.
+Inspect the `processingClaimMigration` result for cleared, preserved-active,
+skipped, and conflicting counts. On the copied workbook, verify the five
+confirmed terminal records have blank token/stage/start values and that a
+second setup run reports zero cleared claims. Do not delete append-only
+`ProcessingClaims` history.
+Inspect `legacyMessageMigration` for eight total quarantined,
+already-quarantined, or current-safe target identities and zero conflicts.
+Confirm quarantined rows have no active message,
+`message_validation_status=quarantined`, `alert_status=not_eligible`, the
+stable suppression reason, and no application decision change. A second setup
+run must quarantine zero additional rows.
 
 ## 5. Disabled import and rebinding
 
@@ -76,6 +103,12 @@ Stop and restore the workbook copy if row counts change, a ready message/decisio
    - `workflows/recommender.json`
    - `workflows/reviewer.json`
    - `workflows/archiver.json`
+   Confirm both the stored `active=false` value and the running n8n instance's
+   active registrations. A CLI import can update the database without
+   deregistering schedules already cached by a long-running n8n process. If the
+   workflow existed in that process, deactivate it through the supported
+   runtime surface or restart n8n, then inspect execution history through at
+   least the one-minute alert cadence before treating it as inactive.
 2. Rebind every Google Sheets node to the non-production workbook and test OAuth credential.
 3. Rebind the Groq model node to a test credential.
 4. Set `JOB_PIPELINE_SLACK_WEBHOOK_URL` to a test Slack incoming webhook and
@@ -92,6 +125,18 @@ Credential IDs and cached Sheet references in the exports are environment hints 
 ## 6. Dry run and smoke checks
 
 Keep schedules disabled. Manually execute one workflow at a time against the workbook copy.
+
+For CLI-only validation, import a disposable inactive copy whose Schedule
+Trigger is replaced by a Manual Trigger; do not edit the checked-in export.
+When another n8n process owns the default task-broker port, either stop that
+process after preserving its environment or use a separate
+`N8N_RUNNERS_BROKER_PORT`. Reconfirm the disposable workflow ID, workbook
+binding, credential references, trigger type, and inactive state before every
+manual execution.
+If the CLI runner blocks `$env` access, scope
+`N8N_BLOCK_ENV_ACCESS_IN_NODE=false` to that one isolated manual process only;
+do not weaken a shared host or print the webhook/review values. The checked-in
+Slack HTTP node must remain an explicit JSON `POST`.
 
 ### Sheet/reviewer
 
@@ -122,6 +167,10 @@ Keep schedules disabled. Manually execute one workflow at a time against the wor
 - Confirm only recommended or explicitly promoted rows call Groq.
 - Confirm the description persists after the first fetch.
 - Confirm a valid message preserves formatting and records profile version.
+- Confirm every quarantined legacy row is evaluated first when its stored
+  description is missing, remains ineligible after a fetch/model/validation
+  failure, and becomes ready only after current message and pack provenance
+  pass the shared gate.
 - Force one temporary failure and verify `retryable_error`, stage, count, category, sanitized summary, and `next_retry_at`.
 - Force exhaustion/validation failure and verify `terminal_error`.
 - Confirm no row becomes applied/skipped without an explicit manual action.

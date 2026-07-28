@@ -74,9 +74,22 @@ test("one job traverses discovery through archived outcome with one canonical id
   const discovered = { ...discovery.new_jobs[0], row_number: 2 };
   assert.equal(discovered.pipeline_status, "discovered");
 
-  const enriched = parseJobDetail(detailHtml.replaceAll("2001", "1001"), discovered);
+  const parsedDetail = parseJobDetail(
+    detailHtml.replaceAll("2001", "1001"),
+    discovered
+  );
+  const enriched = {
+    ...parsedDetail,
+    job_description: `${parsedDetail.job_description} Choose any language: TypeScript, PHP, or Ruby.`
+  };
   assert.equal(enriched.canonical_job_id, discovered.canonical_job_id);
   const evaluation = evaluateJob(enriched, profile, rankingPolicy, evaluatedAt);
+  assert.equal(
+    evaluation.requirement_gap_details.some((gap) =>
+      /PHP|Ruby/.test(gap.requirement)
+    ),
+    false
+  );
   const recommended = applyEvaluation(enriched, evaluation, evaluatedAt);
   assert.equal(recommended.pipeline_status, "recommended");
   assert.equal(recommended.canonical_job_id, discovered.canonical_job_id);
@@ -115,7 +128,12 @@ test("one job traverses discovery through archived outcome with one canonical id
       manual_action: "mark_applied"
     },
     schema,
-    appliedAt
+    appliedAt,
+    {
+      profile,
+      applicationPolicy: policy,
+      packPolicy
+    }
   );
   assert.equal(appliedResult.valid, true);
   assert.equal(appliedResult.record.application_decision, "applied");

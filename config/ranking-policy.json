@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-28/v1",
+  "policy_version": "2026-07-28/v2",
   "candidate_profile_version": "2026-07-28",
   "qualification": {
     "skill_weight": 55,

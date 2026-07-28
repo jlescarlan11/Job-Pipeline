@@ -26,6 +26,7 @@ import {
   chooseWinningClaims,
   createProcessingClaim
 } from "../src/contracts.mjs";
+import { evaluatePersistedMessageSafety } from "../src/message-safety.mjs";
 
 const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
 const loadText = async (path) => readFile(new URL(path, import.meta.url), "utf8");
@@ -370,7 +371,7 @@ test("missing required skills and seniority mismatches do not auto-generate", ()
   assert.match(senior.requirement_gaps[0], /Seniority/);
 });
 
-test("hard and ambiguous unsupported requirements route differently", () => {
+test("hard and preferred unsupported requirements retain severity semantics", () => {
   const hard = evaluateJob(
     {
       job_title: "Web Operations Developer",
@@ -392,7 +393,7 @@ test("hard and ambiguous unsupported requirements route differently", () => {
     "hard"
   );
 
-  const ambiguous = evaluateJob(
+  const preferred = evaluateJob(
     {
       job_title: "Web Operations Developer",
       job_description:
@@ -404,12 +405,198 @@ test("hard and ambiguous unsupported requirements route differently", () => {
     rankingPolicy,
     now
   );
-  assert.equal(ambiguous.match_decision, "review_required");
+  assert.equal(preferred.match_decision, "review_required");
   assert.equal(
-    ambiguous.requirement_gap_details.find((gap) => gap.requirement === "PHP")
+    preferred.requirement_gap_details.find((gap) => gap.requirement === "PHP")
       .classification,
+    "preference"
+  );
+});
+
+test("PHP compensation context is not classified as a programming gap", () => {
+  const compensationClauses = [
+    "Required salary: PHP 75,000 / month.",
+    "The monthly pay is PHP 75,000 to PHP 90,000.",
+    "Compensation is in Philippine pesos (PHP).",
+    "Compensation is in PHP.",
+    "The wage is ₱75,000 monthly."
+  ];
+  for (const compensationClause of compensationClauses) {
+    const evaluation = evaluateJob(
+      {
+        job_title: "Frontend TypeScript Developer",
+        job_description: `Build React and TypeScript applications for production. ${compensationClause}`,
+        salary_text: "PHP 75,000 / month",
+        role_families: ["frontend"],
+        source_availability: "active"
+      },
+      profile,
+      rankingPolicy,
+      now
+    );
+    assert.equal(evaluation.match_decision, "recommended");
+    assert.equal(
+      evaluation.requirement_gap_details.some(
+        (gap) => gap.requirement === "PHP"
+      ),
+      false
+    );
+    assert.equal(
+      evaluation.ranking_factors.find((factor) => factor.factor === "salary")
+        .status,
+      "observed"
+    );
+    assert.equal(
+      evaluation.ranking_factors.find((factor) => factor.factor === "salary")
+        .raw_value,
+      75000
+    );
+  }
+});
+
+test("PHP currency exclusion is local and cannot hide a programming requirement", () => {
+  const evaluation = evaluateJob(
+    {
+      job_title: "Web Operations Developer",
+      job_description:
+        "Maintain JavaScript and SQL production services. Salary: PHP 75,000 monthly; PHP programming experience is required.",
+      salary_text: "PHP 75,000 / month",
+      role_families: ["production-support"],
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.equal(evaluation.match_decision, "not_recommended");
+  assert.equal(
+    evaluation.requirement_gap_details.find(
+      (gap) => gap.requirement === "PHP"
+    )?.classification,
+    "hard"
+  );
+});
+
+test("explicit alternative groups are satisfied by one canonical profile skill", () => {
+  const clauses = [
+    "Choose any language: JavaScript, PHP, or Ruby.",
+    "Experience in one of Python, PHP, or Ruby is required.",
+    "At least one of TypeScript/PHP/Ruby must be used.",
+    "Either TypeScript or PHP may be used."
+  ];
+  for (const clause of clauses) {
+    const evaluation = evaluateJob(
+      {
+        job_title: "Production Web Developer",
+        job_description: `Maintain reliable React web applications and SQL services. ${clause}`,
+        role_families: ["production-support"],
+        source_availability: "active"
+      },
+      profile,
+      rankingPolicy,
+      now
+    );
+    assert.equal(
+      evaluation.requirement_gap_details.some((gap) =>
+        /PHP|Ruby/.test(gap.requirement)
+      ),
+      false
+    );
+    assert.equal(evaluation.match_decision, "recommended");
+  }
+});
+
+test("unsatisfied alternatives emit one deterministic group-level gap", () => {
+  const hard = evaluateJob(
+    {
+      job_title: "Production Web Developer",
+      job_description:
+        "Maintain JavaScript and SQL production services. One of PHP, Ruby, or Laravel is required.",
+      role_families: ["production-support"],
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.deepEqual(hard.requirement_gaps, [
+    "One of: Laravel / PHP / Ruby"
+  ]);
+  assert.deepEqual(hard.requirement_gap_details, [
+    {
+      requirement: "One of: Laravel / PHP / Ruby",
+      classification: "hard",
+      evidence:
+        "One of PHP, Ruby, or Laravel is required."
+    }
+  ]);
+  assert.equal(hard.match_decision, "not_recommended");
+
+  const ambiguous = evaluateJob(
+    {
+      job_title: "Production Web Developer",
+      job_description:
+        "Maintain JavaScript and SQL production services. Experience with one of PHP, Ruby, or Laravel.",
+      role_families: ["production-support"],
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.equal(ambiguous.requirement_gap_details.length, 1);
+  assert.equal(
+    ambiguous.requirement_gap_details[0].classification,
     "ambiguous"
   );
+  assert.equal(ambiguous.match_decision, "review_required");
+  assert.ok(ambiguous.requirement_gap_details[0].evidence.length <= 160);
+});
+
+test("independent and slash-only unsupported requirements remain independent", () => {
+  for (const clause of [
+    "PHP and Laravel are required.",
+    "PHP/Laravel experience is required."
+  ]) {
+    const evaluation = evaluateJob(
+      {
+        job_title: "Production Web Developer",
+        job_description: `Maintain JavaScript and SQL production services. ${clause}`,
+        role_families: ["production-support"],
+        source_availability: "active"
+      },
+      profile,
+      rankingPolicy,
+      now
+    );
+    assert.deepEqual(evaluation.requirement_gaps, ["Laravel", "PHP"]);
+    assert.ok(
+      evaluation.requirement_gap_details.every(
+        (gap) => gap.classification === "hard"
+      )
+    );
+    assert.equal(evaluation.match_decision, "not_recommended");
+  }
+
+  const ambiguous = evaluateJob(
+    {
+      job_title: "Production Web Developer",
+      job_description:
+        "Maintain JavaScript and SQL production services. The stack mentions PHP/Laravel.",
+      role_families: ["production-support"],
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.deepEqual(ambiguous.requirement_gaps, ["Laravel", "PHP"]);
+  assert.ok(
+    ambiguous.requirement_gap_details.every(
+      (gap) => gap.classification === "ambiguous"
+    )
+  );
+  assert.equal(ambiguous.match_decision, "review_required");
 });
 
 test("Unicode-obscured hard gaps are detected and oversized descriptions fail safe", () => {
@@ -475,13 +662,18 @@ test("successful evaluation clears processing claim and stores profile evidence"
     source: "onlinejobs.ph",
     canonical_url: "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001",
     processing_token: "claim-1",
+    processing_commit_guard: "commit:claim-1",
     processing_stage: "evaluation",
+    processing_started_at: "2026-07-28T09:59:00.000Z",
     pipeline_status: "evaluating"
   });
   const evaluation = evaluateJob(job, profile, rankingPolicy, now);
   const updated = applyEvaluation(job, evaluation, now);
   assert.equal(updated.pipeline_status, "recommended");
   assert.equal(updated.processing_token, "");
+  assert.equal(updated.processing_stage, "");
+  assert.equal(updated.processing_started_at, "");
+  assert.equal(updated.processing_commit_guard, "commit:claim-1");
   assert.equal(updated.profile_version, profile.profile_version);
 });
 
@@ -944,6 +1136,145 @@ test("failed regeneration preserves the previous valid pack and message", () => 
   );
   assert.deepEqual(failed.selected_proof_refs, previous.selected_proof_refs);
   assert.equal(failed.application_pack_status, "ready");
+});
+
+test("quarantined legacy content regenerates once and stays quarantined on failure", () => {
+  const quarantined = parseJobDetail(directHtml, {
+    source: "onlinejobs.ph",
+    canonical_url:
+      "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001",
+    pipeline_status: "recommended",
+    generated_message: "",
+    message_profile_version: "legacy/unknown",
+    message_policy_version: "",
+    message_validation_status: "quarantined",
+    application_pack_status: "",
+    alert_status: "not_eligible",
+    alert_suppressed_reason: "message_quarantined",
+    qualification_score: 83,
+    opportunity_score: 79,
+    ranking_confidence: "medium"
+  });
+  const [candidate] = selectWorkCandidates([quarantined], schema, {
+    now,
+    maxItems: 5
+  });
+  assert.equal(candidate.work_stage, "generation");
+  assert.equal(candidate.qualification_score, 83);
+  assert.equal(candidate.opportunity_score, 79);
+
+  const generating = {
+    ...candidate,
+    pipeline_status: "generating",
+    processing_stage: "generation",
+    processing_token: "quarantine-regeneration",
+    processing_commit_guard: "commit:quarantine-regeneration",
+    processing_started_at: now
+  };
+  const failed = recordStageFailure(
+    generating,
+    new Error("message_validation: invalid replacement"),
+    {
+      stage: "generation",
+      now,
+      maxAttempts: 3,
+      backoffMs: 1000,
+      forceRetryable: true
+    }
+  );
+  assert.equal(failed.generated_message, "");
+  assert.equal(failed.pipeline_status, "retryable_error");
+  assert.equal(
+    evaluatePersistedMessageSafety(failed, {
+      profile,
+      applicationPolicy: policy,
+      packPolicy
+    }).safe,
+    false
+  );
+
+  const pack = buildApplicationPack(
+    generating,
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  const regenerated = applyGeneratedApplicationPack(
+    generating,
+    pack,
+    canonicalValidMessage,
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(
+    evaluatePersistedMessageSafety(regenerated, {
+      profile,
+      applicationPolicy: policy,
+      packPolicy
+    }).safe,
+    true
+  );
+  assert.match(regenerated.generated_message, /johnlesterescarlan\.pro/);
+  assert.doesNotMatch(regenerated.generated_message, /netlify|strong foundation/i);
+  assert.deepEqual(
+    selectWorkCandidates([regenerated], schema, {
+      now,
+      maxItems: 5
+    }),
+    []
+  );
+});
+
+test("a quarantined legacy record with no stored description re-enters evaluation first", () => {
+  const [candidate] = selectWorkCandidates(
+    [
+      {
+        canonical_job_id: "onlinejobs.ph:legacy-quarantine",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/legacy-quarantine-2010",
+        pipeline_status: "recommended",
+        message_validation_status: "quarantined",
+        generated_message: "",
+        job_description: "",
+        qualification_score: 81,
+        opportunity_score: 76
+      }
+    ],
+    schema,
+    { now, maxItems: 5 }
+  );
+  assert.equal(candidate.work_stage, "evaluation");
+  assert.equal(candidate.qualification_score, 81);
+  assert.equal(candidate.opportunity_score, 76);
+  const generating = {
+    ...candidate,
+    pipeline_status: "generating",
+    processing_token: "missing-description-claim"
+  };
+  const blockedPack = buildApplicationPack(
+    generating,
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(blockedPack.application_pack_status, "blocked");
+  assert.throws(
+    () =>
+      applyGeneratedApplicationPack(
+        generating,
+        blockedPack,
+        "Current-looking replacement",
+        profile,
+        policy,
+        packPolicy,
+        now
+      ),
+    /application_pack_status must be ready/
+  );
 });
 
 test("message validation accepts canonical evidence and rejects unsupported claims", () => {

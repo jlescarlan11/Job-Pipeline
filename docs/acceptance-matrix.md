@@ -43,15 +43,17 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I3-AC5 — Direct/adjacent recommendation:** Automated direct and evidence-supported adjacent fixtures.
 - **I3-AC6 — Uncertain/unscorable avoids Groq:** Automated review-required and unscorable fixtures; selection excludes them unless explicit promotion.
 - **I3-AC7 — Not-recommended retained/no quota:** Evaluation/status tests and selection logic; archiver later retains dedup history.
-- **I3-AC8 — At-most-once concurrent generation:** Append-only stage claims, earliest-row arbitration, 10-minute lease, state-guard claim update, and processing-token commit; automated overlapping claim tests.
+- **I3-AC8 — At-most-once concurrent generation:** Append-only stage claims, earliest-row arbitration, 10-minute lease, state-guard claim update, and durable commit-guard finalization; automated overlapping claim tests.
 - **I3-AC9 — Only canonical facts/policy:** Automated prompt contents/obsolete exclusions and approved profile/policy validation.
 - **I3-AC10 — Invalid message not ready:** Automated unsupported project/skill/metric/URL and empty/partial-message failure coverage.
 - **I3-AC11 — Valid message version/time:** Automated ready transition, profile version, validation status, timestamp, and formatting preservation.
-- **I3-AC12 — Legacy ready preservation:** Automated selection exclusion and legacy message versioning; migration is additive.
+- **I3-AC12 — Legacy ready preservation:** Current-safe legacy records and all
+  applied/skipped history are preserved; the eight confirmed unsafe active
+  dispatch messages are narrowly quarantined by stable identity/evidence.
 - **I3-AC13 — Retryable external failures:** Automated sanitized timeout/rate-limit classification, stage, count, and backoff; export retry settings validated.
 - **I3-AC14 — Terminal failures:** Automated exhausted and validation-failure terminal routing.
 - **I3-AC15 — Stale lease recovery:** Automated active-claim and append-only claim expiration coverage.
-- **I3-AC16 — Stale write cannot overwrite decision:** Generator claim marking matches `state_guard`; final commits match `processing_token`; reviewer actions clear/replace the token; workflow test rejects canonical-ID claim cleanup.
+- **I3-AC16 — Stale write cannot overwrite decision:** Generator claim marking matches `state_guard`; final commits match `processing_commit_guard`; reviewer actions clear both processing keys; workflow tests reject canonical-ID claim cleanup.
 - **I3-AC17 — One cap value:** `config/runtime.json`, export metadata/code, README/architecture all use 5; automated drift check.
 - **I3-AC18 — No auto apply:** Policy requires manual submission; export scan rejects submit/apply endpoints and automated applied/skipped nodes.
 - **I3-AC19 — Required generation fixtures:** Automated direct, adjacent, review-required, unsupported skill, seniority, unavailable, missing description, invalid output, rate limit, overlap, stale claim, and legacy ready coverage.
@@ -105,7 +107,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC8 — No live default calls:** Tests use local JSON/HTML and pure functions; no network client is imported.
 - **I6-AC9 — Docs match exports:** README/architecture plus automated schedule/cap/retry/version drift checks.
 - **I6-AC10 — Profile/policy docs:** `docs/candidate-profile.md` and `docs/master-prompt.md` identify canonical sources/version behavior.
-- **I6-AC11 — Complete Sheet schema:** `docs/sheet-schema.md` defines all 89 canonical record fields, eight tabs, actions, states, and compatibility.
+- **I6-AC11 — Complete Sheet schema:** `docs/sheet-schema.md` defines all 90 canonical record fields, eight tabs, actions, states, and compatibility.
 - **I6-AC12 — Rollout runbook:** `docs/operations.md` includes backup, migration, profile validation, dry run, old-writer shutdown, activation, and checks.
 - **I6-AC13 — Rollback preservation:** Runbook keeps canonical identity, active/ready data, decisions/outcomes, and Archive dedup history.
 - **I6-AC14 — Production observations:** Runbook defines coverage, dedup, evaluation, generation, retry, stuck-claim, review, and archive counts without success targets.
@@ -114,7 +116,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 
 ## Issue #8 — Extended learning contract
 
-- **Ranking/pack/alert fields:** Artifact: the canonical 89-field
+- **Ranking/pack/alert fields:** Artifact: the canonical 90-field
   `config/pipeline-schema.json` contract, enum/field rules, generated mappings,
   and `docs/sheet-schema.md`; automated valid/invalid contract coverage in
   `profile-contracts.test.mjs`.
@@ -135,7 +137,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   headers, preserves reviewer content, and stops on identity collisions;
   `sheet-setup.test.mjs` plus generated-artifact checks cover repeatability.
 - **Concurrency/regression:** State guards include the newly manual telemetry;
-  processing-token and archive confirmation tests retain canonical identity,
+  processing-guard and archive confirmation tests retain canonical identity,
   actions, retries, valid messages, and archive safety.
 
 ## Issue #9 — Opportunity ranking and Apply Points advice
@@ -301,3 +303,256 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   Workflow/Sheet/docs tests plus `docs/operations.md` cover disabled staged
   rollout, verification, disable-only rollback, and separate approval for any
   future automatic calibration.
+
+## Issue #16 — Plain-text version metadata and coercion repair
+
+- **I16-AC1 — Every declared version field is plain text:** Contract-derived
+  headers from the job, analytics, and recommendation policies are formatted
+  before migration on every applicable tab; executable generated-script tests
+  verify the complete inventory and operation order.
+- **I16-AC2 — Genuine dates are untouched:** Only contract-declared version
+  headers are selected. A realistic Sheet fixture verifies that a neighboring
+  timestamp retains its date value and is never formatted by the migration.
+- **I16-AC3 — Five corrupt raw values are repaired:** The migration accepts
+  only `profile_version=46231` or its Apps Script `Date` representation when
+  the displayed value is `2026-07-28` and stable identity is present, then
+  writes the exact string. Raw Google Sheets API verification on the isolated
+  workbook copy confirms string values and `TEXT` formatting for rows 14–18.
+- **I16-AC4 — Stable identity guards repair:** Physical row number is reported
+  for evidence but never authorizes repair; missing identity is an unmapped
+  value covered by automated tests.
+- **I16-AC5 — Blank values remain blank:** The classifier treats blank values
+  as already valid and never supplies a guessed version.
+- **I16-AC6 — Unknown numerics fail visibly:** Every other non-string value is
+  returned in a bounded sanitized `unmapped` result and stops setup before
+  workflow activation.
+- **I16-AC7 — Reruns are idempotent:** Executable generated-script tests run the
+  migration twice and verify that the second pass performs no repair.
+- **I16-AC8 — Existing durable data is preserved:** The isolated copy retains
+  source/copy parity for row shape, canonical IDs, URLs, statuses, messages,
+  decisions, outcomes, and outcome events; the migration writes only authorized
+  version cells and number formats.
+- **I16-AC9 — Generated artifact is current:** `npm run validate` runs
+  `scripts/build-sheet-setup.mjs --check` against
+  `google-apps-script/SheetSetup.gs`.
+- **I16-AC10 — Required regression coverage:** `sheet-setup.test.mjs` covers
+  generated runtime validity, formatting-before-write, numeric and Date repair,
+  valid strings, blanks, unknown values, identity checks, reruns, and timestamp
+  isolation.
+- **I16-AC11 — Safe validation boundary:** The full validation suite passes and
+  workflow artifact tests require every checked-in export to remain inactive.
+
+## Issue #17 — Atomic processing-claim finalization
+
+- **I17-AC1 — Evaluation success clears active claim state:** Evaluation
+  commits match `processing_commit_guard` and include blank
+  `processing_token`, `processing_stage`, and `processing_started_at` from
+  `releaseClaim` in the same Sheets update.
+- **I17-AC2 — Every terminal workflow path follows the invariant:** Generated
+  evaluation failure, generation success/failure, alert success,
+  state-only suppression, configuration failure, retryable failure, and
+  terminal failure paths retain the commit guard while never re-injecting the
+  active token.
+- **I17-AC3 — Stale commits fail closed:** Manual actions clear both processing
+  keys; newer claims replace both. Final nodes match only the expected commit
+  guard, so an old result updates zero rows after either change.
+- **I17-AC4 — No second unguarded cleanup:** Generator and alerter graphs contain
+  one guarded terminal commit and no canonical-ID claim-clear node.
+- **I17-AC5 — Retry evidence is retained:** Direct evaluation/generation and
+  alert tests verify failed stage, attempt counts, retry time, and sanitized
+  evidence while `releaseClaim` clears active metadata.
+- **I17-AC6 — Five confirmed orphans are narrowly repaired:** Generated Sheet
+  migration maps exact stable identity, terminal status, and reported
+  evaluation token; it re-reads the row before clearing. Raw API verification
+  on the isolated copy confirms all five tokens are blank.
+- **I17-AC7 — Live claims are preserved:** The cleanup classifier reports and
+  leaves a token with nonblank stage and unexpired start time unchanged.
+- **I17-AC8 — Cleanup is idempotent and observable:** Migration output contains
+  bounded cleared, preserved-active, skipped, and conflicting counts/records;
+  executable tests verify a second pass clears nothing.
+- **I17-AC9 — Contract and workflow agree:** Direct terminal-state tests assert
+  blank active claim fields and retained non-active commit guard; workflow tests
+  inspect the corresponding match key and persisted field mappings.
+- **I17-AC10 — Claim and alert regressions remain covered:** Existing and
+  extended tests cover acquisition, append-only deterministic arbitration,
+  stale recovery, manual invalidation, alert retries, ambiguity, and duplicate
+  suppression.
+- **I17-AC11 — Documentation reflects terminal state:** Architecture,
+  data-contract, Sheet schema, review report, and operations guidance describe
+  the commit guard and blank terminal active-claim fields.
+- **I17-AC12 — Generated/disabled validation boundary:** `npm run validate`
+  checks current workflow and Apps Script artifacts and requires every export
+  to remain inactive.
+
+## Issue #18 — Unsafe legacy-message quarantine and regeneration
+
+- **I18-AC1 — Legacy/mismatched profile is rejected:** The shared
+  `evaluatePersistedMessageSafety` predicate emits distinct stable reasons for
+  legacy, missing, and mismatched message profile versions.
+- **I18-AC2 — Every current safety dimension is enforced:** The predicate
+  checks message policy/version/validation state, deterministic content,
+  current ready pack status and versions, pack structure/timestamp, approved
+  URLs, and banned phrases. Unit tests cover each reason and combined evidence.
+- **I18-AC3 — Current-safe control remains eligible:** A current validated
+  message with a structurally valid current pack passes the predicate and
+  existing apply/alert paths.
+- **I18-AC4 — Manual apply fails without mutation:** `mark_applied` invokes the
+  shared gate before input/snapshot writes; a quarantine test verifies the
+  decision, timestamp, snapshot, and complete record remain unchanged.
+- **I18-AC5 — Slack fails closed:** Eligibility includes the stable
+  `message_quarantined` reason. Pending/sending/retryable unsafe records take a
+  state-only path, and direct rendering throws before provider work.
+- **I18-AC6 — Eight records are identified before generation:** Sheet migration
+  requires all eight exact canonical IDs plus ready/undecided/legacy provenance
+  and the confirmed obsolete resume URL, rechecks each row, and fails setup if
+  the target cohort is incomplete or conflicting.
+- **I18-AC7 — Alert state cannot survive quarantine:** Migration writes
+  `not_eligible`, clears delivery/idempotency/retry evidence, and stores only
+  the stable sanitized suppression reason.
+- **I18-AC8 — Existing evaluation rules remain authoritative:** Migration
+  preserves ranking values and routes quarantined rows to recommended.
+  Missing-description quarantines select evaluation first; only a subsequent
+  recommendation enters generation.
+- **I18-AC9 — Success requires an atomic current replacement:** Generation can
+  commit lifecycle `ready` only for `application_pack_status=ready`; the
+  established message/pack validators write current profile/policy/pack
+  provenance and approved content together.
+- **I18-AC10 — Failure stays quarantined:** Fetch/model/pack/content failures
+  retain a blank active message, non-current provenance, retry evidence, and a
+  failing shared safety decision.
+- **I18-AC11 — Reruns avoid duplicate work/alerts:** Sheet migration recognizes
+  already-quarantined and current-safe targets. A current-safe ready record is
+  not selected for generation, and alert idempotency remains policy-scoped.
+- **I18-AC12 — Unrelated durable history is preserved:** The isolated-copy
+  migration retains target identity, URL, title, ranking, application decision,
+  and outcome fields; non-target and applied/skipped behavior has regression
+  coverage.
+- **I18-AC13 — Full regression matrix exists:** `message-safety.test.mjs`,
+  evaluation/generation, reviewer, alert, workflow, Sheet migration, and E2E
+  suites cover individual/combined reasons, denials, success, partial failure,
+  idempotency, and current-safe controls.
+- **I18-AC14 — Generated/disabled validation boundary:** `npm run validate`
+  checks current generated artifacts and requires all workflow exports to
+  remain inactive.
+
+## Issue #19 — Context-aware PHP and alternative requirements
+
+- **I19-AC1 — PHP amounts are currency:** Qualification fixtures cover PHP
+  amounts/ranges and the peso symbol without emitting a PHP programming gap.
+- **I19-AC2 — Compensation wording is currency:** Salary, wage, compensation,
+  monthly-pay, explicit Philippine-peso, and in-PHP contexts are classified
+  before severity.
+- **I19-AC3 — Salary ranking remains independent:** The classifier does not
+  rewrite `salary_text`; PHP 75,000/month remains an observed opportunity
+  salary input.
+- **I19-AC4 — Required PHP stays hard:** A separate unambiguous PHP programming
+  requirement still routes to `not_recommended` and `save_points`, including
+  when the same posting also contains PHP compensation.
+- **I19-AC5 — Preference semantics remain:** “PHP would be useful” produces a
+  preference gap and does not become a hard requirement.
+- **I19-AC6 — Supported alternatives satisfy once:** `choose any`, `one of`,
+  `either`, and `at least one of` fixtures with comma, slash, and `or`
+  separators emit no unchosen-option gaps when one canonical skill matches.
+- **I19-AC7 — Unsupported alternatives produce one gap:** An unsatisfied group
+  persists one alphabetized `One of: ...` gap with its clause severity and
+  bounded evidence.
+- **I19-AC8 — Independent lists remain independent:** `PHP and Laravel` and
+  slash-only requirements without an alternative marker retain separate gaps.
+- **I19-AC9 — Ambiguity remains fail-closed:** Unmarked PHP/Laravel wording
+  remains ambiguous and review-oriented rather than being ignored.
+- **I19-AC10 — Bounded deterministic output:** Classification reads at most the
+  established ranking-text bound, stores at most 160 evidence characters, and
+  sorts requirement labels deterministically.
+- **I19-AC11 — Evaluation fields agree:** Qualification score, decision,
+  reasons/factors, `requirement_gaps`, and `requirement_gap_details` derive
+  from the corrected pre-scoring classification.
+- **I19-AC12 — Lifecycle regression:** The synthetic discovery-to-archive E2E
+  includes a satisfied TypeScript/PHP/Ruby alternative without blocking
+  generation.
+- **I19-AC13 — Ranking semantics are versioned:** New evaluations persist
+  ranking policy `2026-07-28/v2`; weights, thresholds, confidence, salary
+  scoring, and Apply Points rules are unchanged.
+- **I19-AC14 — Generated/disabled boundary:** `npm run validate` verifies the
+  current bundled generator classifier and every workflow export remains
+  inactive.
+
+## Issue #20 — Disabled Groq-to-Slack smoke test
+
+Sanitized runtime evidence, workbook links, counts, execution IDs, partial
+failures, fixes, and reconciliation are recorded in
+`docs/smoke-test-2026-07-28.md`.
+
+- **I20-AC1 — Issue #16 preflight:** Raw reads on the migrated copy return all
+  five repaired `profile_version` values as `2026-07-28` strings and the
+  applicable version cells use `TEXT`/`@` formatting.
+- **I20-AC2 — Issue #17 preflight:** The five confirmed migrated terminal rows
+  and every completed disposable evaluation/generation/alert row have blank
+  `processing_token`, `processing_stage`, and `processing_started_at`.
+- **I20-AC3 — Issue #18 preflight:** All eight confirmed unsafe active messages
+  were quarantined on the remediation copy before external integration; the
+  alert control remained quarantined and produced zero provider calls.
+- **I20-AC4 — Issue #19 preflight:** The final positive fixture's explicit
+  TypeScript/PHP/Ruby alternative produced no gap, while the mandatory-PHP
+  control became `not_recommended` and made no Groq call.
+- **I20-AC5 — Repository validation:** `npm run validate` checks the current
+  generated artifacts and inactive exports. Final command evidence is recorded
+  with the delivery change set.
+- **I20-AC6 — Readable timestamped copy and counts:** The named remediation and
+  dedicated smoke workbooks were readable before execution; their private Drive
+  IDs are excluded from this public repository. Pre-run active, status,
+  message, identity, Archive, decision, and outcome counts are recorded.
+- **I20-AC7 — Inactive imports:** The disposable generator and alerter stored
+  `active=0`, used Manual Triggers, and were rebound only to the dedicated
+  workbook. Runtime registrations were stopped before integration.
+- **I20-AC8 — Valid unique fixture:** `onlinejobs.ph:990005` used a unique
+  identity, valid OnlineJobs.ph source URL, recent `posted_at`, complete
+  ranking inputs, and an evidence-supported description.
+- **I20-AC9 — Policies unchanged for the test:** Ranking/alert thresholds,
+  profile facts, and policy versions were not lowered or edited to force the
+  smoke result.
+- **I20-AC10 — Legitimate generator path:** Execution `3790` evaluated the
+  final record at 80 qualification, 80 opportunity, medium confidence, and no
+  gaps; execution `3791` reached application-pack generation without manual
+  score, confidence, gap, pack, or freshness overrides.
+- **I20-AC11 — Groq and deterministic validation:** Execution `3791` invoked
+  Groq once, returned a non-empty result, and passed
+  `validateGeneratedMessage` and `validateApplicationPack`.
+- **I20-AC12 — Safe current commit:** Raw cells contain current scoring,
+  profile, message-policy, and pack provenance as plain-text strings. The
+  shared persisted-message check returned safe with no obsolete Netlify URL or
+  configured banned phrase.
+- **I20-AC13 — Generator claim cleanup:** The `3791` ready commit and all final
+  disposable rows have blank active processing token/stage/start fields.
+- **I20-AC14 — Natural alert eligibility:** The committed record entered
+  `alert_status=pending` from the generator's existing eligibility function at
+  unchanged thresholds and without an operator state override.
+- **I20-AC15 — One confirmed Slack delivery:** Execution `3793` made exactly
+  one POST to the approved test webhook and received HTTP 200. The
+  acknowledgement was reconciled to persisted `sent` evidence without a
+  resend after the run exposed n8n raw-response serialization. Local-only
+  execution `3795` verified the final JSON-body POST and bounded `200/ok`
+  response shape without another external notification.
+- **I20-AC16 — Duplicate suppression:** Execution `3794` selected zero
+  candidates and executed the Slack node zero times for the same canonical
+  identity and alert-policy version.
+- **I20-AC17 — Unsafe alert control:** Execution `3786` committed
+  `not_eligible` with `pack_not_ready,message_quarantined` and zero Slack
+  executions.
+- **I20-AC18 — Generator negative control:** Execution `3780` committed the
+  mandatory-PHP record `not_recommended` with zero Groq executions.
+- **I20-AC19 — Manual submission boundary:** Final decision/outcome cells were
+  blank for every disposable row; no row became applied/skipped and no
+  application-submit endpoint exists in or was called by the workflows.
+- **I20-AC20 — Count and identity reconciliation:** The dedicated workbook
+  ended with 5 unique disposable identities and no Archive overlap; Archive
+  remained unchanged. The source workbook retained its original 17 identities,
+  statuses, messages, claims, decisions, and outcomes and contained no
+  disposable identity.
+- **I20-AC21 — Final inactive state:** Checked-in and disposable workflow
+  records remained `active=false`; a fresh n8n process was started from zero
+  active database records and observed for cached-schedule regression.
+- **I20-AC22 — Sanitized evidence:** The smoke evidence records execution IDs,
+  before/after states, Groq and Slack results, negative controls, duplicate
+  suppression, claim cleanup, runtime findings, and final inactive state
+  without credentials, webhook values, full messages/descriptions, or raw
+  provider responses.

@@ -457,6 +457,11 @@ export function isStaleClaim(record, nowMs, leaseMs) {
   return !Number.isFinite(startedAt) || nowMs - startedAt >= leaseMs;
 }
 
+export function processingCommitGuard(token) {
+  const value = String(token || "").trim();
+  return value ? `commit:${value}` : "";
+}
+
 export function claimRecord(record, { stage, token, now, leaseMs }) {
   const nowMs = Date.parse(now);
   if (!stage || !token || !Number.isFinite(nowMs) || !Number.isFinite(leaseMs) || leaseMs < 1) {
@@ -471,6 +476,7 @@ export function claimRecord(record, { stage, token, now, leaseMs }) {
       ...record,
       processing_stage: stage,
       processing_token: token,
+      processing_commit_guard: processingCommitGuard(token),
       processing_started_at: now,
       updated_at: now
     }

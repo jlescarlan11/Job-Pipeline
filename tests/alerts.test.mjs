@@ -6,10 +6,10 @@ import {
   alertIdempotencyKey,
   applyAlertProviderResult,
   classifyAlertProviderResult,
-  evaluateAlertEligibility,
-  queueAlertState,
-  renderAlert,
-  selectAlertCandidates,
+  evaluateAlertEligibility as evaluateAlertEligibilityCore,
+  queueAlertState as queueAlertStateCore,
+  renderAlert as renderAlertCore,
+  selectAlertCandidates as selectAlertCandidatesCore,
   validateAlertPolicy,
   validateAlertProviderConfiguration
 } from "../src/alerts.mjs";
@@ -19,7 +19,46 @@ const loadJson = async (path) =>
   JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
 const policy = await loadJson("../config/alert-policy.json");
 const schema = await loadJson("../config/pipeline-schema.json");
+const profile = await loadJson("../config/candidate-profile.json");
+const applicationPolicy = await loadJson(
+  "../config/application-policy.json"
+);
+const packPolicy = await loadJson(
+  "../config/application-pack-policy.json"
+);
+const messageSafetyContext = {
+  profile,
+  applicationPolicy,
+  packPolicy
+};
 const now = "2026-07-28T12:00:00.000Z";
+const evaluateAlertEligibility = (record, usedPolicy, at) =>
+  evaluateAlertEligibilityCore(
+    record,
+    usedPolicy,
+    at,
+    messageSafetyContext
+  );
+const queueAlertState = (record, usedPolicy, at) =>
+  queueAlertStateCore(record, usedPolicy, at, messageSafetyContext);
+const selectAlertCandidates = (
+  records,
+  usedSchema,
+  usedPolicy,
+  at
+) =>
+  selectAlertCandidatesCore(
+    records,
+    usedSchema,
+    usedPolicy,
+    at,
+    messageSafetyContext
+  );
+const renderAlert = (record, usedPolicy, options) =>
+  renderAlertCore(record, usedPolicy, {
+    ...options,
+    messageSafetyContext
+  });
 
 const ready = (overrides = {}) => ({
   row_number: 2,
@@ -47,6 +86,13 @@ const ready = (overrides = {}) => ({
   ],
   application_warnings: [],
   generated_message: "Existing ready message",
+  message_profile_version: profile.profile_version,
+  message_policy_version: applicationPolicy.policy_version,
+  message_validation_status: "valid",
+  application_pack_version: packPolicy.pack_version,
+  application_pack_profile_version: profile.profile_version,
+  application_pack_policy_version: packPolicy.policy_version,
+  application_pack_generated_at: now,
   application_decision: "",
   alert_status: "",
   alert_attempt_count: 0,
@@ -145,6 +191,51 @@ test("eligibility enforces every configured boundary", () => {
   }
 });
 
+test("quarantined persisted messages never queue or reach provider delivery", () => {
+  const unsafe = ready({
+    generated_message:
+      "I have a strong foundation. Resume: https://johnlesterescarlan.netlify.app/john_lester_escarlan_resume.pdf",
+    message_profile_version: "legacy/unknown",
+    message_policy_version: "",
+    message_validation_status: "",
+    application_pack_status: "",
+    application_pack_version: "",
+    application_pack_profile_version: "",
+    application_pack_policy_version: "",
+    application_pack_generated_at: "",
+    alert_status: "pending",
+    alert_idempotency_key: "onlinejobs.ph:7001|old-policy"
+  });
+  const eligibility = evaluateAlertEligibility(unsafe, policy, now);
+  assert.ok(eligibility.reasons.includes("message_quarantined"));
+  assert.ok(
+    eligibility.message_safety.reasons.includes(
+      "message_profile_legacy"
+    )
+  );
+
+  const queued = queueAlertState(unsafe, policy, now);
+  assert.equal(queued.alert_status, "not_eligible");
+  assert.match(queued.alert_suppressed_reason, /message_quarantined/);
+
+  const selected = selectAlertCandidates([unsafe], schema, policy, now);
+  assert.equal(selected.candidates.length, 1);
+  assert.equal(selected.candidates[0].delivery_mode, "state_only");
+  assert.equal(selected.candidates[0].alert_status, "not_eligible");
+  assert.match(
+    selected.candidates[0].alert_suppressed_reason,
+    /message_quarantined/
+  );
+  assert.throws(
+    () =>
+      renderAlert(unsafe, policy, {
+        reviewUrl:
+          "https://docs.google.com/spreadsheets/d/review-sheet"
+      }),
+    /message_quarantined/
+  );
+});
+
 test("eligible committed packs are immediately queued with one idempotency key", () => {
   const queued = queueAlertState(ready(), policy, now);
   assert.equal(queued.alert_status, "pending");
@@ -207,15 +298,17 @@ test("rendered Slack alert is concise, complete, and contains only non-mutating 
         classification: "preference"
       })),
       application_instructions: Array.from({ length: 3 }, () => ({
+        type: "format",
+        required: false,
         text: maximum
       })),
-      screening_questions: Array.from({ length: 3 }, () => ({
-        text: maximum
-      })),
-      selected_proof_refs: Array.from({ length: 3 }, () => maximum),
-      application_warnings: Array.from({ length: 3 }, () => ({
-        summary: maximum
-      }))
+      screening_questions: [],
+      selected_proof_refs: [
+        "experience:upwork",
+        "projects:job-pipeline",
+        "projects:rent-n-roll"
+      ],
+      application_warnings: []
     }),
     policy,
     {
@@ -235,6 +328,7 @@ test("confirmed success persists delivery evidence and suppresses duplicate init
   const queued = {
     ...queueAlertState(ready(), policy, now),
     processing_token: "alert-claim",
+    processing_commit_guard: "commit:alert-claim",
     processing_stage: "alert"
   };
   const sent = applyAlertProviderResult(
@@ -251,6 +345,9 @@ test("confirmed success persists delivery evidence and suppresses duplicate init
   assert.equal(sent.alert_sent_at, now);
   assert.equal(sent.alert_provider_reference, "delivery-7001");
   assert.equal(sent.processing_token, "");
+  assert.equal(sent.processing_stage, "");
+  assert.equal(sent.processing_started_at, "");
+  assert.equal(sent.processing_commit_guard, "commit:alert-claim");
   assert.equal(sent.generated_message, queued.generated_message);
 
   assert.deepEqual(queueAlertState(sent, policy, now), sent);
