@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-28/v1",
+  "schedule_hours": 168,
+  "required_window_type": "all_time",
+  "required_metric_definition_version": "2026-07-28/v1",
+  "required_band_version": "2026-07-28/v1",
+  "minimums": {
+    "overall_applications": 20,
+    "segment_applications": 5,
+    "discovery_volume": 5,
+    "promising_requirement_count": 5,
+    "explicit_outcome_coverage": 0.6,
+    "dimension_coverage": 0.7,
+    "promising_gap_coverage": 0.7
+  },
+  "comparisons": {
+    "minimum_composite_rate_difference": 0.1,
+    "composite_outcomes": [
+      "reply_rate",
+      "interview_rate",
+      "offer_rate"
+    ]
+  },
+  "score_band_order": [
+    "00_24",
+    "25_44",
+    "45_64",
+    "65_79",
+    "80_100"
+  ],
+  "confidence_order": [
+    "low",
+    "medium",
+    "high"
+  ],
+  "comparison_dimensions": [
+    "matched_skill",
+    "salary_band",
+    "posting_age_band",
+    "apply_points_used",
+    "apply_points_recommendation",
+    "message_strategy",
+    "instruction_completeness"
+  ],
+  "missing_requirement_exclusions": [
+    "seniority",
+    "years of experience",
+    "degree",
+    "location",
+    "timezone",
+    "availability",
+    "work schedule"
+  ],
+  "source_detail_sheet": "Analytics",
+  "source_reports_sheet": "AnalyticsReports",
+  "recommendations_sheet": "Recommendations",
+  "reports_sheet": "RecommendationReports",
+  "recommendation_fields": [
+    "recommendation_id",
+    "run_id",
+    "analysis_key",
+    "analytics_report_id",
+    "recommendation_policy_version",
+    "metric_definition_version",
+    "band_version",
+    "generated_at",
+    "window_start_at",
+    "window_end_at",
+    "status",
+    "category",
+    "affected_type",
+    "affected_key",
+    "direction",
+    "title",
+    "evidence_metric",
+    "numerator",
+    "denominator",
+    "sample_size",
+    "comparison_value",
+    "baseline_value",
+    "difference",
+    "coverage_numerator",
+    "coverage_denominator",
+    "coverage_rate",
+    "proposed_operator_action",
+    "caveat"
+  ],
+  "report_fields": [
+    "run_id",
+    "analysis_key",
+    "status",
+    "result",
+    "recommendation_policy_version",
+    "analytics_report_id",
+    "metric_definition_version",
+    "band_version",
+    "generated_at",
+    "window_start_at",
+    "window_end_at",
+    "minimum_overall_applications",
+    "minimum_segment_applications",
+    "minimum_explicit_outcome_coverage",
+    "recommendation_count",
+    "abstention_count",
+    "detail_row_count",
+    "error_category",
+    "error_summary"
+  ]
+}

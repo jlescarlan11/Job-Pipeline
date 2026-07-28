@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "storage_version": "2026-07-28",
+  "storage_version": "2026-07-28-opportunity-learning",
   "canonical_identity": {
     "source": "onlinejobs.ph",
     "preferred": "source_job_id",
@@ -27,6 +27,14 @@
     "match_decision",
     "match_reasons",
     "requirement_gaps",
+    "qualification_score",
+    "opportunity_score",
+    "ranking_confidence",
+    "apply_points_recommendation",
+    "ranking_factors",
+    "ranking_missing_signals",
+    "requirement_gap_details",
+    "scoring_policy_version",
     "profile_version",
     "evaluated_at",
     "pipeline_status",
@@ -40,19 +48,231 @@
     "error_summary",
     "generated_message",
     "message_profile_version",
+    "message_policy_version",
     "message_validation_status",
     "generated_at",
+    "application_instructions",
+    "screening_questions",
+    "selected_proof_refs",
+    "application_warnings",
+    "application_pack_status",
+    "application_pack_version",
+    "application_pack_profile_version",
+    "application_pack_policy_version",
+    "application_pack_generated_at",
+    "alert_status",
+    "alert_channel",
+    "alert_policy_version",
+    "alert_idempotency_key",
+    "alert_attempt_count",
+    "alert_last_attempt_at",
+    "alert_next_retry_at",
+    "alert_sent_at",
+    "alert_provider_reference",
+    "alert_error_category",
+    "alert_error_summary",
+    "alert_suppressed_reason",
+    "apply_points_input",
+    "application_message_strategy_input",
     "manual_action",
+    "first_reviewed_at",
     "application_decision",
     "application_decided_at",
+    "apply_points_used",
+    "application_message_strategy",
+    "application_qualification_score",
+    "application_opportunity_score",
+    "application_ranking_confidence",
+    "application_scoring_policy_version",
+    "application_apply_points_recommendation",
+    "application_pack_status_at_apply",
+    "application_posting_age_days",
+    "application_snapshot_at",
     "outcome",
     "outcome_at",
+    "outcome_events",
     "created_at",
     "updated_at",
     "archived_at",
     "archived_from_status",
     "notes"
   ],
+  "string_list_fields": [
+    "search_queries",
+    "role_families",
+    "match_reasons",
+    "requirement_gaps",
+    "ranking_missing_signals",
+    "selected_proof_refs"
+  ],
+  "json_array_fields": [
+    "ranking_factors",
+    "requirement_gap_details",
+    "application_instructions",
+    "screening_questions",
+    "application_warnings",
+    "outcome_events"
+  ],
+  "timestamp_fields": [
+    "posted_at",
+    "discovered_at",
+    "last_seen_at",
+    "evaluated_at",
+    "processing_started_at",
+    "next_retry_at",
+    "generated_at",
+    "application_pack_generated_at",
+    "alert_last_attempt_at",
+    "alert_next_retry_at",
+    "alert_sent_at",
+    "first_reviewed_at",
+    "application_decided_at",
+    "application_snapshot_at",
+    "outcome_at",
+    "created_at",
+    "updated_at",
+    "archived_at"
+  ],
+  "field_rules": {
+    "match_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "nullable": true
+    },
+    "qualification_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "nullable": true
+    },
+    "opportunity_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "nullable": true
+    },
+    "application_qualification_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "nullable": true
+    },
+    "application_opportunity_score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100,
+      "nullable": true
+    },
+    "application_posting_age_days": {
+      "type": "number",
+      "minimum": 0,
+      "nullable": true
+    },
+    "attempt_count": {
+      "type": "integer",
+      "minimum": 0,
+      "nullable": true
+    },
+    "alert_attempt_count": {
+      "type": "integer",
+      "minimum": 0,
+      "nullable": true
+    },
+    "apply_points_used": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60,
+      "nullable": true
+    },
+    "apply_points_input": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60,
+      "nullable": true
+    },
+    "application_message_strategy": {
+      "type": "string",
+      "maximum_length": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,47}/v[1-9][0-9]{0,5}$",
+      "nullable": true
+    },
+    "application_message_strategy_input": {
+      "type": "string",
+      "maximum_length": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,47}/v[1-9][0-9]{0,5}$",
+      "nullable": true
+    },
+    "ranking_confidence": {
+      "type": "enum",
+      "values": [
+        "",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "application_ranking_confidence": {
+      "type": "enum",
+      "values": [
+        "",
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "apply_points_recommendation": {
+      "type": "enum",
+      "values": [
+        "",
+        "save_points",
+        "low_allocation",
+        "normal_allocation",
+        "high_allocation"
+      ]
+    },
+    "application_apply_points_recommendation": {
+      "type": "enum",
+      "values": [
+        "",
+        "save_points",
+        "low_allocation",
+        "normal_allocation",
+        "high_allocation"
+      ]
+    },
+    "application_pack_status": {
+      "type": "enum",
+      "values": [
+        "",
+        "ready",
+        "review_required",
+        "blocked"
+      ]
+    },
+    "application_pack_status_at_apply": {
+      "type": "enum",
+      "values": [
+        "",
+        "ready",
+        "review_required",
+        "blocked"
+      ]
+    },
+    "alert_status": {
+      "type": "enum",
+      "values": [
+        "",
+        "not_eligible",
+        "pending",
+        "sending",
+        "sent",
+        "retryable_failure",
+        "terminal_failure",
+        "suppressed"
+      ]
+    }
+  },
   "pipeline_statuses": [
     "discovered",
     "evaluating",
@@ -71,6 +291,7 @@
   ],
   "manual_actions": [
     "",
+    "mark_reviewed",
     "promote",
     "mark_applied",
     "mark_skipped",

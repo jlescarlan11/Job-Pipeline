@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "metric_definition_version": "2026-07-28/v1",
+  "band_version": "2026-07-28/v1",
+  "schedule_hours": 24,
+  "analysis_timezone": "Asia/Manila",
+  "analysis_window": {
+    "type": "all_time"
+  },
+  "attribution": {
+    "policy": "multi_touch_full_credit",
+    "non_additive_dimensions": [
+      "search_query",
+      "role_family",
+      "matched_skill",
+      "requirement_gap"
+    ]
+  },
+  "top_ranked": {
+    "minimum_application_opportunity_score": 80
+  },
+  "score_bands": [
+    {
+      "key": "00_24",
+      "label": "0–24",
+      "maximum": 24
+    },
+    {
+      "key": "25_44",
+      "label": "25–44",
+      "maximum": 44
+    },
+    {
+      "key": "45_64",
+      "label": "45–64",
+      "maximum": 64
+    },
+    {
+      "key": "65_79",
+      "label": "65–79",
+      "maximum": 79
+    },
+    {
+      "key": "80_100",
+      "label": "80–100",
+      "maximum": 100
+    }
+  ],
+  "salary": {
+    "currency": "PHP",
+    "period": "month",
+    "bands": [
+      {
+        "key": "below_20k",
+        "label": "Below PHP 20,000/month",
+        "maximum": 19999
+      },
+      {
+        "key": "20k_39k",
+        "label": "PHP 20,000–39,999/month",
+        "maximum": 39999
+      },
+      {
+        "key": "40k_59k",
+        "label": "PHP 40,000–59,999/month",
+        "maximum": 59999
+      },
+      {
+        "key": "60k_79k",
+        "label": "PHP 60,000–79,999/month",
+        "maximum": 79999
+      },
+      {
+        "key": "80k_plus",
+        "label": "PHP 80,000+/month",
+        "maximum": 1000000000
+      }
+    ]
+  },
+  "posting_age_bands": [
+    {
+      "key": "0_1_days",
+      "label": "0–1 days",
+      "maximum": 1
+    },
+    {
+      "key": "over_1_3_days",
+      "label": ">1–3 days",
+      "maximum": 3
+    },
+    {
+      "key": "over_3_7_days",
+      "label": ">3–7 days",
+      "maximum": 7
+    },
+    {
+      "key": "over_7_14_days",
+      "label": ">7–14 days",
+      "maximum": 14
+    },
+    {
+      "key": "over_14_days",
+      "label": ">14 days",
+      "maximum": 36500
+    }
+  ],
+  "dimension_order": [
+    "search_query",
+    "role_family",
+    "qualification_score_band",
+    "opportunity_score_band",
+    "confidence",
+    "matched_skill",
+    "requirement_gap",
+    "salary_band",
+    "posting_age_band",
+    "apply_points_used",
+    "apply_points_recommendation",
+    "message_strategy",
+    "instruction_completeness",
+    "rank_cohort"
+  ],
+  "outcomes": [
+    "replied",
+    "interview",
+    "offer",
+    "rejected",
+    "no_response"
+  ],
+  "detail_sheet": "Analytics",
+  "reports_sheet": "AnalyticsReports",
+  "detail_fields": [
+    "analytics_row_id",
+    "report_id",
+    "metric_definition_version",
+    "band_version",
+    "generated_at",
+    "window_type",
+    "window_start_at",
+    "window_end_at",
+    "section",
+    "dimension",
+    "segment_key",
+    "segment_label",
+    "metric_key",
+    "numerator",
+    "denominator",
+    "value",
+    "unit",
+    "sample_size",
+    "coverage_numerator",
+    "coverage_denominator",
+    "attribution",
+    "non_additive",
+    "note"
+  ],
+  "report_fields": [
+    "report_id",
+    "status",
+    "metric_definition_version",
+    "band_version",
+    "generated_at",
+    "window_type",
+    "window_start_at",
+    "window_end_at",
+    "analysis_timezone",
+    "record_count",
+    "application_count",
+    "detail_row_count",
+    "attribution_policy",
+    "warning_summary"
+  ]
+}

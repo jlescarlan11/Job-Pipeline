@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-28/v1",
+  "candidate_profile_version": "2026-07-28",
+  "qualification": {
+    "skill_weight": 55,
+    "maximum_skill_matches": 5,
+    "role_family_weight": 25,
+    "early_career_weight": 10,
+    "hard_gap_penalty": 40,
+    "ambiguous_gap_penalty": 10,
+    "preference_gap_penalty": 4,
+    "seniority_cap": 25,
+    "recommended_minimum": 45,
+    "review_minimum": 25,
+    "role_family_evidence": {
+      "full-stack": [
+        "summary"
+      ],
+      "frontend": [
+        "skills.frontend:React"
+      ],
+      "backend-api": [
+        "skills.backend:Node.js"
+      ],
+      "mobile": [
+        "skills.frontend:Flutter"
+      ],
+      "automation": [
+        "skills.automation_and_integrations:n8n"
+      ],
+      "production-support": [
+        "experience:winds-gate-philippines"
+      ],
+      "dotnet": [
+        "experience:alliance-software"
+      ],
+      "database-platform": [
+        "skills.databases_and_cloud:PostgreSQL"
+      ]
+    },
+    "unsupported_technologies": [
+      "Angular",
+      "Expo",
+      "GoHighLevel",
+      "Kubernetes",
+      "LangChain",
+      "Laravel",
+      "PHP",
+      "React Native",
+      "Ruby",
+      "Ruby on Rails",
+      "Shopify",
+      "Svelte",
+      "Vue",
+      "WordPress"
+    ]
+  },
+  "opportunity": {
+    "weights": {
+      "qualification": 50,
+      "freshness": 15,
+      "salary": 10,
+      "completeness": 10,
+      "employer_signal": 5,
+      "application_effort": 5,
+      "historical_results": 5
+    },
+    "missing_neutral_score": 50,
+    "freshness_bands": [
+      {
+        "maximum_age_days": 1,
+        "score": 100
+      },
+      {
+        "maximum_age_days": 3,
+        "score": 85
+      },
+      {
+        "maximum_age_days": 7,
+        "score": 65
+      },
+      {
+        "maximum_age_days": 14,
+        "score": 40
+      },
+      {
+        "maximum_age_days": 3650,
+        "score": 15
+      }
+    ],
+    "salary": {
+      "currency": "PHP",
+      "period": "month",
+      "bands": [
+        {
+          "minimum": 80000,
+          "score": 100
+        },
+        {
+          "minimum": 60000,
+          "score": 80
+        },
+        {
+          "minimum": 40000,
+          "score": 60
+        },
+        {
+          "minimum": 20000,
+          "score": 40
+        },
+        {
+          "minimum": 0,
+          "score": 20
+        }
+      ]
+    },
+    "completeness_fields": [
+      "job_title",
+      "job_description",
+      "company",
+      "salary_text",
+      "work_type",
+      "hours_per_week"
+    ],
+    "allowed_employer_signals": [
+      "employer_verified"
+    ],
+    "application_effort_scores": {
+      "low": 100,
+      "moderate": 65,
+      "high": 30
+    },
+    "historical_results": {
+      "minimum_sample_size": 20,
+      "reply_rate_bands": [
+        {
+          "minimum": 0.3,
+          "score": 100
+        },
+        {
+          "minimum": 0.2,
+          "score": 75
+        },
+        {
+          "minimum": 0.1,
+          "score": 50
+        },
+        {
+          "minimum": 0.05,
+          "score": 30
+        },
+        {
+          "minimum": 0,
+          "score": 0
+        }
+      ]
+    }
+  },
+  "confidence": {
+    "high_minimum_points": 8,
+    "medium_minimum_points": 5,
+    "signal_points": {
+      "qualification": 3,
+      "freshness": 1,
+      "salary": 1,
+      "listing_completeness": 1,
+      "employer_identity": 1,
+      "employer_signal": 1,
+      "application_effort": 1,
+      "historical_results": 1
+    }
+  },
+  "apply_points": {
+    "high_allocation": {
+      "minimum_opportunity_score": 80,
+      "minimum_qualification_score": 75,
+      "required_confidence": "high"
+    },
+    "normal_allocation": {
+      "minimum_opportunity_score": 65,
+      "minimum_qualification_score": 55,
+      "allowed_confidence": [
+        "high",
+        "medium"
+      ]
+    },
+    "low_allocation": {
+      "minimum_opportunity_score": 50,
+      "minimum_qualification_score": 40
+    }
+  }
+}

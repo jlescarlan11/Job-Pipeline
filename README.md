@@ -10,20 +10,32 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | --- | --- | --- |
 | `workflows/scraper.json` | Every 4 hours | Run 22 evidence-linked queries across at most 3 pages each, preserve result-card alignment, reconcile active/archive history, and append only the winning discovery claim. |
 | `workflows/generator.json` | Every 15 minutes | Select at most 5 eligible jobs, enrich details, evaluate fit, generate approved messages through Groq, validate them, and persist retry or terminal state. |
+| `workflows/alerter.json` | Every minute | Claim newly ready high-opportunity jobs, send one concise Slack alert through an environment-bound webhook, and persist delivery or bounded failure evidence. |
 | `workflows/reviewer.json` | Every 5 minutes | Apply explicit Sheet actions, update active or archived outcomes, and upsert a deduplicated funnel summary. |
+| `workflows/analytics.json` | Every 24 hours | Read deduplicated active/archive state, publish versioned conversion/calibration detail, and mark a report complete only after all detail rows persist. |
+| `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
 | `workflows/archiver.json` | Every 45 minutes | Upsert eligible terminal records into Archive, reread both tabs, verify the source snapshot and archive copy, then delete confirmed rows from bottom to top. |
 
-The workflows share four Google Sheet tabs:
+The workflows share eight Google Sheet tabs:
 
 - `Sheet1`: active discovery, evaluation, generation, and review records.
 - `Archive`: idempotent terminal history and post-application outcomes.
-- `ProcessingClaims`: append-only discovery, evaluation, generation, and archive leases.
+- `ProcessingClaims`: append-only discovery, evaluation, generation, alert, and archive leases.
 - `Dashboard`: one `metric_key=current` funnel row.
+- `Analytics`: versioned conversion, efficiency, coverage, and calibration detail rows.
+- `AnalyticsReports`: append-safe identifiers for complete analytic reports.
+- `Recommendations`: versioned advisory evidence, proposed operator actions, and abstentions.
+- `RecommendationReports`: complete, empty, abstained, and failed weekly run history.
 
 ## Source of truth
 
 - `config/candidate-profile.json`: versioned candidate facts and approved public links.
 - `config/application-policy.json`: message style, approved projects/URLs, validation limits, and the manual-submission boundary.
+- `config/ranking-policy.json`: versioned dual-score factors, confidence rules, and advisory Apply Points thresholds.
+- `config/application-pack-policy.json`: instruction extraction, proof selection, limits, and pack readiness rules.
+- `config/alert-policy.json`: versioned Slack eligibility, retry, message-size, and environment-reference rules.
+- `config/analytics-policy.json`: versioned cohorts, bands, attribution, timezone, cadence, and report fields.
+- `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
 - `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
 - `config/runtime.json`: generator and archiver schedules, caps, leases, and retries.
@@ -46,18 +58,26 @@ npm run validate
 
 1. Follow `docs/operations.md`; back up the current Sheet and n8n workflows first.
 2. On a non-production Sheet copy, attach and run `google-apps-script/SheetSetup.gs`. It adds required tabs/headers, migrates legacy identity and state, retains old columns, orders review fields, and installs controlled actions.
-3. Import all four workflow JSON files into a non-production or disabled n8n context.
+3. Import all seven workflow JSON files into a non-production or disabled n8n context.
 4. Replace the exported environment-specific Sheet and credential references with test resources.
 5. Run the documented dry-run and smoke checks while every workflow remains disabled.
 6. Activate production workflows only in the documented order after the old writers are disabled and verification evidence is recorded.
 
-No workflow applies to jobs. A candidate must copy/review the validated message, submit it on OnlineJobs.ph, and explicitly choose `mark_applied` or `mark_skipped`.
+No workflow applies to jobs. A candidate must copy/review the validated message,
+submit it on OnlineJobs.ph, and explicitly choose `mark_applied` or
+`mark_skipped`. Optional actual Apply Points and a versioned message-strategy
+identifier are validated at that manual boundary; blank values remain unknown.
 
 ## Documentation
 
 - `docs/architecture.md`: data flow, ownership, concurrency, retries, and state model.
 - `docs/candidate-profile.md`: profile and application-policy versioning.
 - `docs/data-contract.md`: identity, compatibility, migration, and state semantics.
+- `docs/ranking.md`: qualification, opportunity, missing-signal, queue, and Apply Points rules.
+- `docs/application-pack.md`: structured instructions, approved proofs, warnings, readiness, and retry safety.
+- `docs/alerts.md`: eligibility, provider setup, idempotency, safe actions, failure handling, and rollback.
+- `docs/analytics.md`: cohort definitions, dimensions, attribution, metrics, coverage, and complete-report publishing.
+- `docs/recommendations.md`: weekly eligibility, evidence, abstention, versioning, failure, and no-mutation rules.
 - `docs/sheet-schema.md`: complete tab, field, action, and view reference.
 - `docs/master-prompt.md`: how the generated Groq prompt is assembled and validated.
 - `docs/operations.md`: backup, migration, dry run, activation, production checks, and rollback.

@@ -13,7 +13,8 @@ import {
 } from "../src/discovery.mjs";
 import {
   applyEvaluation,
-  applyGeneratedMessage,
+  applyGeneratedApplicationPack,
+  buildApplicationPack,
   evaluateJob,
   parseJobDetail,
   recordStageFailure,
@@ -29,6 +30,8 @@ const loadText = async (path) => readFile(new URL(path, import.meta.url), "utf8"
 
 const profile = await loadJson("../config/candidate-profile.json");
 const policy = await loadJson("../config/application-policy.json");
+const rankingPolicy = await loadJson("../config/ranking-policy.json");
+const packPolicy = await loadJson("../config/application-pack-policy.json");
 const schema = await loadJson("../config/pipeline-schema.json");
 const plan = await loadJson("../config/search-plan.json");
 const searchHtml = await loadText("./fixtures/search-page-1.html");
@@ -73,7 +76,7 @@ test("one job traverses discovery through archived outcome with one canonical id
 
   const enriched = parseJobDetail(detailHtml.replaceAll("2001", "1001"), discovered);
   assert.equal(enriched.canonical_job_id, discovered.canonical_job_id);
-  const evaluation = evaluateJob(enriched, profile, evaluatedAt);
+  const evaluation = evaluateJob(enriched, profile, rankingPolicy, evaluatedAt);
   const recommended = applyEvaluation(enriched, evaluation, evaluatedAt);
   assert.equal(recommended.pipeline_status, "recommended");
   assert.equal(recommended.canonical_job_id, discovered.canonical_job_id);
@@ -82,22 +85,46 @@ test("one job traverses discovery through archived outcome with one canonical id
     validateGeneratedMessage(validMessage, { job: recommended, profile, policy }),
     { valid: true, errors: [] }
   );
-  const ready = applyGeneratedMessage(
-    { ...recommended, pipeline_status: "generating" },
+  const generating = { ...recommended, pipeline_status: "generating" };
+  const pack = buildApplicationPack(
+    generating,
+    profile,
+    policy,
+    packPolicy,
+    generatedAt
+  );
+  const ready = applyGeneratedApplicationPack(
+    generating,
+    pack,
     validMessage,
     profile,
+    policy,
+    packPolicy,
     generatedAt
   );
   assert.equal(ready.pipeline_status, "ready");
+  assert.equal(ready.application_pack_status, "ready");
+  assert.ok(ready.selected_proof_refs.length >= 2);
   assert.equal(ready.canonical_job_id, discovered.canonical_job_id);
 
   const appliedResult = applyManualAction(
-    { ...ready, manual_action: "mark_applied" },
+    {
+      ...ready,
+      apply_points_input: 10,
+      application_message_strategy_input: "instruction-aware/v1",
+      manual_action: "mark_applied"
+    },
     schema,
     appliedAt
   );
   assert.equal(appliedResult.valid, true);
   assert.equal(appliedResult.record.application_decision, "applied");
+  assert.equal(appliedResult.record.apply_points_used, 10);
+  assert.equal(appliedResult.record.application_snapshot_at, appliedAt);
+  assert.equal(
+    appliedResult.record.application_qualification_score,
+    ready.qualification_score
+  );
 
   const activeApplied = { ...appliedResult.record, row_number: 2 };
   const archivePlan = prepareArchiveCandidates([activeApplied], [], schema, { now: archivedAt });
@@ -124,6 +151,10 @@ test("one job traverses discovery through archived outcome with one canonical id
   assert.equal(outcomeResult.record.outcome, "offer");
   assert.equal(outcomeResult.record.application_decision, "applied");
   assert.equal(outcomeResult.record.generated_message, validMessage);
+  assert.deepEqual(
+    outcomeResult.record.outcome_events.map((event) => event.type),
+    ["offer"]
+  );
 
   const rediscovered = reconcileDiscovery(
     [page],

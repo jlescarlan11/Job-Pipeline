@@ -99,6 +99,48 @@ test("active and archive legacy records prevent rediscovery without losing manua
   assert.deepEqual(update.search_queries.sort(), ["legacy query", "typescript developer"]);
 });
 
+test("rediscovery preserves ranking, pack, alert, application, and outcome-learning state", () => {
+  const parsed = parseSearchResults(
+    page1Html,
+    request("typescript", "typescript developer", "full-stack", 1),
+    { now, lookbackDays: 7 }
+  );
+  const durableState = {
+    qualification_score: 84,
+    opportunity_score: 79,
+    ranking_confidence: "high",
+    apply_points_recommendation: "high_allocation",
+    ranking_factors: [{ factor: "qualification", contribution: 30 }],
+    application_pack_status: "ready",
+    application_instructions: [{ text: "Use subject CODE", required: true }],
+    alert_status: "sent",
+    alert_sent_at: "2026-07-28T03:30:00.000Z",
+    first_reviewed_at: "2026-07-28T03:45:00.000Z",
+    apply_points_used: 8,
+    application_message_strategy: "instruction-aware/v1",
+    outcome_events: [
+      { id: "reply-1", type: "replied", at: "2026-07-28T03:50:00.000Z" }
+    ]
+  };
+  const active = [
+    {
+      row_number: 4,
+      canonical_url:
+        "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-1001",
+      pipeline_status: "applied",
+      application_decision: "applied",
+      ...durableState
+    }
+  ];
+
+  const reconciled = reconcileDiscovery([parsed], active, [], schema, now);
+  assert.equal(reconciled.new_jobs.length, 0);
+  const update = reconciled.existing_updates[0].record;
+  for (const [field, value] of Object.entries(durableState)) {
+    assert.deepEqual(update[field], value, `${field} was not preserved`);
+  }
+});
+
 test("empty, failed, complete, and capped query coverage are distinguishable", () => {
   const localPlan = {
     ...plan,

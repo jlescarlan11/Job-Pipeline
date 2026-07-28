@@ -1,0 +1,324 @@
+{
+  "active": [
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9001",
+      "canonical_job_id": "onlinejobs.ph:9001",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/automation-developer-9001",
+      "pipeline_status": "applied",
+      "application_decision": "applied",
+      "discovered_at": "2026-07-01T01:00:00.000Z",
+      "first_reviewed_at": "2026-07-01T03:00:00.000Z",
+      "application_decided_at": "2026-07-01T04:00:00.000Z",
+      "application_snapshot_at": "2026-07-01T04:00:00.000Z",
+      "opportunity_score": 90,
+      "application_qualification_score": 85,
+      "application_opportunity_score": 90,
+      "application_ranking_confidence": "high",
+      "application_scoring_policy_version": "2026-07-28/v1",
+      "application_apply_points_recommendation": "high_allocation",
+      "application_pack_status_at_apply": "ready",
+      "application_posting_age_days": 0.5,
+      "apply_points_used": 10,
+      "application_message_strategy": "instruction-aware/v1",
+      "search_queries": [
+        "n8n developer",
+        "typescript developer"
+      ],
+      "role_families": [
+        "automation",
+        "full-stack"
+      ],
+      "match_reasons": [
+        "Matched skill: TypeScript",
+        "Matched skill: n8n"
+      ],
+      "requirement_gap_details": [],
+      "scoring_policy_version": "2026-07-28/v1",
+      "evaluated_at": "2026-07-01T02:00:00.000Z",
+      "salary_text": "PHP 80,000/month",
+      "outcome": "interview",
+      "outcome_at": "2026-07-03T04:00:00.000Z",
+      "outcome_events": [
+        {
+          "id": "9001-reply",
+          "type": "replied",
+          "at": "2026-07-02T04:00:00.000Z"
+        },
+        {
+          "id": "9001-interview",
+          "type": "interview",
+          "at": "2026-07-03T04:00:00.000Z"
+        }
+      ],
+      "updated_at": "2026-07-03T04:00:00.000Z"
+    },
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9003",
+      "canonical_job_id": "onlinejobs.ph:9003",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/legacy-automation-9003",
+      "pipeline_status": "applied",
+      "application_decision": "applied",
+      "discovered_at": "2026-07-04T01:00:00.000Z",
+      "application_decided_at": "2026-07-05T01:00:00.000Z",
+      "search_queries": [
+        "n8n developer"
+      ],
+      "role_families": [
+        "automation"
+      ],
+      "salary_text": "USD 2,000/month",
+      "outcome": "no_response",
+      "outcome_at": "2026-07-20T01:00:00.000Z",
+      "outcome_events": [],
+      "updated_at": "2026-07-20T01:00:00.000Z"
+    },
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9004",
+      "canonical_job_id": "onlinejobs.ph:9004",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/backend-developer-9004",
+      "pipeline_status": "applied",
+      "application_decision": "applied",
+      "discovered_at": "2026-07-05T04:00:00.000Z",
+      "first_reviewed_at": "2026-07-05T03:00:00.000Z",
+      "application_decided_at": "2026-07-05T08:00:00.000Z",
+      "application_snapshot_at": "2026-07-05T08:00:00.000Z",
+      "application_qualification_score": 45,
+      "application_opportunity_score": 50,
+      "application_ranking_confidence": "low",
+      "application_scoring_policy_version": "2026-07-28/v1",
+      "application_apply_points_recommendation": "low_allocation",
+      "application_pack_status_at_apply": "blocked",
+      "application_posting_age_days": 7,
+      "apply_points_used": 2,
+      "application_message_strategy": "instruction-aware/v1",
+      "search_queries": [
+        "backend developer"
+      ],
+      "role_families": [
+        "backend-api"
+      ],
+      "match_reasons": [
+        "Matched skill: Node.js"
+      ],
+      "requirement_gap_details": [
+        {
+          "requirement": "React Native",
+          "classification": "preference"
+        }
+      ],
+      "scoring_policy_version": "2026-07-28/v1",
+      "evaluated_at": "2026-07-05T05:00:00.000Z",
+      "salary_text": "PHP 20,000 per month",
+      "outcome": "interview",
+      "outcome_at": "2026-07-10T08:00:00.000Z",
+      "outcome_events": [
+        {
+          "id": "9004-interview",
+          "type": "interview",
+          "at": "2026-07-10T08:00:00.000Z"
+        }
+      ],
+      "updated_at": "2026-07-10T08:00:00.000Z"
+    },
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9005",
+      "canonical_job_id": "onlinejobs.ph:9005",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/support-developer-9005",
+      "pipeline_status": "applied",
+      "application_decision": "applied",
+      "discovered_at": "2026-07-06T01:00:00.000Z",
+      "first_reviewed_at": "2026-07-07T02:00:00.000Z",
+      "application_decided_at": "2026-07-07T03:00:00.000Z",
+      "application_snapshot_at": "2026-07-07T03:00:00.000Z",
+      "application_qualification_score": 24,
+      "application_opportunity_score": 79,
+      "application_ranking_confidence": "high",
+      "application_scoring_policy_version": "2026-07-28/v1",
+      "application_apply_points_recommendation": "normal_allocation",
+      "application_pack_status_at_apply": "ready",
+      "application_posting_age_days": 14,
+      "apply_points_used": 3,
+      "application_message_strategy": "",
+      "search_queries": [
+        "backend developer",
+        "production support"
+      ],
+      "role_families": [
+        "backend-api",
+        "production-support"
+      ],
+      "match_reasons": [
+        "Matched skill: PostgreSQL"
+      ],
+      "requirement_gap_details": [],
+      "scoring_policy_version": "2026-07-28/v1",
+      "evaluated_at": "2026-07-06T02:00:00.000Z",
+      "salary_text": "PHP 40,000 monthly",
+      "outcome": "",
+      "outcome_events": [],
+      "updated_at": "2026-07-07T03:00:00.000Z"
+    },
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9006",
+      "canonical_job_id": "onlinejobs.ph:9006",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/kubernetes-engineer-9006",
+      "pipeline_status": "not_recommended",
+      "application_decision": "",
+      "opportunity_score": 85,
+      "scoring_policy_version": "2026-07-28/v1",
+      "evaluated_at": "2026-07-08T01:00:00.000Z",
+      "requirement_gap_details": [
+        {
+          "requirement": "Kubernetes",
+          "classification": "hard"
+        }
+      ],
+      "updated_at": "2026-07-08T01:00:00.000Z"
+    },
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9007",
+      "canonical_job_id": "onlinejobs.ph:9007",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/incomplete-job-9007",
+      "pipeline_status": "unscorable",
+      "application_pack_status": "blocked",
+      "application_warnings": [
+        {
+          "code": "description_unavailable",
+          "severity": "blocked",
+          "summary": "A complete active job description is required."
+        }
+      ],
+      "updated_at": "2026-07-08T02:00:00.000Z"
+    },
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9008",
+      "canonical_job_id": "onlinejobs.ph:9008",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/evidence-job-9008",
+      "pipeline_status": "review_required",
+      "application_pack_status": "blocked",
+      "application_warnings": [
+        {
+          "code": "unsupported_required_evidence",
+          "severity": "blocked",
+          "summary": "Requested mandatory evidence is unavailable."
+        }
+      ],
+      "updated_at": "2026-07-08T03:00:00.000Z"
+    }
+  ],
+  "archive": [
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9001",
+      "canonical_job_id": "onlinejobs.ph:9001",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/automation-developer-9001",
+      "pipeline_status": "archived",
+      "archived_from_status": "applied",
+      "application_decision": "applied",
+      "application_decided_at": "2026-07-01T04:00:00.000Z",
+      "application_snapshot_at": "2026-07-01T04:00:00.000Z",
+      "application_qualification_score": 85,
+      "application_opportunity_score": 90,
+      "application_ranking_confidence": "high",
+      "application_scoring_policy_version": "2026-07-28/v1",
+      "application_apply_points_recommendation": "high_allocation",
+      "application_pack_status_at_apply": "ready",
+      "application_posting_age_days": 0.5,
+      "apply_points_used": 10,
+      "application_message_strategy": "instruction-aware/v1",
+      "search_queries": [
+        "n8n developer"
+      ],
+      "role_families": [
+        "automation"
+      ],
+      "match_reasons": [
+        "Matched skill: TypeScript",
+        "Matched skill: n8n"
+      ],
+      "requirement_gap_details": [],
+      "scoring_policy_version": "2026-07-28/v1",
+      "evaluated_at": "2026-07-01T02:00:00.000Z",
+      "salary_text": "PHP 80,000/month",
+      "outcome": "offer",
+      "outcome_at": "2026-07-10T04:00:00.000Z",
+      "outcome_events": [
+        {
+          "id": "9001-reply",
+          "type": "replied",
+          "at": "2026-07-02T04:00:00.000Z"
+        },
+        {
+          "id": "9001-interview",
+          "type": "interview",
+          "at": "2026-07-03T04:00:00.000Z"
+        },
+        {
+          "id": "9001-offer",
+          "type": "offer",
+          "at": "2026-07-10T04:00:00.000Z"
+        }
+      ],
+      "updated_at": "2026-07-10T04:00:00.000Z",
+      "archived_at": "2026-07-01T05:00:00.000Z"
+    },
+    {
+      "source": "onlinejobs.ph",
+      "source_job_id": "9002",
+      "canonical_job_id": "onlinejobs.ph:9002",
+      "canonical_url": "https://onlinejobs.ph/jobseekers/job/full-stack-developer-9002",
+      "pipeline_status": "archived",
+      "archived_from_status": "applied",
+      "application_decision": "applied",
+      "discovered_at": "2026-07-02T23:00:00.000Z",
+      "first_reviewed_at": "2026-07-03T01:00:00.000Z",
+      "application_decided_at": "2026-07-03T02:00:00.000Z",
+      "application_snapshot_at": "2026-07-03T02:00:00.000Z",
+      "application_qualification_score": 75,
+      "application_opportunity_score": 70,
+      "application_ranking_confidence": "medium",
+      "application_scoring_policy_version": "2026-07-28/v1",
+      "application_apply_points_recommendation": "normal_allocation",
+      "application_pack_status_at_apply": "review_required",
+      "application_posting_age_days": 2,
+      "apply_points_used": 5,
+      "application_message_strategy": "manual-custom/v1",
+      "search_queries": [
+        "typescript developer"
+      ],
+      "role_families": [
+        "full-stack"
+      ],
+      "match_reasons": [
+        "Matched skill: TypeScript"
+      ],
+      "requirement_gap_details": [],
+      "scoring_policy_version": "2026-07-28/v1",
+      "evaluated_at": "2026-07-03T00:00:00.000Z",
+      "salary_text": "PHP 60,000 per month",
+      "outcome": "rejected",
+      "outcome_at": "2026-07-12T02:00:00.000Z",
+      "outcome_events": [
+        {
+          "id": "9002-reply",
+          "type": "replied",
+          "at": "2026-07-04T02:00:00.000Z"
+        },
+        {
+          "id": "9002-rejected",
+          "type": "rejected",
+          "at": "2026-07-12T02:00:00.000Z"
+        }
+      ],
+      "updated_at": "2026-07-12T02:00:00.000Z",
+      "archived_at": "2026-07-03T03:00:00.000Z"
+    }
+  ]
+}

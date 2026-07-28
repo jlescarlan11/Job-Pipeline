@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-28/v1",
+  "pack_version": "2026-07-28/v1",
+  "candidate_profile_version": "2026-07-28",
+  "application_policy_version": "2026-07-28",
+  "minimum_preferred_proofs": 2,
+  "maximum_proofs": 3,
+  "maximum_instructions": 20,
+  "maximum_questions": 20,
+  "maximum_item_characters": 500,
+  "maximum_description_characters": 50000,
+  "required_markers": [
+    "must",
+    "required",
+    "please",
+    "make sure",
+    "do not apply unless"
+  ],
+  "ambiguous_markers": [
+    "if applicable",
+    "if available",
+    "or similar",
+    "ideally",
+    "optional"
+  ],
+  "instruction_markers": {
+    "subject": [
+      "subject line",
+      "email subject",
+      "use subject"
+    ],
+    "format": [
+      "start your",
+      "begin your",
+      "format",
+      "first line",
+      "include the phrase"
+    ],
+    "submission": [
+      "apply through",
+      "submit through",
+      "send your application",
+      "send your resume"
+    ],
+    "attachment": [
+      "attach",
+      "attachment",
+      "resume",
+      "curriculum vitae",
+      "cv"
+    ],
+    "test": [
+      "assessment",
+      "coding test",
+      "test task",
+      "trial task",
+      "video recording",
+      "record a video"
+    ],
+    "evidence": [
+      "portfolio",
+      "work sample",
+      "project link",
+      "provide an example",
+      "share an example",
+      "proof of"
+    ]
+  },
+  "unsafe_instruction_categories": {
+    "policy_bypass": [
+      "ignore previous",
+      "ignore the system",
+      "override the policy",
+      "bypass validation"
+    ],
+    "hidden_configuration": [
+      "system prompt",
+      "hidden prompt",
+      "reveal the prompt",
+      "show configuration"
+    ],
+    "private_data": [
+      "api key",
+      "password",
+      "private profile",
+      "secret token"
+    ],
+    "automatic_action": [
+      "automatically submit",
+      "auto apply",
+      "spend apply points",
+      "use apply points"
+    ]
+  }
+}

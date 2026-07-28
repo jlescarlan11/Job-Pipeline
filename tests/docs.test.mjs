@@ -9,11 +9,16 @@ const readme = await loadText("../README.md");
 const architecture = await loadText("../docs/architecture.md");
 const sheetSchema = await loadText("../docs/sheet-schema.md");
 const operations = await loadText("../docs/operations.md");
+const recommendationsDoc = await loadText("../docs/recommendations.md");
 const prompt = await loadText("../docs/master-prompt.md");
 const schema = await loadJson("../config/pipeline-schema.json");
 const searchPlan = await loadJson("../config/search-plan.json");
 const runtime = await loadJson("../config/runtime.json");
 const review = await loadJson("../config/review-sheet.json");
+const analytics = await loadJson("../config/analytics-policy.json");
+const recommendations = await loadJson(
+  "../config/recommendation-policy.json"
+);
 
 test("README and architecture document the checked-in schedules, bounds, and manual boundary", () => {
   for (const document of [readme, architecture]) {
@@ -21,6 +26,11 @@ test("README and architecture document the checked-in schedules, bounds, and man
     assert.match(document, new RegExp(`${runtime.generator.schedule_minutes}\\s*minutes?`, "i"));
     assert.match(document, new RegExp(`${review.schedule_minutes}\\s*minutes?`, "i"));
     assert.match(document, new RegExp(`${runtime.archiver.schedule_minutes}\\s*minutes?`, "i"));
+    assert.match(document, new RegExp(`${analytics.schedule_hours}\\s*hours?`, "i"));
+    assert.match(
+      document,
+      new RegExp(`${recommendations.schedule_hours}\\s*hours?`, "i")
+    );
     assert.match(document, /manual/i);
     assert.doesNotMatch(document, /three independent n8n workflows|cap(?:ped)? (?:at|of) 10/i);
   }
@@ -28,6 +38,10 @@ test("README and architecture document the checked-in schedules, bounds, and man
   assert.match(architecture, /at most 5/i);
   assert.match(architecture, /3 times with 5-second/i);
   assert.match(architecture, /10-minute claim lease/i);
+  assert.match(architecture, /partial refresh cannot replace/i);
+  assert.match(architecture, /multi-touch full-credit/i);
+  assert.match(architecture, /latest identifiable\s+complete report/i);
+  assert.match(architecture, /no branch changes search configuration/i);
 });
 
 test("Sheet schema documentation covers every persisted field, status, and manual action", () => {
@@ -60,6 +74,26 @@ test("runbook contains every release and rollback safety gate", () => {
   ]) {
     assert.match(operations, new RegExp(required, "i"), `runbook is missing: ${required}`);
   }
+  assert.match(operations, /all seven exports/i);
+  assert.match(operations, /weekly recommendations/i);
+  assert.match(operations, /separately reviewed approval/i);
+});
+
+test("weekly recommendation documentation preserves evidence and no-mutation boundaries", () => {
+  assert.match(
+    recommendationsDoc,
+    new RegExp(`${recommendations.schedule_hours}\\s*hours?`, "i")
+  );
+  assert.match(
+    recommendationsDoc,
+    new RegExp(`${recommendations.minimums.overall_applications}\\s+applied`, "i")
+  );
+  assert.match(recommendationsDoc, /reply, interview, and offer rates/i);
+  assert.match(recommendationsDoc, /newest `status=complete`/i);
+  assert.match(recommendationsDoc, /explicit abstention/i);
+  assert.match(recommendationsDoc, /never adds a claim/i);
+  assert.match(recommendationsDoc, /future automatic calibration requires/i);
+  assert.match(recommendationsDoc, /does not write `Sheet1`/i);
 });
 
 test("prompt documentation points to generated canonical inputs without embedding obsolete facts", () => {

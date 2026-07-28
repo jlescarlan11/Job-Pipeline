@@ -1,4 +1,5 @@
 import {
+  mergeOutcomeEvents,
   normalizeLegacyRecord,
   stateGuard
 } from "./contracts.mjs";
@@ -41,6 +42,22 @@ function mergeArchiveRecord(active, existing, schema, now) {
   for (const field of schema.fields) {
     if (hasValue(active[field])) merged[field] = active[field];
     if (hasValue(existing?.[field])) merged[field] = existing[field];
+  }
+  const eventCollections = [
+    existing?.outcome_events,
+    active.outcome_events
+  ].filter(hasValue);
+  merged.outcome_events = eventCollections.every(Array.isArray)
+    ? mergeOutcomeEvents(existing?.outcome_events, active.outcome_events)
+    : existing?.outcome_events ?? active.outcome_events;
+  const activeOutcomeAt = Date.parse(active.outcome_at || "");
+  const existingOutcomeAt = Date.parse(existing?.outcome_at || "");
+  if (
+    Number.isFinite(activeOutcomeAt) &&
+    (!Number.isFinite(existingOutcomeAt) || activeOutcomeAt > existingOutcomeAt)
+  ) {
+    merged.outcome = active.outcome;
+    merged.outcome_at = active.outcome_at;
   }
   const fromStatus =
     existing?.archived_from_status ||

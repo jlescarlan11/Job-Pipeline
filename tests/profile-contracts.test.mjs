@@ -8,6 +8,7 @@ import {
   validateCandidateProfile
 } from "../src/profile.mjs";
 import {
+  applyValidatedRecordUpdate,
   canTransition,
   canonicalJobId,
   claimRecord,
@@ -15,7 +16,8 @@ import {
   normalizeLegacyRecord,
   stateGuard,
   transitionRecord,
-  validatePipelineSchema
+  validatePipelineSchema,
+  validateRecordContract
 } from "../src/contracts.mjs";
 
 const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
@@ -84,8 +86,129 @@ test("legacy records preserve decisions and generated messages", () => {
   assert.equal(legacy.created_at, "2026-07-01T00:00:00.000Z");
   assert.equal(legacy.generated_message, "Existing reviewed message");
   assert.equal(legacy.message_profile_version, "legacy/unknown");
+  assert.equal(legacy.qualification_score, "");
+  assert.equal(legacy.opportunity_score, "");
+  assert.equal(legacy.ranking_confidence, "");
+  assert.deepEqual(legacy.outcome_events, []);
   assert.equal(legacy.canonical_job_id, "onlinejobs.ph:777");
   assert.equal(legacy.state_guard, stateGuard(legacy));
+});
+
+test("opportunity-learning contract normalizes and validates persistent values", () => {
+  const normalized = normalizeLegacyRecord(
+    {
+      canonical_url: "https://onlinejobs.ph/jobseekers/job/contract-8101",
+      qualification_score: "84",
+      opportunity_score: 79,
+      ranking_confidence: "high",
+      apply_points_recommendation: "high_allocation",
+      ranking_factors: JSON.stringify([{ factor: "qualification", contribution: 30 }]),
+      ranking_missing_signals: JSON.stringify(["salary"]),
+      requirement_gap_details: JSON.stringify([{ requirement: "Kubernetes", severity: "hard" }]),
+      application_instructions: JSON.stringify([{ text: "Use a specific subject", required: true }]),
+      screening_questions: JSON.stringify([{ text: "Describe a similar project", required: true }]),
+      selected_proof_refs: JSON.stringify(["projects:job-pipeline"]),
+      application_warnings: JSON.stringify([{ code: "missing_attachment" }]),
+      application_pack_status: "review_required",
+      alert_status: "pending",
+      alert_attempt_count: "1",
+      first_reviewed_at: "2026-07-28T10:00:00.000Z",
+      apply_points_used: "8",
+      application_message_strategy: "instruction-aware/v1",
+      application_qualification_score: "84",
+      application_opportunity_score: "79",
+      application_ranking_confidence: "high",
+      application_apply_points_recommendation: "high_allocation",
+      application_pack_status_at_apply: "ready",
+      application_posting_age_days: "1.5",
+      application_snapshot_at: "2026-07-28T10:05:00.000Z",
+      outcome_events: JSON.stringify([
+        { id: "reply-1", type: "replied", at: "2026-07-28T11:00:00.000Z" }
+      ])
+    },
+    schema,
+    "2026-07-28T09:00:00.000Z"
+  );
+
+  assert.equal(normalized.qualification_score, 84);
+  assert.equal(normalized.apply_points_used, 8);
+  assert.equal(normalized.application_posting_age_days, 1.5);
+  assert.deepEqual(normalized.ranking_missing_signals, ["salary"]);
+  assert.equal(normalized.ranking_factors[0].factor, "qualification");
+  assert.equal(normalized.outcome_events[0].type, "replied");
+  assert.deepEqual(validateRecordContract(normalized, schema), []);
+});
+
+test("record contract rejects invalid scores, enums, timestamps, points, and JSON arrays", () => {
+  const invalid = normalizeLegacyRecord(
+    {
+      canonical_url: "https://onlinejobs.ph/jobseekers/job/invalid-contract-8102",
+      qualification_score: 101,
+      opportunity_score: -1,
+      ranking_confidence: "certain",
+      apply_points_recommendation: "spend_everything",
+      application_pack_status: "complete",
+      alert_status: "delivered",
+      apply_points_used: 61,
+      apply_points_input: 0,
+      application_message_strategy_input: "not versioned",
+      first_reviewed_at: "not-a-date",
+      ranking_factors: "{\"factor\":\"qualification\"}",
+      outcome_events: [
+        { id: "duplicate", type: "replied", at: "not-a-date" },
+        { id: "duplicate", type: "invented", at: "2026-07-28T10:00:00.000Z" }
+      ]
+    },
+    schema,
+    "2026-07-28T09:00:00.000Z"
+  );
+  const errors = validateRecordContract(invalid, schema).join("\n");
+  assert.match(errors, /qualification_score must be at most 100/);
+  assert.match(errors, /opportunity_score must be at least 0/);
+  assert.match(errors, /ranking_confidence has unsupported value/);
+  assert.match(errors, /apply_points_recommendation has unsupported value/);
+  assert.match(errors, /application_pack_status has unsupported value/);
+  assert.match(errors, /alert_status has unsupported value/);
+  assert.match(errors, /apply_points_used must be at most 60/);
+  assert.match(errors, /apply_points_input must be at least 1/);
+  assert.match(errors, /application_message_strategy_input has an unsupported format/);
+  assert.match(errors, /first_reviewed_at must be a valid timestamp/);
+  assert.match(errors, /ranking_factors must be a JSON array/);
+  assert.match(errors, /outcome_events\[0\]\.at is invalid/);
+  assert.match(errors, /outcome_events contains duplicate id/);
+  assert.match(errors, /outcome_events\[1\]\.type is invalid/);
+});
+
+test("an invalid contract update is atomic and leaves the previous record unchanged", () => {
+  const previous = normalizeLegacyRecord(
+    {
+      canonical_url: "https://onlinejobs.ph/jobseekers/job/valid-contract-8103",
+      qualification_score: 84,
+      opportunity_score: 79,
+      ranking_confidence: "high"
+    },
+    schema,
+    "2026-07-28T09:00:00.000Z"
+  );
+  const snapshot = structuredClone(previous);
+
+  assert.throws(
+    () =>
+      applyValidatedRecordUpdate(
+        previous,
+        { qualification_score: 101, ranking_confidence: "certain" },
+        schema
+      ),
+    /Invalid record update/
+  );
+  assert.deepEqual(previous, snapshot);
+});
+
+test("the durable contract does not define credential or reusable action-token fields", () => {
+  const forbidden = schema.fields.filter((field) =>
+    /(?:secret|password|credential|access_token|refresh_token|callback_token)/i.test(field)
+  );
+  assert.deepEqual(forbidden, []);
 });
 
 test("state transitions allow required paths and reject invalid ones", () => {
@@ -136,5 +259,22 @@ test("state guards change with manual lifecycle state but not processing metadat
   assert.notEqual(
     stateGuard(base),
     stateGuard({ ...base, pipeline_status: "skipped", application_decision: "skipped" })
+  );
+  assert.notEqual(
+    stateGuard(base),
+    stateGuard({ ...base, first_reviewed_at: "2026-07-28T10:00:00.000Z" })
+  );
+  assert.notEqual(
+    stateGuard(base),
+    stateGuard({ ...base, apply_points_used: 8 })
+  );
+  assert.notEqual(
+    stateGuard(base),
+    stateGuard({
+      ...base,
+      outcome_events: [
+        { id: "reply-1", type: "replied", at: "2026-07-28T11:00:00.000Z" }
+      ]
+    })
   );
 });

@@ -1,6 +1,9 @@
 import {
+  compareRankingPriority,
+  mergeOutcomeEvents,
   normalizeLegacyRecord,
-  stateGuard
+  stateGuard,
+  validateRecordContract
 } from "./contracts.mjs";
 
 const OUTCOME_ACTIONS = {
@@ -20,12 +23,143 @@ function clearProcessing(record) {
   };
 }
 
-function changed(record) {
+function validationSummary(errors) {
+  return errors
+    .map((error) => String(error).replace(/:\s.*$/, ""))
+    .slice(0, 5)
+    .join("; ");
+}
+
+function changed(record, schema, original = record) {
+  const errors = validateRecordContract(record, schema);
+  if (errors.length > 0) {
+    return {
+      changed: false,
+      valid: false,
+      record: original,
+      error: `review input validation failed: ${validationSummary(errors)}`
+    };
+  }
   return {
     changed: true,
     valid: true,
     record: { ...record, state_guard: stateGuard(record) }
   };
+}
+
+function firstReview(record, now) {
+  return {
+    ...record,
+    first_reviewed_at: record.first_reviewed_at || now
+  };
+}
+
+function postingAgeDays(postedAt, appliedAt) {
+  const postedMs = Date.parse(postedAt || "");
+  const appliedMs = Date.parse(appliedAt || "");
+  if (
+    !Number.isFinite(postedMs) ||
+    !Number.isFinite(appliedMs) ||
+    postedMs > appliedMs
+  ) {
+    return "";
+  }
+  return Math.round(((appliedMs - postedMs) / 86_400_000) * 1_000_000) / 1_000_000;
+}
+
+function normalizeApplicationInputs(record, schema) {
+  const pointsRaw = record.apply_points_input;
+  const pointsMissing =
+    pointsRaw === "" || pointsRaw === undefined || pointsRaw === null;
+  const points = pointsMissing ? "" : Number(pointsRaw);
+  const pointsRule = schema.field_rules?.apply_points_input;
+  if (
+    !pointsMissing &&
+    (!Number.isInteger(points) ||
+      points < pointsRule.minimum ||
+      points > pointsRule.maximum)
+  ) {
+    return {
+      valid: false,
+      error: `apply_points_input must be an integer from ${pointsRule.minimum} to ${pointsRule.maximum}`
+    };
+  }
+
+  const strategy = String(
+    record.application_message_strategy_input || ""
+  ).trim();
+  const strategyRule =
+    schema.field_rules?.application_message_strategy_input;
+  if (
+    strategy &&
+    (strategy.length > strategyRule.maximum_length ||
+      !new RegExp(strategyRule.pattern).test(strategy))
+  ) {
+    return {
+      valid: false,
+      error:
+        "application_message_strategy_input must be a bounded versioned identifier"
+    };
+  }
+  return { valid: true, points, strategy };
+}
+
+function snapshotApplication(record, now, inputs) {
+  if (record.application_snapshot_at) return record;
+  return {
+    ...record,
+    apply_points_used: inputs.points,
+    application_message_strategy: inputs.strategy,
+    application_qualification_score:
+      record.qualification_score === undefined
+        ? ""
+        : record.qualification_score,
+    application_opportunity_score:
+      record.opportunity_score === undefined ? "" : record.opportunity_score,
+    application_ranking_confidence: record.ranking_confidence || "",
+    application_scoring_policy_version: record.scoring_policy_version || "",
+    application_apply_points_recommendation:
+      record.apply_points_recommendation || "",
+    application_pack_status_at_apply: record.application_pack_status || "",
+    application_posting_age_days: postingAgeDays(record.posted_at, now),
+    application_snapshot_at: now
+  };
+}
+
+function eventId(record, type, now, previousOutcome) {
+  const source = [
+    record.canonical_job_id,
+    type,
+    now,
+    previousOutcome,
+    record.outcome_events?.length || 0
+  ].join("\u001f");
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `outcome-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
+function appendOutcome(record, type, now, correctedOutcome) {
+  const event = {
+    id: eventId(record, type, now, record.outcome || ""),
+    type,
+    at: now,
+    previous_outcome: record.outcome || ""
+  };
+  if (type === "correction") event.corrected_outcome = correctedOutcome;
+  return mergeOutcomeEvents(record.outcome_events, [event]);
+}
+
+function duplicateDecision(record, decision) {
+  return (
+    record.application_decision === decision &&
+    (record.pipeline_status === decision ||
+      (record.pipeline_status === "archived" &&
+        record.archived_from_status === decision))
+  );
 }
 
 export function applyManualAction(record, schema, now = new Date().toISOString()) {
@@ -35,17 +169,29 @@ export function applyManualAction(record, schema, now = new Date().toISOString()
     return { changed: false, valid: false, record, error: `unsupported manual action: ${action}` };
   }
 
+  if (action === "mark_reviewed") {
+    return changed(
+      {
+        ...firstReview(record, now),
+        manual_action: "",
+        updated_at: now
+      },
+      schema,
+      record
+    );
+  }
+
   if (action === "promote") {
     if (!["review_required", "unscorable"].includes(record.pipeline_status)) {
       return { changed: false, valid: false, record, error: `promote is invalid from ${record.pipeline_status}` };
     }
     return changed({
-      ...clearProcessing(record),
+      ...clearProcessing(firstReview(record, now)),
       pipeline_status: "recommended",
       match_decision: "recommended",
       manual_action: "",
       updated_at: now
-    });
+    }, schema, record);
   }
 
   if (action === "regenerate") {
@@ -53,39 +199,74 @@ export function applyManualAction(record, schema, now = new Date().toISOString()
       return { changed: false, valid: false, record, error: `regenerate is invalid from ${record.pipeline_status}` };
     }
     return changed({
-      ...clearProcessing(record),
+      ...clearProcessing(firstReview(record, now)),
       pipeline_status: "recommended",
       manual_action: "",
       updated_at: now
-    });
+    }, schema, record);
   }
 
   if (action === "mark_applied") {
+    if (duplicateDecision(record, "applied")) {
+      return changed(
+        {
+          ...record,
+          apply_points_input: "",
+          application_message_strategy_input: "",
+          manual_action: "",
+          updated_at: now
+        },
+        schema,
+        record
+      );
+    }
     if (record.pipeline_status !== "ready") {
       return { changed: false, valid: false, record, error: `mark_applied is invalid from ${record.pipeline_status}` };
     }
+    const inputs = normalizeApplicationInputs(record, schema);
+    if (!inputs.valid) {
+      return { changed: false, valid: false, record, error: inputs.error };
+    }
+    const applied = snapshotApplication(firstReview(record, now), now, inputs);
     return changed({
-      ...clearProcessing(record),
+      ...clearProcessing(applied),
       pipeline_status: "applied",
       application_decision: "applied",
       application_decided_at: now,
+      apply_points_input: "",
+      application_message_strategy_input: "",
       manual_action: "",
       updated_at: now
-    });
+    }, schema, record);
   }
 
   if (action === "mark_skipped") {
+    if (duplicateDecision(record, "skipped")) {
+      return changed(
+        {
+          ...record,
+          apply_points_input: "",
+          application_message_strategy_input: "",
+          manual_action: "",
+          updated_at: now
+        },
+        schema,
+        record
+      );
+    }
     if (!["ready", "recommended", "review_required", "unscorable"].includes(record.pipeline_status)) {
       return { changed: false, valid: false, record, error: `mark_skipped is invalid from ${record.pipeline_status}` };
     }
     return changed({
-      ...clearProcessing(record),
+      ...clearProcessing(firstReview(record, now)),
       pipeline_status: "skipped",
       application_decision: "skipped",
       application_decided_at: now,
+      apply_points_input: "",
+      application_message_strategy_input: "",
       manual_action: "",
       updated_at: now
-    });
+    }, schema, record);
   }
 
   if (action === "retry") {
@@ -104,20 +285,40 @@ export function applyManualAction(record, schema, now = new Date().toISOString()
         record.pipeline_status === "unavailable" ? "unknown" : record.source_availability,
       manual_action: "",
       updated_at: now
-    });
+    }, schema, record);
   }
 
   if (action === "clear_outcome") {
     if (record.application_decision !== "applied") {
       return { changed: false, valid: false, record, error: "outcomes require an applied decision" };
     }
+    if (!Array.isArray(record.outcome_events)) {
+      return {
+        changed: false,
+        valid: false,
+        record,
+        error: "outcome history is malformed and requires manual repair"
+      };
+    }
+    if (!record.outcome) {
+      return changed(
+        {
+          ...record,
+          manual_action: "",
+          updated_at: now
+        },
+        schema,
+        record
+      );
+    }
     return changed({
       ...record,
       outcome: "",
       outcome_at: now,
+      outcome_events: appendOutcome(record, "correction", now, ""),
       manual_action: "",
       updated_at: now
-    });
+    }, schema, record);
   }
 
   const outcome = OUTCOME_ACTIONS[action];
@@ -125,13 +326,33 @@ export function applyManualAction(record, schema, now = new Date().toISOString()
     if (record.application_decision !== "applied") {
       return { changed: false, valid: false, record, error: "outcomes require an applied decision" };
     }
+    if (!Array.isArray(record.outcome_events)) {
+      return {
+        changed: false,
+        valid: false,
+        record,
+        error: "outcome history is malformed and requires manual repair"
+      };
+    }
+    if (record.outcome === outcome) {
+      return changed(
+        {
+          ...record,
+          manual_action: "",
+          updated_at: now
+        },
+        schema,
+        record
+      );
+    }
     return changed({
       ...record,
       outcome,
       outcome_at: now,
+      outcome_events: appendOutcome(record, outcome, now),
       manual_action: "",
       updated_at: now
-    });
+    }, schema, record);
   }
 
   return { changed: false, valid: false, record, error: `unhandled manual action: ${action}` };
@@ -200,9 +421,7 @@ export function buildReviewQueue(rows, schema, now = new Date().toISOString()) {
     .sort((left, right) => {
       const priority = recordPriority(right) - recordPriority(left);
       if (priority !== 0) return priority;
-      const matchScore = Number(right.match_score || 0) - Number(left.match_score || 0);
-      if (matchScore !== 0) return matchScore;
-      return Date.parse(right.posted_at || 0) - Date.parse(left.posted_at || 0);
+      return compareRankingPriority(left, right);
     });
 }
 

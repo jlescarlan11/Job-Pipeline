@@ -95,7 +95,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 
 ## Issue #6 — Regression coverage and rollout
 
-- **I6-AC1 — Offline workflow validation:** `npm run validate` checks all four exports without credentials.
+- **I6-AC1 — Offline workflow validation:** `npm run validate` checks all seven exports without credentials.
 - **I6-AC2 — Discovery regression set:** `discovery.test.mjs`, fixtures, and workflow drift tests cover direct/adjacent catalog, duplicates, empty/partial/capped behavior.
 - **I6-AC3 — Evaluation regression set:** `evaluation-generation.test.mjs` and contract tests cover direct, adjacent/review, unscorable, unavailable, validation, retries/terminal, stale/overlap, and legacy ready.
 - **I6-AC4 — Review regression set:** `review.test.mjs` covers promotion, applied, skipped, outcomes, invalid transition, and empty data.
@@ -105,9 +105,199 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC8 — No live default calls:** Tests use local JSON/HTML and pure functions; no network client is imported.
 - **I6-AC9 — Docs match exports:** README/architecture plus automated schedule/cap/retry/version drift checks.
 - **I6-AC10 — Profile/policy docs:** `docs/candidate-profile.md` and `docs/master-prompt.md` identify canonical sources/version behavior.
-- **I6-AC11 — Complete Sheet schema:** `docs/sheet-schema.md` defines all 45 record fields, four tabs, actions, states, and compatibility.
+- **I6-AC11 — Complete Sheet schema:** `docs/sheet-schema.md` defines all 89 canonical record fields, eight tabs, actions, states, and compatibility.
 - **I6-AC12 — Rollout runbook:** `docs/operations.md` includes backup, migration, profile validation, dry run, old-writer shutdown, activation, and checks.
 - **I6-AC13 — Rollback preservation:** Runbook keeps canonical identity, active/ready data, decisions/outcomes, and Archive dedup history.
 - **I6-AC14 — Production observations:** Runbook defines coverage, dedup, evaluation, generation, retry, stuck-claim, review, and archive counts without success targets.
 - **I6-AC15 — Drift failure:** Generated workflow/Sheet `--check` commands plus export/config tests fail `npm run validate` on critical drift.
 - **I6-AC16 — No bypass/submission/service:** Export scan, policy, architecture, and runbook retain OnlineJobs.ph read-only/manual submission and add no service.
+
+## Issue #8 — Extended learning contract
+
+- **Ranking/pack/alert fields:** Artifact: the canonical 89-field
+  `config/pipeline-schema.json` contract, enum/field rules, generated mappings,
+  and `docs/sheet-schema.md`; automated valid/invalid contract coverage in
+  `profile-contracts.test.mjs`.
+- **Review/application/outcome telemetry:** Artifact: first-review, controlled
+  Apply Points/strategy input, immutable application snapshot, and serialized
+  cumulative outcomes; automated normalization/state-guard coverage in
+  `profile-contracts.test.mjs` and `review.test.mjs`.
+- **Invalid values preserve state:** Contract validation rejects out-of-range
+  scores/points, invalid enums/timestamps/arrays; reviewer tests assert
+  validation returns no update.
+- **Legacy compatibility:** Legacy `match_score` and current outcome remain
+  readable without becoming new scores/events; covered by contract, review,
+  archive, and analytics fixtures.
+- **Unknown-field preservation and archive completeness:** Discovery merges
+  preserve owner-external fields; archive union/comparison uses the complete
+  canonical schema; covered by `discovery.test.mjs` and `archive.test.mjs`.
+- **Additive reproducible migration:** Generated Sheet setup appends missing
+  headers, preserves reviewer content, and stops on identity collisions;
+  `sheet-setup.test.mjs` plus generated-artifact checks cover repeatability.
+- **Concurrency/regression:** State guards include the newly manual telemetry;
+  processing-token and archive confirmation tests retain canonical identity,
+  actions, retries, valid messages, and archive safety.
+
+## Issue #9 — Opportunity ranking and Apply Points advice
+
+- **Dual deterministic ranking:** `config/ranking-policy.json` and
+  `src/evaluation.mjs` produce distinct bounded qualification/opportunity
+  scores, confidence, advisory allocation, versioned factors/missing signals,
+  profile version, and evaluation time; exact repeatability is tested.
+- **Evidence and gaps:** Qualification references canonical profile evidence;
+  structured hard/preference/uncertain gaps drive documented recommendation or
+  review behavior without fabricated skills, tenure, metrics, or claims.
+- **Opportunity factors:** Qualification, freshness, reliably parsed
+  PHP-monthly salary, completeness, allowlisted employer signals, observable
+  effort, and sufficient historical cohorts are explicit contribution,
+  neutral, or missing factors. Missing data reduces confidence according to
+  policy.
+- **Priority and compatibility:** New queues use opportunity score, confidence,
+  posting/creation times, and identity as deterministic tie-breakers. Legacy
+  rows retain `match_score` only as a queue fallback; unavailable/unscorable
+  records cannot become high-confidence recommendations.
+- **Manual boundary/regression:** Every allocation is a category, never a
+  points spend or application. Evaluation, queue, workflow, review, archive,
+  and lifecycle tests cover all requested direct/adjacent/gap/seniority/missing
+  input/staleness/boundary/legacy cases and existing manual flows.
+
+## Issue #10 — Instruction-aware application packs
+
+- **Complete structured pack:** `config/application-pack-policy.json` and
+  `src/evaluation.mjs` persist distinct instructions, subject/format
+  requirements, questions, proof references, warnings, message, status, and
+  profile/policy/version timestamps.
+- **Supported proof only:** Deterministic proof selection returns at most three
+  strongest job-relevant canonical references, reports a shortfall, and cannot
+  invent skills, projects, metrics, URLs, availability, salary, or contact
+  facts.
+- **Safe readiness:** Unsupported mandatory answers/evidence/attachments/tests
+  block readiness; ambiguous/conflicting content requires review; missing or
+  unavailable source content remains unscorable/unavailable.
+- **Untrusted instruction handling:** Prompt-bypass, private-data,
+  unsupported-claim, and automatic-action requests are excluded and reduced to
+  sanitized warnings before Groq receives the pack prompt.
+- **Atomic generation and review:** Only a deterministically validated message
+  can be ready. Pack/message commit together under the winning processing
+  token; failed regeneration preserves the previous valid pair. Sheet setup
+  displays the pack while protecting generated fields.
+- **Coverage/regression:** `evaluation-generation.test.mjs`, malicious and
+  instruction fixtures, workflow tests, and lifecycle tests cover the requested
+  instructions/questions/subject/proof/unsupported/prompt-injection/empty/
+  conflict/failure/regeneration cases and retain copy/review/manual submission.
+
+## Issue #11 — Idempotent high-match alerts
+
+- **Immediate guarded queue:** The generator evaluates versioned
+  score/confidence/freshness/gap/pack eligibility only after atomic pack commit
+  and stores `pending` immediately, independent of the reviewer cadence.
+- **Configured provider and complete payload:** `config/alert-policy.json` and
+  the one-minute Slack workflow use environment-bound webhook/review values and
+  render all required score, employer/salary/freshness, gap, Apply Points,
+  instruction/question/proof/warning, and safe action context with explicit
+  unknown labels.
+- **No action authority:** Review/skip links open the authorized Sheet for
+  confirmation; the canonical source link is open-only. No link applies,
+  spends points, or contains a reusable state-changing token.
+- **Delivery state/idempotency:** Canonical identity plus alert-policy version
+  scopes one initial alert. Confirmed delivery persists channel/version/time
+  and bounded provider reference; known transient rejection retries with
+  bounded backoff; configuration/permanent/unavailable paths remain visible.
+- **Ambiguous delivery safety:** Records move through `sending`; timeout or a
+  lost acknowledgement is terminal/ambiguous and never blindly resent.
+  Ready pack and manual state remain intact.
+- **Security/regression:** `alerts.test.mjs` covers eligibility boundaries,
+  success, duplicate suppression, transient/permanent failure, ambiguity,
+  unavailability, missing configuration, tampered links, repeated skip, and
+  empty work. Export tests enforce disabled state, secret references,
+  sanitization, and absence of application actions.
+
+## Issue #12 — Manual learning telemetry
+
+- **Review and application capture:** Explicit `mark_reviewed` stamps
+  `first_reviewed_at` once. Only authorized review/application actions can do
+  so; discovery/ranking/generation/alerts/source opens cannot.
+- **Validated points and strategy:** Sheet controls and reviewer logic accept
+  blank or an integer 1–60 plus a bounded versioned strategy identifier.
+  Invalid input returns no update; blank remains unknown, not zero.
+- **Immutable decision snapshot:** First successful `mark_applied` freezes
+  qualification/opportunity/confidence/policy/recommendation/pack/strategy/
+  posting-age context and decision time. Duplicate apply/skip and later
+  permitted changes preserve the original snapshot/timestamp.
+- **Cumulative outcomes:** Stable-ID events retain reply → interview → offer or
+  rejection history; explicit no-response remains manual; corrections update
+  the compatibility view without deleting history.
+- **Active/archive safety:** Reviewer routing and archive union preserve
+  messages, versions, ranking/pack/alert data, notes, identity, and decisions
+  while allowing explicit archived outcomes. Unsupported/conflicting actions
+  are sanitized no-ops.
+- **Coverage/regression:** `review.test.mjs`, `archive.test.mjs`,
+  `sheet-setup.test.mjs`, and `e2e.test.mjs` cover first/repeated review,
+  points boundaries/unknown, duplicate/stale decisions, progressive/rejected/
+  corrected outcomes, archived/legacy/empty input, and all existing actions.
+
+## Issue #13 — Conversion and calibration analytics
+
+- **Deduplicated cohort and outcomes:** `src/analytics.mjs` reconciles
+  active/Archive overlap, retains earliest immutable application context, and
+  unions explicit cumulative outcomes/provenance. Overall and per-ten
+  reply/interview/offer/rejection/no-response rows expose numerator,
+  denominator, sample, and all-time window.
+- **All requested dimensions:** Versioned rows cover query, role, both score
+  bands, confidence, matched skill, gaps, PHP salary, posting age, actual and
+  recommended points, strategy, instruction completeness, and top/lower rank.
+  Multi-touch values are full-credit/non-additive; malformed/blank values are
+  unknown with coverage.
+- **Efficiency, action time, and blockers:** Analytics includes valid-timestamp
+  review/application duration, Manila same-day review, known-positive-point
+  efficiency and high-confidence share, hard-gap non-application, and
+  independent pack blockers.
+- **Calibration and supporting observations:** Ordered score cohorts expose
+  outcome rates/sample sizes. Separate discovery volume and promising-job gap
+  frequency/coverage support guarded weekly recommendations without becoming
+  conversion evidence.
+- **Complete-report boundary:** Daily detail IDs are execution-scoped and
+  idempotent. Only a matching full detail write publishes `status=complete`;
+  partial/orphan rows cannot supersede the previous complete report. Empty
+  input is explicitly successful.
+- **Compatibility/privacy/tests:** Existing Dashboard behavior is unchanged.
+  Output is formula-neutral, aggregate-only, and read-only against job state.
+  `analytics.test.mjs`, workflow/Sheet/docs tests, and fixed fixtures cover all
+  requested totals, bands, attribution, overlap, unknown/zero/invalid/empty,
+  progressive outcome, and partial-publication cases.
+
+## Issue #14 — Guarded weekly recommendations
+
+- **Versioned weekly run:** `config/recommendation-policy.json` defines the
+  168-hour schedule, all-time input, required metric/band versions, production
+  sample/coverage gates, comparisons, and output schemas.
+- **Complete eligible evidence only:** `src/recommendations.mjs` selects the
+  newest complete compatible analytics report and verifies its exact detail
+  cohort. Sparse overall data emits one abstention; low coverage emits only a
+  dimension abstention; empty input emits a successful empty report.
+- **Explainable directions:** Query/role recommendations separate discovery
+  volume from reply/interview/offer conversion. Ordered qualification,
+  opportunity, and confidence bands expose over/underconfidence. Eligible
+  skill, salary, age, points/recommendation, strategy, and instruction cohorts
+  retain numerator, denominator, sample, comparison, window, coverage, and
+  caveat.
+- **Profile-safe missing skills:** Frequent structured requirements from
+  promising jobs pass gap coverage/frequency/non-skill exclusion rules and are
+  checked against approved profile evidence. The action is investigate-only
+  and never mutates profile facts.
+- **History, idempotency, and failure:** One analysis key groups compatible
+  superseding attempts; execution-versioned run/detail IDs upsert safely.
+  `Recommendations` and `RecommendationReports` persist recommendation,
+  abstained, empty, complete, and sanitized failed history. Failed/partial
+  attempts never replace the latest complete internal view.
+- **No-mutation boundary:** The generated weekly workflow reads only
+  `Analytics`/`AnalyticsReports` and writes only recommendation tabs. It has no
+  notification or job/config mutation path; existing 4-hour/22-query and all
+  other schedules/flows remain unchanged.
+- **Coverage/operations:** `recommendations.test.mjs` covers strong/weak
+  query/role, over/underconfidence, all requested comparisons, missing skill,
+  sparse/low/unknown coverage, empty/incompatible/failed input, same/superseding
+  attempts, redaction, last-complete selection, and input immutability.
+  Workflow/Sheet/docs tests plus `docs/operations.md` cover disabled staged
+  rollout, verification, disable-only rollback, and separate approval for any
+  future automatic calibration.

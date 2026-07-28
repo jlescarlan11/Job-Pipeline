@@ -72,7 +72,36 @@ function schemaColumns(fields) {
       required: false,
       defaultMatch: false,
       display: true,
-      type: ["match_score", "attempt_count"].includes(field) ? "number" : "string",
+      type: [
+        "match_score",
+        "qualification_score",
+        "opportunity_score",
+        "application_qualification_score",
+        "application_opportunity_score",
+        "application_posting_age_days",
+        "attempt_count",
+        "alert_attempt_count",
+        "apply_points_input",
+        "apply_points_used",
+        "numerator",
+        "denominator",
+        "value",
+        "sample_size",
+        "coverage_numerator",
+        "coverage_denominator",
+        "record_count",
+        "application_count",
+        "detail_row_count",
+        "minimum_overall_applications",
+        "minimum_segment_applications",
+        "minimum_explicit_outcome_coverage",
+        "recommendation_count",
+        "abstention_count",
+        "comparison_value",
+        "baseline_value",
+        "difference",
+        "coverage_rate"
+      ].includes(field) ? "number" : "string",
       canBeUsedToMatch: true
     })),
     {
@@ -563,20 +592,45 @@ async function buildGenerator() {
   const current = await readJson(path);
   const profile = await readJson("config/candidate-profile.json");
   const policy = await readJson("config/application-policy.json");
+  const rankingPolicy = await readJson("config/ranking-policy.json");
+  const packPolicy = await readJson("config/application-pack-policy.json");
+  const alertPolicy = await readJson("config/alert-policy.json");
   const schema = await readJson("config/pipeline-schema.json");
   const runtime = await readJson("config/runtime.json");
   const evaluationCore = await bundledCore(
     "src/contracts.mjs",
     "src/profile.mjs",
-    "src/evaluation.mjs"
+    "src/evaluation.mjs",
+    "src/alerts.mjs"
   );
   const { assertValidProfileConfiguration } = await import(
     new URL("../src/profile.mjs", import.meta.url)
   );
-  const { buildApplicationSystemMessage } = await import(
-    new URL("../src/evaluation.mjs", import.meta.url)
+  const {
+    buildApplicationSystemMessage,
+    validateApplicationPackPolicy,
+    validateRankingPolicy
+  } = await import(new URL("../src/evaluation.mjs", import.meta.url));
+  const { validateAlertPolicy } = await import(
+    new URL("../src/alerts.mjs", import.meta.url)
   );
   assertValidProfileConfiguration(profile, policy);
+  const rankingPolicyErrors = validateRankingPolicy(rankingPolicy, profile);
+  if (rankingPolicyErrors.length > 0) {
+    throw new Error(`Invalid ranking policy:\n- ${rankingPolicyErrors.join("\n- ")}`);
+  }
+  const packPolicyErrors = validateApplicationPackPolicy(
+    packPolicy,
+    profile,
+    policy
+  );
+  if (packPolicyErrors.length > 0) {
+    throw new Error(`Invalid application-pack policy:\n- ${packPolicyErrors.join("\n- ")}`);
+  }
+  const alertPolicyErrors = validateAlertPolicy(alertPolicy);
+  if (alertPolicyErrors.length > 0) {
+    throw new Error(`Invalid alert policy:\n- ${alertPolicyErrors.join("\n- ")}`);
+  }
   if (
     runtime.schema_version !== 1 ||
     !Number.isInteger(runtime.generator?.schedule_minutes) ||
@@ -763,6 +817,7 @@ return { json: parseJobDetail(html, record) };`;
   const evaluateCode = `${evaluationCore}
 
 const PROFILE = ${JSON.stringify(profile)};
+const RANKING_POLICY = ${JSON.stringify(rankingPolicy)};
 const record = $json;
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
@@ -781,7 +836,7 @@ if (record.work_error) {
     }
   };
 }
-const evaluation = evaluateJob(record, PROFILE, now);
+const evaluation = evaluateJob(record, PROFILE, RANKING_POLICY, now);
 const evaluated = applyEvaluation(record, evaluation, now);
 return {
   json: {
@@ -795,13 +850,16 @@ return {
 
 const PROFILE = ${JSON.stringify(profile)};
 const POLICY = ${JSON.stringify(policy)};
-const record = $('Keep Winning Claims').item.json;
+const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
+const originalRecord = $('Keep Winning Claims').item.json;
+const record = $('Prepare Application Pack').item.json;
 const payload = $json || {};
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
 const errorMessage = payload.error?.message || payload.message || '';
 if (errorMessage && !payload.output) {
-  const failed = recordStageFailure(record, new Error(errorMessage), {
+  const failed = recordStageFailure(originalRecord, new Error(errorMessage), {
     stage: 'generation',
     now,
     maxAttempts: ${runtime.generator.retry.max_attempts},
@@ -819,11 +877,12 @@ const message = String(payload.output || '');
 const validation = validateGeneratedMessage(message, {
   job: record,
   profile: PROFILE,
-  policy: POLICY
+  policy: POLICY,
+  pack: record
 });
 if (!validation.valid) {
   const failed = recordStageFailure(
-    record,
+    originalRecord,
     new Error('message_validation: ' + validation.errors.join('; ')),
     {
       stage: 'generation',
@@ -841,7 +900,34 @@ if (!validation.valid) {
     }
   };
 }
-const generated = applyGeneratedMessage(record, message, PROFILE, now);
+let generated;
+try {
+  generated = applyGeneratedApplicationPack(
+    record,
+    record,
+    message,
+    PROFILE,
+    POLICY,
+    PACK_POLICY,
+    now
+  );
+  generated = queueAlertState(generated, ALERT_POLICY, now);
+} catch (error) {
+  const failed = recordStageFailure(originalRecord, error, {
+    stage: 'generation',
+    now,
+    maxAttempts: ${runtime.generator.retry.max_attempts},
+    backoffMs: ${runtime.generator.retry.backoff_ms},
+    forceRetryable: true
+  });
+  return {
+    json: {
+      ...failed,
+      processing_token: commitToken,
+      commit_token: commitToken
+    }
+  };
+}
 return {
   json: {
     ...generated,
@@ -852,11 +938,17 @@ return {
 
   const promptCode = `${evaluationCore}
 
+const PROFILE = ${JSON.stringify(profile)};
+const POLICY = ${JSON.stringify(policy)};
+const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const record = $('Keep Winning Claims').item.json;
+const now = new Date().toISOString();
+const pack = buildApplicationPack(record, PROFILE, POLICY, PACK_POLICY, now);
 return {
   json: {
     ...record,
-    application_prompt: buildApplicationUserMessage(record)
+    ...pack,
+    application_prompt: buildApplicationUserMessage(record, pack)
   }
 };`;
 
@@ -873,6 +965,14 @@ return {
     "match_decision",
     "match_reasons",
     "requirement_gaps",
+    "qualification_score",
+    "opportunity_score",
+    "ranking_confidence",
+    "apply_points_recommendation",
+    "ranking_factors",
+    "ranking_missing_signals",
+    "requirement_gap_details",
+    "scoring_policy_version",
     "profile_version",
     "evaluated_at",
     "pipeline_status",
@@ -886,8 +986,30 @@ return {
     "error_summary",
     "generated_message",
     "message_profile_version",
+    "message_policy_version",
     "message_validation_status",
     "generated_at",
+    "application_instructions",
+    "screening_questions",
+    "selected_proof_refs",
+    "application_warnings",
+    "application_pack_status",
+    "application_pack_version",
+    "application_pack_profile_version",
+    "application_pack_policy_version",
+    "application_pack_generated_at",
+    "alert_status",
+    "alert_channel",
+    "alert_policy_version",
+    "alert_idempotency_key",
+    "alert_attempt_count",
+    "alert_last_attempt_at",
+    "alert_next_retry_at",
+    "alert_sent_at",
+    "alert_provider_reference",
+    "alert_error_category",
+    "alert_error_summary",
+    "alert_suppressed_reason",
     "manual_action",
     "updated_at"
   ];
@@ -1030,7 +1152,7 @@ return {
     }),
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000016",
-      name: "Prepare Application Prompt",
+      name: "Prepare Application Pack",
       position: [420, 440],
       mode: "runOnceForEachItem",
       jsCode: promptCode
@@ -1066,7 +1188,7 @@ return {
     "Is Evaluation Work": {
       main: [
         [connection("Has Stored Description")],
-        [connection("Prepare Application Prompt")]
+        [connection("Prepare Application Pack")]
       ]
     },
     "Has Stored Description": {
@@ -1079,7 +1201,7 @@ return {
     "Fetch Job Detail": { main: [[connection("Parse Job Detail")]] },
     "Parse Job Detail": { main: [[connection("Evaluate Job")]] },
     "Evaluate Job": { main: [[connection("Commit Evaluation Result")]] },
-    "Prepare Application Prompt": { main: [[connection("AI Agent")]] },
+    "Prepare Application Pack": { main: [[connection("AI Agent")]] },
     "Groq Chat Model": {
       ai_languageModel: [[{ node: "AI Agent", type: "ai_languageModel", index: 0 }]]
     },
@@ -1108,6 +1230,10 @@ return {
         ...current.meta,
         candidateProfileVersion: profile.profile_version,
         applicationPolicyVersion: policy.policy_version,
+        rankingPolicyVersion: rankingPolicy.policy_version,
+        applicationPackPolicyVersion: packPolicy.policy_version,
+        applicationPackVersion: packPolicy.pack_version,
+        alertPolicyVersion: alertPolicy.policy_version,
         pipelineSchemaVersion: schema.storage_version,
         generatorPerRunCap: runtime.generator.per_run_cap
       }
@@ -1465,11 +1591,25 @@ const processed = processReviewActions(activeRows, archiveRows, SCHEMA, now);
     "error_category",
     "error_summary",
     "source_availability",
+    "apply_points_input",
+    "application_message_strategy_input",
     "manual_action",
+    "first_reviewed_at",
     "application_decision",
     "application_decided_at",
+    "apply_points_used",
+    "application_message_strategy",
+    "application_qualification_score",
+    "application_opportunity_score",
+    "application_ranking_confidence",
+    "application_scoring_policy_version",
+    "application_apply_points_recommendation",
+    "application_pack_status_at_apply",
+    "application_posting_age_days",
+    "application_snapshot_at",
     "outcome",
     "outcome_at",
+    "outcome_events",
     "updated_at"
   ];
 
@@ -1592,6 +1732,843 @@ return [{ json: { event: 'review_run', invalid_actions: processed.invalid_action
   };
 }
 
+async function buildAlerter() {
+  const path = "workflows/alerter.json";
+  const template = await readJson("workflows/generator.json");
+  const schema = await readJson("config/pipeline-schema.json");
+  const policy = await readJson("config/alert-policy.json");
+  const alertCore = await bundledCore("src/contracts.mjs", "src/alerts.mjs");
+  const { validateAlertPolicy } = await import(
+    new URL("../src/alerts.mjs", import.meta.url)
+  );
+  const policyErrors = validateAlertPolicy(policy);
+  if (policyErrors.length > 0) {
+    throw new Error(`Invalid alert policy:\n- ${policyErrors.join("\n- ")}`);
+  }
+
+  const activeRead = nodeByName(template, "Get Active Rows");
+  activeRead.id = "a11e7e00-0000-4000-8000-000000000002";
+  activeRead.name = "Get Active Rows";
+  activeRead.position = [-1180, 180];
+  activeRead.alwaysOutputData = true;
+
+  const claimsAppend = nodeByName(template, "Append Processing Claims");
+  claimsAppend.id = "a11e7e00-0000-4000-8000-000000000004";
+  claimsAppend.name = "Append Alert Claims";
+  claimsAppend.position = [-760, 180];
+
+  const claimsRead = nodeByName(template, "Get Processing Claims");
+  claimsRead.id = "a11e7e00-0000-4000-8000-000000000006";
+  claimsRead.name = "Get Processing Claims";
+  claimsRead.position = [-320, 180];
+  claimsRead.alwaysOutputData = true;
+
+  const activeUpdateBase = structuredClone(activeRead);
+  const alertFields = [
+    "state_guard",
+    "alert_status",
+    "alert_channel",
+    "alert_policy_version",
+    "alert_idempotency_key",
+    "alert_attempt_count",
+    "alert_last_attempt_at",
+    "alert_next_retry_at",
+    "alert_sent_at",
+    "alert_provider_reference",
+    "alert_error_category",
+    "alert_error_summary",
+    "alert_suppressed_reason",
+    "processing_stage",
+    "processing_started_at",
+    "updated_at"
+  ];
+
+  const prepareCode = `${alertCore}
+
+const SCHEMA = ${JSON.stringify(schema)};
+const POLICY = ${JSON.stringify(policy)};
+const now = new Date().toISOString();
+const selection = selectAlertCandidates(
+  $input.all().map((item) => item.json),
+  SCHEMA,
+  POLICY,
+  now
+);
+return selection.candidates.map((record) => {
+  const claim = createProcessingClaim(
+    record,
+    String($execution.id),
+    now,
+    POLICY.claim_lease_ms
+  );
+  return {
+    json: {
+      ...record,
+      alert_status: record.delivery_mode === 'deliver'
+        ? 'sending'
+        : record.alert_status,
+      processing_stage: 'alert',
+      processing_token: claim.processing_token,
+      processing_started_at: now,
+      alert_last_attempt_at: now,
+      claim_created_at: claim.created_at,
+      claim_expires_at: claim.expires_at,
+      updated_at: now
+    }
+  };
+});`;
+
+  const winnersCode = `${alertCore}
+
+const proposed = $('Prepare Alert Candidates').all().map((item) => item.json);
+const claims = $input.all().map((item) => item.json).filter((claim) => claim && claim.canonical_job_id);
+const winners = chooseWinningClaims(proposed, claims, new Date().toISOString());
+console.log(JSON.stringify({
+  event: 'alert_claims',
+  proposed: proposed.length,
+  won: winners.length,
+  lost: proposed.length - winners.length
+}));
+return winners.map((record) => ({ json: record }));`;
+
+  const prepareDeliveryCode = `${alertCore}
+
+const POLICY = ${JSON.stringify(policy)};
+const record = $('Keep Winning Alert Claims').item.json;
+const now = new Date().toISOString();
+const commitToken = record.processing_token;
+if (record.delivery_mode === 'state_only') {
+  const finalized = releaseClaim(record, commitToken, now);
+  return {
+    json: {
+      ...finalized,
+      processing_token: commitToken,
+      commit_token: commitToken,
+      should_send: false
+    }
+  };
+}
+
+const webhookUrl = String($env[POLICY.environment.provider_webhook_url] || '').trim();
+const reviewUrl = String($env[POLICY.environment.review_url] || '').trim();
+const configurationErrors = validateAlertProviderConfiguration(
+  { webhookUrl, reviewUrl },
+  POLICY
+);
+if (configurationErrors.length > 0) {
+  const finalized = applyAlertProviderResult(
+    record,
+    {
+      configuration_error: configurationErrors.join('; '),
+      at: now
+    },
+    POLICY
+  );
+  return {
+    json: {
+      ...finalized,
+      processing_token: commitToken,
+      commit_token: commitToken,
+      should_send: false
+    }
+  };
+}
+const alertPayload = renderAlert(
+  { ...record, alert_last_attempt_at: now },
+  POLICY,
+  { reviewUrl }
+);
+return {
+  json: {
+    ...record,
+    alert_last_attempt_at: now,
+    alert_payload: alertPayload,
+    commit_token: commitToken,
+    should_send: true
+  }
+};`;
+
+  const finalizeCode = `${alertCore}
+
+const POLICY = ${JSON.stringify(policy)};
+const record = $('Prepare Alert Delivery').item.json;
+const payload = $json || {};
+const now = new Date().toISOString();
+const commitToken = record.processing_token;
+const providerResult = {
+  statusCode: payload.statusCode || payload.status || 0,
+  body: typeof payload.body === 'string'
+    ? payload.body
+    : typeof payload.data === 'string'
+      ? payload.data
+      : '',
+  message: payload.error?.message || payload.message || '',
+  at: now
+};
+const finalized = applyAlertProviderResult(record, providerResult, POLICY);
+console.log(JSON.stringify({
+  event: 'alert_delivery',
+  canonical_job_id: finalized.canonical_job_id,
+  status: finalized.alert_status,
+  category: finalized.alert_error_category || ''
+}));
+return {
+  json: {
+    ...finalized,
+    processing_token: commitToken,
+    commit_token: commitToken
+  }
+};`;
+
+  const schedule = {
+    parameters: {
+      rule: {
+        interval: [
+          {
+            field: "minutes",
+            minutesInterval: policy.schedule_minutes
+          }
+        ]
+      }
+    },
+    type: "n8n-nodes-base.scheduleTrigger",
+    typeVersion: 1.2,
+    position: [-1400, 180],
+    id: "a11e7e00-0000-4000-8000-000000000001",
+    name: "Schedule Trigger"
+  };
+
+  const shouldSend = {
+    parameters: {
+      conditions: {
+        options: {
+          caseSensitive: true,
+          leftValue: "",
+          typeValidation: "strict",
+          version: 3
+        },
+        conditions: [
+          {
+            id: "a11e7e00-provider-send",
+            leftValue: "={{ $json.should_send }}",
+            rightValue: true,
+            operator: {
+              type: "boolean",
+              operation: "true",
+              singleValue: true
+            }
+          }
+        ],
+        combinator: "and"
+      },
+      options: {}
+    },
+    type: "n8n-nodes-base.if",
+    typeVersion: 2.3,
+    position: [560, 180],
+    id: "a11e7e00-0000-4000-8000-000000000010",
+    name: "Should Send Provider Alert"
+  };
+
+  const sendSlack = {
+    parameters: {
+      url: `={{ $env.${policy.environment.provider_webhook_url} }}`,
+      sendBody: true,
+      contentType: "raw",
+      rawContentType: "application/json",
+      body: "={{ JSON.stringify({ text: $json.alert_payload.text }) }}",
+      options: {
+        response: {
+          response: {
+            fullResponse: true,
+            responseFormat: "text"
+          }
+        },
+        timeout: policy.provider_timeout_ms
+      }
+    },
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.2,
+    position: [780, 80],
+    id: "a11e7e00-0000-4000-8000-000000000011",
+    name: "Send Slack Alert",
+    retryOnFail: false,
+    onError: "continueRegularOutput"
+  };
+
+  const nodes = [
+    schedule,
+    activeRead,
+    codeNode({
+      id: "a11e7e00-0000-4000-8000-000000000003",
+      name: "Prepare Alert Candidates",
+      position: [-980, 180],
+      jsCode: prepareCode
+    }),
+    claimsAppend,
+    aggregateNode({
+      id: "a11e7e00-0000-4000-8000-000000000005",
+      name: "Aggregate Alert Claims",
+      position: [-540, 180],
+      destinationFieldName: "claims_written"
+    }),
+    claimsRead,
+    codeNode({
+      id: "a11e7e00-0000-4000-8000-000000000007",
+      name: "Keep Winning Alert Claims",
+      position: [-100, 180],
+      jsCode: winnersCode
+    }),
+    updateSheetByFieldNode({
+      base: activeUpdateBase,
+      id: "a11e7e00-0000-4000-8000-000000000008",
+      name: "Mark Alert Attempts",
+      position: [120, 180],
+      matchingField: "state_guard",
+      fields: [
+        "alert_status",
+        "processing_stage",
+        "processing_token",
+        "processing_started_at",
+        "alert_last_attempt_at",
+        "updated_at"
+      ]
+    }),
+    codeNode({
+      id: "a11e7e00-0000-4000-8000-000000000009",
+      name: "Prepare Alert Delivery",
+      position: [340, 180],
+      mode: "runOnceForEachItem",
+      jsCode: prepareDeliveryCode
+    }),
+    shouldSend,
+    sendSlack,
+    codeNode({
+      id: "a11e7e00-0000-4000-8000-000000000012",
+      name: "Finalize Alert Delivery",
+      position: [1000, 80],
+      mode: "runOnceForEachItem",
+      jsCode: finalizeCode
+    }),
+    updateSheetByFieldNode({
+      base: activeUpdateBase,
+      id: "a11e7e00-0000-4000-8000-000000000013",
+      name: "Commit Alert Result",
+      position: [1240, 180],
+      matchingField: "processing_token",
+      fields: alertFields
+    })
+  ];
+
+  const connections = {
+    "Schedule Trigger": { main: [[connection("Get Active Rows")]] },
+    "Get Active Rows": { main: [[connection("Prepare Alert Candidates")]] },
+    "Prepare Alert Candidates": { main: [[connection("Append Alert Claims")]] },
+    "Append Alert Claims": { main: [[connection("Aggregate Alert Claims")]] },
+    "Aggregate Alert Claims": { main: [[connection("Get Processing Claims")]] },
+    "Get Processing Claims": { main: [[connection("Keep Winning Alert Claims")]] },
+    "Keep Winning Alert Claims": { main: [[connection("Mark Alert Attempts")]] },
+    "Mark Alert Attempts": { main: [[connection("Prepare Alert Delivery")]] },
+    "Prepare Alert Delivery": { main: [[connection("Should Send Provider Alert")]] },
+    "Should Send Provider Alert": {
+      main: [
+        [connection("Send Slack Alert")],
+        [connection("Commit Alert Result")]
+      ]
+    },
+    "Send Slack Alert": { main: [[connection("Finalize Alert Delivery")]] },
+    "Finalize Alert Delivery": { main: [[connection("Commit Alert Result")]] }
+  };
+
+  return {
+    path,
+    workflow: {
+      name: "Job Application Pipeline - High-Match Alerts",
+      nodes,
+      connections,
+      active: false,
+      settings: {
+        executionOrder: "v1"
+      },
+      versionId: "a11e7e00-0000-4000-8000-000000000014",
+      meta: {
+        pipelineSchemaVersion: schema.storage_version,
+        alertPolicyVersion: policy.policy_version,
+        alertChannel: policy.channel,
+        alertPerRunCap: policy.per_run_cap
+      },
+      tags: []
+    }
+  };
+}
+
+async function buildAnalytics() {
+  const path = "workflows/analytics.json";
+  const generator = await readJson("workflows/generator.json");
+  const archiver = await readJson("workflows/archiver.json");
+  const schema = await readJson("config/pipeline-schema.json");
+  const policy = await readJson("config/analytics-policy.json");
+  const analyticsCore = await bundledCore(
+    "src/contracts.mjs",
+    "src/analytics.mjs"
+  );
+  const { validateAnalyticsPolicy } = await import(
+    new URL("../src/analytics.mjs", import.meta.url)
+  );
+  const policyErrors = validateAnalyticsPolicy(policy);
+  if (policyErrors.length > 0) {
+    throw new Error(`Invalid analytics policy:\n- ${policyErrors.join("\n- ")}`);
+  }
+
+  const activeRead = nodeByName(generator, "Get Active Rows");
+  activeRead.id = "a13a17c5-0000-4000-8000-000000000002";
+  activeRead.name = "Get Active Rows";
+  activeRead.position = [-980, 240];
+  activeRead.alwaysOutputData = true;
+
+  const archiveRead = nodeByName(archiver, "Get Archive Rows");
+  archiveRead.id = "a13a17c5-0000-4000-8000-000000000004";
+  archiveRead.name = "Get Archive Rows";
+  archiveRead.position = [-560, 240];
+  archiveRead.alwaysOutputData = true;
+
+  const analyticsWriteBase = structuredClone(activeRead);
+  analyticsWriteBase.parameters.sheetName = {
+    __rl: true,
+    value: policy.detail_sheet,
+    mode: "name",
+    cachedResultName: policy.detail_sheet
+  };
+  const reportsWriteBase = structuredClone(activeRead);
+  reportsWriteBase.parameters.sheetName = {
+    __rl: true,
+    value: policy.reports_sheet,
+    mode: "name",
+    cachedResultName: policy.reports_sheet
+  };
+
+  const buildCode = `${analyticsCore}
+
+const SCHEMA = ${JSON.stringify(schema)};
+const POLICY = ${JSON.stringify(policy)};
+const activeRows = ($('Aggregate Active Rows').first().json.active_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const archiveRows = $input.all()
+  .map((item) => item.json)
+  .filter((row) => row && Object.keys(row).length > 0);
+const report = buildAnalyticsReport(
+  activeRows,
+  archiveRows,
+  SCHEMA,
+  POLICY,
+  new Date().toISOString(),
+  { runId: String($execution.id) }
+);
+console.log(JSON.stringify({
+  event: 'analytics_report_built',
+  report_id: report.completion.report_id,
+  records: report.completion.record_count,
+  applications: report.completion.application_count,
+  detail_rows: report.completion.detail_row_count,
+  warnings: report.completion.warning_summary
+}));
+return [{
+  json: {
+    analytics_rows: report.rows,
+    completion: report.completion
+  }
+}];`;
+
+  const prepareRowsCode = `const report = $('Build Analytics Report').first().json;
+return (report.analytics_rows || []).map((row) => ({ json: row }));`;
+
+  const prepareCompletionCode = `const report = $('Build Analytics Report').first().json;
+const completion = report.completion;
+const writes = $json.analytics_rows_written || [];
+if (writes.length !== Number(completion.detail_row_count)) {
+  throw new Error(
+    'Analytics detail refresh incomplete: expected ' +
+    completion.detail_row_count + ' rows, observed ' + writes.length
+  );
+}
+return [{ json: completion }];`;
+
+  const schedule = {
+    parameters: {
+      rule: {
+        interval: [
+          {
+            field: "hours",
+            hoursInterval: policy.schedule_hours
+          }
+        ]
+      }
+    },
+    type: "n8n-nodes-base.scheduleTrigger",
+    typeVersion: 1.2,
+    position: [-1200, 240],
+    id: "a13a17c5-0000-4000-8000-000000000001",
+    name: "Schedule Trigger"
+  };
+
+  const nodes = [
+    schedule,
+    activeRead,
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000003",
+      name: "Aggregate Active Rows",
+      position: [-760, 240],
+      destinationFieldName: "active_rows"
+    }),
+    archiveRead,
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000005",
+      name: "Build Analytics Report",
+      position: [-340, 240],
+      jsCode: buildCode
+    }),
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000006",
+      name: "Prepare Analytics Rows",
+      position: [-100, 240],
+      jsCode: prepareRowsCode
+    }),
+    upsertSheetNode({
+      base: analyticsWriteBase,
+      id: "a13a17c5-0000-4000-8000-000000000007",
+      name: "Upsert Analytics Rows",
+      position: [140, 240],
+      fields: policy.detail_fields,
+      matchingField: "analytics_row_id"
+    }),
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000008",
+      name: "Aggregate Analytics Row Writes",
+      position: [380, 240],
+      destinationFieldName: "analytics_rows_written"
+    }),
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000009",
+      name: "Prepare Analytics Completion",
+      position: [620, 240],
+      jsCode: prepareCompletionCode
+    }),
+    upsertSheetNode({
+      base: reportsWriteBase,
+      id: "a13a17c5-0000-4000-8000-000000000010",
+      name: "Publish Complete Analytics Report",
+      position: [860, 240],
+      fields: policy.report_fields,
+      matchingField: "report_id"
+    })
+  ];
+
+  const connections = {
+    "Schedule Trigger": { main: [[connection("Get Active Rows")]] },
+    "Get Active Rows": { main: [[connection("Aggregate Active Rows")]] },
+    "Aggregate Active Rows": { main: [[connection("Get Archive Rows")]] },
+    "Get Archive Rows": { main: [[connection("Build Analytics Report")]] },
+    "Build Analytics Report": { main: [[connection("Prepare Analytics Rows")]] },
+    "Prepare Analytics Rows": { main: [[connection("Upsert Analytics Rows")]] },
+    "Upsert Analytics Rows": {
+      main: [[connection("Aggregate Analytics Row Writes")]]
+    },
+    "Aggregate Analytics Row Writes": {
+      main: [[connection("Prepare Analytics Completion")]]
+    },
+    "Prepare Analytics Completion": {
+      main: [[connection("Publish Complete Analytics Report")]]
+    }
+  };
+
+  return {
+    path,
+    workflow: {
+      name: "Job Application Pipeline - Conversion Analytics",
+      nodes,
+      connections,
+      active: false,
+      settings: {
+        executionOrder: "v1"
+      },
+      versionId: "a13a17c5-0000-4000-8000-000000000011",
+      meta: {
+        pipelineSchemaVersion: schema.storage_version,
+        metricDefinitionVersion: policy.metric_definition_version,
+        analyticsBandVersion: policy.band_version,
+        analyticsScheduleHours: policy.schedule_hours
+      },
+      tags: []
+    }
+  };
+}
+
+async function buildRecommender() {
+  const path = "workflows/recommender.json";
+  const analyticsWorkflow = await readJson("workflows/analytics.json");
+  const schema = await readJson("config/pipeline-schema.json");
+  const policy = await readJson("config/recommendation-policy.json");
+  const profile = await readJson("config/candidate-profile.json");
+  const recommendationCore = await bundledCore(
+    "src/contracts.mjs",
+    "src/analytics.mjs",
+    "src/recommendations.mjs"
+  );
+  const { validateRecommendationPolicy } = await import(
+    new URL("../src/recommendations.mjs", import.meta.url)
+  );
+  const policyErrors = validateRecommendationPolicy(policy);
+  if (policyErrors.length > 0) {
+    throw new Error(
+      `Invalid recommendation policy:\n- ${policyErrors.join("\n- ")}`
+    );
+  }
+
+  const reportsRead = nodeByName(analyticsWorkflow, "Get Active Rows");
+  reportsRead.id = "b14b18d6-0000-4000-8000-000000000002";
+  reportsRead.name = "Get Analytics Reports";
+  reportsRead.position = [-980, 240];
+  reportsRead.parameters.operation = "read";
+  reportsRead.parameters.sheetName = {
+    __rl: true,
+    value: policy.source_reports_sheet,
+    mode: "name",
+    cachedResultName: policy.source_reports_sheet
+  };
+  reportsRead.alwaysOutputData = true;
+  reportsRead.onError = "continueRegularOutput";
+
+  const analyticsRead = structuredClone(reportsRead);
+  analyticsRead.id = "b14b18d6-0000-4000-8000-000000000004";
+  analyticsRead.name = "Get Analytics Detail";
+  analyticsRead.position = [-560, 240];
+  analyticsRead.parameters.sheetName = {
+    __rl: true,
+    value: policy.source_detail_sheet,
+    mode: "name",
+    cachedResultName: policy.source_detail_sheet
+  };
+
+  const recommendationWriteBase = structuredClone(reportsRead);
+  recommendationWriteBase.parameters.sheetName = {
+    __rl: true,
+    value: policy.recommendations_sheet,
+    mode: "name",
+    cachedResultName: policy.recommendations_sheet
+  };
+  const reportWriteBase = structuredClone(reportsRead);
+  delete reportWriteBase.alwaysOutputData;
+  delete reportWriteBase.onError;
+  reportWriteBase.parameters.sheetName = {
+    __rl: true,
+    value: policy.reports_sheet,
+    mode: "name",
+    cachedResultName: policy.reports_sheet
+  };
+
+  const buildCode = `${recommendationCore}
+
+const POLICY = ${JSON.stringify(policy)};
+const PROFILE = ${JSON.stringify(profile)};
+const reportRows = ($('Aggregate Analytics Reports').first().json.analytics_report_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const analyticsRows = $input.all()
+  .map((item) => item.json)
+  .filter((row) => row && Object.keys(row).length > 0);
+const sourceReadFailed = [...reportRows, ...analyticsRows].some(
+  (row) => row.error || row.errorMessage || row.error_description
+);
+const now = new Date().toISOString();
+let result;
+try {
+  if (sourceReadFailed) throw new Error('analytics source read failed');
+  result = buildRecommendationReport(
+    analyticsRows,
+    reportRows,
+    POLICY,
+    PROFILE,
+    now,
+    { attemptId: String($execution.id) }
+  );
+} catch (error) {
+  result = buildRecommendationFailure(POLICY, PROFILE, now, {
+    attemptId: String($execution.id),
+    category: sourceReadFailed ? 'source_read_failure' : 'processing_failure',
+    summary: sourceReadFailed
+      ? 'The weekly recommendation source could not be read.'
+      : 'The weekly recommendation analysis could not be completed.'
+  });
+}
+console.log(JSON.stringify({
+  event: 'weekly_recommendation_report_built',
+  run_id: result.report.run_id,
+  status: result.report.status,
+  result: result.report.result,
+  recommendations: result.report.recommendation_count,
+  abstentions: result.report.abstention_count,
+  detail_rows: result.report.detail_row_count,
+  error_category: result.report.error_category
+}));
+return [{
+  json: {
+    recommendation_rows: result.rows,
+    report: result.report
+  }
+}];`;
+
+  const prepareRowsCode = `const result = $('Build Weekly Recommendations').first().json;
+return (result.recommendation_rows || []).map((row) => ({ json: row }));`;
+
+  const prepareReportCode = `const result = $('Build Weekly Recommendations').first().json;
+const report = { ...result.report };
+const writes = $json.recommendation_rows_written || [];
+const writeFailed = writes.some(
+  (row) => row && (row.error || row.errorMessage || row.error_description)
+);
+if (writeFailed || writes.length !== Number(report.detail_row_count)) {
+  report.status = 'failed';
+  report.result = 'failed';
+  report.error_category = 'detail_write_failure';
+  report.error_summary =
+    'One or more weekly recommendation detail rows could not be persisted.';
+}
+console.log(JSON.stringify({
+  event: 'weekly_recommendation_report_published',
+  run_id: report.run_id,
+  status: report.status,
+  result: report.result,
+  detail_rows_expected: report.detail_row_count,
+  detail_rows_observed: writes.length,
+  error_category: report.error_category
+}));
+return [{ json: report }];`;
+
+  const schedule = {
+    parameters: {
+      rule: {
+        interval: [
+          {
+            field: "hours",
+            hoursInterval: policy.schedule_hours
+          }
+        ]
+      }
+    },
+    type: "n8n-nodes-base.scheduleTrigger",
+    typeVersion: 1.2,
+    position: [-1200, 240],
+    id: "b14b18d6-0000-4000-8000-000000000001",
+    name: "Schedule Trigger"
+  };
+
+  const upsertRows = upsertSheetNode({
+    base: recommendationWriteBase,
+    id: "b14b18d6-0000-4000-8000-000000000008",
+    name: "Upsert Recommendation Rows",
+    position: [380, 240],
+    fields: policy.recommendation_fields,
+    matchingField: "recommendation_id"
+  });
+  upsertRows.onError = "continueRegularOutput";
+
+  const nodes = [
+    schedule,
+    reportsRead,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000003",
+      name: "Aggregate Analytics Reports",
+      position: [-760, 240],
+      destinationFieldName: "analytics_report_rows"
+    }),
+    analyticsRead,
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000005",
+      name: "Build Weekly Recommendations",
+      position: [-340, 240],
+      jsCode: buildCode
+    }),
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000006",
+      name: "Prepare Recommendation Rows",
+      position: [-100, 240],
+      jsCode: prepareRowsCode
+    }),
+    upsertRows,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000009",
+      name: "Aggregate Recommendation Row Writes",
+      position: [620, 240],
+      destinationFieldName: "recommendation_rows_written"
+    }),
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000010",
+      name: "Prepare Recommendation Report",
+      position: [860, 240],
+      jsCode: prepareReportCode
+    }),
+    upsertSheetNode({
+      base: reportWriteBase,
+      id: "b14b18d6-0000-4000-8000-000000000011",
+      name: "Publish Recommendation Report",
+      position: [1100, 240],
+      fields: policy.report_fields,
+      matchingField: "run_id"
+    })
+  ];
+
+  const connections = {
+    "Schedule Trigger": { main: [[connection("Get Analytics Reports")]] },
+    "Get Analytics Reports": {
+      main: [[connection("Aggregate Analytics Reports")]]
+    },
+    "Aggregate Analytics Reports": {
+      main: [[connection("Get Analytics Detail")]]
+    },
+    "Get Analytics Detail": {
+      main: [[connection("Build Weekly Recommendations")]]
+    },
+    "Build Weekly Recommendations": {
+      main: [[connection("Prepare Recommendation Rows")]]
+    },
+    "Prepare Recommendation Rows": {
+      main: [[connection("Upsert Recommendation Rows")]]
+    },
+    "Upsert Recommendation Rows": {
+      main: [[connection("Aggregate Recommendation Row Writes")]]
+    },
+    "Aggregate Recommendation Row Writes": {
+      main: [[connection("Prepare Recommendation Report")]]
+    },
+    "Prepare Recommendation Report": {
+      main: [[connection("Publish Recommendation Report")]]
+    }
+  };
+
+  return {
+    path,
+    workflow: {
+      name: "Job Application Pipeline - Weekly Recommendations",
+      nodes,
+      connections,
+      active: false,
+      settings: {
+        executionOrder: "v1"
+      },
+      versionId: "b14b18d6-0000-4000-8000-000000000012",
+      meta: {
+        pipelineSchemaVersion: schema.storage_version,
+        recommendationPolicyVersion: policy.policy_version,
+        requiredMetricDefinitionVersion:
+          policy.required_metric_definition_version,
+        requiredAnalyticsBandVersion: policy.required_band_version,
+        recommendationScheduleHours: policy.schedule_hours,
+        recommendationMode: "read_only_advisory"
+      },
+      tags: []
+    }
+  };
+}
+
 async function writeGenerated({ path, workflow }) {
   const target = resolve(root, path);
   const next = `${JSON.stringify(workflow, null, 2)}\n`;
@@ -1607,7 +2584,10 @@ const generated = [
   await buildScraper(),
   await buildGenerator(),
   await buildArchiver(),
-  await buildReviewer()
+  await buildReviewer(),
+  await buildAlerter(),
+  await buildAnalytics(),
+  await buildRecommender()
 ];
 for (const workflow of generated) await writeGenerated(workflow);
 

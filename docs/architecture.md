@@ -2,7 +2,7 @@
 
 ## System boundary
 
-Job Pipeline is four disabled-by-default n8n workflows sharing Google Sheets as durable state. OnlineJobs.ph is read-only. Groq is used only after deterministic evaluation routing. The candidate remains the only actor authorized to submit an application or record an application decision.
+Job Pipeline is seven disabled-by-default n8n workflows sharing Google Sheets as durable state. OnlineJobs.ph is read-only. Groq is used only after deterministic evaluation routing. Slack receives concise advisory alerts but cannot mutate application state. The candidate remains the only actor authorized to submit an application or record an application decision.
 
 ```text
 OnlineJobs.ph search pages
@@ -19,6 +19,11 @@ Generator (15m, cap 5) -- evaluation/generation claims --> ProcessingClaims
         v
 Sheet1: recommended / review_required / ready / recovery
         |
+        +--> Alerter (1m) -- alert claims --> ProcessingClaims
+        |         |
+        |         v
+        |      Slack: review / confirm skip in Sheet / open source
+        |
         v
 Reviewer (5m) <-- explicit manual_action
         |
@@ -29,9 +34,22 @@ Archiver (45m) -- archive claims --> ProcessingClaims
         |
         v
 Archive: terminal history and employer outcomes
+        |
+        +--> Analytics (24h, read-only source access)
+                  |
+                  +--> Analytics: versioned detail rows
+                  |
+                  +--> AnalyticsReports: complete report metadata
+                             |
+                             v
+                  Recommender (168h, read-only source access)
+                             |
+                             +--> Recommendations: advisory evidence
+                             |
+                             +--> RecommendationReports: run history
 ```
 
-Configured schedules are scraper every 4 hours, generator every 15 minutes, reviewer every 5 minutes, and archiver every 45 minutes.
+Configured schedules are scraper every 4 hours, generator every 15 minutes, alerter every minute, reviewer every 5 minutes, archiver every 45 minutes, analytics every 24 hours, and recommender every 168 hours.
 
 ## Shared contracts
 
@@ -41,7 +59,7 @@ Configured schedules are scraper every 4 hours, generator every 15 minutes, revi
 
 `state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Final evaluation/generation commits match the unique `processing_token`, so a manual action that clears or replaces the token prevents a stale result from overwriting the decision. Completed commits leave the last token as an optimistic-concurrency sentinel while clearing the processing stage/start time; the next legitimate claim overwrites it. There is no canonical-ID cleanup write that could erase a newer claim.
 
-`ProcessingClaims` is append-only. For a canonical job and stage, the lowest valid Sheet row number wins until its 10-minute lease expires. This arbitrates concurrent discovery, evaluation, generation, and archival executions without treating a mutable active-row number as identity.
+`ProcessingClaims` is append-only. For a canonical job and stage, the lowest valid Sheet row number wins until its configured lease expires. This arbitrates concurrent discovery, evaluation, alert, and archival executions without treating a mutable active-row number as identity.
 
 ## Discovery workflow
 
@@ -55,25 +73,163 @@ Discovery reconciliation combines query and role-family provenance, updates `las
 
 ## Evaluation and generation workflow
 
-Eligible records are ordered by generation stage, match score, then oldest posted/created time, and capped at 5 per execution. Existing application decisions and historical ready messages are not selected.
+Eligible records are ordered by generation stage, opportunity score, ranking
+confidence, posting time, creation time, and canonical identity, then capped at
+5 per execution. A legacy record without an opportunity score falls back to its
+unchanged `match_score`; the fallback is a queue value only and does not populate
+either new score. Existing application decisions and historical ready messages
+are not selected.
 
 Evaluation work uses a stored description when available; otherwise it fetches the detail page once and persists parsed metadata for reuse. Deleted/unavailable pages route to `unavailable`; insufficient content routes to `unscorable`. Deterministic evaluation uses full description evidence, known skills, role family, unsupported requirements, and seniority. It stores score, tier, decision, reasons, gaps, profile version, and timestamp.
 
-Only `recommended` records or explicit supported promotions reach Groq. The generated system message is built from the canonical profile plus application policy. Post-generation validation rejects empty output, excess length, unapproved URLs, obsolete projects, unsupported technologies, unsupported numeric claims, phone numbers, and banned phrases. A validated message preserves line breaks and becomes `ready`; no node submits it.
+`config/ranking-policy.json` versions the dual-score rules. Qualification uses
+only canonical-profile skills and configured role-family evidence. Opportunity
+combines qualification, posting freshness, reliably parsed PHP-monthly salary,
+listing completeness, allowlisted source employer signals, observable
+application effort, and sufficiently large historical cohorts. Unknown factors
+receive the configured neutral contribution and remain listed as missing; they
+are never fabricated. Hard requirements unsupported by profile evidence route
+to `not_recommended` and `save_points`; ambiguous requirements route to manual
+review when the remaining qualification evidence meets the review threshold.
+Apply Points values are advisory categories only.
+
+Only `recommended` records or explicit supported promotions reach Groq. Before
+generation, the workflow deterministically builds an instruction-aware pack
+using `config/application-pack-policy.json`: safe structured instructions,
+screening questions, up to three canonical proof references, and sanitized
+warnings. Unsafe prompt-bypass/private-data/automatic-action text is excluded
+from both the structured pack and model prompt.
+
+The generated system message is built from the canonical profile plus
+application policy. Post-generation validation rejects empty output, excess
+length, unapproved URLs, obsolete projects, unsupported technologies,
+unsupported numeric claims, phone numbers, banned phrases, and a missing
+required subject value. A successful processing-token commit writes the
+message and complete pack together. Provider or validation failure starts from
+the pre-generation record, preserving the previous valid pack and message. A
+validated message preserves line breaks and becomes `ready`; the independent
+pack status may remain `review_required` or `blocked`, and no node submits it.
 
 The workflow runs every 15 minutes. It makes at most 5 generation selections per run. Detail HTTP calls time out after 15 seconds and retry up to 3 times with 5-second in-node waits, which stay below the 10-minute claim lease. Retryable stage failures record stage, category, sanitized summary, attempt count, and exponential next-retry time starting at 5 minutes. The third failed attempt, validation failure, or non-retryable request becomes `terminal_error`.
 
+## Alert workflow
+
+The generator evaluates alert eligibility only after the instruction-aware pack
+and message have passed their atomic commit boundary. A ready record meeting the
+versioned qualification, opportunity, confidence, freshness, and major-gap
+thresholds is persisted as `pending` in the same commit; no reviewer poll is
+required to enter the delivery queue.
+
+The alerter claims at most the configured per-run cap through
+`ProcessingClaims`, marks a deliverable record `sending`, validates the
+environment-bound Slack webhook and authorized HTTPS review URL, and sends a
+length-bounded summary. The summary uses explicit `Unknown`/`None detected`
+labels and includes scores, confidence, employer, salary, freshness, advisory
+Apply Points, major gaps, instructions, screening questions, selected proofs,
+and warnings. Review and skip links open the authorized Sheet surface; they
+carry no state-changing token. The source link is open-only. Only the reviewer
+workflow can persist a skip or application decision.
+
+`canonical_job_id + alert_policy_version` is the idempotency scope. Confirmed
+success stores `sent`, timestamp, attempt count, and any non-sensitive provider
+reference. A known transient rejection uses bounded exponential retry. Provider
+timeouts are terminal because Slack cannot reconcile an ambiguous delivery. If
+a `sending` record outlives its claim lease—covering delivery followed by a
+failed acknowledgement commit—it is terminalized as `ambiguous_delivery`
+without automatic resend. Missing configuration, invalid URLs, permanent
+provider rejection, and source unavailability fail or suppress visibly without
+discarding the ready application pack.
+
 ## Review workflow
 
-The Sheet is the human interface. Only `manual_action` and `notes` are intended for direct editing. Supported actions are:
+The Sheet is the human interface. Only the temporary Apply Points/strategy
+inputs, `manual_action`, and `notes` are intended for direct editing. Supported
+actions are:
 
+- `mark_reviewed`
 - `promote`, `regenerate`, `retry`
 - `mark_applied`, `mark_skipped`
 - `outcome_no_response`, `outcome_replied`, `outcome_interview`, `outcome_offer`, `outcome_rejected`, `clear_outcome`
 
-No action means no lifecycle change. Unsupported actions or invalid transitions are logged and leave the previous record intact. Application decision and employer outcome are separate from processing/error state. Outcomes can be updated on archived applied records without replacing the message, profile version, evaluation, or application decision.
+No action means no lifecycle change. `mark_reviewed` and the qualifying manual
+review/application actions set the first observable review time once; automated
+work and source-link opens do not. `mark_applied` validates optional Apply
+Points and a bounded versioned strategy identifier, then freezes the ranking,
+recommendation, pack, strategy, and posting-age context. Missing points remain
+unknown. Duplicate apply/skip commands preserve the first decision timestamp
+and application snapshot.
+
+Unsupported actions, invalid inputs, or conflicting transitions are logged in
+sanitized form and leave the previous durable record intact. Application
+decision and employer outcome are separate from processing/error state.
+Distinct outcome milestones and corrections append to `outcome_events`, while
+the latest `outcome` remains for backward compatibility. Duplicate current
+outcomes are consumed without another event. Outcomes can be updated on
+archived applied records without replacing the message, profile/policy
+versions, ranking/application snapshot, pack/alert data, notes, identity, or
+decision.
 
 The Dashboard upserts one deduplicated current summary and never infers a reply, interview, offer, or rejection from `applied`.
+
+## Analytics workflow
+
+The analytics workflow reads both active and archived records and never mutates
+either source. It deduplicates recoverable overlap by canonical identity, uses
+the earliest immutable application snapshot when overlap conflicts, unions
+cumulative outcome events and multi-touch provenance, and discloses conflicts
+as data-quality metrics. Existing Dashboard funnel behavior remains owned by
+the reviewer.
+
+`config/analytics-policy.json` versions an all-time cohort, `Asia/Manila` day
+boundary, score/salary/posting-age bands, top-ranked threshold, and
+multi-touch full-credit attribution. Output includes explicit
+numerator/denominator/sample/window rows for overall and dimensional
+conversion, per-ten outcomes, time to action, Apply Point efficiency,
+instruction/top-rank comparisons, hard-gap non-applications, pack blockers,
+coverage, and ordered score calibration. Unknown or malformed values stay in
+unknown buckets.
+
+Each daily refresh upserts deterministic detail row IDs under a unique report
+ID. Only after every expected detail write is observed does the workflow
+publish `status=complete` metadata. A partial refresh cannot replace the last
+identifiable complete report. Analytic text is formula-neutralized and excludes
+descriptions, messages, credentials, provider payloads, contact details, and
+job identifiers.
+
+## Weekly recommendation workflow
+
+The recommender reads only `AnalyticsReports` and `Analytics`. It chooses the
+newest valid complete analytics report, verifies the required all-time window
+and metric/band versions, and rejects missing or mismatched detail. The source
+analytics and every operational tab remain read-only.
+
+`config/recommendation-policy.json` versions the 168-hour schedule, overall and
+segment sample minimums, explicit-outcome and per-dimension coverage gates,
+comparison delta, ordered score/confidence bands, and output contracts.
+Eligible query and role cohorts are assessed on reply/interview/offer
+conversion rather than discovery volume alone. Ordered qualification,
+opportunity, and confidence cohorts expose possible overconfidence,
+underconfidence, or non-monotonicity. Eligible skill, salary, posting-age,
+actual/recommended Apply Points, instruction, and message-strategy cohorts
+remain observational comparisons. Promising-job missing requirements are
+checked against approved profile skills before an investigate-only suggestion
+is produced.
+
+The workflow writes evidence rows to `Recommendations` and publishes a
+`RecommendationReports` row only after observing every expected detail write.
+The report keeps numerator, denominator, sample, comparison, window, coverage,
+versions, and caveat. Sparse overall input yields a single explicit abstention;
+low dimension coverage yields only an abstention for that dimension; zero
+applications yields a successful empty report. Source, analysis, or detail
+write failures are sanitized and non-authoritative, so the latest identifiable
+complete report remains available.
+
+The analysis key is stable for one analytics report, recommendation policy, and
+profile version. The execution attempt versions the run and its idempotent
+detail keys. No branch changes search configuration, ranking rules, profile
+facts, strategies, applications, outcomes, or Apply Points. The internal Sheet
+tabs are the delivery surface in this version; notification delivery is not an
+authoritative dependency.
 
 ## Archive workflow
 

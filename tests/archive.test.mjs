@@ -47,9 +47,34 @@ test("retryable failures remain active while configured terminal states are elig
 test("archive candidates preserve generated, evaluation, decision, and outcome data", () => {
   const record = active({
     match_score: 82,
+    qualification_score: 84,
+    opportunity_score: 79,
+    ranking_confidence: "high",
+    apply_points_recommendation: "high_allocation",
+    scoring_policy_version: "2026-07-28/v1",
+    ranking_factors: [{ factor: "qualification", contribution: 30 }],
     match_reasons: ["Matched skill: TypeScript"],
+    application_pack_status: "ready",
+    application_pack_version: "2026-07-28/v1",
+    alert_status: "sent",
+    alert_sent_at: "2026-07-27T09:10:00.000Z",
+    first_reviewed_at: "2026-07-27T09:15:00.000Z",
+    apply_points_used: 8,
+    application_message_strategy: "instruction-aware/v1",
+    application_qualification_score: 84,
+    application_opportunity_score: 79,
+    application_ranking_confidence: "high",
+    application_scoring_policy_version: "2026-07-28/v1",
+    application_apply_points_recommendation: "high_allocation",
+    application_pack_status_at_apply: "ready",
+    application_posting_age_days: 2,
+    application_snapshot_at: "2026-07-27T10:00:00.000Z",
     outcome: "interview",
-    outcome_at: "2026-07-28T08:00:00.000Z"
+    outcome_at: "2026-07-28T08:00:00.000Z",
+    outcome_events: [
+      { id: "reply-1", type: "replied", at: "2026-07-27T18:00:00.000Z" },
+      { id: "interview-1", type: "interview", at: "2026-07-28T08:00:00.000Z" }
+    ]
   });
   const plan = prepareArchiveCandidates([record], [], schema, { now });
   const archived = plan.candidates[0].archive_record;
@@ -57,10 +82,53 @@ test("archive candidates preserve generated, evaluation, decision, and outcome d
   assert.equal(archived.archived_from_status, "applied");
   assert.equal(archived.generated_message, "Keep this message");
   assert.equal(archived.match_score, 82);
+  assert.equal(archived.qualification_score, 84);
+  assert.equal(archived.opportunity_score, 79);
+  assert.equal(archived.ranking_confidence, "high");
+  assert.equal(archived.application_pack_status, "ready");
+  assert.equal(archived.alert_status, "sent");
+  assert.equal(archived.apply_points_used, 8);
+  assert.equal(archived.application_qualification_score, 84);
+  assert.equal(archived.application_pack_status_at_apply, "ready");
+  assert.equal(
+    archived.application_snapshot_at,
+    "2026-07-27T10:00:00.000Z"
+  );
+  assert.equal(archived.outcome_events.length, 2);
   assert.equal(archived.application_decision, "applied");
   assert.equal(archived.outcome, "interview");
   assert.equal(archived.archived_at, now);
   assert.equal(archiveRecordIsComplete(archived), true);
+});
+
+test("archive reconciliation unions cumulative milestones and keeps the latest current view", () => {
+  const record = active({
+    outcome: "interview",
+    outcome_at: "2026-07-28T08:45:00.000Z",
+    outcome_events: [
+      { id: "interview-1", type: "interview", at: "2026-07-28T08:45:00.000Z" }
+    ]
+  });
+  const existing = {
+    ...record,
+    row_number: 20,
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-27T12:00:00.000Z",
+    outcome: "replied",
+    outcome_at: "2026-07-28T08:30:00.000Z",
+    outcome_events: [
+      { id: "reply-1", type: "replied", at: "2026-07-28T08:30:00.000Z" }
+    ]
+  };
+  const plan = prepareArchiveCandidates([record], [existing], schema, { now });
+  const merged = plan.candidates[0].archive_record;
+  assert.equal(merged.outcome, "interview");
+  assert.equal(merged.outcome_at, "2026-07-28T08:45:00.000Z");
+  assert.deepEqual(
+    merged.outcome_events.map((event) => event.type),
+    ["replied", "interview"]
+  );
 });
 
 test("existing archive history wins over stale active outcome data", () => {
@@ -132,11 +200,21 @@ test("a concurrent manual update blocks deletion until the archive copy is refre
 });
 
 test("an archive copy missing supported history does not authorize deletion", () => {
-  const record = active({ notes: "Keep this context" });
+  const record = active({
+    notes: "Keep this context",
+    opportunity_score: 79,
+    application_pack_status: "ready",
+    outcome_events: [
+      { id: "reply-1", type: "replied", at: "2026-07-28T08:00:00.000Z" }
+    ]
+  });
   const plan = prepareArchiveCandidates([record], [], schema, { now });
   const incomplete = {
     ...plan.candidates[0].archive_record,
     generated_message: "",
+    opportunity_score: "",
+    application_pack_status: "",
+    outcome_events: [],
     notes: ""
   };
   const result = confirmArchiveDeletions(
