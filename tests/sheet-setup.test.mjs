@@ -346,6 +346,24 @@ test("legacy message quarantine classification is identity/evidence-bound", () =
     ),
     { status: "conflicting", reason: "target_state_changed" }
   );
+  assert.deepEqual(
+    classifyLegacyMessageQuarantine(
+      {
+        ...reported,
+        pipeline_status: "review_required",
+        generated_message: "",
+        message_validation_status: "quarantined",
+        alert_status: "not_eligible",
+        alert_suppressed_reason: "message_quarantined",
+        error_category: ""
+      },
+      embedded.currentMessageVersions
+    ),
+    {
+      status: "already_quarantined",
+      reason: "unsafe_text_removed"
+    }
+  );
 });
 
 test("generated legacy-message migration removes dispatchable text and is idempotent", () => {

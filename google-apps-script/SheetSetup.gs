@@ -714,6 +714,7 @@ function classifyLegacyMessageQuarantine(record, current) {
       category === "message_quarantined" ||
       [
         "recommended",
+        "review_required",
         "generating",
         "retryable_error",
         "terminal_error"
