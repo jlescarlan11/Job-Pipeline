@@ -89,9 +89,10 @@ control and must still be verified independently.
 
 `ProcessingClaims` is append-written. For a canonical job and stage, the
 lowest valid Sheet row number wins until its configured lease expires. This
-arbitrates concurrent discovery, evaluation, generation, alert, archival, and
-Applied Jobs projection executions without treating a mutable active-row
-number as identity. The projection winner also performs fail-closed retention:
+arbitrates concurrent discovery, evaluation, generation, alert, archival,
+Applied Jobs projection, Analytics report-store, and Recommendation
+report-store executions without treating a mutable active-row number as
+identity. The projection winner also performs fail-closed retention:
 once 10,000 data rows exist, it can delete at most 1,000 uniquely addressed
 claim rows per run only after 30 days beyond expiry. Active/recent, malformed,
 unknown-stage, and duplicate-locator rows are preserved. Descending ranges are
@@ -418,12 +419,29 @@ last identifiable complete report. Analytic text is formula-neutralized and
 excludes descriptions, messages, credentials, provider payloads, contact
 details, and job identifiers.
 
+Before either learning workflow reads or writes its report store, it appends a
+global store claim and proceeds only when it owns the lowest unexpired claim.
+The Analytics lease is 35 minutes for its 30-minute timeout; the Recommender
+lease is 20 minutes for its 15-minute timeout. This serializes scheduled/manual
+overlap without treating a partial report as current.
+
+`config/report-retention.json` bounds normal Analytics history to a 90-day
+window. Cleanup starts only at 120 report rows, preserves at least the newest
+30 complete reports, and removes at most 30 expired reports per batch.
+The workflow rereads report and detail tabs with formulas visible, requires
+unique report/detail identities, exact stored detail counts, and unique row
+addresses, then deletes detail and metadata ranges together in one atomic
+Sheets batch with automatic retry disabled. Malformed, incomplete, duplicate,
+recent, and current history fails closed and remains untouched.
+
 ## Weekly recommendation workflow
 
-The recommender reads only `AnalyticsReports` and `Analytics`. It chooses the
+The recommender reads `AnalyticsReports` and `Analytics` as its evidence
+source. It chooses the
 newest valid complete analytics report, verifies the required all-time window
 and metric/band versions, and rejects missing or mismatched detail. The source
-analytics and every operational tab remain read-only.
+analytics and every job/config operational tab remain read-only; the only
+coordination write outside recommendation tabs is its report-store claim.
 
 `config/recommendation-policy.json` versions the 168-hour schedule, overall and
 fixed Monday 02:45 start, 15-minute post-timeout source-completion buffer,
@@ -449,6 +467,13 @@ that stable run/detail scope. If an exact compatible result is already the
 latest complete report, the weekly execution logs it as unchanged and performs
 no recommendation writes. A history-read failure disables only the skip.
 Returning to older evidence republishes it as current.
+
+Recommendation history uses the same fail-closed retention boundary: cleanup
+starts at 80 report rows, keeps at least the newest 12 complete reports and 365
+days of normal history, and deletes at most 12 expired complete/failed runs per
+atomic batch. Recommendation store claims and cleanup claims are ordinary
+bounded `ProcessingClaims`; they do not grant permission to mutate job,
+ranking, profile, application, or outcome state.
 
 The report keeps numerator, denominator, sample, comparison, window, coverage,
 versions, and caveat. Sparse overall input yields a single explicit abstention;

@@ -25,6 +25,9 @@ const recommendations = await loadJson(
 const groqProvider = await loadJson("../config/groq-provider-policy.json");
 const alertPolicy = await loadJson("../config/alert-policy.json");
 const claimRetention = await loadJson("../config/claim-retention.json");
+const reportRetention = await loadJson(
+  "../config/report-retention.json"
+);
 
 test("README and architecture document the checked-in schedules, bounds, and manual boundary", () => {
   for (const document of [readme, architecture]) {
@@ -217,6 +220,74 @@ test("claim-retention documentation preserves cleanup bounds and rollback safety
   assert.match(architecture, /fail-closed retention/i);
   assert.match(sheetSchema, /no automatic retry/i);
   assert.match(operations, /recoverable only from the\s+timestamped workbook backup/i);
+});
+
+test("report-retention documentation preserves leases, bounds, and fail-closed recovery", () => {
+  const analyticsRetention = reportRetention.analytics;
+  const recommendationRetention = reportRetention.recommendations;
+  for (const document of [
+    readme,
+    architecture,
+    analyticsDoc,
+    sheetSchema,
+    operations
+  ]) {
+    assert.match(
+      document,
+      new RegExp(`${analyticsRetention.retention_days}(?:-|\\s+)days?`, "i")
+    );
+    assert.match(
+      document,
+      new RegExp(
+        `${analyticsRetention.minimum_reports_before_cleanup}(?:\\s+\\w+){0,3}\\s+rows`,
+        "i"
+      )
+    );
+    assert.match(
+      document,
+      new RegExp(
+        `${analyticsRetention.maximum_reports_per_cleanup}\\s+expired\\s+reports`,
+        "i"
+      )
+    );
+  }
+  for (const document of [
+    readme,
+    architecture,
+    recommendationsDoc,
+    sheetSchema,
+    operations
+  ]) {
+    assert.match(
+      document,
+      new RegExp(
+        `${recommendationRetention.retention_days}(?:-|\\s+)days?`,
+        "i"
+      )
+    );
+    assert.match(
+      document,
+      new RegExp(
+        `${recommendationRetention.minimum_reports_before_cleanup}(?:\\s+\\w+){0,3}\\s+rows`,
+        "i"
+      )
+    );
+    assert.match(
+      document,
+      new RegExp(
+        `${recommendationRetention.maximum_reports_per_cleanup}\\s+expired`,
+        "i"
+      )
+    );
+  }
+  assert.match(analyticsDoc, /analytics_report_store/);
+  assert.match(recommendationsDoc, /recommendation_report_store/);
+  assert.match(architecture, /formulas visible/i);
+  assert.match(operations, /response-\s*ambiguous batch/i);
+  assert.match(
+    operations,
+    /report groups[\s\S]{0,120}recoverable only from the timestamped workbook backup/i
+  );
 });
 
 test("alert documentation keeps retries behind claim expiry and execution timeout", () => {

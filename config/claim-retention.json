@@ -11,6 +11,8 @@
     "generation",
     "alert",
     "archival",
-    "applied_jobs_projection"
+    "applied_jobs_projection",
+    "analytics_report_store",
+    "recommendation_report_store"
   ]
 }

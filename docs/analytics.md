@@ -10,6 +10,8 @@ deterministic aggregator. `workflows/analytics.json` reads `Sheet1` and
 pack, or outcome. The fixed time provides the weekly consumer with a
 configuration-validated completion window; workflow activation time does not
 define this phase.
+`config/report-retention.json` separately versions the store lease and
+historical retention boundary.
 
 Every distinct aggregate result has a SHA-256 content-addressed `report_id`.
 The identity includes the complete ordered metric result, versions, cohort
@@ -27,6 +29,23 @@ with the same result converge on the same IDs. Consumers select the newest
 valid complete metadata row and then filter `Analytics` to that report ID.
 Detail rows without complete metadata are from a failed/partial refresh and
 must not replace the previous complete report.
+
+## Store serialization and retention
+
+Every execution first appends an `analytics_report_store` claim and only the
+lowest unexpired claim proceeds. Its 35-minute lease exceeds the 30-minute
+workflow timeout, so scheduled/manual overlap cannot concurrently publish or
+retire rows; a crash is recoverable after lease expiry.
+
+Normal report history is retained for 90 days. Cleanup is dormant below 120
+metadata rows, preserves at least the newest 30 complete reports, and removes
+at most 30 expired reports at a time. Before deletion the workflow rereads both
+tabs with formulas visible and requires a unique canonical report row, a
+unique row address, exact `detail_row_count`, and unique matching
+`analytics_row_id` values. It sends all descending detail and metadata ranges
+in one atomic Sheets `batchUpdate` with automatic retry disabled. Any
+malformed, duplicate, incomplete, recent, or current group remains untouched.
+An ambiguous response is reconciled from a fresh snapshot on a later run.
 
 ## Cohort and outcome definitions
 

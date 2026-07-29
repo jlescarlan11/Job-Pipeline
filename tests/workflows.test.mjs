@@ -18,6 +18,9 @@ const groqPolicy = await loadJson("../config/groq-provider-policy.json");
 const claimRetentionPolicy = await loadJson(
   "../config/claim-retention.json"
 );
+const reportRetentionPolicy = await loadJson(
+  "../config/report-retention.json"
+);
 const analyticsPolicy = await loadJson("../config/analytics-policy.json");
 const recommendationPolicy = await loadJson(
   "../config/recommendation-policy.json"
@@ -1573,6 +1576,10 @@ test("Applied Jobs atomic retirement templates are case-fold unique and delete o
 test("analytics export publishes completion only after every idempotent detail write", () => {
   const workflow = workflows.analytics;
   for (const name of [
+    "Prepare Analytics Store Claim",
+    "Append Analytics Store Claim",
+    "Get Processing Claims",
+    "Keep Winning Analytics Store Claim",
     "Get Analytics Reports",
     "Aggregate Analytics Reports",
     "Get Active Rows",
@@ -1583,10 +1590,44 @@ test("analytics export publishes completion only after every idempotent detail w
     "Upsert Analytics Rows",
     "Aggregate Analytics Row Writes",
     "Prepare Analytics Completion",
-    "Publish Complete Analytics Report"
+    "Publish Complete Analytics Report",
+    "Plan Analytics Retention Candidates",
+    "Get Analytics Reports for Retention",
+    "Get Analytics Detail for Retention",
+    "Plan Analytics Report Retention",
+    "Delete Expired Analytics Reports"
   ]) {
     nodeByName(workflow, name);
   }
+  assertDirectConnection(
+    workflow,
+    "Schedule Trigger",
+    "Prepare Analytics Store Claim"
+  );
+  assertDirectConnection(
+    workflow,
+    "Keep Winning Analytics Store Claim",
+    "Get Analytics Reports"
+  );
+  const claimAppend = nodeByName(workflow, "Append Analytics Store Claim");
+  assert.equal(claimAppend.parameters.operation, "append");
+  assert.equal(claimAppend.parameters.sheetName.value, review.claims_sheet);
+  const claimCode = nodeByName(
+    workflow,
+    "Prepare Analytics Store Claim"
+  ).parameters.jsCode;
+  assert.match(claimCode, /createProcessingClaim/);
+  assert.match(
+    claimCode,
+    new RegExp(reportRetentionPolicy.analytics.claim_stage)
+  );
+  assert.match(
+    nodeByName(
+      workflow,
+      "Keep Winning Analytics Store Claim"
+    ).parameters.jsCode,
+    /chooseWinningClaims/
+  );
   const reports = nodeByName(workflow, "Get Analytics Reports");
   assert.equal(reports.parameters.sheetName.value, analyticsPolicy.reports_sheet);
   assert.equal(reports.parameters.operation, "read");
@@ -1624,7 +1665,13 @@ test("analytics export publishes completion only after every idempotent detail w
   );
   assert.deepEqual(
     workflow.connections["Should Publish Analytics Report"].main[1],
-    []
+    [
+      {
+        node: "Plan Analytics Retention Candidates",
+        type: "main",
+        index: 0
+      }
+    ]
   );
   assertDirectConnection(
     workflow,
@@ -1640,6 +1687,61 @@ test("analytics export publishes completion only after every idempotent detail w
     workflow,
     "Prepare Analytics Completion",
     "Publish Complete Analytics Report"
+  );
+  assertDirectConnection(
+    workflow,
+    "Publish Complete Analytics Report",
+    "Plan Analytics Retention Candidates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Plan Analytics Retention Candidates",
+    "Get Analytics Reports for Retention"
+  );
+  assertDirectConnection(
+    workflow,
+    "Plan Analytics Report Retention",
+    "Get Analytics Retention Sheet Metadata"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Analytics Retention Batch",
+    "Delete Expired Analytics Reports"
+  );
+  const retentionReports = nodeByName(
+    workflow,
+    "Get Analytics Reports for Retention"
+  );
+  const retentionDetails = nodeByName(
+    workflow,
+    "Get Analytics Detail for Retention"
+  );
+  for (const node of [retentionReports, retentionDetails]) {
+    assert.equal(
+      node.parameters.options.outputFormatting.values.general,
+      "FORMULA"
+    );
+    assert.equal(node.onError, undefined);
+  }
+  const retentionPlan = nodeByName(
+    workflow,
+    "Plan Analytics Report Retention"
+  ).parameters.jsCode;
+  assert.match(retentionPlan, /planReportRetention/);
+  assert.match(retentionPlan, /analytics_row_id/);
+  const retentionBatch = nodeByName(
+    workflow,
+    "Delete Expired Analytics Reports"
+  );
+  assert.equal(retentionBatch.retryOnFail, false);
+  assert.match(retentionBatch.parameters.url, /:batchUpdate$/);
+  assert.equal(
+    workflow.meta.reportRetentionPolicyVersion,
+    reportRetentionPolicy.policy_version
+  );
+  assert.equal(
+    workflow.meta.reportStoreClaimLeaseMs,
+    reportRetentionPolicy.analytics.claim_lease_ms
   );
   const build = nodeByName(workflow, "Build Analytics Report").parameters.jsCode;
   assert.match(build, /buildAnalyticsReport/);
@@ -1670,6 +1772,10 @@ test("analytics export publishes completion only after every idempotent detail w
 test("weekly recommender consumes only complete analytics and publishes versioned advisory evidence", () => {
   const workflow = workflows.recommender;
   for (const name of [
+    "Prepare Recommendation Store Claim",
+    "Append Recommendation Store Claim",
+    "Get Processing Claims",
+    "Keep Winning Recommendation Store Claim",
     "Get Recommendation Reports",
     "Aggregate Recommendation Reports",
     "Get Analytics Reports",
@@ -1681,10 +1787,47 @@ test("weekly recommender consumes only complete analytics and publishes versione
     "Upsert Recommendation Rows",
     "Aggregate Recommendation Row Writes",
     "Prepare Recommendation Report",
-    "Publish Recommendation Report"
+    "Publish Recommendation Report",
+    "Plan Recommendation Retention Candidates",
+    "Get Recommendation Reports for Retention",
+    "Get Recommendation Detail for Retention",
+    "Plan Recommendation Report Retention",
+    "Delete Expired Recommendation Reports"
   ]) {
     nodeByName(workflow, name);
   }
+  assertDirectConnection(
+    workflow,
+    "Schedule Trigger",
+    "Prepare Recommendation Store Claim"
+  );
+  assertDirectConnection(
+    workflow,
+    "Keep Winning Recommendation Store Claim",
+    "Get Recommendation Reports"
+  );
+  const claimAppend = nodeByName(
+    workflow,
+    "Append Recommendation Store Claim"
+  );
+  assert.equal(claimAppend.parameters.operation, "append");
+  assert.equal(claimAppend.parameters.sheetName.value, review.claims_sheet);
+  const claimCode = nodeByName(
+    workflow,
+    "Prepare Recommendation Store Claim"
+  ).parameters.jsCode;
+  assert.match(claimCode, /createProcessingClaim/);
+  assert.match(
+    claimCode,
+    new RegExp(reportRetentionPolicy.recommendations.claim_stage)
+  );
+  assert.match(
+    nodeByName(
+      workflow,
+      "Keep Winning Recommendation Store Claim"
+    ).parameters.jsCode,
+    /chooseWinningClaims/
+  );
 
   const previousReports = nodeByName(workflow, "Get Recommendation Reports");
   assert.equal(
@@ -1743,7 +1886,13 @@ test("weekly recommender consumes only complete analytics and publishes versione
   );
   assert.deepEqual(
     workflow.connections["Should Publish Recommendation Report"].main[1],
-    []
+    [
+      {
+        node: "Plan Recommendation Retention Candidates",
+        type: "main",
+        index: 0
+      }
+    ]
   );
   assertDirectConnection(
     workflow,
@@ -1759,6 +1908,61 @@ test("weekly recommender consumes only complete analytics and publishes versione
     workflow,
     "Prepare Recommendation Report",
     "Publish Recommendation Report"
+  );
+  assertDirectConnection(
+    workflow,
+    "Publish Recommendation Report",
+    "Plan Recommendation Retention Candidates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Plan Recommendation Retention Candidates",
+    "Get Recommendation Reports for Retention"
+  );
+  assertDirectConnection(
+    workflow,
+    "Plan Recommendation Report Retention",
+    "Get Recommendation Retention Sheet Metadata"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Recommendation Retention Batch",
+    "Delete Expired Recommendation Reports"
+  );
+  const retentionReports = nodeByName(
+    workflow,
+    "Get Recommendation Reports for Retention"
+  );
+  const retentionDetails = nodeByName(
+    workflow,
+    "Get Recommendation Detail for Retention"
+  );
+  for (const node of [retentionReports, retentionDetails]) {
+    assert.equal(
+      node.parameters.options.outputFormatting.values.general,
+      "FORMULA"
+    );
+    assert.equal(node.onError, undefined);
+  }
+  const retentionPlan = nodeByName(
+    workflow,
+    "Plan Recommendation Report Retention"
+  ).parameters.jsCode;
+  assert.match(retentionPlan, /planReportRetention/);
+  assert.match(retentionPlan, /recommendation_id/);
+  const retentionBatch = nodeByName(
+    workflow,
+    "Delete Expired Recommendation Reports"
+  );
+  assert.equal(retentionBatch.retryOnFail, false);
+  assert.match(retentionBatch.parameters.url, /:batchUpdate$/);
+  assert.equal(
+    workflow.meta.reportRetentionPolicyVersion,
+    reportRetentionPolicy.policy_version
+  );
+  assert.equal(
+    workflow.meta.reportStoreClaimLeaseMs,
+    reportRetentionPolicy.recommendations.claim_lease_ms
   );
 
   const build = nodeByName(
@@ -1799,14 +2003,117 @@ test("weekly recommender consumes only complete analytics and publishes versione
     "weekly recommender must not mutate analytics source records"
   );
   assert.equal(
-    workflow.nodes.some(
-      (node) =>
-        node.type === "n8n-nodes-base.httpRequest" ||
-        /slack|telegram|email/i.test(node.name)
-    ),
+    workflow.nodes.some((node) => /slack|telegram|email/i.test(node.name)),
     false,
     "optional delivery must not become an authoritative write path"
   );
+  assert.ok(
+    workflow.nodes
+      .filter((node) => node.type === "n8n-nodes-base.httpRequest")
+      .every(
+        (node) =>
+          /Retention Sheet Metadata|Delete Expired Recommendation Reports/.test(
+            node.name
+          ) &&
+          /^https:\/\/sheets\.googleapis\.com\/v4\/spreadsheets\//.test(
+            node.parameters.url
+          )
+      ),
+    "recommender HTTP requests must be restricted to report retention"
+  );
+});
+
+test("report retention batches delete detail and metadata atomically by their own sheet IDs", async () => {
+  const cases = [
+    {
+      workflow: workflows.analytics,
+      node: "Prepare Analytics Retention Batch",
+      planNode: "Plan Analytics Report Retention",
+      detailSheet: analyticsPolicy.detail_sheet,
+      reportsSheet: analyticsPolicy.reports_sheet
+    },
+    {
+      workflow: workflows.recommender,
+      node: "Prepare Recommendation Retention Batch",
+      planNode: "Plan Recommendation Report Retention",
+      detailSheet: recommendationPolicy.recommendations_sheet,
+      reportsSheet: recommendationPolicy.reports_sheet
+    }
+  ];
+  for (const candidate of cases) {
+    const code = nodeByName(
+      candidate.workflow,
+      candidate.node
+    ).parameters.jsCode;
+    const execute = new Function(
+      "$input",
+      "$",
+      `"use strict"; return (async () => { ${code} })();`
+    );
+    const plan = {
+      policy_version: reportRetentionPolicy.policy_version,
+      retention_cutoff_at: "2026-01-01T00:00:00.000Z",
+      counts: { selected: 2 },
+      detail_delete_ranges: [
+        { start_index: 9, end_index: 12 },
+        { start_index: 3, end_index: 5 }
+      ],
+      report_delete_ranges: [{ start_index: 4, end_index: 6 }]
+    };
+    const result = await execute(
+      {
+        first: () => ({
+          json: {
+            sheets: [
+              {
+                properties: {
+                  title: candidate.detailSheet,
+                  sheetId: 41
+                }
+              },
+              {
+                properties: {
+                  title: candidate.reportsSheet,
+                  sheetId: 42
+                }
+              }
+            ]
+          }
+        })
+      },
+      (name) => {
+        assert.equal(name, candidate.planNode);
+        return { first: () => ({ json: plan }) };
+      }
+    );
+    assert.deepEqual(
+      result[0].json.batch_update.requests.map(
+        (request) => request.deleteDimension.range
+      ),
+      [
+        {
+          sheetId: 41,
+          dimension: "ROWS",
+          startIndex: 9,
+          endIndex: 12
+        },
+        {
+          sheetId: 41,
+          dimension: "ROWS",
+          startIndex: 3,
+          endIndex: 5
+        },
+        {
+          sheetId: 42,
+          dimension: "ROWS",
+          startIndex: 4,
+          endIndex: 6
+        }
+      ]
+    );
+    assert.equal(result[0].json.reports_deleted, 2);
+    assert.equal(result[0].json.detail_rows_deleted, 5);
+  }
 });
 
 test("workflow exports contain credential references but no embedded secret material", () => {

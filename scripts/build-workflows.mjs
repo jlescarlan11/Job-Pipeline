@@ -8,6 +8,7 @@ import {
   validateReviewRuntimeConfig
 } from "../src/review.mjs";
 import { validateClaimRetentionPolicy } from "../src/claim-retention.mjs";
+import { validateReportRetentionPolicy } from "../src/report-retention.mjs";
 import {
   validateRuntimeConfig,
   workflowExecutionDataSettings
@@ -4260,10 +4261,38 @@ async function buildAnalytics() {
   const runtime = await readJson("config/runtime.json");
   assertValidRuntime(runtime);
   const policy = await readJson("config/analytics-policy.json");
+  const reviewConfig = await readJson("config/review-sheet.json");
+  const reportRetention = await readJson("config/report-retention.json");
+  const claimRetention = await readJson("config/claim-retention.json");
+  const reportRetentionErrors =
+    validateReportRetentionPolicy(reportRetention);
+  if (reportRetentionErrors.length > 0) {
+    throw new Error(
+      `Invalid report retention policy:\n- ${reportRetentionErrors.join("\n- ")}`
+    );
+  }
+  if (
+    reportRetention.analytics.claim_lease_ms <=
+    policy.execution_timeout_seconds * 1000
+  ) {
+    throw new Error(
+      "Analytics report-store claim lease must exceed its execution timeout"
+    );
+  }
+  if (
+    !claimRetention.allowed_processing_stages.includes(
+      reportRetention.analytics.claim_stage
+    )
+  ) {
+    throw new Error(
+      "Analytics report-store claim stage must be covered by claim retention"
+    );
+  }
   const analyticsCore = await bundledCore(
     "src/contracts.mjs",
     "src/schedules.mjs",
-    "src/analytics.mjs"
+    "src/analytics.mjs",
+    "src/report-retention.mjs"
   );
   const { validateAnalyticsPolicy } = await import(
     new URL("../src/analytics.mjs", import.meta.url)
@@ -4313,6 +4342,249 @@ async function buildAnalytics() {
     mode: "name",
     cachedResultName: policy.reports_sheet
   };
+
+  const claimFields = [
+    "canonical_job_id",
+    "processing_stage",
+    "processing_token",
+    "created_at",
+    "expires_at"
+  ];
+  const claimsBase = structuredClone(activeRead);
+  claimsBase.parameters.sheetName = {
+    __rl: true,
+    value: reviewConfig.claims_sheet,
+    mode: "name",
+    cachedResultName: reviewConfig.claims_sheet
+  };
+  const prepareStoreClaimCode = `${analyticsCore}
+
+const RETENTION = ${JSON.stringify(reportRetention)};
+const STORE = RETENTION.analytics;
+const now = new Date().toISOString();
+const proposed = {
+  canonical_job_id: STORE.claim_identity,
+  work_stage: STORE.claim_stage
+};
+const claim = createProcessingClaim(
+  proposed,
+  String($execution.id),
+  now,
+  STORE.claim_lease_ms
+);
+return [{ json: {
+  ...proposed,
+  ...claim
+} }];`;
+  const appendStoreClaim = appendSheetNode({
+    base: claimsBase,
+    id: "a13a17c5-0000-4000-8000-000000000015",
+    name: "Append Analytics Store Claim",
+    position: [-2060, 240],
+    fields: claimFields
+  });
+  const claimsRead = structuredClone(claimsBase);
+  claimsRead.id = "a13a17c5-0000-4000-8000-000000000017";
+  claimsRead.name = "Get Processing Claims";
+  claimsRead.position = [-1640, 240];
+  claimsRead.parameters.operation = "read";
+  claimsRead.alwaysOutputData = true;
+  const keepStoreWinnerCode = `${analyticsCore}
+
+const proposed = $('Prepare Analytics Store Claim').all()
+  .map((item) => item.json);
+const claims = $input.all()
+  .map((item) => item.json)
+  .filter((claim) => claim && claim.canonical_job_id);
+const winners = chooseWinningClaims(
+  proposed,
+  claims,
+  new Date().toISOString()
+);
+console.log(JSON.stringify({
+  event: 'analytics_store_claim',
+  proposed: proposed.length,
+  won: winners.length,
+  lost: proposed.length - winners.length
+}));
+return winners.map((record) => ({ json: record }));`;
+
+  const retentionCandidateCode = `${analyticsCore}
+
+const RETENTION = ${JSON.stringify(reportRetention)};
+const reportRows =
+  $('Aggregate Analytics Reports').first().json.analytics_report_rows || [];
+const status = reportRetentionCandidateStatus(
+  reportRows,
+  RETENTION,
+  'analytics',
+  {
+    reportIdField: 'report_id',
+    now: new Date().toISOString()
+  }
+);
+console.log(JSON.stringify({
+  event: 'analytics_report_retention_candidate',
+  ...status
+}));
+return status.cleanup_required ? [{ json: status }] : [];`;
+  const reportsRetentionRead = structuredClone(reportsRead);
+  reportsRetentionRead.id = "a13a17c5-0000-4000-8000-000000000022";
+  reportsRetentionRead.name = "Get Analytics Reports for Retention";
+  reportsRetentionRead.position = [1580, 500];
+  delete reportsRetentionRead.onError;
+  reportsRetentionRead.parameters.options = {
+    ...reportsRetentionRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  const detailsRetentionRead = structuredClone(analyticsWriteBase);
+  detailsRetentionRead.id = "a13a17c5-0000-4000-8000-000000000024";
+  detailsRetentionRead.name = "Get Analytics Detail for Retention";
+  detailsRetentionRead.position = [2000, 500];
+  detailsRetentionRead.parameters.operation = "read";
+  detailsRetentionRead.alwaysOutputData = true;
+  detailsRetentionRead.parameters.options = {
+    ...detailsRetentionRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  const retentionPlanCode = `${analyticsCore}
+
+const RETENTION = ${JSON.stringify(reportRetention)};
+const reportRows =
+  $('Aggregate Analytics Reports for Retention').first().json.analytics_report_rows || [];
+const detailRows =
+  $('Aggregate Analytics Detail for Retention').first().json.analytics_detail_rows || [];
+const plan = planReportRetention(
+  reportRows,
+  detailRows,
+  RETENTION,
+  'analytics',
+  {
+    reportIdField: 'report_id',
+    detailReportIdField: 'report_id',
+    detailIdField: 'analytics_row_id',
+    now: new Date().toISOString()
+  }
+);
+console.log(JSON.stringify({
+  event: 'analytics_report_retention_plan',
+  policy_version: plan.policy_version,
+  retention_cutoff_at: plan.retention_cutoff_at,
+  ...plan.counts,
+  report_delete_ranges: plan.report_delete_ranges.length,
+  detail_delete_ranges: plan.detail_delete_ranges.length
+}));
+return plan.selected_report_ids.length > 0 ? [{ json: plan }] : [];`;
+  const spreadsheetId = activeRead.parameters.documentId.value;
+  const spreadsheetMetadataUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
+    "?fields=sheets.properties";
+  const spreadsheetBatchUpdateUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
+    ":batchUpdate";
+  const retentionBatchCode = `
+const DETAIL_SHEET = ${JSON.stringify(policy.detail_sheet)};
+const REPORTS_SHEET = ${JSON.stringify(policy.reports_sheet)};
+const plan = $('Plan Analytics Report Retention').first().json;
+const metadata = $input.first().json;
+const sheetId = (title) => {
+  const sheet = (metadata.sheets || []).find(
+    (entry) => entry?.properties?.title === title
+  );
+  const value = Number(sheet?.properties?.sheetId);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error('Report-retention sheet metadata is missing: ' + title);
+  }
+  return value;
+};
+const deleteRequests = (ranges, targetSheetId) =>
+  ranges.map((range) => ({
+    deleteDimension: {
+      range: {
+        sheetId: targetSheetId,
+        dimension: 'ROWS',
+        startIndex: range.start_index,
+        endIndex: range.end_index
+      }
+    }
+  }));
+const requests = [
+  ...deleteRequests(plan.detail_delete_ranges, sheetId(DETAIL_SHEET)),
+  ...deleteRequests(plan.report_delete_ranges, sheetId(REPORTS_SHEET))
+];
+if (requests.length === 0) return [];
+return [{ json: {
+  batch_update: { requests },
+  policy_version: plan.policy_version,
+  retention_cutoff_at: plan.retention_cutoff_at,
+  reports_deleted: plan.counts.selected,
+  detail_rows_deleted: plan.detail_delete_ranges.reduce(
+    (total, range) => total + range.end_index - range.start_index,
+    0
+  ),
+  delete_ranges: requests.length
+} }];`;
+  const googleSheetsCredentials = structuredClone(activeRead.credentials);
+  const retentionMetadata = {
+    id: "a13a17c5-0000-4000-8000-000000000027",
+    name: "Get Analytics Retention Sheet Metadata",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [2630, 500],
+    parameters: {
+      url: spreadsheetMetadataUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      options: {}
+    },
+    credentials: googleSheetsCredentials
+  };
+  const retentionBatchUpdate = {
+    id: "a13a17c5-0000-4000-8000-000000000029",
+    name: "Delete Expired Analytics Reports",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [3050, 500],
+    parameters: {
+      method: "POST",
+      url: spreadsheetBatchUpdateUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      sendBody: true,
+      contentType: "raw",
+      rawContentType: "application/json",
+      body: "={{ JSON.stringify($json.batch_update) }}",
+      options: {}
+    },
+    retryOnFail: false,
+    credentials: googleSheetsCredentials
+  };
+  const retentionLogCode = `
+const cleanup = $('Prepare Analytics Retention Batch').first().json;
+console.log(JSON.stringify({
+  event: 'analytics_report_retention_committed',
+  policy_version: cleanup.policy_version,
+  retention_cutoff_at: cleanup.retention_cutoff_at,
+  reports_deleted: cleanup.reports_deleted,
+  detail_rows_deleted: cleanup.detail_rows_deleted,
+  delete_ranges: cleanup.delete_ranges
+}));
+return [{ json: {
+  event: 'analytics_report_retention_committed',
+  policy_version: cleanup.policy_version,
+  reports_deleted: cleanup.reports_deleted,
+  detail_rows_deleted: cleanup.detail_rows_deleted
+} }];`;
 
   const buildCode = `${analyticsCore}
 
@@ -4390,6 +4662,26 @@ return [{ json: completion }];`;
 
   const nodes = [
     schedule,
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000014",
+      name: "Prepare Analytics Store Claim",
+      position: [-2270, 240],
+      jsCode: prepareStoreClaimCode
+    }),
+    appendStoreClaim,
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000016",
+      name: "Aggregate Analytics Store Claim",
+      position: [-1850, 240],
+      destinationFieldName: "claims_written"
+    }),
+    claimsRead,
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000018",
+      name: "Keep Winning Analytics Store Claim",
+      position: [-1430, 240],
+      jsCode: keepStoreWinnerCode
+    }),
     reportsRead,
     aggregateNode({
       id: "a13a17c5-0000-4000-8000-000000000013",
@@ -4412,7 +4704,7 @@ return [{ json: completion }];`;
       jsCode: buildCode
     }),
     booleanIfNode({
-      id: "a13a17c5-0000-4000-8000-000000000014",
+      id: "a13a17c5-0000-4000-8000-000000000019",
       name: "Should Publish Analytics Report",
       position: [-100, 240],
       leftValue: "={{ $json.publish_required }}"
@@ -4450,11 +4742,68 @@ return [{ json: completion }];`;
       position: [1100, 240],
       fields: policy.report_fields,
       matchingField: "report_id"
+    }),
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000020",
+      name: "Plan Analytics Retention Candidates",
+      position: [1370, 500],
+      jsCode: retentionCandidateCode
+    }),
+    reportsRetentionRead,
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000023",
+      name: "Aggregate Analytics Reports for Retention",
+      position: [1790, 500],
+      destinationFieldName: "analytics_report_rows"
+    }),
+    detailsRetentionRead,
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000025",
+      name: "Aggregate Analytics Detail for Retention",
+      position: [2210, 500],
+      destinationFieldName: "analytics_detail_rows"
+    }),
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000026",
+      name: "Plan Analytics Report Retention",
+      position: [2420, 500],
+      jsCode: retentionPlanCode
+    }),
+    retentionMetadata,
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000028",
+      name: "Prepare Analytics Retention Batch",
+      position: [2840, 500],
+      jsCode: retentionBatchCode
+    }),
+    retentionBatchUpdate,
+    codeNode({
+      id: "a13a17c5-0000-4000-8000-000000000030",
+      name: "Log Analytics Retention",
+      position: [3260, 500],
+      jsCode: retentionLogCode
     })
   ];
 
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Analytics Reports")]] },
+    "Schedule Trigger": {
+      main: [[connection("Prepare Analytics Store Claim")]]
+    },
+    "Prepare Analytics Store Claim": {
+      main: [[connection("Append Analytics Store Claim")]]
+    },
+    "Append Analytics Store Claim": {
+      main: [[connection("Aggregate Analytics Store Claim")]]
+    },
+    "Aggregate Analytics Store Claim": {
+      main: [[connection("Get Processing Claims")]]
+    },
+    "Get Processing Claims": {
+      main: [[connection("Keep Winning Analytics Store Claim")]]
+    },
+    "Keep Winning Analytics Store Claim": {
+      main: [[connection("Get Analytics Reports")]]
+    },
     "Get Analytics Reports": {
       main: [[connection("Aggregate Analytics Reports")]]
     },
@@ -4468,7 +4817,10 @@ return [{ json: completion }];`;
       main: [[connection("Should Publish Analytics Report")]]
     },
     "Should Publish Analytics Report": {
-      main: [[connection("Prepare Analytics Rows")], []]
+      main: [
+        [connection("Prepare Analytics Rows")],
+        [connection("Plan Analytics Retention Candidates")]
+      ]
     },
     "Prepare Analytics Rows": { main: [[connection("Upsert Analytics Rows")]] },
     "Upsert Analytics Rows": {
@@ -4479,6 +4831,36 @@ return [{ json: completion }];`;
     },
     "Prepare Analytics Completion": {
       main: [[connection("Publish Complete Analytics Report")]]
+    },
+    "Publish Complete Analytics Report": {
+      main: [[connection("Plan Analytics Retention Candidates")]]
+    },
+    "Plan Analytics Retention Candidates": {
+      main: [[connection("Get Analytics Reports for Retention")]]
+    },
+    "Get Analytics Reports for Retention": {
+      main: [[connection("Aggregate Analytics Reports for Retention")]]
+    },
+    "Aggregate Analytics Reports for Retention": {
+      main: [[connection("Get Analytics Detail for Retention")]]
+    },
+    "Get Analytics Detail for Retention": {
+      main: [[connection("Aggregate Analytics Detail for Retention")]]
+    },
+    "Aggregate Analytics Detail for Retention": {
+      main: [[connection("Plan Analytics Report Retention")]]
+    },
+    "Plan Analytics Report Retention": {
+      main: [[connection("Get Analytics Retention Sheet Metadata")]]
+    },
+    "Get Analytics Retention Sheet Metadata": {
+      main: [[connection("Prepare Analytics Retention Batch")]]
+    },
+    "Prepare Analytics Retention Batch": {
+      main: [[connection("Delete Expired Analytics Reports")]]
+    },
+    "Delete Expired Analytics Reports": {
+      main: [[connection("Log Analytics Retention")]]
     }
   };
 
@@ -4501,6 +4883,10 @@ return [{ json: completion }];`;
         metricDefinitionVersion: policy.metric_definition_version,
         analyticsBandVersion: policy.band_version,
         analyticsScheduleHours: policy.schedule_hours,
+        reportRetentionPolicyVersion: reportRetention.policy_version,
+        reportRetentionDays: reportRetention.analytics.retention_days,
+        reportStoreClaimLeaseMs:
+          reportRetention.analytics.claim_lease_ms,
         executionTimeoutSeconds: policy.execution_timeout_seconds
       },
       tags: []
@@ -4516,12 +4902,40 @@ async function buildRecommender() {
   assertValidRuntime(runtime);
   const policy = await readJson("config/recommendation-policy.json");
   const analyticsPolicy = await readJson("config/analytics-policy.json");
+  const reviewConfig = await readJson("config/review-sheet.json");
+  const reportRetention = await readJson("config/report-retention.json");
+  const claimRetention = await readJson("config/claim-retention.json");
+  const reportRetentionErrors =
+    validateReportRetentionPolicy(reportRetention);
+  if (reportRetentionErrors.length > 0) {
+    throw new Error(
+      `Invalid report retention policy:\n- ${reportRetentionErrors.join("\n- ")}`
+    );
+  }
+  if (
+    reportRetention.recommendations.claim_lease_ms <=
+    policy.execution_timeout_seconds * 1000
+  ) {
+    throw new Error(
+      "Recommendation report-store claim lease must exceed its execution timeout"
+    );
+  }
+  if (
+    !claimRetention.allowed_processing_stages.includes(
+      reportRetention.recommendations.claim_stage
+    )
+  ) {
+    throw new Error(
+      "Recommendation report-store claim stage must be covered by claim retention"
+    );
+  }
   const profile = await readJson("config/candidate-profile.json");
   const recommendationCore = await bundledCore(
     "src/contracts.mjs",
     "src/schedules.mjs",
     "src/analytics.mjs",
-    "src/recommendations.mjs"
+    "src/recommendations.mjs",
+    "src/report-retention.mjs"
   );
   const { validateRecommendationPolicy } = await import(
     new URL("../src/recommendations.mjs", import.meta.url)
@@ -4595,6 +5009,258 @@ async function buildRecommender() {
     mode: "name",
     cachedResultName: policy.reports_sheet
   };
+
+  const claimFields = [
+    "canonical_job_id",
+    "processing_stage",
+    "processing_token",
+    "created_at",
+    "expires_at"
+  ];
+  const claimsBase = structuredClone(reportsRead);
+  delete claimsBase.onError;
+  claimsBase.parameters.sheetName = {
+    __rl: true,
+    value: reviewConfig.claims_sheet,
+    mode: "name",
+    cachedResultName: reviewConfig.claims_sheet
+  };
+  const prepareStoreClaimCode = `${recommendationCore}
+
+const RETENTION = ${JSON.stringify(reportRetention)};
+const STORE = RETENTION.recommendations;
+const now = new Date().toISOString();
+const proposed = {
+  canonical_job_id: STORE.claim_identity,
+  work_stage: STORE.claim_stage
+};
+const claim = createProcessingClaim(
+  proposed,
+  String($execution.id),
+  now,
+  STORE.claim_lease_ms
+);
+return [{ json: {
+  ...proposed,
+  ...claim
+} }];`;
+  const appendStoreClaim = appendSheetNode({
+    base: claimsBase,
+    id: "b14b18d6-0000-4000-8000-000000000017",
+    name: "Append Recommendation Store Claim",
+    position: [-2060, 240],
+    fields: claimFields
+  });
+  const claimsRead = structuredClone(claimsBase);
+  claimsRead.id = "b14b18d6-0000-4000-8000-000000000019";
+  claimsRead.name = "Get Processing Claims";
+  claimsRead.position = [-1640, 240];
+  claimsRead.parameters.operation = "read";
+  claimsRead.alwaysOutputData = true;
+  const keepStoreWinnerCode = `${recommendationCore}
+
+const proposed = $('Prepare Recommendation Store Claim').all()
+  .map((item) => item.json);
+const claims = $input.all()
+  .map((item) => item.json)
+  .filter((claim) => claim && claim.canonical_job_id);
+const winners = chooseWinningClaims(
+  proposed,
+  claims,
+  new Date().toISOString()
+);
+console.log(JSON.stringify({
+  event: 'recommendation_store_claim',
+  proposed: proposed.length,
+  won: winners.length,
+  lost: proposed.length - winners.length
+}));
+return winners.map((record) => ({ json: record }));`;
+
+  const retentionCandidateCode = `${recommendationCore}
+
+const RETENTION = ${JSON.stringify(reportRetention)};
+const reportRows =
+  $('Aggregate Recommendation Reports').first().json.recommendation_report_rows || [];
+const status = reportRetentionCandidateStatus(
+  reportRows,
+  RETENTION,
+  'recommendations',
+  {
+    reportIdField: 'run_id',
+    now: new Date().toISOString()
+  }
+);
+console.log(JSON.stringify({
+  event: 'recommendation_report_retention_candidate',
+  ...status
+}));
+return status.cleanup_required ? [{ json: status }] : [];`;
+  const reportsRetentionRead = structuredClone(recommendationReportsRead);
+  reportsRetentionRead.id = "b14b18d6-0000-4000-8000-000000000023";
+  reportsRetentionRead.name = "Get Recommendation Reports for Retention";
+  reportsRetentionRead.position = [1820, 500];
+  delete reportsRetentionRead.onError;
+  reportsRetentionRead.parameters.options = {
+    ...reportsRetentionRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  const detailsRetentionRead = structuredClone(recommendationWriteBase);
+  detailsRetentionRead.id = "b14b18d6-0000-4000-8000-000000000025";
+  detailsRetentionRead.name = "Get Recommendation Detail for Retention";
+  detailsRetentionRead.position = [2240, 500];
+  detailsRetentionRead.parameters.operation = "read";
+  detailsRetentionRead.alwaysOutputData = true;
+  delete detailsRetentionRead.onError;
+  detailsRetentionRead.parameters.options = {
+    ...detailsRetentionRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  const retentionPlanCode = `${recommendationCore}
+
+const RETENTION = ${JSON.stringify(reportRetention)};
+const reportRows =
+  $('Aggregate Recommendation Reports for Retention').first().json.recommendation_report_rows || [];
+const detailRows =
+  $('Aggregate Recommendation Detail for Retention').first().json.recommendation_rows || [];
+const plan = planReportRetention(
+  reportRows,
+  detailRows,
+  RETENTION,
+  'recommendations',
+  {
+    reportIdField: 'run_id',
+    detailReportIdField: 'run_id',
+    detailIdField: 'recommendation_id',
+    now: new Date().toISOString()
+  }
+);
+console.log(JSON.stringify({
+  event: 'recommendation_report_retention_plan',
+  policy_version: plan.policy_version,
+  retention_cutoff_at: plan.retention_cutoff_at,
+  ...plan.counts,
+  report_delete_ranges: plan.report_delete_ranges.length,
+  detail_delete_ranges: plan.detail_delete_ranges.length
+}));
+return plan.selected_report_ids.length > 0 ? [{ json: plan }] : [];`;
+  const spreadsheetId = reportsRead.parameters.documentId.value;
+  const spreadsheetMetadataUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
+    "?fields=sheets.properties";
+  const spreadsheetBatchUpdateUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
+    ":batchUpdate";
+  const retentionBatchCode = `
+const DETAIL_SHEET = ${JSON.stringify(policy.recommendations_sheet)};
+const REPORTS_SHEET = ${JSON.stringify(policy.reports_sheet)};
+const plan = $('Plan Recommendation Report Retention').first().json;
+const metadata = $input.first().json;
+const sheetId = (title) => {
+  const sheet = (metadata.sheets || []).find(
+    (entry) => entry?.properties?.title === title
+  );
+  const value = Number(sheet?.properties?.sheetId);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error('Report-retention sheet metadata is missing: ' + title);
+  }
+  return value;
+};
+const deleteRequests = (ranges, targetSheetId) =>
+  ranges.map((range) => ({
+    deleteDimension: {
+      range: {
+        sheetId: targetSheetId,
+        dimension: 'ROWS',
+        startIndex: range.start_index,
+        endIndex: range.end_index
+      }
+    }
+  }));
+const requests = [
+  ...deleteRequests(
+    plan.detail_delete_ranges,
+    sheetId(DETAIL_SHEET)
+  ),
+  ...deleteRequests(
+    plan.report_delete_ranges,
+    sheetId(REPORTS_SHEET)
+  )
+];
+if (requests.length === 0) return [];
+return [{ json: {
+  batch_update: { requests },
+  policy_version: plan.policy_version,
+  retention_cutoff_at: plan.retention_cutoff_at,
+  reports_deleted: plan.counts.selected,
+  detail_rows_deleted: plan.detail_delete_ranges.reduce(
+    (total, range) => total + range.end_index - range.start_index,
+    0
+  ),
+  delete_ranges: requests.length
+} }];`;
+  const googleSheetsCredentials = structuredClone(reportsRead.credentials);
+  const retentionMetadata = {
+    id: "b14b18d6-0000-4000-8000-000000000028",
+    name: "Get Recommendation Retention Sheet Metadata",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [2870, 500],
+    parameters: {
+      url: spreadsheetMetadataUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      options: {}
+    },
+    credentials: googleSheetsCredentials
+  };
+  const retentionBatchUpdate = {
+    id: "b14b18d6-0000-4000-8000-000000000030",
+    name: "Delete Expired Recommendation Reports",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [3290, 500],
+    parameters: {
+      method: "POST",
+      url: spreadsheetBatchUpdateUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      sendBody: true,
+      contentType: "raw",
+      rawContentType: "application/json",
+      body: "={{ JSON.stringify($json.batch_update) }}",
+      options: {}
+    },
+    retryOnFail: false,
+    credentials: googleSheetsCredentials
+  };
+  const retentionLogCode = `
+const cleanup =
+  $('Prepare Recommendation Retention Batch').first().json;
+console.log(JSON.stringify({
+  event: 'recommendation_report_retention_committed',
+  policy_version: cleanup.policy_version,
+  retention_cutoff_at: cleanup.retention_cutoff_at,
+  reports_deleted: cleanup.reports_deleted,
+  detail_rows_deleted: cleanup.detail_rows_deleted,
+  delete_ranges: cleanup.delete_ranges
+}));
+return [{ json: {
+  event: 'recommendation_report_retention_committed',
+  policy_version: cleanup.policy_version,
+  reports_deleted: cleanup.reports_deleted,
+  detail_rows_deleted: cleanup.detail_rows_deleted
+} }];`;
 
   const buildCode = `${recommendationCore}
 
@@ -4714,6 +5380,26 @@ return [{ json: report }];`;
 
   const nodes = [
     schedule,
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000016",
+      name: "Prepare Recommendation Store Claim",
+      position: [-2270, 240],
+      jsCode: prepareStoreClaimCode
+    }),
+    appendStoreClaim,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000018",
+      name: "Aggregate Recommendation Store Claim",
+      position: [-1850, 240],
+      destinationFieldName: "claims_written"
+    }),
+    claimsRead,
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000020",
+      name: "Keep Winning Recommendation Store Claim",
+      position: [-1430, 240],
+      jsCode: keepStoreWinnerCode
+    }),
     recommendationReportsRead,
     aggregateNode({
       id: "b14b18d6-0000-4000-8000-000000000014",
@@ -4767,11 +5453,68 @@ return [{ json: report }];`;
       position: [1340, 240],
       fields: policy.report_fields,
       matchingField: "run_id"
+    }),
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000021",
+      name: "Plan Recommendation Retention Candidates",
+      position: [1610, 500],
+      jsCode: retentionCandidateCode
+    }),
+    reportsRetentionRead,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000024",
+      name: "Aggregate Recommendation Reports for Retention",
+      position: [2030, 500],
+      destinationFieldName: "recommendation_report_rows"
+    }),
+    detailsRetentionRead,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000026",
+      name: "Aggregate Recommendation Detail for Retention",
+      position: [2450, 500],
+      destinationFieldName: "recommendation_rows"
+    }),
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000027",
+      name: "Plan Recommendation Report Retention",
+      position: [2660, 500],
+      jsCode: retentionPlanCode
+    }),
+    retentionMetadata,
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000029",
+      name: "Prepare Recommendation Retention Batch",
+      position: [3080, 500],
+      jsCode: retentionBatchCode
+    }),
+    retentionBatchUpdate,
+    codeNode({
+      id: "b14b18d6-0000-4000-8000-000000000031",
+      name: "Log Recommendation Retention",
+      position: [3500, 500],
+      jsCode: retentionLogCode
     })
   ];
 
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Recommendation Reports")]] },
+    "Schedule Trigger": {
+      main: [[connection("Prepare Recommendation Store Claim")]]
+    },
+    "Prepare Recommendation Store Claim": {
+      main: [[connection("Append Recommendation Store Claim")]]
+    },
+    "Append Recommendation Store Claim": {
+      main: [[connection("Aggregate Recommendation Store Claim")]]
+    },
+    "Aggregate Recommendation Store Claim": {
+      main: [[connection("Get Processing Claims")]]
+    },
+    "Get Processing Claims": {
+      main: [[connection("Keep Winning Recommendation Store Claim")]]
+    },
+    "Keep Winning Recommendation Store Claim": {
+      main: [[connection("Get Recommendation Reports")]]
+    },
     "Get Recommendation Reports": {
       main: [[connection("Aggregate Recommendation Reports")]]
     },
@@ -4791,7 +5534,10 @@ return [{ json: report }];`;
       main: [[connection("Should Publish Recommendation Report")]]
     },
     "Should Publish Recommendation Report": {
-      main: [[connection("Prepare Recommendation Rows")], []]
+      main: [
+        [connection("Prepare Recommendation Rows")],
+        [connection("Plan Recommendation Retention Candidates")]
+      ]
     },
     "Prepare Recommendation Rows": {
       main: [[connection("Upsert Recommendation Rows")]]
@@ -4804,6 +5550,36 @@ return [{ json: report }];`;
     },
     "Prepare Recommendation Report": {
       main: [[connection("Publish Recommendation Report")]]
+    },
+    "Publish Recommendation Report": {
+      main: [[connection("Plan Recommendation Retention Candidates")]]
+    },
+    "Plan Recommendation Retention Candidates": {
+      main: [[connection("Get Recommendation Reports for Retention")]]
+    },
+    "Get Recommendation Reports for Retention": {
+      main: [[connection("Aggregate Recommendation Reports for Retention")]]
+    },
+    "Aggregate Recommendation Reports for Retention": {
+      main: [[connection("Get Recommendation Detail for Retention")]]
+    },
+    "Get Recommendation Detail for Retention": {
+      main: [[connection("Aggregate Recommendation Detail for Retention")]]
+    },
+    "Aggregate Recommendation Detail for Retention": {
+      main: [[connection("Plan Recommendation Report Retention")]]
+    },
+    "Plan Recommendation Report Retention": {
+      main: [[connection("Get Recommendation Retention Sheet Metadata")]]
+    },
+    "Get Recommendation Retention Sheet Metadata": {
+      main: [[connection("Prepare Recommendation Retention Batch")]]
+    },
+    "Prepare Recommendation Retention Batch": {
+      main: [[connection("Delete Expired Recommendation Reports")]]
+    },
+    "Delete Expired Recommendation Reports": {
+      main: [[connection("Log Recommendation Retention")]]
     }
   };
 
@@ -4830,6 +5606,11 @@ return [{ json: report }];`;
         recommendationScheduleHours: policy.schedule_hours,
         sourceCompletionBufferMinutes:
           policy.source_completion_buffer_minutes,
+        reportRetentionPolicyVersion: reportRetention.policy_version,
+        reportRetentionDays:
+          reportRetention.recommendations.retention_days,
+        reportStoreClaimLeaseMs:
+          reportRetention.recommendations.claim_lease_ms,
         executionTimeoutSeconds: policy.execution_timeout_seconds,
         recommendationMode: "read_only_advisory"
       },

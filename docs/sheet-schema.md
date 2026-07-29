@@ -226,7 +226,7 @@ One row per canonical job after idempotent reconciliation. It retains all suppor
 | Field | Meaning |
 | --- | --- |
 | `canonical_job_id` | Claimed job. |
-| `processing_stage` | `discovery`, `evaluation`, `generation`, `alert`, `archival`, or `applied_jobs_projection`. |
+| `processing_stage` | `discovery`, `evaluation`, `generation`, `alert`, `archival`, `applied_jobs_projection`, `analytics_report_store`, or `recommendation_report_store`. |
 | `processing_token` | Execution/job/stage token. |
 | `created_at` | Claim creation time. |
 | `expires_at` | End of the stage-specific lease. |
@@ -265,6 +265,11 @@ consumer selects the newest valid `status=complete` row and filters `Analytics`
 to its report ID. Detail rows without complete metadata are a failed/partial
 refresh and are not authoritative.
 
+Normal history is retained for 90 days. At 120 report rows, the Analytics store
+claim winner may remove at most 30 expired reports while preserving at least
+the newest 30 complete reports. It deletes only exact identity/count-matched
+detail groups and their metadata in one atomic, non-retried batch.
+
 ### `Recommendations`
 
 Internal weekly evidence keyed by `recommendation_id`. Each row joins to one
@@ -285,6 +290,11 @@ that is already latest; failed attempts use an execution-scoped run ID. The
 internal current view is the newest valid `status=complete` row by
 `generated_at` and `run_id`; filter `Recommendations` to that run. Failed or
 partial runs remain history and do not replace the last complete report.
+
+Normal complete/failed run history is retained for 365 days. At 80 report
+rows, the Recommendation store claim winner may remove at most 12 expired runs
+while preserving at least the newest 12 complete reports. Ambiguous or
+incomplete groups are never deleted.
 
 ## Manual actions
 

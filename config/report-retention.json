@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-30/v1",
+  "enabled": true,
+  "analytics": {
+    "retention_days": 90,
+    "minimum_reports_before_cleanup": 120,
+    "minimum_complete_reports_to_preserve": 30,
+    "maximum_reports_per_cleanup": 30,
+    "allowed_statuses": [
+      "complete"
+    ],
+    "claim_identity": "system:analytics-report-store",
+    "claim_stage": "analytics_report_store",
+    "claim_lease_ms": 2100000
+  },
+  "recommendations": {
+    "retention_days": 365,
+    "minimum_reports_before_cleanup": 80,
+    "minimum_complete_reports_to_preserve": 12,
+    "maximum_reports_per_cleanup": 12,
+    "allowed_statuses": [
+      "complete",
+      "failed"
+    ],
+    "claim_identity": "system:recommendation-report-store",
+    "claim_stage": "recommendation_report_store",
+    "claim_lease_ms": 1200000
+  }
+}

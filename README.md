@@ -41,6 +41,13 @@ appended one projection claim, and rewrote Dashboard. Each stable run now
 avoids at least eight requests, one claim row, and one Dashboard mutation;
 actual recurring savings scale with the observed number of stable polls.
 
+Learning-report writers are serialized by timeout-covering store claims.
+Analytics keeps 90 days of normal history, starts cleanup at 120 report rows,
+preserves the newest 30 complete reports, and deletes at most 30 expired
+reports per batch. Recommendations keeps 365 days, starts at 80 report rows,
+preserves the newest 12 complete reports, and deletes at most 12 expired runs.
+Every cleanup fails closed on ambiguous identity, count, or row evidence.
+
 The workflows share ten Google Sheet tabs:
 
 - `Sheet1`: active discovery, evaluation, generation, and review records.
@@ -50,10 +57,10 @@ The workflows share ten Google Sheet tabs:
 - `ProcessingClaims`: append-written coordination leases with bounded,
   fail-closed retention of expired history.
 - `Dashboard`: one `metric_key=current` funnel row.
-- `Analytics`: versioned conversion, efficiency, coverage, and calibration detail rows.
-- `AnalyticsReports`: append-safe identifiers for complete analytic reports.
+- `Analytics`: versioned conversion, efficiency, coverage, and calibration detail rows with bounded historical retention.
+- `AnalyticsReports`: complete analytic report identifiers with a guarded rolling history.
 - `Recommendations`: versioned advisory evidence, proposed operator actions, and abstentions.
-- `RecommendationReports`: complete, empty, abstained, and failed weekly run history.
+- `RecommendationReports`: bounded complete, empty, abstained, and failed weekly run history.
 
 ## Source of truth
 
@@ -65,6 +72,7 @@ The workflows share ten Google Sheet tabs:
 - `config/groq-provider-policy.json`: approved Groq model lifecycle, request bounds, pricing evidence, and live benchmark gate.
 - `config/analytics-policy.json`: versioned cohorts, bands, attribution, timezone, cadence, and report fields.
 - `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
+- `config/report-retention.json`: guarded Analytics and Recommender history bounds, cleanup batches, and store leases.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
 - `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
 - `config/runtime.json`: workflow timezone and execution-data policy plus generator and archiver schedules, timeouts, caps, leases, and retries.

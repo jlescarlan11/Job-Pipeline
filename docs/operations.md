@@ -378,6 +378,17 @@ Slack HTTP node must remain an explicit JSON `POST`.
   content-addressed report ID is selected, the execution logs
   `action=unchanged`, and neither `Analytics` nor `AnalyticsReports` receives a
   write. Change one outcome and confirm a new result publishes normally.
+- Start overlapping manual Analytics runs. Confirm both append
+  `analytics_report_store` claims, only the lowest unexpired claim enters the
+  report path, and a retry after the 35-minute lease can recover a crashed
+  owner.
+- In the workbook copy, seed at least 120 valid metadata rows and their exact
+  detail groups across the 90-day cutoff. Confirm one cleanup preserves the
+  newest 30 complete reports, selects at most 30 expired reports, rereads
+  formulas, and removes detail plus metadata in one batch. Repeat with a
+  duplicate ID, formula ID, duplicate row address, missing detail row, and
+  current report; each ambiguous group must remain. Do not retry a response-
+  ambiguous batch; rerun later from fresh rows and reconcile the counts.
 - Confirm the workflow performs read-only operations against `Sheet1` and
   `Archive` and does not alter Dashboard, ranking, search, or application data.
 
@@ -414,9 +425,17 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - In `RecommendationReports`, select the newest `status=complete` row, filter
   `Recommendations` to its `run_id`, and confirm a failed/partial later run
   cannot become the current internal report.
-- Diff or checksum `Sheet1`, `Archive`, `Dashboard`, `ProcessingClaims`,
+- Start overlapping manual Recommender runs and confirm only the lowest
+  unexpired `recommendation_report_store` claim enters analysis. In the
+  workbook copy, seed at least 80 valid report rows across the 365-day cutoff;
+  confirm cleanup keeps the newest 12 complete reports and removes at most 12
+  expired exact complete/failed run groups. Every malformed, incomplete,
+  recent, or current group must remain.
+- Diff or checksum `Sheet1`, `Archive`, `Dashboard`,
   search/ranking/profile/application policies, application decisions, outcomes,
-  strategies, and Apply Points before and after. No value may change.
+  strategies, and Apply Points before and after. No value may change. One
+  append-only coordination claim is expected; it must contain no job,
+  application, or recommendation evidence.
 - Confirm no weekly notification is expected in this version. Stored report
   validity is independent of alert delivery.
 
@@ -490,6 +509,10 @@ Do not invent hiring or conversion targets. Record observed counts and reconcile
   and policy versions, result, detail count match, recommendation/abstention
   counts, minimum and observed samples, dimension coverage, partial/failed
   later runs, and refresh duration.
+- Report retention: policy/store, claim winners/losses, threshold state,
+  cutoff, reports seen/eligible/selected/deferred, preserved-by-reason counts,
+  detail/report delete ranges, committed row counts, and any failed or
+  response-ambiguous atomic batch.
 - Data invariants: one canonical identity across active/archive, no missing historical ready messages/decisions/outcomes, and no automatic applied/skipped transition.
 
 Investigate when a summary is missing, query coverage unexpectedly drops, a claim remains active beyond its lease, a retryable row archives, active/archive both contain the same identity beyond one recovery cycle, or counts cannot be reconciled.
@@ -506,6 +529,11 @@ If verification fails:
    future cleanup. To keep other Reviewer behavior running while retention is
    investigated, set `enabled=false` in `config/claim-retention.json`, rebuild,
    validate, and import the replacement inactive before activation.
+   If report cleanup contributed, disable Analytics and Recommender or set
+   `enabled=false` in `config/report-retention.json`, rebuild, validate, and
+   import both replacements inactive. Store claims still serialize publication;
+   no later report cleanup should be attempted until the copied workbook
+   reconciles detail and metadata counts.
 3. Do not delete new columns, `Review Queue`, or Archive rows. The queue is
    derived and may be left stale while the Reviewer is disabled; never copy it
    back over `Sheet1`.
@@ -521,6 +549,13 @@ timestamped workbook backup. Do not replace a live workbook merely to restore
 those audit rows; preserve the backup as evidence or reconcile with workflows
 disabled and verify that every restored claim is expired before any writer is
 reactivated.
+
+Expired Analytics or Recommendation report groups already removed by retention
+are likewise recoverable only from the timestamped workbook backup. Restoring
+them is not required for the current complete view. If audit history must be
+restored, keep all learning workflows disabled, restore both metadata and every
+matching detail row together, and rerun the exact-count checks before
+activation.
 
 Disabling only the recommender stops future weekly reports and leaves
 discovery, ranking, application packs, alerts, review, analytics, and archival

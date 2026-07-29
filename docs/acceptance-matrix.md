@@ -326,6 +326,12 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   a matching full detail write publishes `status=complete`; partial/orphan rows
   cannot supersede the previous complete report. Empty input is explicitly
   successful.
+- **Bounded history:** `config/report-retention.json` serializes Analytics
+  store writers with a 35-minute claim, starts cleanup at 120 report rows,
+  retains 90 days and at least 30 newest complete reports, and caps a cleanup
+  at 30 identity/count-matched reports. Pure planner and generated-workflow
+  tests require fresh formula-visible reads and one non-retried atomic detail
+  plus metadata delete; malformed or incomplete history fails closed.
 - **Compatibility/privacy/tests:** Existing Dashboard behavior is unchanged.
   Output is formula-neutral, aggregate-only, and read-only against job state.
   `analytics.test.mjs`, workflow/Sheet/docs tests, and fixed fixtures cover all
@@ -359,9 +365,15 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   skips writes only when already latest; returning to older evidence
   republishes it. Failed attempts retain execution-scoped sanitized history and
   never replace the latest complete internal view.
+- **Bounded history:** A 20-minute store claim serializes the 15-minute
+  Recommender. Cleanup begins at 80 metadata rows, retains 365 days and at
+  least 12 newest complete reports, and removes at most 12 proven
+  identity/count-matched complete or failed runs in one non-retried atomic
+  detail plus metadata batch.
 - **No-mutation boundary:** The generated weekly workflow reads
   `Analytics`/`AnalyticsReports` plus its own report history and writes only
-  recommendation tabs. It has no notification or job/config mutation path;
+  its coordination claim and recommendation tabs. It has no notification or
+  job/config mutation path;
   existing 4-hour/22-query and all other schedules/flows remain unchanged.
 - **Coverage/operations:** `recommendations.test.mjs` covers strong/weak
   query/role, over/underconfidence, all requested comparisons, missing skill,

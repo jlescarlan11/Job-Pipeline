@@ -6,8 +6,8 @@ The disabled-by-default `workflows/recommender.json` runs every 168 hours,
 starting Mondays at 02:45 in `Asia/Manila`. The daily Analytics workflow starts
 at 02:00, so the weekly consumer begins after Analytics' 30-minute outer
 timeout and a required 15-minute completion buffer. It reads only
-`AnalyticsReports` and `Analytics`, selects the newest valid `status=complete`
-analytics report, and filters detail to that report ID.
+`AnalyticsReports` and `Analytics` as evidence, selects the newest valid
+`status=complete` analytics report, and filters detail to that report ID.
 `config/recommendation-policy.json` pins the required all-time window, metric
 definition, band definition, thresholds, output contracts, and policy version.
 An incomplete, incompatible, or orphaned analytics refresh is never eligible.
@@ -17,8 +17,13 @@ If the source contains analytics metadata but no valid complete report, the
 weekly run is recorded as failed rather than as a successful abstention or
 empty result. A genuinely empty source produces a complete `empty` report.
 
-The process is deterministic and advisory. It does not write `Sheet1`,
-`Archive`, `Dashboard`, `ProcessingClaims`, any repository configuration,
+Each execution first appends a `recommendation_report_store` claim. Only the
+lowest unexpired claim enters the report path; its 20-minute lease exceeds the
+15-minute workflow timeout, so scheduled/manual overlap cannot interleave
+detail publication or cleanup.
+
+The process is deterministic and advisory. Apart from its coordination lease,
+it does not write `Sheet1`, `Archive`, `Dashboard`, any repository configuration,
 ranking weights, candidate facts, application decisions, outcomes, or Apply
 Points. Search/ranking/profile changes require a separate operator decision and
 repository change. Future automatic calibration requires a separately approved
@@ -133,6 +138,14 @@ fails or the observed write count differs, the report is published as failed
 when the report store remains available. Partial detail is non-authoritative.
 The final report write does not continue on error: an unavailable report store
 leaves the n8n execution failed and the previous complete row intact.
+
+Normal recommendation history is retained for 365 days. Cleanup is dormant
+below 80 report rows, preserves at least the newest 12 complete reports, and
+removes at most 12 expired complete/failed runs per batch. A fresh
+formula-visible reread must prove unique run/detail identities, row addresses,
+and the exact stored detail count before one atomic, non-retried Sheets batch
+deletes detail and metadata. Any ambiguity fails closed; the latest complete
+report remains outside the eligible set.
 
 Output text is length-bounded, control-character stripped, formula-neutralized,
 and credential-like values are redacted. Reports contain aggregated segments,

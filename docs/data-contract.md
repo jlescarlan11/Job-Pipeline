@@ -118,8 +118,8 @@ current view; legacy outcome values do not fabricate historical events.
 
 ## Analytics reports
 
-`Analytics` and `AnalyticsReports` are derived append-safe reporting state, not
-part of the canonical job record. `analytics_row_id` is the idempotent detail
+`Analytics` and `AnalyticsReports` are derived, retention-bounded reporting
+state, not part of the canonical job record. `analytics_row_id` is the idempotent detail
 key; a SHA-256 content-addressed `report_id` joins detail to its metadata.
 Equivalent aggregate results converge on the same identifiers even across
 different run timestamps. A report is authoritative only when
@@ -142,8 +142,8 @@ fallback; this does not copy or relabel the legacy value.
 
 ## Weekly recommendation reports
 
-`Recommendations` and `RecommendationReports` are derived advisory state. They
-consume only the newest compatible, complete analytics report. A
+`Recommendations` and `RecommendationReports` are derived, retention-bounded
+advisory state. They consume only the newest compatible, complete analytics report. A
 `recommendation_id` is the idempotent detail key; `run_id` joins detail to one
 attempt; and `analysis_key` groups superseding attempts that use the same
 analytics report, recommendation policy, and candidate-profile version.
