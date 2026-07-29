@@ -78,6 +78,7 @@ export function validateSearchPlan(plan, profile) {
   }
   for (const field of [
     "schedule_hours",
+    "execution_timeout_seconds",
     "lookback_days",
     "page_size",
     "max_pages_per_query",
@@ -88,6 +89,20 @@ export function validateSearchPlan(plan, profile) {
     if (!Number.isInteger(plan?.[field]) || plan[field] < 1) {
       errors.push(`${field} must be a positive integer`);
     }
+  }
+  if (
+    Number.isInteger(plan?.execution_timeout_seconds) &&
+    Number.isInteger(plan?.schedule_hours) &&
+    plan.execution_timeout_seconds >= plan.schedule_hours * 60 * 60
+  ) {
+    errors.push("execution timeout must be shorter than the discovery schedule");
+  }
+  if (
+    Number.isInteger(plan?.request_timeout_ms) &&
+    Number.isInteger(plan?.execution_timeout_seconds) &&
+    plan.request_timeout_ms >= plan.execution_timeout_seconds * 1000
+  ) {
+    errors.push("request timeout must be shorter than the execution timeout");
   }
   if (!Array.isArray(plan?.queries) || plan.queries.length === 0) {
     errors.push("at least one search query is required");

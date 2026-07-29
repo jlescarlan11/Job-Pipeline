@@ -89,6 +89,38 @@ function appliedJobsConfiguration(reviewConfig) {
   return reviewConfig?.applied_jobs || {};
 }
 
+export function validateReviewRuntimeConfig(reviewConfig) {
+  const errors = [];
+  for (const field of [
+    "schedule_minutes",
+    "execution_timeout_seconds",
+    "projection_claim_lease_ms"
+  ]) {
+    if (!Number.isInteger(reviewConfig?.[field]) || reviewConfig[field] < 1) {
+      errors.push(`${field} must be a positive integer`);
+    }
+  }
+  if (
+    Number.isInteger(reviewConfig?.execution_timeout_seconds) &&
+    Number.isInteger(reviewConfig?.schedule_minutes) &&
+    reviewConfig.execution_timeout_seconds >=
+      reviewConfig.schedule_minutes * 60
+  ) {
+    errors.push("review execution timeout must be shorter than its schedule");
+  }
+  if (
+    Number.isInteger(reviewConfig?.execution_timeout_seconds) &&
+    Number.isInteger(reviewConfig?.projection_claim_lease_ms) &&
+    reviewConfig.execution_timeout_seconds * 1000 >=
+      reviewConfig.projection_claim_lease_ms
+  ) {
+    errors.push(
+      "projection claim lease must outlast the review execution timeout"
+    );
+  }
+  return errors;
+}
+
 function validCanonicalIdentity(value) {
   const identity = String(value || "").trim();
   return (

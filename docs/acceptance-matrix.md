@@ -128,6 +128,12 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC14 — Production observations:** Runbook defines coverage, dedup, evaluation, generation, retry, stuck-claim, review, and archive counts without success targets.
 - **I6-AC15 — Drift failure:** Generated workflow/Sheet `--check` commands plus export/config tests fail `npm run validate` on critical drift.
 - **I6-AC16 — No bypass/submission/service:** Export scan, policy, architecture, and runbook retain OnlineJobs.ph read-only/manual submission and add no service.
+- **I6-AC17 — Explicit runtime bounds:** Automated policy/runtime validation
+  and generated-export tests require all seven workflows to use
+  `Asia/Manila`, positive configuration-owned execution timeouts shorter than
+  their schedules, and timeout/lease ordering wherever a workflow owns a
+  claim. The runbook retains shorter node-level provider/HTTP timeouts and
+  verifies idempotent recovery rather than assuming immediate mid-node abort.
 
 ## Issue #8 — Extended learning contract
 

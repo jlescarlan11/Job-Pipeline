@@ -2,6 +2,7 @@
   "schema_version": 1,
   "policy_version": "2026-07-28/v1",
   "schedule_hours": 168,
+  "execution_timeout_seconds": 900,
   "required_window_type": "all_time",
   "required_metric_definition_version": "2026-07-28/v1",
   "required_band_version": "2026-07-28/v1",

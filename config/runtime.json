@@ -1,7 +1,9 @@
 {
   "schema_version": 1,
+  "timezone": "Asia/Manila",
   "generator": {
     "schedule_minutes": 15,
+    "execution_timeout_seconds": 540,
     "per_run_cap": 5,
     "claim_lease_ms": 600000,
     "request_retry_backoff_ms": 5000,
@@ -13,6 +15,7 @@
   },
   "archiver": {
     "schedule_minutes": 45,
+    "execution_timeout_seconds": 540,
     "claim_lease_ms": 600000,
     "eligible_statuses": [
       "applied",

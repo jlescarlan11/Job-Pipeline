@@ -319,6 +319,26 @@ test("duplicate query configuration and invalid dates fail deterministically", (
     ).join("\n"),
     /pagination_mode/
   );
+  assert.match(
+    validateSearchPlan(
+      {
+        ...plan,
+        execution_timeout_seconds: plan.schedule_hours * 60 * 60
+      },
+      profile
+    ).join("\n"),
+    /execution timeout must be shorter than the discovery schedule/
+  );
+  assert.match(
+    validateSearchPlan(
+      {
+        ...plan,
+        request_timeout_ms: plan.execution_timeout_seconds * 1000
+      },
+      profile
+    ).join("\n"),
+    /request timeout must be shorter than the execution timeout/
+  );
 
   const invalidDateHtml = `
     <a href="/jobseekers/job/invalid-date-9001">

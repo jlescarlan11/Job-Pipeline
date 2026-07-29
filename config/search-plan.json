@@ -4,6 +4,7 @@
   "candidate_profile_version": "2026-07-29",
   "source": "onlinejobs.ph",
   "schedule_hours": 4,
+  "execution_timeout_seconds": 900,
   "lookback_days": 7,
   "page_size": 30,
   "max_pages_per_query": 3,

@@ -142,7 +142,14 @@ run must clear zero additional inputs.
 5. Confirm no HTTP node targets an application-submit URL.
 6. Confirm the configured schedules are 4 hours, 15 minutes, 3 minutes,
    5 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5.
-7. Keep the old workflows enabled only in production. They must not write to the non-production copy.
+7. Confirm every export uses `Asia/Manila` and the checked-in workflow timeout:
+   Scraper 900-second, Generator 540-second, Alerter 90-second, Reviewer
+   180-second, Archiver 540-second, Analytics 1800-second, and Recommender
+   900-second. Treat these as outer budgets: preserve the shorter HTTP/provider
+   node-level timeout values, and verify timeout recovery from claims, guarded
+   commits, idempotent writes, or incomplete report metadata rather than
+   assuming an in-flight node is interrupted immediately.
+8. Keep the old workflows enabled only in production. They must not write to the non-production copy.
 
 Credential IDs and cached Sheet references in the exports are environment hints inherited from the existing workflows, not portable authorization.
 

@@ -53,6 +53,26 @@ test("README and architecture document the checked-in schedules, bounds, and man
   assert.match(architecture, /no branch changes search configuration/i);
 });
 
+test("runtime documentation matches every workflow timeout and Manila timezone", () => {
+  const timeoutSeconds = [
+    searchPlan.execution_timeout_seconds,
+    runtime.generator.execution_timeout_seconds,
+    alertPolicy.execution_timeout_seconds,
+    review.execution_timeout_seconds,
+    runtime.archiver.execution_timeout_seconds,
+    analytics.execution_timeout_seconds,
+    recommendations.execution_timeout_seconds
+  ];
+  for (const document of [readme, architecture, operations]) {
+    assert.match(document, new RegExp(runtime.timezone, "i"));
+    for (const seconds of timeoutSeconds) {
+      assert.match(document, new RegExp(`${seconds}[- ]second`, "i"));
+    }
+  }
+  assert.match(architecture, /outer execution budget/i);
+  assert.match(operations, /node-level timeout/i);
+});
+
 test("Sheet schema documentation covers every persisted field, status, and manual action", () => {
   for (const field of schema.fields) {
     assert.match(sheetSchema, new RegExp(`\\\`${field}\\\``), `missing field documentation: ${field}`);

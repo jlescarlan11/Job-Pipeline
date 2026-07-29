@@ -53,6 +53,18 @@ Configured schedules are scraper every 4 hours, generator every 15 minutes,
 alerter every 3 minutes, reviewer every 5 minutes, archiver every 45 minutes,
 analytics every 24 hours, and recommender every 168 hours.
 
+All seven exports run in the explicit `Asia/Manila` workflow timezone. Their
+outer execution budgets are Scraper 900-second, Generator 540-second, Alerter
+90-second, Reviewer 180-second, Archiver 540-second, Analytics 1800-second,
+and Recommender 900-second. Each budget is shorter than its schedule; the
+Generator, Reviewer, Alerter, and Archiver budgets are also shorter than the
+claims whose ownership they depend on. The n8n workflow timeout is an outer
+execution budget, not a promise that every node can be interrupted mid-call:
+HTTP/provider nodes retain shorter node-level timeouts, and an
+already-running non-abortable node may finish before n8n records the timed-out
+execution. Recovery therefore continues to rely on append-only claim expiry,
+commit guards, idempotent upserts, and complete-report markers.
+
 ## Shared contracts
 
 `config/candidate-profile.json` is the only factual resume source. `config/application-policy.json` is separate so writing preferences cannot become candidate facts. Every evaluation and generated message records the profile version used.

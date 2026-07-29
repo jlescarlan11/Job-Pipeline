@@ -852,14 +852,16 @@
   "active": false,
   "settings": {
     "executionOrder": "v1",
-    "executionTimeout": 90
+    "executionTimeout": 90,
+    "timezone": "Asia/Manila"
   },
   "versionId": "a11e7e00-0000-4000-8000-000000000014",
   "meta": {
     "pipelineSchemaVersion": "2026-07-29-generation-recovery",
     "alertPolicyVersion": "2026-07-30/v2",
     "alertChannel": "slack",
-    "alertPerRunCap": 5
+    "alertPerRunCap": 5,
+    "executionTimeoutSeconds": 90
   },
   "tags": []
 }

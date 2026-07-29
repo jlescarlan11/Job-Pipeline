@@ -53,6 +53,19 @@ export function validateRecommendationPolicy(policy) {
   if (!Number.isInteger(policy.schedule_hours) || policy.schedule_hours < 24) {
     errors.push("schedule_hours must be at least 24");
   }
+  if (
+    !Number.isInteger(policy.execution_timeout_seconds) ||
+    policy.execution_timeout_seconds < 1
+  ) {
+    errors.push("execution_timeout_seconds must be a positive integer");
+  } else if (
+    Number.isInteger(policy.schedule_hours) &&
+    policy.execution_timeout_seconds >= policy.schedule_hours * 60 * 60
+  ) {
+    errors.push(
+      "execution timeout must be shorter than the recommendation schedule"
+    );
+  }
   if (policy.required_window_type !== "all_time") {
     errors.push("required_window_type must be all_time");
   }

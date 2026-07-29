@@ -136,6 +136,20 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   const analytics = workflows.analytics;
   const recommender = workflows.recommender;
 
+  for (const [name, workflow] of Object.entries(workflows)) {
+    assert.equal(workflow.settings.timezone, runtime.timezone, name);
+    assert.ok(
+      Number.isInteger(workflow.settings.executionTimeout) &&
+        workflow.settings.executionTimeout > 0,
+      `${name} must have a positive execution timeout`
+    );
+    assert.equal(
+      workflow.meta.executionTimeoutSeconds,
+      workflow.settings.executionTimeout,
+      `${name} timeout metadata must match settings`
+    );
+  }
+
   assert.equal(
     nodeByName(scraper, "Schedule Trigger").parameters.rule.interval[0].hoursInterval,
     searchPlan.schedule_hours
@@ -171,12 +185,28 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     }
   }
   assert.equal(scraper.meta.searchPlanVersion, searchPlan.plan_version);
+  assert.equal(
+    scraper.settings.executionTimeout,
+    searchPlan.execution_timeout_seconds
+  );
+  assert.ok(
+    searchPlan.execution_timeout_seconds <
+      searchPlan.schedule_hours * 60 * 60
+  );
 
   assert.equal(
     nodeByName(generator, "Schedule Trigger").parameters.rule.interval[0].minutesInterval,
     runtime.generator.schedule_minutes
   );
   assert.equal(generator.meta.generatorPerRunCap, runtime.generator.per_run_cap);
+  assert.equal(
+    generator.settings.executionTimeout,
+    runtime.generator.execution_timeout_seconds
+  );
+  assert.ok(
+    runtime.generator.execution_timeout_seconds * 1000 <
+      runtime.generator.claim_lease_ms
+  );
   assert.equal(generator.meta.candidateProfileVersion, profile.profile_version);
   assert.equal(generator.meta.applicationPolicyVersion, policy.policy_version);
   assert.equal(generator.meta.rankingPolicyVersion, rankingPolicy.policy_version);
@@ -214,8 +244,24 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     runtime.archiver.schedule_minutes
   );
   assert.equal(
+    archiver.settings.executionTimeout,
+    runtime.archiver.execution_timeout_seconds
+  );
+  assert.ok(
+    runtime.archiver.execution_timeout_seconds * 1000 <
+      runtime.archiver.claim_lease_ms
+  );
+  assert.equal(
     nodeByName(reviewer, "Schedule Trigger").parameters.rule.interval[0].minutesInterval,
     review.schedule_minutes
+  );
+  assert.equal(
+    reviewer.settings.executionTimeout,
+    review.execution_timeout_seconds
+  );
+  assert.ok(
+    review.execution_timeout_seconds * 1000 <
+      review.projection_claim_lease_ms
   );
   assert.equal(
     nodeByName(alerter, "Schedule Trigger").parameters.rule.interval[0]
@@ -258,6 +304,10 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     analyticsPolicy.band_version
   );
   assert.equal(
+    analytics.settings.executionTimeout,
+    analyticsPolicy.execution_timeout_seconds
+  );
+  assert.equal(
     nodeByName(recommender, "Schedule Trigger").parameters.rule.interval[0]
       .hoursInterval,
     recommendationPolicy.schedule_hours
@@ -269,6 +319,10 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   assert.equal(
     recommender.meta.requiredMetricDefinitionVersion,
     recommendationPolicy.required_metric_definition_version
+  );
+  assert.equal(
+    recommender.settings.executionTimeout,
+    recommendationPolicy.execution_timeout_seconds
   );
   assert.equal(recommender.meta.recommendationMode, "read_only_advisory");
   for (const workflow of Object.values(workflows)) {
@@ -1099,14 +1153,20 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     ),
     false
   );
-  assert.equal(workflow.settings.executionTimeout, 180);
+  assert.equal(
+    workflow.settings.executionTimeout,
+    review.execution_timeout_seconds
+  );
   const projectionClaim = nodeByName(
     workflow,
     "Prepare Applied Jobs Projection Claim"
   ).parameters.jsCode;
   assert.match(projectionClaim, /applied_jobs_projection/);
   assert.match(projectionClaim, /createProcessingClaim/);
-  assert.match(projectionClaim, /240000/);
+  assert.match(
+    projectionClaim,
+    new RegExp(String(review.projection_claim_lease_ms))
+  );
   const claimWinner = nodeByName(
     workflow,
     "Keep Winning Applied Jobs Projection Claim"

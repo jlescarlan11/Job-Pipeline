@@ -37,10 +37,15 @@ test("analytics policy versions all bands, attribution, timezone, and output con
   invalid.score_bands[1].maximum = 10;
   invalid.analysis_timezone = "Invalid/Timezone";
   invalid.attribution.non_additive_dimensions = [];
+  invalid.execution_timeout_seconds = invalid.schedule_hours * 60 * 60;
   const errors = validateAnalyticsPolicy(invalid).join("\n");
   assert.match(errors, /score_bands must be ordered/);
   assert.match(errors, /supported IANA timezone/);
   assert.match(errors, /non-additive dimensions are incomplete/);
+  assert.match(
+    errors,
+    /execution timeout must be shorter than the analytics schedule/
+  );
 });
 
 test("overall conversion deduplicates active/archive overlap and uses cumulative outcomes", () => {

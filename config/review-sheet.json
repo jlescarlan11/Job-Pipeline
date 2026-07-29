@@ -2,6 +2,8 @@
   "schema_version": 1,
   "view_version": "2026-07-29",
   "schedule_minutes": 5,
+  "execution_timeout_seconds": 180,
+  "projection_claim_lease_ms": 240000,
   "active_sheet": "Sheet1",
   "archive_sheet": "Archive",
   "claims_sheet": "ProcessingClaims",

@@ -3,6 +3,7 @@
   "metric_definition_version": "2026-07-28/v1",
   "band_version": "2026-07-28/v1",
   "schedule_hours": 24,
+  "execution_timeout_seconds": 1800,
   "analysis_timezone": "Asia/Manila",
   "analysis_window": {
     "type": "all_time"

@@ -4,15 +4,24 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   validateAppliedJobsConfig,
-  validateReviewQueueConfig
+  validateReviewQueueConfig,
+  validateReviewRuntimeConfig
 } from "../src/review.mjs";
 import { validateClaimRetentionPolicy } from "../src/claim-retention.mjs";
+import { validateRuntimeConfig } from "../src/runtime.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const checkOnly = process.argv.includes("--check");
 
 const readJson = async (path) => JSON.parse(await readFile(resolve(root, path), "utf8"));
 const readText = async (path) => readFile(resolve(root, path), "utf8");
+
+function assertValidRuntime(runtime) {
+  const errors = validateRuntimeConfig(runtime);
+  if (errors.length > 0) {
+    throw new Error(`Invalid runtime configuration:\n- ${errors.join("\n- ")}`);
+  }
+}
 
 function stripModuleSyntax(source) {
   return source
@@ -339,6 +348,8 @@ async function buildScraper() {
   const schema = await readJson("config/pipeline-schema.json");
   const profile = await readJson("config/candidate-profile.json");
   const plan = await readJson("config/search-plan.json");
+  const runtime = await readJson("config/runtime.json");
+  assertValidRuntime(runtime);
   const discoveryCore = await bundledCore("src/contracts.mjs", "src/discovery.mjs");
   const { validateSearchPlan, buildSearchRequests } = await import(
     new URL("../src/discovery.mjs", import.meta.url)
@@ -750,13 +761,16 @@ return winners.map((record) => ({ json: record }));`
       active: false,
       settings: {
         ...current.settings,
-        executionOrder: "v1"
+        executionOrder: "v1",
+        executionTimeout: plan.execution_timeout_seconds,
+        timezone: runtime.timezone
       },
       meta: {
         ...current.meta,
         candidateProfileVersion: profile.profile_version,
         searchPlanVersion: plan.plan_version,
-        pipelineSchemaVersion: schema.storage_version
+        pipelineSchemaVersion: schema.storage_version,
+        executionTimeoutSeconds: plan.execution_timeout_seconds
       }
     }
   };
@@ -773,6 +787,7 @@ async function buildGenerator() {
   const groqPolicy = await readJson("config/groq-provider-policy.json");
   const schema = await readJson("config/pipeline-schema.json");
   const runtime = await readJson("config/runtime.json");
+  assertValidRuntime(runtime);
   const evaluationCore = await bundledCore(
     "src/contracts.mjs",
     "src/profile.mjs",
@@ -822,16 +837,6 @@ async function buildGenerator() {
     groqPolicy,
     applicationSystemMessage
   );
-  if (
-    runtime.schema_version !== 1 ||
-    !Number.isInteger(runtime.generator?.schedule_minutes) ||
-    !Number.isInteger(runtime.generator?.per_run_cap) ||
-    !Number.isInteger(runtime.generator?.claim_lease_ms) ||
-    !Number.isInteger(runtime.generator?.request_retry_backoff_ms)
-  ) {
-    throw new Error("Invalid generator runtime configuration");
-  }
-
   const schedule = nodeByName(current, "Schedule Trigger");
   schedule.position = [-1540, 180];
   schedule.parameters = {
@@ -1775,7 +1780,9 @@ return {
       active: false,
       settings: {
         ...current.settings,
-        executionOrder: "v1"
+        executionOrder: "v1",
+        executionTimeout: runtime.generator.execution_timeout_seconds,
+        timezone: runtime.timezone
       },
       meta: {
         ...current.meta,
@@ -1789,7 +1796,9 @@ return {
         groqModel: groqModel.id,
         groqProductionActivation: groqModel.production_activation,
         pipelineSchemaVersion: schema.storage_version,
-        generatorPerRunCap: runtime.generator.per_run_cap
+        generatorPerRunCap: runtime.generator.per_run_cap,
+        executionTimeoutSeconds:
+          runtime.generator.execution_timeout_seconds
       }
     }
   };
@@ -1800,14 +1809,8 @@ async function buildArchiver() {
   const current = await readJson(path);
   const schema = await readJson("config/pipeline-schema.json");
   const runtime = await readJson("config/runtime.json");
+  assertValidRuntime(runtime);
   const archiveCore = await bundledCore("src/contracts.mjs", "src/archive.mjs");
-  if (
-    !Number.isInteger(runtime.archiver?.schedule_minutes) ||
-    !Number.isInteger(runtime.archiver?.claim_lease_ms) ||
-    !Array.isArray(runtime.archiver?.eligible_statuses)
-  ) {
-    throw new Error("Invalid archiver runtime configuration");
-  }
 
   const schedule = nodeByName(current, "Schedule Trigger");
   schedule.position = [-1320, 220];
@@ -2084,12 +2087,16 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
       active: false,
       settings: {
         ...current.settings,
-        executionOrder: "v1"
+        executionOrder: "v1",
+        executionTimeout: runtime.archiver.execution_timeout_seconds,
+        timezone: runtime.timezone
       },
       meta: {
         ...current.meta,
         pipelineSchemaVersion: schema.storage_version,
-        archiveScheduleMinutes: runtime.archiver.schedule_minutes
+        archiveScheduleMinutes: runtime.archiver.schedule_minutes,
+        executionTimeoutSeconds:
+          runtime.archiver.execution_timeout_seconds
       }
     }
   };
@@ -2101,6 +2108,8 @@ async function buildReviewer() {
   const archiver = await readJson("workflows/archiver.json");
   const schema = await readJson("config/pipeline-schema.json");
   const reviewConfig = await readJson("config/review-sheet.json");
+  const runtime = await readJson("config/runtime.json");
+  assertValidRuntime(runtime);
   const claimRetentionPolicy = await readJson(
     "config/claim-retention.json"
   );
@@ -2110,6 +2119,12 @@ async function buildReviewer() {
   if (claimRetentionErrors.length > 0) {
     throw new Error(
       `Invalid claim retention policy:\n- ${claimRetentionErrors.join("\n- ")}`
+    );
+  }
+  const reviewRuntimeErrors = validateReviewRuntimeConfig(reviewConfig);
+  if (reviewRuntimeErrors.length > 0) {
+    throw new Error(
+      `Invalid review runtime configuration:\n- ${reviewRuntimeErrors.join("\n- ")}`
     );
   }
   const reviewQueueErrors = validateReviewQueueConfig(reviewConfig, schema);
@@ -2487,7 +2502,7 @@ const claim = createProcessingClaim(
   record,
   String($execution.id),
   now,
-  240000
+  ${reviewConfig.projection_claim_lease_ms}
 );
 return [{ json: { ...record, ...claim } }];`;
 
@@ -3630,7 +3645,8 @@ return [{ json: {
       settings: {
         executionOrder: "v1",
         binaryMode: "separate",
-        executionTimeout: 180
+        executionTimeout: reviewConfig.execution_timeout_seconds,
+        timezone: runtime.timezone
       },
       versionId: "88af9ce3-b45f-4aa8-a980-000000000012",
       meta: {
@@ -3638,6 +3654,7 @@ return [{ json: {
         reviewViewVersion: reviewConfig.view_version,
         reviewQueueVersion: reviewConfig.review_queue.version,
         appliedJobsVersion: reviewConfig.applied_jobs.version,
+        executionTimeoutSeconds: reviewConfig.execution_timeout_seconds,
         claimRetentionPolicyVersion: claimRetentionPolicy.policy_version
       },
       tags: []
@@ -3649,6 +3666,8 @@ async function buildAlerter() {
   const path = "workflows/alerter.json";
   const template = await readJson("workflows/generator.json");
   const schema = await readJson("config/pipeline-schema.json");
+  const runtime = await readJson("config/runtime.json");
+  assertValidRuntime(runtime);
   const policy = await readJson("config/alert-policy.json");
   const profile = await readJson("config/candidate-profile.json");
   const applicationPolicy = await readJson(
@@ -4059,14 +4078,16 @@ return {
       active: false,
       settings: {
         executionOrder: "v1",
-        executionTimeout: policy.execution_timeout_seconds
+        executionTimeout: policy.execution_timeout_seconds,
+        timezone: runtime.timezone
       },
       versionId: "a11e7e00-0000-4000-8000-000000000014",
       meta: {
         pipelineSchemaVersion: schema.storage_version,
         alertPolicyVersion: policy.policy_version,
         alertChannel: policy.channel,
-        alertPerRunCap: policy.per_run_cap
+        alertPerRunCap: policy.per_run_cap,
+        executionTimeoutSeconds: policy.execution_timeout_seconds
       },
       tags: []
     }
@@ -4078,6 +4099,8 @@ async function buildAnalytics() {
   const generator = await readJson("workflows/generator.json");
   const archiver = await readJson("workflows/archiver.json");
   const schema = await readJson("config/pipeline-schema.json");
+  const runtime = await readJson("config/runtime.json");
+  assertValidRuntime(runtime);
   const policy = await readJson("config/analytics-policy.json");
   const analyticsCore = await bundledCore(
     "src/contracts.mjs",
@@ -4309,14 +4332,17 @@ return [{ json: completion }];`;
       connections,
       active: false,
       settings: {
-        executionOrder: "v1"
+        executionOrder: "v1",
+        executionTimeout: policy.execution_timeout_seconds,
+        timezone: runtime.timezone
       },
       versionId: "a13a17c5-0000-4000-8000-000000000011",
       meta: {
         pipelineSchemaVersion: schema.storage_version,
         metricDefinitionVersion: policy.metric_definition_version,
         analyticsBandVersion: policy.band_version,
-        analyticsScheduleHours: policy.schedule_hours
+        analyticsScheduleHours: policy.schedule_hours,
+        executionTimeoutSeconds: policy.execution_timeout_seconds
       },
       tags: []
     }
@@ -4327,6 +4353,8 @@ async function buildRecommender() {
   const path = "workflows/recommender.json";
   const analyticsWorkflow = await readJson("workflows/analytics.json");
   const schema = await readJson("config/pipeline-schema.json");
+  const runtime = await readJson("config/runtime.json");
+  assertValidRuntime(runtime);
   const policy = await readJson("config/recommendation-policy.json");
   const profile = await readJson("config/candidate-profile.json");
   const recommendationCore = await bundledCore(
@@ -4618,7 +4646,9 @@ return [{ json: report }];`;
       connections,
       active: false,
       settings: {
-        executionOrder: "v1"
+        executionOrder: "v1",
+        executionTimeout: policy.execution_timeout_seconds,
+        timezone: runtime.timezone
       },
       versionId: "b14b18d6-0000-4000-8000-000000000012",
       meta: {
@@ -4628,6 +4658,7 @@ return [{ json: report }];`;
           policy.required_metric_definition_version,
         requiredAnalyticsBandVersion: policy.required_band_version,
         recommendationScheduleHours: policy.schedule_hours,
+        executionTimeoutSeconds: policy.execution_timeout_seconds,
         recommendationMode: "read_only_advisory"
       },
       tags: []

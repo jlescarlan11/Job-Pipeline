@@ -16,6 +16,13 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, skip an already-current equivalent successful result, otherwise publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
 | `workflows/archiver.json` | Every 45 minutes | Upsert eligible terminal records into Archive, reread both tabs, verify the source snapshot and archive copy, then delete confirmed rows from bottom to top. |
 
+Every export uses the `Asia/Manila` workflow timezone and an explicit outer
+execution budget: Scraper 900-second, Generator 540-second, Alerter 90-second,
+Reviewer 180-second, Archiver 540-second, Analytics 1800-second, and
+Recommender 900-second. These workflow budgets complement the shorter
+provider and HTTP node timeouts; they do not authorize automatic application
+submission or unsafe retry.
+
 The workflows share ten Google Sheet tabs:
 
 - `Sheet1`: active discovery, evaluation, generation, and review records.
@@ -42,7 +49,7 @@ The workflows share ten Google Sheet tabs:
 - `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
 - `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
-- `config/runtime.json`: generator and archiver schedules, caps, leases, and retries.
+- `config/runtime.json`: workflow timezone plus generator and archiver schedules, timeouts, caps, leases, and retries.
 - `config/review-sheet.json`: source review controls, Review Queue and Applied Jobs contracts, actions, views, and dashboard fields.
 
 Do not edit embedded workflow Code or the AI Agent system message directly. Change the relevant source/configuration and regenerate the exports.

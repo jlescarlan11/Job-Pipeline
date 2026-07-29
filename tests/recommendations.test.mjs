@@ -137,10 +137,15 @@ test("recommendation policy is versioned, weekly, guarded, and read-only by cont
 
   const invalid = structuredClone(recommendationPolicy);
   invalid.schedule_hours = 1;
+  invalid.execution_timeout_seconds = invalid.schedule_hours * 60 * 60;
   invalid.minimums.dimension_coverage = 2;
   invalid.comparisons.composite_outcomes = ["offer_rate"];
   const errors = validateRecommendationPolicy(invalid).join("\n");
   assert.match(errors, /schedule_hours must be at least 24/);
+  assert.match(
+    errors,
+    /execution timeout must be shorter than the recommendation schedule/
+  );
   assert.match(errors, /dimension_coverage must be between 0 and 1/);
   assert.match(errors, /composite outcomes/);
 });
