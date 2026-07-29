@@ -98,18 +98,27 @@ satisfies the group, while an unsatisfied group becomes one deterministic gap.
 Unmarked lists and unclear wording retain the independent/fail-closed behavior.
 Apply Points values are advisory categories only.
 
-Only `recommended` records or explicit supported promotions reach Groq. Before
-generation, the workflow deterministically builds an instruction-aware pack
+Only `recommended` records or explicit supported promotions enter the
+generation branch. Before any provider call, the workflow deterministically
+builds an instruction-aware pack
 using `config/application-pack-policy.json`: safe structured instructions,
 screening questions, up to three canonical proof references, and sanitized
 warnings. Unsafe prompt-bypass/private-data/automatic-action text is excluded
-from both the structured pack and model prompt.
+from both the structured pack and model prompt. Only a `ready` pack reaches
+Groq. A `review_required` or `blocked` pack releases the claim, persists its
+bounded warnings, and returns to `review_required` without a provider call.
 
 The generated system message is built from the canonical profile plus
-application policy. Post-generation validation rejects empty output, excess
-length, unapproved URLs, obsolete projects, unsupported technologies,
-unsupported numeric claims, phone numbers, banned phrases, and a missing
-required subject value. A successful finalization matches the durable
+application policy and targets at most 260 words below the configured 300-word
+hard limit. Post-generation validation rejects empty output, excess length,
+unapproved URLs, obsolete projects, unsupported technologies, transformed or
+unsupported numeric claims, unapproved schedule/availability/salary/start-date
+commitments, phone numbers, completion/submission claims, internal evaluation
+labels, banned phrases, and a missing required subject value. An invalid first
+draft receives one repair call containing the complete rejected draft and all
+deterministic errors. The repair is revalidated under the same profile, policy,
+pack, processing claim, and commit guard; it is not a separate pipeline
+attempt. A successful finalization matches the durable
 `processing_commit_guard` written at claim acquisition and writes the message,
 complete pack, and cleared active-claim fields together. Provider or validation
 failure starts from the pre-generation record, preserving the previous valid
@@ -125,7 +134,7 @@ evidence, marked `quarantined`, made alert-ineligible, and routed through
 evaluation first when their stored description is missing. Failed or partial
 replacement work remains non-dispatchable.
 
-The workflow runs every 15 minutes. It makes at most 5 generation selections per run. Detail HTTP calls time out after 15 seconds and retry up to 3 times with 5-second in-node waits, which stay below the 10-minute claim lease. Retryable stage failures record stage, category, sanitized summary, attempt count, and exponential next-retry time starting at 5 minutes. The third failed attempt, validation failure, or non-retryable request becomes `terminal_error`.
+The workflow runs every 15 minutes. It makes at most 5 generation selections per run. Detail HTTP calls time out after 15 seconds and retry up to 3 times with 5-second in-node waits, which stay below the 10-minute claim lease. Retryable stage failures record stage, category, sanitized summary, attempt count, and exponential next-retry time starting at 5 minutes. An initial provider failure, an invalid repaired draft, or a repair provider failure increments the execution's attempt once; the third failed attempt or a non-retryable request becomes `terminal_error`.
 
 ## Alert workflow
 
@@ -176,15 +185,22 @@ text are never used as update identity. Only Action is intended for editing in
 this simplified surface.
 
 The queue contains the configured `ready`, `recommended`, and
-`review_required` states in the established priority order. Current
+`review_required` states plus only retryable or terminal failures from the
+generation stage. Current
 `opportunity_score` is displayed as Score, with the existing `match_score`
 fallback for legacy records. Review reasons are bounded and derived from
 persisted warnings, requirement gaps, match evidence, or safe recovery
 context. A `review_required` row with no evidence explicitly says that no
-reason was recorded.
+reason was recorded. Generation recovery reasons distinguish pending/due
+automatic retries from exhausted attempts and sanitize credentials, URLs,
+provider details, and formula-like text. Recovery projections never display a
+rejected draft.
 
-Friendly queue actions map `Generate Application` to `promote`, `I Applied` to
-`mark_applied`, and `Skip` to `mark_skipped`. The Reviewer rereads `Sheet1`,
+Friendly queue actions map `Generate Application` to `promote` for normal
+review states and to the existing `retry` transition for generation failures.
+`Skip` records an explicit decision from either boundary. `I Applied` is
+removed from recovery-row dropdowns and remains authoritatively rejected until
+a current validated message is `ready`. The Reviewer rereads `Sheet1`,
 rejects missing, duplicate, stale, unsupported, or conflicting inputs, and
 reuses the same `applyManualAction` transition and message-safety boundary as
 the detailed review path. A compare-and-commit sequence first matches
@@ -293,7 +309,11 @@ authoritative dependency.
 
 ## Archive workflow
 
-Archival is eligible only for configured `applied`, `skipped`, `not_recommended`, and `terminal_error` records. `retryable_error` remains active.
+Archival is eligible only for configured `applied`, `skipped`,
+`not_recommended`, and `terminal_error` records. `retryable_error` remains
+active. An undecided terminal generation failure also remains active for
+Review Queue retry or skip; terminal failures from other stages retain normal
+archival behavior.
 
 For each winning archive claim:
 

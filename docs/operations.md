@@ -159,10 +159,17 @@ Slack HTTP node must remain an explicit JSON `POST`.
   order. Confirm its two helper columns are hidden, only Action is intended for
   editing, long reasons/messages wrap, and an empty eligible source retains
   headers and controls without a placeholder row.
-- Verify queue membership contains only `ready`, `recommended`, and
-  `review_required` source records, current rows use `opportunity_score`,
-  legacy rows fall back to `match_score`, and every `review_required` row has a
-  bounded explanation.
+- Verify queue membership contains `ready`, `recommended`, and
+  `review_required`, plus only retryable/terminal records with
+  `failed_stage=generation`. Confirm terminal failures from evaluation and
+  other stages stay out of the simplified queue, current rows use
+  `opportunity_score`, legacy rows fall back to `match_score`, and every
+  `review_required` row has a bounded explanation.
+- Create one retryable and one terminal generation failure. Confirm the reason
+  distinguishes pending/due automatic retry from exhausted attempts, preserves
+  a sanitized validation/provider category, displays no rejected message,
+  credential, raw URL, stack trace, or provider payload, and stays within the
+  configured bound.
 - Verify title, company, URL, date, salary, tier, evidence, gaps, status,
   message, and action remain readable in the detailed `Sheet1` review region.
 - Use **Job Pipeline → Sort priority queue** and confirm ready/recommended rows order by score, then posting date.
@@ -179,6 +186,11 @@ Slack HTTP node must remain an explicit JSON `POST`.
   commit, removes applied/skipped rows, and refreshes a promoted row as
   recommended. Confirm the applied row later reaches `Archive` with identity,
   message, decision, timestamps, and application snapshot intact.
+- On both generation-failure states, confirm the Action dropdown offers only
+  `Generate Application` and `Skip`. Confirm Generate Application resets the
+  attempt count and schedules the persisted generation stage, Skip records one
+  idempotent decision and removes the row after reconciliation, and a forged
+  `I Applied` value produces no source mutation.
 - Simulate a stale guard, missing identity, duplicate source identity,
   conflicting duplicate queue actions, and a conflict with a direct `Sheet1`
   action. Confirm no ambiguous source update occurs and the execution log
@@ -202,7 +214,18 @@ Slack HTTP node must remain an explicit JSON `POST`.
 ### Evaluation/generation
 
 - Exercise one direct, adjacent, unscorable, unavailable, and unsupported job.
-- Confirm only recommended or explicitly promoted rows call Groq.
+- Confirm a ready pack makes one initial Groq call and a valid draft becomes
+  `ready`.
+- Confirm `review_required` and `blocked` packs make zero Groq calls, return to
+  human review, and retain bounded pack warnings.
+- Force one first draft containing Expo, React Native, a banned phrase, more
+  than 300 words, and `8:00–11:00 a.m. Pacific Time`. Confirm exactly one repair
+  call receives the complete rejected draft plus every validation error, the
+  schedule error is human-readable, and the time fragments are not the primary
+  numeric errors.
+- Confirm a valid repair is committed once under the original processing claim.
+  Confirm an invalid or failed repair increments `attempt_count` once, never
+  stores the rejected draft, and cannot overwrite a newer manual decision.
 - Confirm the description persists after the first fetch.
 - Confirm a valid message preserves formatting and records profile version.
 - Confirm every quarantined legacy row is evaluated first when its stored
@@ -295,7 +318,10 @@ Slack HTTP node must remain an explicit JSON `POST`.
 ### Archive
 
 - Use disposable applied, skipped, terminal-error, and retryable-error rows.
-- Confirm retryable error remains active.
+- Confirm retryable errors and undecided terminal generation failures remain
+  active. Confirm a terminal evaluation failure retains normal archival
+  behavior, and a skipped generation failure archives once through the
+  existing idempotent path.
 - Interrupt after Archive upsert or simulate source-delete failure; rerun and confirm one archive identity.
 - Change a source row after the plan and confirm deletion is rejected.
 - Confirm final deletions are bottom-up and all supported history exists in Archive.

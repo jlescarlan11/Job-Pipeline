@@ -790,7 +790,7 @@ test("Sheet setup artifact embeds the canonical schema and review controls", () 
   ]);
   assert.equal(embedded.maximumClaimLeaseMs, 600_000);
   assert.deepEqual(embedded.currentMessageVersions, {
-    profile_version: "2026-07-28",
+    profile_version: "2026-07-29",
     message_policy_version: "2026-07-28",
     pack_version: "2026-07-28/v1",
     pack_policy_version: "2026-07-28/v1"
@@ -1089,9 +1089,22 @@ test("Review Queue layout exposes only the friendly contract and protects derive
   assert.match(script, /applyReviewQueueLayout_\(reviewQueue\)/);
   assert.match(
     script,
-    /requireValueInList\(\[''\]\.concat\(Object\.keys\(queue\.actions\)\), true\)/
+    /applyReviewQueueActionValidation_\(sheet\)/
   );
   assert.match(script, /Generate Application, I Applied, or Skip/);
+  assert.match(
+    script,
+    /\['', 'Generate Application', 'Skip'\]/
+  );
+  assert.match(
+    script,
+    /I Applied is unavailable until a validated message is ready/
+  );
+  assert.match(script, /function onSelectionChange\(event\)/);
+  assert.match(script, /queue\.generation_recovery\.statuses/);
+  assert.match(script, /setDataValidations\(validations\)/);
+  assert.match(script, /"retryable_error"/);
+  assert.match(script, /"terminal_error"/);
   assert.match(script, /queue\.visible_columns\.forEach/);
   assert.match(script, /sheet\.showColumns\(column\)/);
   assert.match(script, /queue\.hidden_columns\.forEach/);

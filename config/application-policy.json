@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "policy_version": "2026-07-28",
-  "candidate_profile_version": "2026-07-28",
+  "candidate_profile_version": "2026-07-29",
   "manual_submission_required": true,
   "max_body_words": 300,
   "subject_template": "Subject line: {{job_title}} Application — John Lester Escarlan",

@@ -774,7 +774,7 @@ async function buildGenerator() {
   fetchDetail.onError = "continueRegularOutput";
 
   const agent = nodeByName(current, "AI Agent");
-  agent.position = [660, 440];
+  agent.position = [900, 440];
   agent.parameters = {
     promptType: "define",
     text: "={{ $json.application_prompt }}",
@@ -789,7 +789,16 @@ async function buildGenerator() {
   agent.onError = "continueErrorOutput";
 
   const groq = nodeByName(current, "Groq Chat Model");
-  groq.position = [660, 660];
+  groq.position = [1140, 760];
+
+  const repairAgent = structuredClone(agent);
+  repairAgent.id = "ee12f5d9-c0d5-4586-bf62-000000000020";
+  repairAgent.name = "Repair AI Agent";
+  repairAgent.position = [1620, 560];
+  repairAgent.parameters = {
+    ...repairAgent.parameters,
+    text: "={{ $json.repair_prompt }}"
+  };
 
   const prepareCode = `${evaluationCore}
 
@@ -888,7 +897,7 @@ return {
   }
 };`;
 
-  const validateMessageCode = `${evaluationCore}
+  const validateInitialMessageCode = `${evaluationCore}
 
 const PROFILE = ${JSON.stringify(profile)};
 const POLICY = ${JSON.stringify(policy)};
@@ -901,6 +910,107 @@ const MESSAGE_SAFETY = {
 };
 const originalRecord = $('Keep Winning Claims').item.json;
 const record = $('Prepare Application Pack').item.json;
+const payload = $json || {};
+const now = new Date().toISOString();
+const commitToken = record.processing_token;
+const commitGuard =
+  record.processing_commit_guard || processingCommitGuard(commitToken);
+const errorMessage = payload.error?.message || payload.message || '';
+if (errorMessage && !payload.output) {
+  const failed = recordStageFailure(originalRecord, new Error(errorMessage), {
+    stage: 'generation',
+    now,
+    maxAttempts: ${runtime.generator.retry.max_attempts},
+    backoffMs: ${runtime.generator.retry.backoff_ms}
+  });
+  return {
+    json: {
+      ...failed,
+      processing_commit_guard: commitGuard,
+      commit_token: commitToken,
+      should_repair: false
+    }
+  };
+}
+const message = String(payload.output || '');
+const validation = validateGeneratedMessage(message, {
+  job: record,
+  profile: PROFILE,
+  policy: POLICY,
+  pack: record
+});
+if (!validation.valid) {
+  return {
+    json: {
+      ...record,
+      rejected_message: message,
+      validation_errors: validation.errors,
+      repair_prompt:
+        buildApplicationUserMessage(record, record) +
+        '\\n\\n' +
+        buildApplicationRepairMessage(message, validation.errors),
+      processing_commit_guard: commitGuard,
+      commit_token: commitToken,
+      should_repair: true
+    }
+  };
+}
+let generated;
+try {
+  generated = applyGeneratedApplicationPack(
+    record,
+    record,
+    message,
+    PROFILE,
+    POLICY,
+    PACK_POLICY,
+    now
+  );
+  generated = queueAlertState(
+    generated,
+    ALERT_POLICY,
+    now,
+    MESSAGE_SAFETY
+  );
+} catch (error) {
+  const failed = recordStageFailure(originalRecord, error, {
+    stage: 'generation',
+    now,
+    maxAttempts: ${runtime.generator.retry.max_attempts},
+    backoffMs: ${runtime.generator.retry.backoff_ms},
+    forceRetryable: true
+  });
+  return {
+    json: {
+      ...failed,
+      processing_commit_guard: commitGuard,
+      commit_token: commitToken
+    }
+  };
+}
+return {
+  json: {
+    ...generated,
+    processing_commit_guard: commitGuard,
+    commit_token: commitToken,
+    should_repair: false
+  }
+};`;
+
+  const validateRepairedMessageCode = `${evaluationCore}
+
+const PROFILE = ${JSON.stringify(profile)};
+const POLICY = ${JSON.stringify(policy)};
+const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
+const MESSAGE_SAFETY = {
+  profile: PROFILE,
+  applicationPolicy: POLICY,
+  packPolicy: PACK_POLICY
+};
+const originalRecord = $('Keep Winning Claims').item.json;
+const record = $('Prepare Application Pack').item.json;
+const repairContext = $('Validate Initial Draft').item.json;
 const payload = $json || {};
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
@@ -986,7 +1096,8 @@ return {
   json: {
     ...generated,
     processing_commit_guard: commitGuard,
-    commit_token: commitToken
+    commit_token: commitToken,
+    initial_validation_errors: repairContext.validation_errors
   }
 };`;
 
@@ -998,11 +1109,52 @@ const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const record = $('Keep Winning Claims').item.json;
 const now = new Date().toISOString();
 const pack = buildApplicationPack(record, PROFILE, POLICY, PACK_POLICY, now);
+const packErrors = validateApplicationPack(pack, PROFILE, PACK_POLICY);
 return {
   json: {
     ...record,
     ...pack,
-    application_prompt: buildApplicationUserMessage(record, pack)
+    application_prompt: buildApplicationUserMessage(record, pack),
+    application_pack_ready:
+      pack.application_pack_status === 'ready' &&
+      packErrors.length === 0,
+    application_pack_gate_errors: packErrors
+  }
+};`;
+
+  const nonReadyPackCode = `${evaluationCore}
+
+const PROFILE = ${JSON.stringify(profile)};
+const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const originalRecord = $('Keep Winning Claims').item.json;
+const record = $('Prepare Application Pack').item.json;
+const now = new Date().toISOString();
+const commitToken = record.processing_token;
+const commitGuard =
+  record.processing_commit_guard || processingCommitGuard(commitToken);
+let reviewRecord;
+try {
+  reviewRecord = applyNonReadyApplicationPack(
+    originalRecord,
+    record,
+    PROFILE,
+    PACK_POLICY,
+    now
+  );
+} catch (error) {
+  reviewRecord = recordStageFailure(originalRecord, error, {
+    stage: 'generation',
+    now,
+    maxAttempts: ${runtime.generator.retry.max_attempts},
+    backoffMs: ${runtime.generator.retry.backoff_ms},
+    forceRetryable: false
+  });
+}
+return {
+  json: {
+    ...reviewRecord,
+    processing_commit_guard: commitGuard,
+    commit_token: commitToken
   }
 };`;
 
@@ -1211,20 +1363,98 @@ return {
       mode: "runOnceForEachItem",
       jsCode: promptCode
     }),
+    {
+      parameters: {
+        conditions: {
+          options: {
+            caseSensitive: true,
+            leftValue: "",
+            typeValidation: "strict",
+            version: 3
+          },
+          conditions: [
+            {
+              id: "ee12f5d9-application-pack-ready",
+              leftValue:
+                "={{ $json.application_pack_ready }}",
+              rightValue: true,
+              operator: {
+                type: "boolean",
+                operation: "true",
+                singleValue: true
+              }
+            }
+          ],
+          combinator: "and"
+        },
+        options: {}
+      },
+      type: "n8n-nodes-base.if",
+      typeVersion: 2.3,
+      position: [650, 440],
+      id: "ee12f5d9-c0d5-4586-bf62-000000000017",
+      name: "Is Application Pack Ready"
+    },
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000018",
+      name: "Persist Non-Ready Pack",
+      position: [900, 300],
+      mode: "runOnceForEachItem",
+      jsCode: nonReadyPackCode
+    }),
     agent,
     groq,
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000014",
-      name: "Validate Generated Message",
-      position: [900, 440],
+      name: "Validate Initial Draft",
+      position: [1140, 440],
       mode: "runOnceForEachItem",
-      jsCode: validateMessageCode
+      jsCode: validateInitialMessageCode
+    }),
+    {
+      parameters: {
+        conditions: {
+          options: {
+            caseSensitive: true,
+            leftValue: "",
+            typeValidation: "strict",
+            version: 3
+          },
+          conditions: [
+            {
+              id: "ee12f5d9-needs-repair",
+              leftValue: "={{ $json.should_repair }}",
+              rightValue: true,
+              operator: {
+                type: "boolean",
+                operation: "true",
+                singleValue: true
+              }
+            }
+          ],
+          combinator: "and"
+        },
+        options: {}
+      },
+      type: "n8n-nodes-base.if",
+      typeVersion: 2.3,
+      position: [1380, 440],
+      id: "ee12f5d9-c0d5-4586-bf62-000000000019",
+      name: "Needs Repair"
+    },
+    repairAgent,
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000021",
+      name: "Validate Repaired Message",
+      position: [1860, 560],
+      mode: "runOnceForEachItem",
+      jsCode: validateRepairedMessageCode
     }),
     updateSheetByFieldNode({
       base: activeUpdateBase,
       id: "ee12f5d9-c0d5-4586-bf62-000000000015",
       name: "Commit Generation Result",
-      position: [1140, 440],
+      position: [2100, 440],
       matchingField: "processing_commit_guard",
       fields: commitFields
     })
@@ -1255,17 +1485,54 @@ return {
     "Fetch Job Detail": { main: [[connection("Parse Job Detail")]] },
     "Parse Job Detail": { main: [[connection("Evaluate Job")]] },
     "Evaluate Job": { main: [[connection("Commit Evaluation Result")]] },
-    "Prepare Application Pack": { main: [[connection("AI Agent")]] },
+    "Prepare Application Pack": {
+      main: [[connection("Is Application Pack Ready")]]
+    },
+    "Is Application Pack Ready": {
+      main: [
+        [connection("AI Agent")],
+        [connection("Persist Non-Ready Pack")]
+      ]
+    },
+    "Persist Non-Ready Pack": {
+      main: [[connection("Commit Generation Result")]]
+    },
     "Groq Chat Model": {
-      ai_languageModel: [[{ node: "AI Agent", type: "ai_languageModel", index: 0 }]]
+      ai_languageModel: [
+        [
+          { node: "AI Agent", type: "ai_languageModel", index: 0 },
+          {
+            node: "Repair AI Agent",
+            type: "ai_languageModel",
+            index: 0
+          }
+        ]
+      ]
     },
     "AI Agent": {
       main: [
-        [connection("Validate Generated Message")],
-        [connection("Validate Generated Message")]
+        [connection("Validate Initial Draft")],
+        [connection("Validate Initial Draft")]
       ]
     },
-    "Validate Generated Message": { main: [[connection("Commit Generation Result")]] }
+    "Validate Initial Draft": {
+      main: [[connection("Needs Repair")]]
+    },
+    "Needs Repair": {
+      main: [
+        [connection("Repair AI Agent")],
+        [connection("Commit Generation Result")]
+      ]
+    },
+    "Repair AI Agent": {
+      main: [
+        [connection("Validate Repaired Message")],
+        [connection("Validate Repaired Message")]
+      ]
+    },
+    "Validate Repaired Message": {
+      main: [[connection("Commit Generation Result")]]
+    }
   };
 
   return {
@@ -1405,6 +1672,9 @@ console.log(JSON.stringify({
   new_archive_writes: plan.candidates.filter((entry) => !entry.archive_already_complete).length,
   already_archived: plan.candidates.filter((entry) => entry.archive_already_complete).length,
   retained_for_retry: plan.retained.filter((entry) => entry.reason === 'retryable_error').length,
+  retained_for_generation_review: plan.retained.filter(
+    (entry) => entry.reason === 'terminal_generation_requires_review'
+  ).length,
   retained: plan.retained.length,
   retained_reasons: plan.retained.map((entry) => entry.reason)
 }));

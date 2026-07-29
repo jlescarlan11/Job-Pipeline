@@ -15,6 +15,7 @@ import {
   applyEvaluation,
   applyGeneratedApplicationPack,
   buildApplicationPack,
+  buildApplicationRepairMessage,
   evaluateJob,
   parseJobDetail,
   recordStageFailure,
@@ -277,4 +278,140 @@ test("partial discovery and invalid generation remain visibly incomplete", () =>
   assert.equal(failed.pipeline_status, "terminal_error");
   assert.equal(failed.generated_message, "");
   assert.notEqual(failed.message_validation_status, "valid");
+});
+
+test("one bounded repair can recover an invalid draft without storing it or adding an attempt", () => {
+  const job = parseJobDetail(detailHtml, {
+    canonical_url:
+      "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001",
+    pipeline_status: "generating",
+    processing_stage: "generation",
+    processing_token: "repair-claim",
+    attempt_count: 1
+  });
+  const pack = buildApplicationPack(
+    job,
+    profile,
+    policy,
+    packPolicy,
+    generatedAt
+  );
+  assert.equal(pack.application_pack_status, "ready");
+
+  const rejectedDraft =
+    "I can work 8:00–11:00 a.m. Pacific Time while learning Expo.";
+  const initialValidation = validateGeneratedMessage(rejectedDraft, {
+    job,
+    profile,
+    policy,
+    pack
+  });
+  assert.equal(initialValidation.valid, false);
+  const repairPrompt = buildApplicationRepairMessage(
+    rejectedDraft,
+    initialValidation.errors
+  );
+  assert.ok(repairPrompt.includes(rejectedDraft));
+  for (const error of initialValidation.errors) {
+    assert.ok(repairPrompt.includes(error));
+  }
+
+  assert.deepEqual(
+    validateGeneratedMessage(validMessage, {
+      job,
+      profile,
+      policy,
+      pack
+    }),
+    { valid: true, errors: [] }
+  );
+  const ready = applyGeneratedApplicationPack(
+    job,
+    pack,
+    validMessage,
+    profile,
+    policy,
+    packPolicy,
+    generatedAt
+  );
+  assert.equal(ready.pipeline_status, "ready");
+  assert.equal(ready.attempt_count, 1);
+  assert.equal(ready.generated_message, validMessage);
+  assert.notEqual(ready.generated_message, rejectedDraft);
+});
+
+test("a terminal generation failure stays reviewable until an explicit skip archives it", () => {
+  const failure = {
+    ...parseJobDetail(detailHtml, {
+      canonical_url:
+        "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001"
+    }),
+    row_number: 2,
+    pipeline_status: "terminal_error",
+    failed_stage: "generation",
+    attempt_count: 3,
+    error_category: "processing_failure",
+    error_summary:
+      "message_validation: unsupported availability or schedule commitment",
+    generated_message: "",
+    application_decision: ""
+  };
+  const queue = buildReviewQueueProjection(
+    [failure],
+    schema,
+    review,
+    generatedAt
+  );
+  assert.equal(queue.rows.length, 1);
+  assert.equal(queue.rows[0].Status, "terminal_error");
+  assert.equal(queue.rows[0]["Generated message"], "");
+
+  const queueAction = {
+    ...queue.rows[0],
+    row_number: 2,
+    Action: "Skip"
+  };
+  const reviewPlan = processReviewActions(
+    [failure],
+    [],
+    schema,
+    appliedAt,
+    {
+      profile,
+      applicationPolicy: policy,
+      packPolicy
+    },
+    {
+      queueRows: [queueAction],
+      reviewConfig: review,
+      executionId: "e2e-generation-recovery"
+    }
+  );
+  assert.deepEqual(reviewPlan.invalid_actions, []);
+  assert.equal(reviewPlan.active_updates.length, 1);
+  const skipped = reviewPlan.active_updates[0];
+  assert.equal(skipped.pipeline_status, "skipped");
+  assert.equal(skipped.application_decision, "skipped");
+
+  const reconciled = reconcileReviewQueue(
+    [skipped],
+    [queueAction],
+    [queueAction],
+    schema,
+    review,
+    appliedAt
+  );
+  assert.deepEqual(reconciled.queue_rows, []);
+
+  const archivePlan = prepareArchiveCandidates(
+    [skipped],
+    [],
+    schema,
+    { now: archivedAt }
+  );
+  assert.equal(archivePlan.candidates.length, 1);
+  assert.equal(
+    archivePlan.candidates[0].archive_record.archived_from_status,
+    "skipped"
+  );
 });

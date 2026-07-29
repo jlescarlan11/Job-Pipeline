@@ -28,20 +28,57 @@ const active = (overrides = {}) => ({
   ...overrides
 });
 
-test("retryable failures remain active while configured terminal states are eligible", () => {
+test("retryable and terminal generation failures remain active while other terminal states are eligible", () => {
   const plan = prepareArchiveCandidates(
     [
-      active({ pipeline_status: "retryable_error", application_decision: "" }),
-      active({ row_number: 6, source_job_id: "4002", canonical_job_id: "onlinejobs.ph:4002", canonical_url: "https://onlinejobs.ph/jobseekers/job/example-4002", pipeline_status: "terminal_error", application_decision: "" }),
-      active({ row_number: 7, source_job_id: "4003", canonical_job_id: "onlinejobs.ph:4003", canonical_url: "https://onlinejobs.ph/jobseekers/job/example-4003", pipeline_status: "not_recommended", application_decision: "" })
+      active({
+        pipeline_status: "retryable_error",
+        failed_stage: "generation",
+        application_decision: ""
+      }),
+      active({
+        row_number: 6,
+        source_job_id: "4002",
+        canonical_job_id: "onlinejobs.ph:4002",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/example-4002",
+        pipeline_status: "terminal_error",
+        failed_stage: "generation",
+        application_decision: ""
+      }),
+      active({
+        row_number: 7,
+        source_job_id: "4003",
+        canonical_job_id: "onlinejobs.ph:4003",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/example-4003",
+        pipeline_status: "terminal_error",
+        failed_stage: "evaluation",
+        application_decision: ""
+      }),
+      active({
+        row_number: 8,
+        source_job_id: "4004",
+        canonical_job_id: "onlinejobs.ph:4004",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/example-4004",
+        pipeline_status: "not_recommended",
+        application_decision: ""
+      })
     ],
     [],
     schema,
     { now }
   );
   assert.equal(plan.candidates.length, 2);
-  assert.equal(plan.retained.length, 1);
-  assert.equal(plan.retained[0].reason, "retryable_error");
+  assert.deepEqual(
+    plan.retained.map((entry) => entry.reason),
+    ["retryable_error", "terminal_generation_requires_review"]
+  );
+  assert.deepEqual(
+    plan.candidates.map((entry) => entry.canonical_job_id),
+    ["onlinejobs.ph:4004", "onlinejobs.ph:4003"]
+  );
 });
 
 test("archive candidates preserve generated, evaluation, decision, and outcome data", () => {

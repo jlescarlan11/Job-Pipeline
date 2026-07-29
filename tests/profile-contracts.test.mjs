@@ -26,6 +26,9 @@ const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.
 
 const profile = await loadJson("../config/candidate-profile.json");
 const policy = await loadJson("../config/application-policy.json");
+const packPolicy = await loadJson("../config/application-pack-policy.json");
+const rankingPolicy = await loadJson("../config/ranking-policy.json");
+const searchPlan = await loadJson("../config/search-plan.json");
 const schema = await loadJson("../config/pipeline-schema.json");
 
 test("current profile, application policy, and schema are valid", () => {
@@ -39,6 +42,139 @@ test("profile validation rejects missing required data", () => {
   const invalid = structuredClone(profile);
   delete invalid.candidate.email;
   assert.match(validateCandidateProfile(invalid).join("\n"), /candidate\.email is required/);
+});
+
+test("canonical profile matches the July 2026 resume and every profile-bound configuration", () => {
+  assert.equal(profile.profile_version, "2026-07-29");
+  assert.deepEqual(profile.candidate, {
+    name: "John Lester Escarlan",
+    location: "Cebu City, Philippines",
+    email: "jlescarlan11@gmail.com",
+    links: {
+      linkedin: "https://linkedin.com/in/john-lester-escarlan",
+      github: "https://github.com/jlescarlan11",
+      portfolio: "https://johnlesterescarlan.pro"
+    }
+  });
+  assert.equal(
+    profile.summary,
+    "Software developer with experience building and maintaining production web applications using TypeScript, React, Next.js, Node.js, PostgreSQL, and Supabase. Shipped full-stack features, resolved production incidents, improved API performance and release workflows, and built marketplace, payment, and automation systems. Comfortable working across frontend, backend, databases, testing, monitoring, and remote engineering teams."
+  );
+  assert.deepEqual(Object.keys(profile.skills), [
+    "languages",
+    "frontend",
+    "backend",
+    "databases_and_cloud",
+    "testing_and_delivery",
+    "automation_and_integrations"
+  ]);
+
+  const pharmacy = profile.experience.find(
+    (entry) => entry.id === "pharmacy-acute-care-university"
+  );
+  assert.equal(pharmacy.start, "2026-02");
+  assert.equal(pharmacy.end, "2026-08");
+  assert.deepEqual(
+    profile.experience
+      .filter((entry) => entry.id !== "pharmacy-acute-care-university")
+      .map(({ id, start, end }) => ({ id, start, end })),
+    [
+      { id: "upwork", start: "2025-01", end: "present" },
+      {
+        id: "winds-gate-philippines",
+        start: "2025-06",
+        end: "present"
+      },
+      { id: "alliance-software", start: "2025-06", end: "2025-07" },
+      { id: "bayoa-analytics", start: "2024-09", end: "2024-11" }
+    ]
+  );
+  assert.deepEqual(
+    profile.projects.map(({ id, url, technologies }) => ({
+      id,
+      url,
+      technologies
+    })),
+    [
+      {
+        id: "rent-n-roll",
+        url: "https://rentnroll.store",
+        technologies: [
+          "Next.js",
+          "React",
+          "TypeScript",
+          "Tailwind CSS",
+          "Supabase",
+          "PostgreSQL",
+          "Zod",
+          "PayMongo"
+        ]
+      },
+      {
+        id: "job-pipeline",
+        url: "https://github.com/jlescarlan11/Job-Pipeline",
+        technologies: [
+          "n8n",
+          "Groq API",
+          "Google Sheets API",
+          "JavaScript"
+        ]
+      }
+    ]
+  );
+  assert.deepEqual(profile.education, [
+    {
+      program: "Bachelor of Science in Computer Science",
+      institution: "University of the Philippines Cebu",
+      start: "2025-08",
+      end: "present",
+      honor: "University Scholar"
+    },
+    {
+      program: "Bachelor of Science in Mathematics",
+      institution: "University of the Philippines Cebu",
+      start: "2022-09",
+      end: "2025-06",
+      honor: "College Scholar"
+    }
+  ]);
+  assert.deepEqual(profile.awards_and_certifications, [
+    "DOST Junior Level Science Scholarship Awardee, 2024",
+    "Semi-Finalist, 1st Naga City Mayoral Hackathon — Top 15 of 200+ teams",
+    "Amazon Junior Software Developer with Generative AI, Coursera, October 2025"
+  ]);
+  for (const configuration of [
+    policy,
+    packPolicy,
+    rankingPolicy,
+    searchPlan
+  ]) {
+    assert.equal(
+      configuration.candidate_profile_version,
+      profile.profile_version
+    );
+  }
+});
+
+test("profile validation rejects unresolved resume placeholders and duplicate project technologies", () => {
+  for (const placeholder of [
+    "[Add measurable result if available]",
+    "[Month Year]"
+  ]) {
+    const invalid = structuredClone(profile);
+    invalid.experience[0].highlights.push(placeholder);
+    assert.match(
+      validateCandidateProfile(invalid).join("\n"),
+      /resume placeholders are not allowed/
+    );
+  }
+
+  const duplicateTechnology = structuredClone(profile);
+  duplicateTechnology.projects[0].technologies.push("react");
+  assert.match(
+    validateCandidateProfile(duplicateTechnology).join("\n"),
+    /duplicate project technologies for rent-n-roll: react/
+  );
 });
 
 test("profile validation rejects an unsupported URL and obsolete fact", () => {
@@ -237,6 +373,7 @@ test("the durable contract does not define credential or reusable action-token f
 test("state transitions allow required paths and reject invalid ones", () => {
   assert.equal(canTransition(schema, "discovered", "evaluating"), true);
   assert.equal(canTransition(schema, "ready", "applied"), true);
+  assert.equal(canTransition(schema, "generating", "review_required"), true);
   assert.equal(canTransition(schema, "retryable_error", "generating"), true);
   assert.equal(canTransition(schema, "archived", "ready"), false);
   assert.throws(

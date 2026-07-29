@@ -126,3 +126,19 @@ test("missing safety configuration cannot authorize dispatch", () => {
     reasons: ["message_safety_configuration_missing"]
   });
 });
+
+test("stale ready messages retain historical provenance and fail closed after a profile update", () => {
+  const historical = currentSafe({
+    message_profile_version: "2026-07-28",
+    application_pack_profile_version: "2026-07-28"
+  });
+  const snapshot = structuredClone(historical);
+
+  const result = evaluatePersistedMessageSafety(historical, context);
+
+  assert.equal(result.safe, false);
+  assert.ok(result.reasons.includes("message_profile_mismatch"));
+  assert.ok(result.reasons.includes("pack_profile_mismatch"));
+  assert.deepEqual(historical, snapshot);
+  assert.equal(historical.generated_message, snapshot.generated_message);
+});

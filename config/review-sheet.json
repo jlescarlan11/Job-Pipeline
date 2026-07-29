@@ -7,7 +7,7 @@
   "claims_sheet": "ProcessingClaims",
   "dashboard_sheet": "Dashboard",
   "review_queue": {
-    "version": "2026-07-29/v1",
+    "version": "2026-07-29/v2",
     "sheet": "Review Queue",
     "visible_columns": [
       "Status",
@@ -40,6 +40,13 @@
       "recommended",
       "review_required"
     ],
+    "generation_recovery": {
+      "statuses": [
+        "retryable_error",
+        "terminal_error"
+      ],
+      "failed_stage": "generation"
+    },
     "actions": {
       "Generate Application": "promote",
       "I Applied": "mark_applied",

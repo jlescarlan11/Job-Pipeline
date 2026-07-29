@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plan_version": "2026-07-28",
-  "candidate_profile_version": "2026-07-28",
+  "candidate_profile_version": "2026-07-29",
   "source": "onlinejobs.ph",
   "schedule_hours": 4,
   "lookback_days": 7,

@@ -58,6 +58,21 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I3-AC18 — No auto apply:** Policy requires manual submission; export scan rejects submit/apply endpoints and automated applied/skipped nodes.
 - **I3-AC19 — Required generation fixtures:** Automated direct, adjacent, review-required, unsupported skill, seniority, unavailable, missing description, invalid output, rate limit, overlap, stale claim, and legacy ready coverage.
 - **I3-AC20 — Eligibility ordering:** Automated generation-stage/score/oldest ordering and cap test; priority ordering is explicitly documented.
+- **I28-AC1 — Pack gate:** Workflow-structure and direct pack tests prove only
+  `ready` packs reach Groq; non-ready packs persist bounded human-review
+  context with zero provider path.
+- **I28-AC2 — One bounded repair:** The generated graph has one repair agent
+  reachable only after deterministic initial validation failure. Direct and
+  lifecycle tests prove the repair prompt contains the rejected draft and all
+  errors, reuses the claim, and does not add a pipeline attempt.
+- **I28-AC3 — Validation hardening:** Regression tests cover the production
+  over-length, Expo, React Native, banned-phrase, and Pacific-time failure;
+  transformed/job-sourced numbers, internal labels, and completion claims also
+  fail closed.
+- **I28-AC4 — Atomic finalization:** Initial or repaired output must pass the
+  same pack/message validator and `processing_commit_guard`; failed work starts
+  from the pre-generation record so prior valid data and newer manual state
+  remain authoritative.
 
 ## Issue #4 — Idempotent archive
 
@@ -652,6 +667,41 @@ failures, fixes, and reconciliation are recorded in
 - **I24-AC27 — Activation gate:** `docs/operations.md` requires the complete
   non-production desktop Sheet and disabled Reviewer failure/retry smoke matrix
   before any production activation.
+
+## Issue #29 — Generation-failure Review Queue recovery
+
+- **I29-AC1 — Generation-only recovery membership:** Configuration and
+  projection tests include retryable/terminal generation failures once while
+  keeping unrelated terminal failures, completed decisions, and archived rows
+  out of the simplified queue.
+- **I29-AC2 — Friendly bounded reasons:** Direct tests distinguish pending/due
+  automatic retry from exhausted attempts and preserve recognizable
+  validation/provider causes after URL, credential, control-character, and
+  formula sanitization.
+- **I29-AC3 — Hidden recovery state:** The exact eight visible and two hidden
+  helper columns remain unchanged. Recovery rows project a blank generated
+  message and no technical attempts, timestamps, stage, token, or command
+  column.
+- **I29-AC4 — Contextual generation action:** Guarded queue tests prove
+  `Generate Application` remains `promote` for review states and becomes the
+  existing `retry` action only for generation failures, resetting attempts and
+  scheduling the same failed stage.
+- **I29-AC5 — Safe decisions:** Direct and queue tests allow idempotent Skip
+  from generation failures while both UI validation and authoritative
+  processing reject I Applied until a current validated message is ready.
+- **I29-AC6 — Retry reconciliation:** Direct lifecycle tests preserve canonical
+  identity, return successful work as `ready` with its validated message, and
+  retain failed work with an updated recovery reason.
+- **I29-AC7 — Commit/replay safety:** Existing guarded source-write,
+  cleanup-failure, duplicate, stale, missing, conflicting, and concurrent-edit
+  tests apply unchanged to recovery actions.
+- **I29-AC8 — Archive boundary:** Archive tests retain retryable and undecided
+  terminal generation failures, continue archiving unrelated terminal states,
+  and archive an explicit skipped decision through the established
+  confirmation/idempotency path.
+- **I29-AC9 — Generated surfaces:** Sheet setup refreshes recovery-row dropdowns
+  to only Generate Application/Skip on open or Action selection; Reviewer and
+  Archiver exports embed the versioned configuration and remain inactive.
 
 ## Issue #25 — Slack Review Queue navigation
 
