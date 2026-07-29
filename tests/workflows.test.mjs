@@ -1486,10 +1486,13 @@ test("analytics export publishes completion only after every idempotent detail w
 test("weekly recommender consumes only complete analytics and publishes versioned advisory evidence", () => {
   const workflow = workflows.recommender;
   for (const name of [
+    "Get Recommendation Reports",
+    "Aggregate Recommendation Reports",
     "Get Analytics Reports",
     "Aggregate Analytics Reports",
     "Get Analytics Detail",
     "Build Weekly Recommendations",
+    "Should Publish Recommendation Report",
     "Prepare Recommendation Rows",
     "Upsert Recommendation Rows",
     "Aggregate Recommendation Row Writes",
@@ -1499,6 +1502,18 @@ test("weekly recommender consumes only complete analytics and publishes versione
     nodeByName(workflow, name);
   }
 
+  const previousReports = nodeByName(workflow, "Get Recommendation Reports");
+  assert.equal(
+    previousReports.parameters.sheetName.value,
+    recommendationPolicy.reports_sheet
+  );
+  assert.equal(previousReports.parameters.operation, "read");
+  assert.equal(previousReports.onError, "continueRegularOutput");
+  assertDirectConnection(
+    workflow,
+    "Aggregate Recommendation Reports",
+    "Get Analytics Reports"
+  );
   const reportRead = nodeByName(workflow, "Get Analytics Reports");
   const detailRead = nodeByName(workflow, "Get Analytics Detail");
   assert.equal(
@@ -1534,6 +1549,20 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assert.deepEqual(reports.parameters.columns.matchingColumns, ["run_id"]);
   assertDirectConnection(
     workflow,
+    "Build Weekly Recommendations",
+    "Should Publish Recommendation Report"
+  );
+  assertDirectConnection(
+    workflow,
+    "Should Publish Recommendation Report",
+    "Prepare Recommendation Rows"
+  );
+  assert.deepEqual(
+    workflow.connections["Should Publish Recommendation Report"].main[1],
+    []
+  );
+  assertDirectConnection(
+    workflow,
     "Upsert Recommendation Rows",
     "Aggregate Recommendation Row Writes"
   );
@@ -1555,6 +1584,9 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assert.match(build, /latestCompleteAnalyticsReport/);
   assert.match(build, /buildRecommendationReport/);
   assert.match(build, /buildRecommendationFailure/);
+  assert.match(build, /reusableRecommendationReport/);
+  assert.match(build, /history_read_failed: recommendationReportReadFailed/);
+  assert.match(build, /publish_required: publishRequired/);
   assert.match(build, /source_read_failure/);
   assert.match(build, /do not change weights automatically/i);
   assert.match(build, new RegExp(profile.profile_version.replace("/", "\\/")));

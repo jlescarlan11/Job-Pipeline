@@ -4358,6 +4358,18 @@ async function buildRecommender() {
   reportsRead.alwaysOutputData = true;
   reportsRead.onError = "continueRegularOutput";
 
+  const recommendationReportsRead = structuredClone(reportsRead);
+  recommendationReportsRead.id =
+    "b14b18d6-0000-4000-8000-000000000013";
+  recommendationReportsRead.name = "Get Recommendation Reports";
+  recommendationReportsRead.position = [-1420, 240];
+  recommendationReportsRead.parameters.sheetName = {
+    __rl: true,
+    value: policy.reports_sheet,
+    mode: "name",
+    cachedResultName: policy.reports_sheet
+  };
+
   const analyticsRead = structuredClone(reportsRead);
   analyticsRead.id = "b14b18d6-0000-4000-8000-000000000004";
   analyticsRead.name = "Get Analytics Detail";
@@ -4390,6 +4402,11 @@ async function buildRecommender() {
 
 const POLICY = ${JSON.stringify(policy)};
 const PROFILE = ${JSON.stringify(profile)};
+const recommendationReportRows = ($('Aggregate Recommendation Reports').first().json.recommendation_report_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const recommendationReportReadFailed = recommendationReportRows.some(
+  (row) => row.error || row.errorMessage || row.error_description
+);
 const reportRows = ($('Aggregate Analytics Reports').first().json.analytics_report_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 const analyticsRows = $input.all()
@@ -4419,9 +4436,15 @@ try {
       : 'The weekly recommendation analysis could not be completed.'
   });
 }
+const reusable = recommendationReportReadFailed
+  ? undefined
+  : reusableRecommendationReport(recommendationReportRows, result.report);
+const publishRequired = !reusable;
 console.log(JSON.stringify({
   event: 'weekly_recommendation_report_built',
   run_id: result.report.run_id,
+  action: publishRequired ? 'publish' : 'unchanged',
+  history_read_failed: recommendationReportReadFailed,
   status: result.report.status,
   result: result.report.result,
   recommendations: result.report.recommendation_count,
@@ -4432,7 +4455,8 @@ console.log(JSON.stringify({
 return [{
   json: {
     recommendation_rows: result.rows,
-    report: result.report
+    report: result.report,
+    publish_required: publishRequired
   }
 }];`;
 
@@ -4476,7 +4500,7 @@ return [{ json: report }];`;
     },
     type: "n8n-nodes-base.scheduleTrigger",
     typeVersion: 1.2,
-    position: [-1200, 240],
+    position: [-1640, 240],
     id: "b14b18d6-0000-4000-8000-000000000001",
     name: "Schedule Trigger"
   };
@@ -4485,7 +4509,7 @@ return [{ json: report }];`;
     base: recommendationWriteBase,
     id: "b14b18d6-0000-4000-8000-000000000008",
     name: "Upsert Recommendation Rows",
-    position: [380, 240],
+    position: [620, 240],
     fields: policy.recommendation_fields,
     matchingField: "recommendation_id"
   });
@@ -4493,6 +4517,13 @@ return [{ json: report }];`;
 
   const nodes = [
     schedule,
+    recommendationReportsRead,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000014",
+      name: "Aggregate Recommendation Reports",
+      position: [-1200, 240],
+      destinationFieldName: "recommendation_report_rows"
+    }),
     reportsRead,
     aggregateNode({
       id: "b14b18d6-0000-4000-8000-000000000003",
@@ -4507,37 +4538,49 @@ return [{ json: report }];`;
       position: [-340, 240],
       jsCode: buildCode
     }),
+    booleanIfNode({
+      id: "b14b18d6-0000-4000-8000-000000000015",
+      name: "Should Publish Recommendation Report",
+      position: [-100, 240],
+      leftValue: "={{ $json.publish_required }}"
+    }),
     codeNode({
       id: "b14b18d6-0000-4000-8000-000000000006",
       name: "Prepare Recommendation Rows",
-      position: [-100, 240],
+      position: [140, 240],
       jsCode: prepareRowsCode
     }),
     upsertRows,
     aggregateNode({
       id: "b14b18d6-0000-4000-8000-000000000009",
       name: "Aggregate Recommendation Row Writes",
-      position: [620, 240],
+      position: [860, 240],
       destinationFieldName: "recommendation_rows_written"
     }),
     codeNode({
       id: "b14b18d6-0000-4000-8000-000000000010",
       name: "Prepare Recommendation Report",
-      position: [860, 240],
+      position: [1100, 240],
       jsCode: prepareReportCode
     }),
     upsertSheetNode({
       base: reportWriteBase,
       id: "b14b18d6-0000-4000-8000-000000000011",
       name: "Publish Recommendation Report",
-      position: [1100, 240],
+      position: [1340, 240],
       fields: policy.report_fields,
       matchingField: "run_id"
     })
   ];
 
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Analytics Reports")]] },
+    "Schedule Trigger": { main: [[connection("Get Recommendation Reports")]] },
+    "Get Recommendation Reports": {
+      main: [[connection("Aggregate Recommendation Reports")]]
+    },
+    "Aggregate Recommendation Reports": {
+      main: [[connection("Get Analytics Reports")]]
+    },
     "Get Analytics Reports": {
       main: [[connection("Aggregate Analytics Reports")]]
     },
@@ -4548,7 +4591,10 @@ return [{ json: report }];`;
       main: [[connection("Build Weekly Recommendations")]]
     },
     "Build Weekly Recommendations": {
-      main: [[connection("Prepare Recommendation Rows")]]
+      main: [[connection("Should Publish Recommendation Report")]]
+    },
+    "Should Publish Recommendation Report": {
+      main: [[connection("Prepare Recommendation Rows")], []]
     },
     "Prepare Recommendation Rows": {
       main: [[connection("Upsert Recommendation Rows")]]

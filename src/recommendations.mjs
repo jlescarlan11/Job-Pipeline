@@ -1,4 +1,7 @@
-import { latestCompleteAnalyticsReport } from "./analytics.mjs";
+import {
+  latestCompleteAnalyticsReport,
+  stableSha256
+} from "./analytics.mjs";
 
 const DIRECTIONAL_STATUS = "recommendation";
 
@@ -22,15 +25,6 @@ function boundedText(value, maximum = 1000) {
     .trim()
     .slice(0, maximum);
   return /^[=+\-@]/.test(text) ? `'${text}` : text;
-}
-
-function hash(value) {
-  let result = 2166136261;
-  for (const character of String(value)) {
-    result ^= character.charCodeAt(0);
-    result = Math.imul(result, 16777619);
-  }
-  return (result >>> 0).toString(16).padStart(8, "0");
 }
 
 function version(value) {
@@ -814,9 +808,16 @@ function reportMetadata(source, rows, status, result, error = {}) {
   };
 }
 
-function createSource(policy, analytics, profile, now, attemptId) {
+function createSource(
+  policy,
+  analytics,
+  profile,
+  now,
+  attemptId,
+  { stableRunId = false } = {}
+) {
   const analyticsReportId = analytics?.report_id || "no-analytics";
-  const analysisKey = `recommendation-${hash(
+  const analysisKey = `recommendation-${stableSha256(
     [
       analyticsReportId,
       policy.policy_version,
@@ -831,7 +832,9 @@ function createSource(policy, analytics, profile, now, attemptId) {
     analytics: analytics || {},
     analytics_report_id: analytics?.report_id || "",
     analysis_key: analysisKey,
-    run_id: `${analysisKey}-${attempt || now.replace(/[^0-9]/g, "")}`,
+    run_id: stableRunId
+      ? analysisKey
+      : `${analysisKey}-${attempt || now.replace(/[^0-9]/g, "")}`,
     generated_at: now
   };
 }
@@ -883,7 +886,9 @@ export function buildRecommendationReport(
     throw new Error("recommendation report timestamp is invalid");
   }
   const latest = latestCompleteAnalyticsReport(analyticsReportRows);
-  const source = createSource(policy, latest, profile, now, attemptId);
+  const source = createSource(policy, latest, profile, now, attemptId, {
+    stableRunId: true
+  });
   if (!latest) {
     const emptyInput =
       analyticsRows.length === 0 && analyticsReportRows.length === 0;
@@ -1055,4 +1060,33 @@ export function latestCompleteRecommendationReport(reportRows) {
         Date.parse(right.generated_at) - Date.parse(left.generated_at) ||
         String(right.run_id).localeCompare(String(left.run_id))
     )[0];
+}
+
+export function reusableRecommendationReport(reportRows, report) {
+  if (report?.status !== "complete") return undefined;
+  const latest = latestCompleteRecommendationReport(reportRows);
+  return latest &&
+    latest.run_id === report.run_id &&
+    latest.analysis_key === report.analysis_key &&
+    latest.result === report.result &&
+    latest.recommendation_policy_version ===
+      report.recommendation_policy_version &&
+    latest.analytics_report_id === report.analytics_report_id &&
+    latest.metric_definition_version === report.metric_definition_version &&
+    latest.band_version === report.band_version &&
+    latest.window_start_at === report.window_start_at &&
+    latest.window_end_at === report.window_end_at &&
+    Number(latest.minimum_overall_applications) ===
+      report.minimum_overall_applications &&
+    Number(latest.minimum_segment_applications) ===
+      report.minimum_segment_applications &&
+    Number(latest.minimum_explicit_outcome_coverage) ===
+      report.minimum_explicit_outcome_coverage &&
+    Number(latest.recommendation_count) === report.recommendation_count &&
+    Number(latest.abstention_count) === report.abstention_count &&
+    Number(latest.detail_row_count) === report.detail_row_count &&
+    String(latest.error_category || "") === report.error_category &&
+    String(latest.error_summary || "") === report.error_summary
+    ? latest
+    : undefined;
 }

@@ -103,7 +103,7 @@ function rotateRight(value, amount) {
   return (value >>> amount) | (value << (32 - amount));
 }
 
-function sha256(value) {
+export function stableSha256(value) {
   const bytes = new TextEncoder().encode(String(value));
   const paddedLength = Math.ceil((bytes.length + 9) / 64) * 64;
   const padded = new Uint8Array(paddedLength);
@@ -1427,7 +1427,7 @@ export function analyticsResultKey(rows, summary) {
   const canonicalRows = rows.map((row) =>
     ANALYTICS_RESULT_FIELDS.map((field) => row?.[field] ?? "")
   );
-  return sha256(
+  return stableSha256(
     JSON.stringify({
       key_version: "analytics-result/v1",
       analysis_timezone: summary.analysis_timezone,

@@ -334,15 +334,15 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   promising jobs pass gap coverage/frequency/non-skill exclusion rules and are
   checked against approved profile evidence. The action is investigate-only
   and never mutates profile facts.
-- **History, idempotency, and failure:** One analysis key groups compatible
-  superseding attempts; execution-versioned run/detail IDs upsert safely.
-  `Recommendations` and `RecommendationReports` persist recommendation,
-  abstained, empty, complete, and sanitized failed history. Failed/partial
-  attempts never replace the latest complete internal view.
-- **No-mutation boundary:** The generated weekly workflow reads only
-  `Analytics`/`AnalyticsReports` and writes only recommendation tabs. It has no
-  notification or job/config mutation path; existing 4-hour/22-query and all
-  other schedules/flows remain unchanged.
+- **History, idempotency, and failure:** A SHA-256 analysis key gives successful
+  overlap and recovery one stable run/detail scope. An exact compatible result
+  skips writes only when already latest; returning to older evidence
+  republishes it. Failed attempts retain execution-scoped sanitized history and
+  never replace the latest complete internal view.
+- **No-mutation boundary:** The generated weekly workflow reads
+  `Analytics`/`AnalyticsReports` plus its own report history and writes only
+  recommendation tabs. It has no notification or job/config mutation path;
+  existing 4-hour/22-query and all other schedules/flows remain unchanged.
 - **Coverage/operations:** `recommendations.test.mjs` covers strong/weak
   query/role, over/underconfidence, all requested comparisons, missing skill,
   sparse/low/unknown coverage, empty/incompatible/failed input, same/superseding

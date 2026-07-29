@@ -390,18 +390,23 @@ is produced.
 
 The workflow writes evidence rows to `Recommendations` and publishes a
 `RecommendationReports` row only after observing every expected detail write.
+A successful analysis has a SHA-256 identity derived from its analytics report,
+recommendation policy, and profile version; successful overlap converges on
+that stable run/detail scope. If an exact compatible result is already the
+latest complete report, the weekly execution logs it as unchanged and performs
+no recommendation writes. A history-read failure disables only the skip.
+Returning to older evidence republishes it as current.
+
 The report keeps numerator, denominator, sample, comparison, window, coverage,
 versions, and caveat. Sparse overall input yields a single explicit abstention;
 low dimension coverage yields only an abstention for that dimension; zero
 applications yields a successful empty report. Source, analysis, or detail
-write failures are sanitized and non-authoritative, so the latest identifiable
-complete report remains available.
+write failures remain attempt-scoped, sanitized, and non-authoritative, so the
+latest identifiable complete report remains available.
 
-The analysis key is stable for one analytics report, recommendation policy, and
-profile version. The execution attempt versions the run and its idempotent
-detail keys. No branch changes search configuration, ranking rules, profile
-facts, strategies, applications, outcomes, or Apply Points. The internal Sheet
-tabs are the delivery surface in this version; notification delivery is not an
+No branch changes search configuration, ranking rules, profile facts,
+strategies, applications, outcomes, or Apply Points. The internal Sheet tabs
+are the delivery surface in this version; notification delivery is not an
 authoritative dependency.
 
 ## Archive workflow

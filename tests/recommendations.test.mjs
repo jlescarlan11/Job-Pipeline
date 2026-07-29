@@ -7,6 +7,7 @@ import {
   buildRecommendationFailure,
   buildRecommendationReport,
   latestCompleteRecommendationReport,
+  reusableRecommendationReport,
   validateRecommendationPolicy
 } from "../src/recommendations.mjs";
 
@@ -448,7 +449,7 @@ test("partial analytics input is a failed run and cannot supersede prior complet
   );
 });
 
-test("reruns are idempotent within an attempt and clearly versioned across attempts", () => {
+test("successful reruns converge while failures retain attempt evidence", () => {
   const analytics = completeAnalytics();
   const first = buildRecommendationReport(
     analytics.rows,
@@ -476,7 +477,62 @@ test("reruns are idempotent within an attempt and clearly versioned across attem
   );
   assert.deepEqual(repeated, first);
   assert.equal(superseding.report.analysis_key, first.report.analysis_key);
-  assert.notEqual(superseding.report.run_id, first.report.run_id);
+  assert.equal(superseding.report.run_id, first.report.run_id);
+  assert.match(first.report.analysis_key, /^recommendation-[a-f0-9]{64}$/);
+  assert.equal(
+    reusableRecommendationReport(
+      [first.report],
+      superseding.report
+    )?.run_id,
+    first.report.run_id
+  );
+  assert.equal(
+    reusableRecommendationReport(
+      [
+        first.report,
+        {
+          ...first.report,
+          run_id: "different-newer-run",
+          analysis_key: "different-newer-analysis",
+          generated_at: "2026-07-29T13:00:00.000Z"
+        }
+      ],
+      superseding.report
+    ),
+    undefined,
+    "a return to older evidence must republish it as current"
+  );
+
+  const changedPolicy = testPolicy({
+    policy_version: "2026-07-29/v2"
+  });
+  const changed = buildRecommendationReport(
+    analytics.rows,
+    analytics.reports,
+    changedPolicy,
+    profile,
+    "2026-07-29T12:00:00.000Z",
+    { attemptId: "execution-3" }
+  );
+  assert.notEqual(changed.report.run_id, first.report.run_id);
+
+  const failedFirst = buildRecommendationFailure(
+    testPolicy(),
+    profile,
+    recommendationAt,
+    { attemptId: "failure-1" }
+  );
+  const failedSecond = buildRecommendationFailure(
+    testPolicy(),
+    profile,
+    recommendationAt,
+    { attemptId: "failure-2" }
+  );
+  assert.notEqual(failedFirst.report.run_id, failedSecond.report.run_id);
+  assert.equal(
+    reusableRecommendationReport([failedFirst.report], failedFirst.report),
+    undefined
+  );
 });
 
 test("recommendation analysis never mutates analytics, policy, profile, or source records", () => {

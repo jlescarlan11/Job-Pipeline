@@ -13,7 +13,7 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | `workflows/alerter.json` | Every 3 minutes | Claim newly ready high-opportunity jobs, send one Slack alert with the complete copy-ready message and safe links through an environment-bound webhook, and persist delivery or bounded failure evidence. |
 | `workflows/reviewer.json` | Every 5 minutes | Reconcile normal work into Review Queue while skipping exact no-op rebuilds, project active/archived applications into Applied Jobs, safely commit guarded decisions/outcomes, and upsert a deduplicated funnel summary. |
 | `workflows/analytics.json` | Every 24 hours | Read deduplicated active/archive state, skip a content-identical complete result, otherwise publish versioned conversion/calibration detail and mark it complete only after all detail rows persist. |
-| `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
+| `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, skip an already-current equivalent successful result, otherwise publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
 | `workflows/archiver.json` | Every 45 minutes | Upsert eligible terminal records into Archive, reread both tabs, verify the source snapshot and archive copy, then delete confirmed rows from bottom to top. |
 
 The workflows share ten Google Sheet tabs:

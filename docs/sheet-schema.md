@@ -277,9 +277,11 @@ provider payloads, or automatic action tokens.
 
 ### `RecommendationReports`
 
-One append-safe row per execution `run_id`, including `analysis_key`, status,
-result, analytics and recommendation versions, window, configured thresholds,
-detail/recommendation/abstention counts, and sanitized failure data. The
+One row per `run_id`, including `analysis_key`, status, result, analytics and
+recommendation versions, window, configured thresholds,
+detail/recommendation/abstention counts, and sanitized failure data. Successful
+reports use the SHA-256 analysis key as a stable run ID and skip an exact result
+that is already latest; failed attempts use an execution-scoped run ID. The
 internal current view is the newest valid `status=complete` row by
 `generated_at` and `run_id`; filter `Recommendations` to that run. Failed or
 partial runs remain history and do not replace the last complete report.

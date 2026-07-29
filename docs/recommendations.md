@@ -110,11 +110,17 @@ failure must not change report status.
 
 ## Idempotency, failure, and privacy
 
-`analysis_key` is deterministic for the analytics report, recommendation
-policy, and candidate-profile version. `run_id` adds the n8n execution attempt:
-repeating the same attempt upserts the same recommendation IDs, while a later
-attempt creates a clearly versioned historical run under the same analysis
-key.
+`analysis_key` is a SHA-256 identity for the analytics report, recommendation
+policy, and candidate-profile version. A successful report uses that key as its
+stable `run_id`, so concurrent or recovered executions converge on the same
+recommendation IDs. Before writing, the workflow reads
+`RecommendationReports`; an exact compatible result performs no detail or
+report writes only when it is already the latest complete report. Returning to
+an older analysis republishes it so it becomes current again.
+
+Failed attempts retain an execution-scoped `run_id` and sanitized evidence.
+An unavailable recommendation-history read disables the optimization and
+publishes through the normal completion gate rather than suppressing work.
 
 Recommendation detail is upserted before report publication. A source-read or
 analysis failure creates a sanitized failed run. If any expected detail write

@@ -368,9 +368,13 @@ Slack HTTP node must remain an explicit JSON `POST`.
   incomplete analytics report, and a source/read or detail-write failure.
   Verify explicit abstained, empty, or failed history and no unsupported
   directional result.
-- Rerun the same execution fixture and confirm recommendation IDs upsert.
-  Execute a new attempt and confirm a superseding `run_id` shares the
-  `analysis_key` without replacing history.
+- Rerun the same complete fixture at a later time and confirm the SHA-256
+  `analysis_key`/successful `run_id` are stable, the execution logs
+  `action=unchanged`, and neither recommendation tab receives a write. Change
+  the source analytics report and confirm a new successful run publishes.
+- Simulate a failed attempt and confirm its execution-scoped run remains
+  non-authoritative. Simulate an unavailable RecommendationReports history read
+  and confirm the workflow publishes normally instead of suppressing work.
 - In `RecommendationReports`, select the newest `status=complete` row, filter
   `Recommendations` to its `run_id`, and confirm a failed/partial later run
   cannot become the current internal report.
