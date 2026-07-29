@@ -93,8 +93,10 @@ skipped, and conflicting counts. On the copied workbook, verify the five
 confirmed terminal records have blank token/stage/start values and that a
 second setup run reports zero cleared claims. Do not delete append-only
 `ProcessingClaims` history.
-Inspect `legacyMessageMigration` for eight total quarantined,
-already-quarantined, or current-safe target identities and zero conflicts.
+Inspect `legacyMessageMigration` and `archivedLegacyMessageMigration` for
+eight unique target identities accounted for as quarantined,
+already-quarantined, current-safe, or archived, with no missing identities,
+active/archive overlap, duplicates, or conflicts.
 Confirm quarantined rows have no active message,
 `message_validation_status=quarantined`, `alert_status=not_eligible`, the
 stable suppression reason, and no application decision change. A second setup
