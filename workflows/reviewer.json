@@ -5412,7 +5412,11 @@
     "executionOrder": "v1",
     "binaryMode": "separate",
     "executionTimeout": 180,
-    "timezone": "Asia/Manila"
+    "timezone": "Asia/Manila",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": true
   },
   "versionId": "88af9ce3-b45f-4aa8-a980-000000000012",
   "meta": {

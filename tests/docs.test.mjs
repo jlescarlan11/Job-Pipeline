@@ -73,6 +73,25 @@ test("runtime documentation matches every workflow timeout and Manila timezone",
   assert.match(operations, /node-level timeout/i);
 });
 
+test("runtime documentation preserves failure evidence without successful execution churn", () => {
+  for (const document of [readme, architecture, operations]) {
+    assert.match(document, /failed production executions/i);
+    assert.match(
+      document,
+      /manual\s+(?:smoke\s+)?executions|manual\s+smoke\s+tests/i
+    );
+    assert.match(
+      document,
+      /(?:do|does)\s+not\s+(?:retain|save)\s+successful\s+production\s+executions/i
+    );
+    assert.match(document, /per-node\s+(?:execution\s+)?progress/i);
+  }
+  for (const document of [readme, architecture]) {
+    assert.match(document, /6,322 (?:normally successful )?scheduled executions per week/i);
+  }
+  assert.match(operations, /instance-level pruning/i);
+});
+
 test("Sheet schema documentation covers every persisted field, status, and manual action", () => {
   for (const field of schema.fields) {
     assert.match(sheetSchema, new RegExp(`\\\`${field}\\\``), `missing field documentation: ${field}`);

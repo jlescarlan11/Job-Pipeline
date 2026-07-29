@@ -1582,7 +1582,11 @@
     "executionOrder": "v1",
     "binaryMode": "separate",
     "executionTimeout": 540,
-    "timezone": "Asia/Manila"
+    "timezone": "Asia/Manila",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": true
   },
   "versionId": "92aee366-1fa6-4161-9405-eb7ac7a06f5e",
   "meta": {

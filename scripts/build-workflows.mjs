@@ -8,7 +8,10 @@ import {
   validateReviewRuntimeConfig
 } from "../src/review.mjs";
 import { validateClaimRetentionPolicy } from "../src/claim-retention.mjs";
-import { validateRuntimeConfig } from "../src/runtime.mjs";
+import {
+  validateRuntimeConfig,
+  workflowExecutionDataSettings
+} from "../src/runtime.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const checkOnly = process.argv.includes("--check");
@@ -763,7 +766,8 @@ return winners.map((record) => ({ json: record }));`
         ...current.settings,
         executionOrder: "v1",
         executionTimeout: plan.execution_timeout_seconds,
-        timezone: runtime.timezone
+        timezone: runtime.timezone,
+        ...workflowExecutionDataSettings(runtime)
       },
       meta: {
         ...current.meta,
@@ -1782,7 +1786,8 @@ return {
         ...current.settings,
         executionOrder: "v1",
         executionTimeout: runtime.generator.execution_timeout_seconds,
-        timezone: runtime.timezone
+        timezone: runtime.timezone,
+        ...workflowExecutionDataSettings(runtime)
       },
       meta: {
         ...current.meta,
@@ -2089,7 +2094,8 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
         ...current.settings,
         executionOrder: "v1",
         executionTimeout: runtime.archiver.execution_timeout_seconds,
-        timezone: runtime.timezone
+        timezone: runtime.timezone,
+        ...workflowExecutionDataSettings(runtime)
       },
       meta: {
         ...current.meta,
@@ -3646,7 +3652,8 @@ return [{ json: {
         executionOrder: "v1",
         binaryMode: "separate",
         executionTimeout: reviewConfig.execution_timeout_seconds,
-        timezone: runtime.timezone
+        timezone: runtime.timezone,
+        ...workflowExecutionDataSettings(runtime)
       },
       versionId: "88af9ce3-b45f-4aa8-a980-000000000012",
       meta: {
@@ -4079,7 +4086,8 @@ return {
       settings: {
         executionOrder: "v1",
         executionTimeout: policy.execution_timeout_seconds,
-        timezone: runtime.timezone
+        timezone: runtime.timezone,
+        ...workflowExecutionDataSettings(runtime)
       },
       versionId: "a11e7e00-0000-4000-8000-000000000014",
       meta: {
@@ -4334,7 +4342,8 @@ return [{ json: completion }];`;
       settings: {
         executionOrder: "v1",
         executionTimeout: policy.execution_timeout_seconds,
-        timezone: runtime.timezone
+        timezone: runtime.timezone,
+        ...workflowExecutionDataSettings(runtime)
       },
       versionId: "a13a17c5-0000-4000-8000-000000000011",
       meta: {
@@ -4648,7 +4657,8 @@ return [{ json: report }];`;
       settings: {
         executionOrder: "v1",
         executionTimeout: policy.execution_timeout_seconds,
-        timezone: runtime.timezone
+        timezone: runtime.timezone,
+        ...workflowExecutionDataSettings(runtime)
       },
       versionId: "b14b18d6-0000-4000-8000-000000000012",
       meta: {

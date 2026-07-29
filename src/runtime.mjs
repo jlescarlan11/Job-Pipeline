@@ -43,6 +43,24 @@ export function validateRuntimeConfig(runtime) {
   if (runtime.timezone !== REQUIRED_TIMEZONE) {
     errors.push(`runtime timezone must be ${REQUIRED_TIMEZONE}`);
   }
+  if (
+    runtime.execution_data?.save_successful_production_executions !== "none"
+  ) {
+    errors.push(
+      "execution_data.save_successful_production_executions must be none"
+    );
+  }
+  if (runtime.execution_data?.save_failed_production_executions !== "all") {
+    errors.push(
+      "execution_data.save_failed_production_executions must be all"
+    );
+  }
+  if (runtime.execution_data?.save_execution_progress !== false) {
+    errors.push("execution_data.save_execution_progress must be false");
+  }
+  if (runtime.execution_data?.save_manual_executions !== true) {
+    errors.push("execution_data.save_manual_executions must be true");
+  }
   errors.push(
     ...validateScheduledClaimWorkflow(runtime.generator, "generator"),
     ...validateScheduledClaimWorkflow(runtime.archiver, "archiver")
@@ -92,4 +110,19 @@ export function workflowTimezone(runtime) {
     throw new Error(`Invalid runtime configuration:\n- ${errors.join("\n- ")}`);
   }
   return runtime.timezone;
+}
+
+export function workflowExecutionDataSettings(runtime) {
+  const errors = validateRuntimeConfig(runtime);
+  if (errors.length > 0) {
+    throw new Error(`Invalid runtime configuration:\n- ${errors.join("\n- ")}`);
+  }
+  return {
+    saveDataSuccessExecution:
+      runtime.execution_data.save_successful_production_executions,
+    saveDataErrorExecution:
+      runtime.execution_data.save_failed_production_executions,
+    saveExecutionProgress: runtime.execution_data.save_execution_progress,
+    saveManualExecutions: runtime.execution_data.save_manual_executions
+  };
 }

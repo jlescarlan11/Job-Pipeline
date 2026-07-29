@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   validateRuntimeConfig,
+  workflowExecutionDataSettings,
   workflowTimezone
 } from "../src/runtime.mjs";
 import { validateReviewRuntimeConfig } from "../src/review.mjs";
@@ -18,6 +19,12 @@ const review = JSON.parse(
 test("runtime timeouts are positive, scheduled, lease-safe, and Manila-bound", () => {
   assert.deepEqual(validateRuntimeConfig(runtime), []);
   assert.equal(workflowTimezone(runtime), "Asia/Manila");
+  assert.deepEqual(workflowExecutionDataSettings(runtime), {
+    saveDataSuccessExecution: "none",
+    saveDataErrorExecution: "all",
+    saveExecutionProgress: false,
+    saveManualExecutions: true
+  });
   for (const name of ["generator", "archiver"]) {
     const config = runtime[name];
     assert.ok(
@@ -44,10 +51,18 @@ test("runtime validation rejects overlap, expired ownership, and wrong timezone"
     invalid.generator.schedule_minutes * 60;
   invalid.archiver.execution_timeout_seconds =
     invalid.archiver.claim_lease_ms / 1000;
+  invalid.execution_data.save_successful_production_executions = "all";
+  invalid.execution_data.save_failed_production_executions = "none";
+  invalid.execution_data.save_execution_progress = true;
+  invalid.execution_data.save_manual_executions = false;
   const errors = validateRuntimeConfig(invalid).join("\n");
   assert.match(errors, /timezone must be Asia\/Manila/);
   assert.match(errors, /generator execution timeout must be shorter/);
   assert.match(errors, /archiver claim lease must outlast/);
+  assert.match(errors, /save_successful_production_executions must be none/);
+  assert.match(errors, /save_failed_production_executions must be all/);
+  assert.match(errors, /save_execution_progress must be false/);
+  assert.match(errors, /save_manual_executions must be true/);
 
   const invalidReview = {
     ...review,

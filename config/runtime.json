@@ -1,6 +1,12 @@
 {
   "schema_version": 1,
   "timezone": "Asia/Manila",
+  "execution_data": {
+    "save_successful_production_executions": "none",
+    "save_failed_production_executions": "all",
+    "save_execution_progress": false,
+    "save_manual_executions": true
+  },
   "generator": {
     "schedule_minutes": 15,
     "execution_timeout_seconds": 540,

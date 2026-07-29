@@ -2254,7 +2254,11 @@
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false,
     "executionTimeout": 900,
-    "timezone": "Asia/Manila"
+    "timezone": "Asia/Manila",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": true
   },
   "versionId": "72cc38db-8f11-4b81-b025-01f4ae946451",
   "meta": {

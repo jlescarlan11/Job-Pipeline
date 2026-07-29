@@ -65,6 +65,16 @@ already-running non-abortable node may finish before n8n records the timed-out
 execution. Recovery therefore continues to rely on append-only claim expiry,
 commit guards, idempotent upserts, and complete-report markers.
 
+All workflows explicitly retain failed production executions and manual
+executions, but do not retain successful production executions or per-node
+progress snapshots. The schedules produce 6,322 scheduled executions per week
+before failures or manual runs; retaining every normal payload would duplicate
+large Sheet reads in n8n's execution store even though Sheet state, report
+completion rows, claims, and guarded record fields already provide the
+authoritative result. Failed runs remain inspectable, and saved manual runs
+retain rollout evidence. Instance-level age/count pruning remains a deployment
+control and must still be verified independently.
+
 ## Shared contracts
 
 `config/candidate-profile.json` is the only factual resume source. `config/application-policy.json` is separate so writing preferences cannot become candidate facts. Every evaluation and generated message records the profile version used.

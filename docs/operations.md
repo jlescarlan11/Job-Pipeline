@@ -149,7 +149,14 @@ run must clear zero additional inputs.
    node-level timeout values, and verify timeout recovery from claims, guarded
    commits, idempotent writes, or incomplete report metadata rather than
    assuming an in-flight node is interrupted immediately.
-8. Keep the old workflows enabled only in production. They must not write to the non-production copy.
+8. Confirm every export saves failed production executions and manual
+   executions. Confirm it does not save successful production executions or
+   per-node execution progress. Manual smoke executions therefore retain IDs and data;
+   scheduled success must be verified from sanitized runtime logs and
+   authoritative Sheet state. On self-hosted n8n, separately confirm execution
+   pruning is enabled and record its age/count bounds; the workflow exports do
+   not activate instance-level pruning.
+9. Keep the old workflows enabled only in production. They must not write to the non-production copy.
 
 Credential IDs and cached Sheet references in the exports are environment hints inherited from the existing workflows, not portable authorization.
 
@@ -424,7 +431,8 @@ Only after dry-run evidence passes:
    their values, including that `JOB_PIPELINE_REVIEW_URL` is the full
    `Review Queue` tab deep link, then activate in this order: reviewer, generator, alerter,
    scraper, archiver, analytics, recommender.
-9. Wait for and verify one cycle at each cadence before ending the window.
+9. Wait for and verify one cycle at each cadence from sanitized runtime logs
+   and the authoritative Sheet/report state before ending the window.
 
 Never run old and new writers against the same workbook.
 

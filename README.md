@@ -23,6 +23,12 @@ Recommender 900-second. These workflow budgets complement the shorter
 provider and HTTP node timeouts; they do not authorize automatic application
 submission or unsafe retry.
 
+The same generated settings retain failed production executions and manual
+smoke tests, but do not retain successful production executions or per-node
+progress snapshots. At the configured cadences this avoids saving payloads for
+6,322 normally successful scheduled executions per week; the authoritative
+success state remains in Google Sheets.
+
 The workflows share ten Google Sheet tabs:
 
 - `Sheet1`: active discovery, evaluation, generation, and review records.
@@ -49,7 +55,7 @@ The workflows share ten Google Sheet tabs:
 - `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
 - `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
-- `config/runtime.json`: workflow timezone plus generator and archiver schedules, timeouts, caps, leases, and retries.
+- `config/runtime.json`: workflow timezone and execution-data policy plus generator and archiver schedules, timeouts, caps, leases, and retries.
 - `config/review-sheet.json`: source review controls, Review Queue and Applied Jobs contracts, actions, views, and dashboard fields.
 
 Do not edit embedded workflow Code or the AI Agent system message directly. Change the relevant source/configuration and regenerate the exports.

@@ -976,7 +976,11 @@
   "settings": {
     "executionOrder": "v1",
     "executionTimeout": 900,
-    "timezone": "Asia/Manila"
+    "timezone": "Asia/Manila",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": true
   },
   "versionId": "b14b18d6-0000-4000-8000-000000000012",
   "meta": {

@@ -148,7 +148,27 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
       workflow.settings.executionTimeout,
       `${name} timeout metadata must match settings`
     );
+    assert.equal(workflow.settings.saveDataSuccessExecution, "none", name);
+    assert.equal(workflow.settings.saveDataErrorExecution, "all", name);
+    assert.equal(workflow.settings.saveExecutionProgress, false, name);
+    assert.equal(workflow.settings.saveManualExecutions, true, name);
   }
+
+  const scheduledRunsPerWeek =
+    (7 * 24) / searchPlan.schedule_hours +
+    (7 * 24 * 60) / runtime.generator.schedule_minutes +
+    (7 * 24 * 60) / alertPolicy.schedule_minutes +
+    (7 * 24 * 60) / review.schedule_minutes +
+    (7 * 24 * 60) / runtime.archiver.schedule_minutes +
+    (7 * 24) / analyticsPolicy.schedule_hours +
+    (7 * 24) / recommendationPolicy.schedule_hours;
+  assert.equal(scheduledRunsPerWeek, 6322);
+  assert.equal(
+    Object.values(workflows).filter(
+      (workflow) => workflow.settings.saveDataSuccessExecution !== "none"
+    ).length,
+    0
+  );
 
   assert.equal(
     nodeByName(scraper, "Schedule Trigger").parameters.rule.interval[0].hoursInterval,

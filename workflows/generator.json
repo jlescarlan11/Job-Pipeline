@@ -2274,7 +2274,11 @@
     "executionOrder": "v1",
     "binaryMode": "separate",
     "executionTimeout": 540,
-    "timezone": "Asia/Manila"
+    "timezone": "Asia/Manila",
+    "saveDataSuccessExecution": "none",
+    "saveDataErrorExecution": "all",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": true
   },
   "versionId": "6a86c972-ae1f-4bd7-9816-875544385516",
   "meta": {

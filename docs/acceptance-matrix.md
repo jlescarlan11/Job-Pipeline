@@ -134,6 +134,12 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   their schedules, and timeout/lease ordering wherever a workflow owns a
   claim. The runbook retains shorter node-level provider/HTTP timeouts and
   verifies idempotent recovery rather than assuming immediate mid-node abort.
+- **I6-AC18 — Bounded execution-data writes:** Runtime/config and generated
+  workflow tests require all seven exports to retain failures and manual smoke
+  runs while skipping successful production payloads and per-node progress.
+  The checked-in cadences total 6,322 scheduled runs per week; authoritative
+  success remains in Sheets, and the runbook separately gates instance-level
+  age/count pruning.
 
 ## Issue #8 — Extended learning contract
 
