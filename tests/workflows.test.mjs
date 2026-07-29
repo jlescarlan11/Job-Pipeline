@@ -171,8 +171,10 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     (7 * 24 * 60) / runtime.archiver.schedule_minutes +
     (7 * 24) / analyticsPolicy.schedule_hours +
     (7 * 24) / recommendationPolicy.schedule_hours;
-  assert.equal(scheduledRunsPerWeek, 4978);
+  assert.equal(scheduledRunsPerWeek, 3970);
   assert.equal((7 * 24 * 60) / alertPolicy.schedule_minutes, 2016);
+  assert.equal(review.schedule_minutes, 10);
+  assert.equal((7 * 24 * 60) / review.schedule_minutes, 1008);
   assert.ok(
     (runtime.generator.schedule_minutes / alertPolicy.schedule_minutes) *
       alertPolicy.per_run_cap >=
@@ -298,6 +300,11 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   assert.ok(
     review.execution_timeout_seconds * 1000 <
       review.projection_claim_lease_ms
+  );
+  assert.ok(
+    review.projection_claim_lease_ms <
+      review.schedule_minutes * 60 * 1000,
+    "Reviewer projection lease must expire before the next scheduled poll"
   );
   assert.equal(
     nodeByName(alerter, "Schedule Trigger").parameters.rule.interval[0]

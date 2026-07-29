@@ -137,7 +137,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC18 — Bounded execution-data writes:** Runtime/config and generated
   workflow tests require all seven exports to retain failures and manual smoke
   runs while skipping successful production payloads and per-node progress.
-  The checked-in cadences total 4,978 scheduled runs per week; authoritative
+  The checked-in cadences total 3,970 scheduled runs per week; authoritative
   success remains in Sheets, and the runbook separately gates instance-level
   age/count pruning.
 - **I6-AC19 — Ordered learning schedules:** Configuration, policy, generated
@@ -709,7 +709,11 @@ failures, fixes, and reconciliation are recorded in
   claim cleanup; and formula-visible reads before the Reviewer may exit. The
   stable path uses six reads and no writes instead of at least 14
   Sheet/Sheets API requests, one projection claim, and one Dashboard mutation.
-  Retention work still enters the existing projection-lease arbitration path.
+  At the ten-minute cadence this also avoids 52,560 executions and 315,360
+  mandatory reads per year compared with five-minute polling. Inputs remain
+  durable and are observed within ten minutes; the three-minute timeout and
+  four-minute lease both finish before the next run. Retention work still
+  enters the existing projection-lease arbitration path.
 - **I24-AC25 — Failure/concurrency matrix:** Review, workflow, setup, Archive,
   and E2E suites cover ordering, empty data, duplicates, stale/conflicting
   state, unconfirmed commit, cleanup retry, concurrent Action preservation,

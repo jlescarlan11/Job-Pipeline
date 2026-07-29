@@ -91,7 +91,7 @@ test("runtime documentation preserves failure evidence without successful execut
     assert.match(document, /per-node\s+(?:execution\s+)?progress/i);
   }
   for (const document of [readme, architecture]) {
-    assert.match(document, /4,978 (?:normally successful )?scheduled executions per week/i);
+    assert.match(document, /3,970 (?:normally successful )?scheduled executions per week/i);
   }
   assert.match(operations, /instance-level pruning/i);
 });
@@ -103,8 +103,10 @@ test("Reviewer idle-path documentation preserves the fail-closed operation bound
     assert.match(document, /one[\s\S]{0,40}claim/i);
     assert.match(document, /Dashboard mutation/i);
   }
-  assert.match(architecture, /2,304\s+avoided\s+requests/i);
-  assert.match(architecture, /105,120\s+rows/i);
+  assert.match(architecture, /1,152\s+avoided\s+requests/i);
+  assert.match(architecture, /52,560\s+rows/i);
+  assert.match(architecture, /52,560 Reviewer executions/i);
+  assert.match(architecture, /315,360 mandatory six-surface reads/i);
   assert.match(operations, /review_snapshot_unchanged/i);
   assert.match(operations, /exactly\s+six Sheet reads/i);
   assert.match(

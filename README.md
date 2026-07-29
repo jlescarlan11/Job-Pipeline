@@ -11,7 +11,7 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | `workflows/scraper.json` | Every 4 hours | Start 22 evidence-linked queries, follow source pagination only while a next page exists up to the 3-page cap, preserve result-card alignment, reconcile active/archive history, and append only the winning discovery claim. |
 | `workflows/generator.json` | Every 15 minutes | Select at most 5 eligible jobs, gate Groq on a ready application pack, validate the first draft, make at most one validation-aware repair call, and persist ready, review, retry, or terminal state. |
 | `workflows/alerter.json` | Every 5 minutes | Claim newly ready high-opportunity jobs, send one Slack alert with the complete copy-ready message and safe links through an environment-bound webhook, and persist delivery or bounded failure evidence. |
-| `workflows/reviewer.json` | Every 5 minutes | Exit after six reads when the complete review snapshot is unchanged, otherwise reconcile Review Queue and Applied Jobs, safely commit guarded decisions/outcomes, and publish a post-action funnel summary only when its metrics change. |
+| `workflows/reviewer.json` | Every 10 minutes | Exit after six reads when the complete review snapshot is unchanged, otherwise reconcile Review Queue and Applied Jobs, safely commit guarded decisions/outcomes, and publish a post-action funnel summary only when its metrics change. |
 | `workflows/analytics.json` | Every 24 hours | Read deduplicated active/archive state, skip a content-identical complete result, otherwise publish versioned conversion/calibration detail and mark it complete only after all detail rows persist. |
 | `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, skip an already-current equivalent successful result, otherwise publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
 | `workflows/archiver.json` | Every 45 minutes | Upsert eligible terminal records into Archive, reread both tabs, verify the source snapshot and archive copy, then delete confirmed rows from bottom to top. |
@@ -32,7 +32,7 @@ submission or unsafe retry.
 The same generated settings retain failed production executions and manual
 smoke tests, but do not retain successful production executions or per-node
 progress snapshots. At the configured cadences this avoids saving payloads for
-4,978 normally successful scheduled executions per week; the authoritative
+3,970 normally successful scheduled executions per week; the authoritative
 success state remains in Google Sheets.
 
 The Alerter's five-minute recovery sweep runs 288 times per day instead of 480,
@@ -47,6 +47,11 @@ the snapshot gate, that same path made at least 14 Sheet/Sheets API requests,
 appended one projection claim, and rewrote Dashboard. Each stable run now
 avoids at least eight requests, one claim row, and one Dashboard mutation;
 actual recurring savings scale with the observed number of stable polls.
+Running that fail-closed snapshot every ten rather than five minutes avoids
+52,560 executions and 315,360 mandatory Sheet reads per year. Manual actions,
+projection changes, and concurrent edits remain durable until the next sweep,
+with worst-case observation latency increasing from under five to under ten
+minutes.
 
 Learning-report writers are serialized by timeout-covering store claims.
 Analytics keeps 90 days of normal history, starts cleanup at 120 report rows,

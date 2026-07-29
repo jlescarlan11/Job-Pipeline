@@ -25,7 +25,7 @@ Sheet1: recommended / review_required / ready / recovery
         |      Slack: review / confirm skip in Sheet / open source
         |
         v
-Reviewer (5m) <-- explicit manual_action
+Reviewer (10m) <-- explicit manual_action
         |
         +--> Dashboard: current funnel summary
         |
@@ -50,7 +50,7 @@ Archive: terminal history and employer outcomes
 ```
 
 Configured schedules are scraper every 4 hours, generator every 15 minutes,
-alerter every 5 minutes, reviewer every 5 minutes, archiver every 45 minutes,
+alerter every 5 minutes, reviewer every 10 minutes, archiver every 45 minutes,
 analytics every 24 hours, and recommender every 168 hours. Analytics uses a
 fixed daily 02:00 start, and Recommender uses a fixed Monday 02:45 start, both
 in `Asia/Manila`. This places the weekly consumer after Analytics' 30-minute
@@ -71,7 +71,7 @@ commit guards, idempotent upserts, and complete-report markers.
 
 All workflows explicitly retain failed production executions and manual
 executions, but do not retain successful production executions or per-node
-progress snapshots. The schedules produce 4,978 scheduled executions per week
+progress snapshots. The schedules produce 3,970 scheduled executions per week
 before failures or manual runs; retaining every normal payload would duplicate
 large Sheet reads in n8n's execution store even though Sheet state, report
 completion rows, claims, and guarded record fields already provide the
@@ -381,14 +381,21 @@ valid or invalid actions, all identities are unambiguous, and claim retention
 has no deletion work. A formula, duplicate, missing row, changed cell, pending
 action, source update, invalid projection, or retention batch fails the gate
 closed. An edit after the snapshot is never cleared and is handled by the next
-five-minute poll.
+ten-minute poll. The three-minute execution timeout remains below the
+four-minute projection lease, and both expire before the next scheduled run.
+Actions are processed from the complete snapshot without a per-run action cap,
+so the cadence changes observation latency rather than action throughput.
 
 The exact stable path therefore falls from at least 14 Sheet/Sheets API
 requests to six reads, avoids one `applied_jobs_projection` claim, and avoids a
-Dashboard mutation. At 288 polls per day, the stable-case upper bound is 2,304
-avoided requests and 288 avoided claim rows per day (840,960 requests and
-105,120 rows per 365-day year); actual savings are proportional to stable
-polls.
+Dashboard mutation. At 144 polls per day, the stable-case upper bound is 1,152
+avoided requests and 144 avoided claim rows per day (420,480 requests and
+52,560 rows per 365-day year); actual savings are proportional to stable polls.
+Compared with the previous five-minute schedule, the ten-minute sweep also
+avoids 52,560 Reviewer executions and 315,360 mandatory six-surface reads per
+year. The worst-case projection or manual-action observation time changes from
+under five to under ten minutes; durable inputs and compare-and-commit guards
+are unchanged.
 
 When work is required, the Dashboard upserts one deduplicated current summary
 from the authoritative active/archive reread after guarded Reviewer actions
