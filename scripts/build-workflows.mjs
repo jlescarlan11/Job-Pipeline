@@ -1326,7 +1326,8 @@ let promptBudget = {
 if (pack.application_pack_status === 'ready') {
   try {
     applicationPrompt = buildApplicationUserMessage(record, pack, {
-      maximumCharacters: ${initialUserCharacterBudget}
+      maximumCharacters: ${initialUserCharacterBudget},
+      maximumProofs: ${groqPolicy.generation.maximum_prompt_proofs}
     });
     promptBudget = validateGroqPromptBudget(
       GROQ_POLICY,

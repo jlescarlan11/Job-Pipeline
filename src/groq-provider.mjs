@@ -57,6 +57,7 @@ export function validateGroqProviderPolicy(
     "maximum_output_tokens",
     "maximum_combined_input_characters",
     "repair_reserve_characters",
+    "maximum_prompt_proofs",
     "character_estimate_divisor"
   ]) {
     if (!positiveInteger(generation[field])) {

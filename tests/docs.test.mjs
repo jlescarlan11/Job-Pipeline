@@ -211,6 +211,7 @@ test("Groq documentation preserves the model lifecycle, measurement, and activat
   assert.match(groqProviderDoc, new RegExp(groqProvider.selected_model));
   assert.match(groqProviderDoc, /character-based estimate/i);
   assert.match(groqProviderDoc, /exact provider input/i);
+  assert.match(groqProviderDoc, /two highest-ranked selected profile proofs/i);
   assert.match(groqProviderDoc, /--live/);
   assert.match(groqProviderDoc, /never prints prompts/i);
   assert.match(groqProviderDoc, /rollback/i);

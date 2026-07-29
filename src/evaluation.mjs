@@ -1962,14 +1962,23 @@ function promptSection(label, value) {
 export function buildApplicationUserMessage(
   job,
   pack = {},
-  { maximumCharacters = 50000 } = {}
+  { maximumCharacters = 50000, maximumProofs = 2 } = {}
 ) {
+  if (!Number.isInteger(maximumProofs) || maximumProofs < 1) {
+    throw new Error("application prompt proof limit must be a positive integer");
+  }
+  const promptProofs = Array.isArray(pack.selected_proofs)
+    ? pack.selected_proofs.slice(0, maximumProofs).map((proof) => ({
+        reference: String(proof?.reference || ""),
+        evidence: String(proof?.evidence || "")
+      }))
+    : pack.selected_proofs;
   const prefix = `Write one copy-ready message for this evaluated OnlineJobs.ph job.
 
 Job title: ${job.job_title || ""}
 Company: ${job.company || "Unknown"}${promptSection(
     "SELECTED APPROVED PROOFS",
-    pack.selected_proofs
+    promptProofs
   )}${promptSection(
     "SAFE EMPLOYER FORMATTING INSTRUCTIONS",
     pack.application_instructions

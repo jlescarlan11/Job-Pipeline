@@ -76,6 +76,16 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
     validateGroqProviderPolicy(expired, "2026-08-16T00:00:00.000Z").join("\n"),
     /shutdown date/
   );
+
+  const unboundedProofs = structuredClone(groqPolicy);
+  unboundedProofs.generation.maximum_prompt_proofs = 0;
+  assert.match(
+    validateGroqProviderPolicy(
+      unboundedProofs,
+      "2026-07-30T00:00:00.000Z"
+    ).join("\n"),
+    /maximum_prompt_proofs must be a positive integer/
+  );
 });
 
 test("Groq prompt budget compacts canonical evidence and bounds oversized descriptions", () => {
@@ -100,13 +110,21 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   const system = buildApplicationSystemMessage(profile, applicationPolicy);
   const userBudget = groqInitialUserCharacterBudget(groqPolicy, system);
   const user = buildApplicationUserMessage(job, pack, {
-    maximumCharacters: userBudget
+    maximumCharacters: userBudget,
+    maximumProofs: groqPolicy.generation.maximum_prompt_proofs
   });
   const measurement = validateGroqPromptBudget(groqPolicy, system, user);
 
   assert.equal(measurement.valid, true);
   assert.ok(system.length < 6000);
-  assert.ok(measurement.combined_characters < 10000);
+  assert.equal(pack.selected_proofs.length, 3);
+  assert.equal(groqPolicy.generation.maximum_prompt_proofs, 2);
+  assert.equal(measurement.combined_characters, 5830);
+  assert.equal(measurement.character_based_token_estimate, 1944);
+  assert.ok(user.includes(pack.selected_proofs[0].reference));
+  assert.ok(user.includes(pack.selected_proofs[1].reference));
+  assert.equal(user.includes(pack.selected_proofs[2].reference), false);
+  assert.doesNotMatch(user, /"label"|"relevance_score"/);
   assert.doesNotMatch(system, /12\+ production-blocking defects/);
   assert.match(system, /selected approved proofs are the only candidate facts/i);
   assert.doesNotMatch(user, /Job URL:/);
@@ -116,7 +134,10 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   const oversized = buildApplicationUserMessage(
     job,
     { ...pack, safe_job_description: "TypeScript ".repeat(10000) },
-    { maximumCharacters: userBudget }
+    {
+      maximumCharacters: userBudget,
+      maximumProofs: groqPolicy.generation.maximum_prompt_proofs
+    }
   );
   assert.equal(oversized.length, userBudget);
   assert.match(oversized, /final message satisfying the system prompt\.$/);
@@ -131,6 +152,10 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   )}`;
   assert.equal(validateGroqPromptBudget(groqPolicy, system, repair).valid, true);
   assert.ok(repair.includes(user), "repair must reuse the exact initial evidence packet");
+  assert.throws(
+    () => buildApplicationUserMessage(job, pack, { maximumProofs: 0 }),
+    /proof limit/
+  );
 });
 
 test("Groq benchmark assessment requires measured valid cases and calculates provider cost", () => {

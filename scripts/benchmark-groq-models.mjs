@@ -137,7 +137,8 @@ async function benchmarkCase({
   }
   const userBudget = groqInitialUserCharacterBudget(policy, systemMessage);
   const initialPrompt = buildApplicationUserMessage(evaluated, pack, {
-    maximumCharacters: userBudget
+    maximumCharacters: userBudget,
+    maximumProofs: policy.generation.maximum_prompt_proofs
   });
   if (!validateGroqPromptBudget(policy, systemMessage, initialPrompt).valid) {
     throw new Error(`benchmark fixture ${fixture.id} exceeds the input budget`);

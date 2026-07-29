@@ -25,10 +25,11 @@ The system message instructs Groq to:
 The per-job user message supplies title, company when known, a bounded stored
 description, non-empty safe structured context, unsupported requirements
 labeled for exclusion when present, and the strongest profile-resolved proofs
-selected under `config/application-pack-policy.json`. It omits the job URL and
-empty sections and does not expose match tiers, scores, or evaluation reasons
-as copyable evidence. Unsafe instructions are excluded. It does not add new
-candidate facts.
+selected under `config/application-pack-policy.json`. The provider policy sends
+only the two highest-ranked proofs even when the durable review pack retains a
+third. It omits the job URL and empty sections and does not expose match tiers,
+scores, or evaluation reasons as copyable evidence. Unsafe instructions are
+excluded. It does not add new candidate facts.
 
 Only a deterministically `ready` application pack reaches Groq. A
 `review_required` or `blocked` pack returns to human review with its sanitized

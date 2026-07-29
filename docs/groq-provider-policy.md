@@ -36,22 +36,30 @@ Groq Console remain authoritative.
 
 The generated Groq node uses temperature `0.2` and a 384-token output cap.
 The prompt carries only the canonical identity/approved URLs, compact policy
-constraints, selected profile proofs, non-empty safe employer context, and a
-bounded description. Job URLs and empty sections are omitted. A repair reuses
-the exact initial evidence packet and adds the complete rejected draft plus
-deterministic errors; if that combined input exceeds the provider budget, the
-workflow records a bounded generation failure instead of making an oversized
-repair call.
+constraints, the two highest-ranked selected profile proofs, non-empty safe
+employer context, and a bounded description. The durable pack may retain a
+third approved proof for review and validation, but it is not repeated to the
+provider. Only each prompt proof's canonical reference and evidence are sent;
+the internal relevance score and duplicate display label are omitted. Job URLs
+and empty sections are omitted. A repair reuses the exact initial evidence
+packet and adds the complete rejected draft plus deterministic errors; if that
+combined input exceeds the provider budget, the workflow records a bounded
+generation failure instead of making an oversized repair call.
 
 Offline measurements on the three representative ready fixtures:
 
 | Measurement | Before | After |
 | --- | ---: | ---: |
 | Static system message | 10,262 characters | 3,572 characters |
-| Combined direct-job input | 13,559 characters | 6,620 characters |
-| Combined adjacent-job input | 13,395 characters | 6,454 characters |
-| Combined instruction-job input | 14,148 characters | 7,245 characters |
+| Combined direct-job input | 13,559 characters | 5,830 characters |
+| Combined adjacent-job input | 13,395 characters | 5,391 characters |
+| Combined instruction-job input | 14,148 characters | 6,364 characters |
 | Configured worst-case initial input | about 61,088 characters | 12,000 characters |
+
+Relative to the prior compact three-proof packet, the bounded proof payload
+removes 790, 1,063, and 881 characters respectively (11.9%, 16.5%, and 12.2%).
+A repair reuses the compact initial packet, so it avoids the same repeated
+input again.
 
 The policy's displayed token estimate divides characters by three and is only
 a conservative character-based estimate. It is not a tokenizer count. Exact

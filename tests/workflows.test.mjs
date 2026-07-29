@@ -614,6 +614,12 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.match(packCode, /validateApplicationPack/);
   assert.match(packCode, /application_pack_ready/);
   assert.match(packCode, /buildApplicationUserMessage\(record, pack,\s*\{/);
+  assert.match(
+    packCode,
+    new RegExp(
+      `maximumProofs:\\s*${groqPolicy.generation.maximum_prompt_proofs}`
+    )
+  );
   assert.match(packCode, /provider_prompt_budget/);
   assert.match(packCode, /validateGroqPromptBudget/);
   const generationCode = nodeByName(
