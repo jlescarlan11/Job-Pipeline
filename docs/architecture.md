@@ -362,7 +362,11 @@ archived applied records without replacing the message, profile/policy
 versions, ranking/application snapshot, pack/alert data, notes, identity, or
 decision.
 
-The Dashboard upserts one deduplicated current summary and never infers a reply, interview, offer, or rejection from `applied`.
+The Dashboard upserts one deduplicated current summary from the authoritative
+active/archive reread after guarded Reviewer actions finish. A decision or
+outcome committed by the current execution is therefore included in the same
+execution's summary. The summary never infers a reply, interview, offer, or
+rejection from `applied`.
 
 ## Analytics workflow
 

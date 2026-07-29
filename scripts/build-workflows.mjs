@@ -3119,9 +3119,9 @@ return $('Prepare Review Plan').first().json.archive_direct_updates
       jsCode: `${reviewCore}
 
 const SCHEMA = ${JSON.stringify(schema)};
-const activeRows = ($('Aggregate Active Rows').first().json.active_rows || [])
+const activeRows = ($('Aggregate Active After Review').first().json.active_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
-const archiveRows = ($('Aggregate Archive Rows').first().json.archive_rows || [])
+const archiveRows = ($('Aggregate Archive After Review').first().json.archive_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 return [{ json: buildFunnelSummary(activeRows, archiveRows, SCHEMA, new Date().toISOString()) }];`
     }),
@@ -3382,7 +3382,6 @@ return [{ json: {
       main: [
         [
           connection("Has Active Review Updates"),
-          connection("Prepare Funnel Summary"),
           connection("Log Invalid Review Actions")
         ]
       ]
@@ -3513,7 +3512,10 @@ return [{ json: {
       main: [[connection("Aggregate Archive After Review")]]
     },
     "Aggregate Archive After Review": {
-      main: [[connection("Get Review Queue After Review")]]
+      main: [[
+        connection("Get Review Queue After Review"),
+        connection("Prepare Funnel Summary")
+      ]]
     },
     "Get Review Queue After Review": {
       main: [[connection("Aggregate Current Review Queue")]]

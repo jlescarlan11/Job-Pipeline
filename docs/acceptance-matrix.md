@@ -684,6 +684,11 @@ failures, fixes, and reconciliation are recorded in
 - **I24-AC24 — Adjacent compatibility:** Schedule/config tests plus Dashboard,
   message-safety, Archive, and no-auto-apply regression suites remain
   authoritative.
+- **I24-AC24a — Post-commit Dashboard:** The generated Reviewer launches its
+  funnel summary only from the post-action active/archive reread. Workflow
+  structure tests reject the former initial-snapshot branch, and the runbook
+  verifies a committed decision or outcome appears in the same execution's
+  summary.
 - **I24-AC25 — Failure/concurrency matrix:** Review, workflow, setup, Archive,
   and E2E suites cover ordering, empty data, duplicates, stale/conflicting
   state, unconfirmed commit, cleanup retry, concurrent Action preservation,

@@ -222,6 +222,9 @@ Slack HTTP node must remain an explicit JSON `POST`.
   ready-to-applied with valid and blank optional inputs, duplicate apply/skip,
   ready-to-skipped, progressive reply/interview/rejection, outcome correction,
   an archived applied outcome, and empty first-use tabs.
+- In the same execution that commits a disposable application decision or
+  outcome, confirm the Dashboard summary reflects the post-action
+  active/archive reread; it must not publish the initial pre-commit counts.
 - On disposable queue rows, exercise `Generate Application`, `I Applied`, and
   `Skip`; verify each maps to the expected current `Sheet1` record after source
   row insertion/sorting, consumes the action only after a successful source

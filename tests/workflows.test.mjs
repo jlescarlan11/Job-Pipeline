@@ -1294,6 +1294,17 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   );
   assertDirectConnection(
     workflow,
+    "Aggregate Archive After Review",
+    "Prepare Funnel Summary"
+  );
+  assert.equal(
+    connectionTargets(workflow, "Prepare Review Plan").includes(
+      "Prepare Funnel Summary"
+    ),
+    false
+  );
+  assertDirectConnection(
+    workflow,
     "Aggregate Current Applied Jobs",
     "Prepare Review Queue Reconciliation"
   );
@@ -1409,6 +1420,14 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   );
 
   const dashboard = nodeByName(workflow, "Update Dashboard Summary");
+  const funnelSummary = nodeByName(
+    workflow,
+    "Prepare Funnel Summary"
+  ).parameters.jsCode;
+  assert.match(funnelSummary, /\$\('Aggregate Active After Review'\)/);
+  assert.match(funnelSummary, /\$\('Aggregate Archive After Review'\)/);
+  assert.doesNotMatch(funnelSummary, /\$\('Aggregate Active Rows'\)/);
+  assert.doesNotMatch(funnelSummary, /\$\('Aggregate Archive Rows'\)/);
   assert.equal(dashboard.parameters.operation, "appendOrUpdate");
   assert.deepEqual(dashboard.parameters.columns.matchingColumns, ["metric_key"]);
   assert.equal(dashboard.parameters.sheetName.value, review.dashboard_sheet);
