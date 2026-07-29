@@ -6,7 +6,8 @@ This runbook deliberately separates repository validation from production activa
 
 - Node.js 20 or newer.
 - Access to the intended n8n environment, Google Sheet, Google Sheets OAuth credential, Groq credential, and a test/production Slack incoming webhook as appropriate.
-- Authority to disable the existing three writers and make a Sheet backup.
+- Authority to disable every existing pipeline workflow version, restart n8n,
+  and make a Sheet backup.
 - A non-production Sheet copy. If no staging n8n exists, import the workflows disabled and use manual executions against the copy only.
 
 Record the current time, operator, current n8n workflow IDs/versions, Sheet ID, active row count, Archive row count, and current status counts.
@@ -36,7 +37,8 @@ Confirm the version is current, only approved public contact links are present, 
 Before schema or workflow changes:
 
 1. In Google Sheets, create a timestamped full workbook copy and export an `.xlsx` backup.
-2. Export the currently active scraper, generator, and archiver from n8n.
+2. Export every currently active Scraper, Generator, Alerter, Reviewer,
+   Archiver, Analytics, and Recommender version from n8n.
 3. Preserve current n8n credential bindings separately; never put secret values in the repository.
 4. Record counts for Sheet1, Archive, ProcessingClaims, status,
    applied/skipped decisions, non-empty generated messages, and outcomes.
@@ -172,7 +174,9 @@ run must clear zero additional inputs.
    instance-level pruning or concurrency controls. For Cloud or queue mode,
    record the plan/worker controls and create a separately reviewed profile
    rather than claiming this one.
-10. Keep the old workflows enabled only in production. They must not write to the non-production copy.
+10. Keep every old Scraper, Generator, Alerter, Reviewer, Archiver, Analytics,
+    and Recommender copy enabled only in production. They must not write to the
+    non-production copy.
 
 Credential IDs and cached Sheet references in the exports are environment hints inherited from the existing workflows, not portable authorization.
 
@@ -532,27 +536,99 @@ failure per source workflow without provider retries. Saved failed executions
 and internal metrics remain authoritative if that notification path also
 fails.
 
+Create the target map outside the repository with owner-only permissions. It
+contains instance workflow IDs but no API key:
+
+```json
+{
+  "schema_version": 1,
+  "inventory_scope": {
+    "instance_wide_workflow_list_confirmed": true,
+    "instance_wide_execution_list_confirmed": true
+  },
+  "targets": {
+    "scraper": "INSTANCE_WORKFLOW_ID",
+    "generator": "INSTANCE_WORKFLOW_ID",
+    "alerter": "INSTANCE_WORKFLOW_ID",
+    "reviewer": "INSTANCE_WORKFLOW_ID",
+    "archiver": "INSTANCE_WORKFLOW_ID",
+    "analytics": "INSTANCE_WORKFLOW_ID",
+    "recommender": "INSTANCE_WORKFLOW_ID"
+  },
+  "runtime_restart": {
+    "method": "process_restart",
+    "completed_at": "YYYY-MM-DDTHH:mm:ss.sssZ",
+    "readiness_checked_at": "YYYY-MM-DDTHH:mm:ss.sssZ",
+    "readiness_recovered": true
+  }
+}
+```
+
+Provide `N8N_PUBLIC_API_URL` ending at `/api/v1/` and an API identity with
+instance-wide workflow-list and execution-list read access through the
+production secret manager only when running `capture:cutover`. Use the
+least-privilege key that still has both instance-wide list scopes; a
+project-limited or sharing-limited identity cannot prove that older copies are
+inactive. Set the two scope confirmations only after checking the key's
+effective access. Do not put the key or URL in the map, command history, logs,
+or evidence. The collector performs only paginated GETs and emits sanitized
+records; default repository validation never calls n8n.
+
 1. Schedule a low-activity window.
-2. Disable every old scraper/generator/archiver writer and verify no execution remains running.
-3. Back up production again.
-4. Run the Sheet migration and repeat the count/message/decision checks.
-5. Import/rebind the seven new workflows while inactive.
-6. Manually execute and verify the reviewer on production data without setting
+2. Back up production again.
+3. Run the Sheet migration and repeat the count/message/decision checks.
+4. Import/rebind the seven new workflows while inactive. Record their actual
+   instance IDs as the seven target IDs; do not infer an ID from the portable
+   export filename or version.
+5. Disable every old Scraper, Generator, Alerter, Reviewer, Archiver,
+   Analytics, and Recommender copy by unpublishing or deactivating it. Keep all
+   seven targets inactive.
+6. Restart the regular-mode n8n process to remove any schedule registration
+   cached before the deactivation. This restart clears cached schedule
+   registrations. Wait for `/healthz/readiness` to recover,
+   then record the restart and readiness timestamps in the target map.
+7. Capture and validate the pre-activation state:
+
+   ```bash
+   npm run capture:cutover -- pre_activation /secure/target-map.json /secure/pre-cutover.json
+   npm run validate:cutover -- /secure/pre-cutover.json
+   ```
+
+   The gate must find complete Public API pagination, all target and non-target
+   pipeline copies inactive, and zero pipeline executions in `new`, `running`,
+   or `waiting`. An unrecognized `Job Application Pipeline` workflow, a
+   multiply matching role, a missing target, an incomplete page chain, or any
+   in-flight pipeline execution blocks activation.
+8. Manually execute and verify the reviewer on production data without setting
    actions. Confirm the new queue projection and source/archive/dashboard
    counts before enabling schedules.
-7. Verify the sanitized Groq benchmark evidence, current model permission,
+9. Verify the sanitized Groq benchmark evidence, current model permission,
    selected model ID, and account-specific rate limits still meet
    `config/groq-provider-policy.json`. A
    `benchmark_required`, forbidden, deprecated, or shutdown selection blocks
    Generator activation.
-8. Verify the production Slack/review environment variables without recording
+10. Verify the production Slack/review environment variables without recording
    their values, including that `JOB_PIPELINE_REVIEW_URL` is the full
    `Review Queue` tab deep link, then activate in this order: reviewer, generator, alerter,
    scraper, archiver, analytics, recommender. After activation, re-open both
    learning workflow triggers and verify Analytics remains daily at 02:00 and
    Recommender remains Monday at 02:45 in `Asia/Manila`; activation time must
    not define their relative phase.
-9. Wait for and verify one cycle at each cadence from sanitized runtime logs
+11. Capture and validate the post-activation state into a new file:
+
+    ```bash
+    npm run capture:cutover -- post_activation /secure/target-map.json /secure/post-cutover.json
+    npm run validate:cutover -- /secure/post-cutover.json
+    ```
+
+    Exactly the recorded target ID for each of the seven roles must be active
+    with a registered trigger. Any active non-target copy blocks completion of
+    the activation window. The collector refuses to overwrite an evidence file
+    and excludes pinned data, node parameters, credential references, execution
+    payloads, and the API key. Keep the files outside the repository, do not
+    attach them to tickets, and delete them under the release-evidence
+    retention policy after recording the pass result.
+12. Wait for and verify one cycle at each cadence from sanitized runtime logs
    and the authoritative Sheet/report state before ending the window.
 
 Never run old and new writers against the same workbook.

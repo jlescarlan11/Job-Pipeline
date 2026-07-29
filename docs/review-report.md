@@ -11,7 +11,7 @@ also includes the closed #1–#6 behavior on which these changes depend.
 
 ## Result
 
-The repository implementation is ready for disabled import and non-production smoke testing. All checked-in workflows remain inactive, default validation is offline, and application submission remains a manual candidate action. Production activation is intentionally gated by the backup, migration, rebinding, smoke, and old-writer shutdown procedure in `docs/operations.md`.
+The repository implementation is ready for disabled import and non-production smoke testing. All checked-in workflows remain inactive, default validation is offline, and application submission remains a manual candidate action. Production activation is intentionally gated by the backup, migration, rebinding, smoke, and seven-role old-version shutdown procedure in `docs/operations.md`.
 
 ## Security and privacy
 
@@ -76,7 +76,9 @@ The repository implementation is ready for disabled import and non-production sm
   workbook copy, credential rebinding, disabled smoke executions, hand-checked
   analytics/recommendations, count reconciliation, old-writer shutdown, ordered
   activation, production observation, recommender-only disablement, and
-  preservation-first rollback. Future automatic calibration is an explicit
+  preservation-first rollback. The version cutover inventories all seven roles
+  before and after activation, restarts n8n to clear cached registrations, and
+  rejects any older active copy. Future automatic calibration is an explicit
   separate approval gate.
 
 ## Findings resolved during review

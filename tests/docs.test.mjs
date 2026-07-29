@@ -206,6 +206,41 @@ test("runbook contains every release and rollback safety gate", () => {
   assert.match(operations, /model permission/i);
 });
 
+test("runbook gates old and new versions for all seven workflow roles", () => {
+  for (const role of [
+    "Scraper",
+    "Generator",
+    "Alerter",
+    "Reviewer",
+    "Archiver",
+    "Analytics",
+    "Recommender"
+  ]) {
+    assert.match(
+      operations,
+      new RegExp(`old[\\s\\S]{0,160}${role}|${role}[\\s\\S]{0,160}old`, "i"),
+      `cutover omits old ${role} copies`
+    );
+  }
+  assert.match(operations, /capture:cutover -- pre_activation/i);
+  assert.match(operations, /capture:cutover -- post_activation/i);
+  assert.match(
+    operations,
+    /restart[\s\S]{0,100}cached\s+schedule\s+registrations?/i
+  );
+  assert.match(operations, /new`, `running`,\s+or `waiting`/i);
+  assert.match(
+    operations,
+    /Exactly the recorded target ID[\s\S]{0,100}seven roles/i
+  );
+  assert.match(deploymentDoc, /unrecognized or multiply matching/i);
+  assert.match(
+    architecture,
+    /exactly one active workflow[\s\S]{0,100}seven\s+roles/i
+  );
+  assert.equal(deploymentPolicy.workflow_cutover.roles.length, 7);
+});
+
 test("weekly recommendation documentation preserves evidence and no-mutation boundaries", () => {
   assert.match(
     recommendationsDoc,

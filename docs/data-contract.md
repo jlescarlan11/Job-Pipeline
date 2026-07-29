@@ -193,8 +193,10 @@ current compatibility value and do not create fabricated `outcome_events`.
 3. Normalize records into a copy and validate counts, identity uniqueness,
    generated messages, and manual decisions.
 4. Enable new workflow writers only after legacy and canonical readers agree.
-5. Keep the old writer disabled during the cutover to prevent conflicting
-   state updates.
+5. Keep every old Scraper, Generator, Alerter, Reviewer, Archiver, Analytics,
+   and Recommender workflow copy inactive during the cutover. Restart n8n to
+   clear cached schedule registrations, then require the documented
+   pre-activation and post-activation inventory gates to pass.
 6. Retain the trailing-space legacy header through this rollout; only the
    canonical `created_at` column is written by the new workflows.
 7. Inspect version cells through raw-value reads after setup and confirm that a

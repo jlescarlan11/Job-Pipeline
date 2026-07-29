@@ -98,8 +98,13 @@ proves a maximum of two simultaneous scheduled executions and requires one
 remaining production slot; aligned phase drift that would create five
 simultaneous interval starts is rejected. Even if all 1,730 scheduled weekly
 executions fail, 14 days produces 3,460 saved executions and remains below the
-count cap. The template is validated but not claimed active until
-`npm run validate:deployment` succeeds inside the production runtime.
+count cap. Both models assume exactly one active workflow for each of the seven
+roles. The deployment policy therefore classifies complete, instance-wide
+Public API inventories by stable role signatures; the activation runbook
+requires every older copy inactive before activation and exactly the recorded
+seven target IDs active afterward. The template is validated but not claimed
+active until `npm run validate:deployment` succeeds inside the production
+runtime.
 
 Unexpected failures use saved execution evidence plus externally scraped
 metrics. A central error-workflow ID is not embedded: it is assigned by the

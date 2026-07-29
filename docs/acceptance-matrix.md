@@ -123,7 +123,10 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC9 — Docs match exports:** README/architecture plus automated schedule/cap/retry/version drift checks.
 - **I6-AC10 — Profile/policy docs:** `docs/candidate-profile.md` and `docs/master-prompt.md` identify canonical sources/version behavior.
 - **I6-AC11 — Complete Sheet schema:** `docs/sheet-schema.md` defines all 90 canonical record fields, nine tabs, actions, states, and compatibility.
-- **I6-AC12 — Rollout runbook:** `docs/operations.md` includes backup, migration, profile validation, dry run, old-writer shutdown, activation, and checks.
+- **I6-AC12 — Rollout runbook:** `docs/operations.md` includes backup,
+  migration, profile validation, dry run, a runtime restart, complete
+  pre/post inventories that reject older active copies of all seven roles,
+  ordered activation, and checks.
 - **I6-AC13 — Rollback preservation:** Runbook keeps canonical identity, active/ready data, decisions/outcomes, and Archive dedup history.
 - **I6-AC14 — Production observations:** Runbook defines coverage, dedup, evaluation, generation, retry, stuck-claim, review, and archive counts without success targets.
 - **I6-AC15 — Drift failure:** Generated workflow/Sheet `--check` commands plus export/config tests fail `npm run validate` on critical drift.

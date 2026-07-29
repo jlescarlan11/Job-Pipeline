@@ -16,6 +16,24 @@ record the Cloud plan limit or create a separately reviewed queue-mode profile.
 n8n recommends worker concurrency of at least 5 in queue mode, while the
 regular-mode policy here sets the production concurrency limit to 3.
 
+The same policy defines stable structural signatures for all seven pipeline
+roles. They are used by the separate, evidence-driven cutover commands:
+
+```bash
+npm run capture:cutover -- pre_activation /secure/target-map.json /secure/pre.json
+npm run validate:cutover -- /secure/pre.json
+npm run capture:cutover -- post_activation /secure/target-map.json /secure/post.json
+npm run validate:cutover -- /secure/post.json
+```
+
+`capture:cutover` is the only repository validation command in this section
+that calls n8n. It performs paginated, read-only Public API GETs when an
+operator explicitly supplies `N8N_PUBLIC_API_URL` and `N8N_API_KEY`.
+The API identity must have instance-wide workflow-list and execution-list
+visibility; project-limited results cannot prove the absence of an older copy.
+`validate:cutover`, `validate:deployment`, and default `npm run validate`
+remain offline.
+
 ## Capacity and overlap
 
 n8n regular mode has no production concurrency limit by default. The template
@@ -133,6 +151,56 @@ official documentation for [execution variables](https://docs.n8n.io/deploy/host
 and [error workflows](https://docs.n8n.io/build/flow-logic/handle-errors-gracefully).
 Schedule behavior is also checked against the official
 [Schedule Trigger documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/).
+The cutover collector follows the official Public API
+[workflow inventory](https://docs.n8n.io/api/api-reference/) and
+[cursor pagination](https://docs.n8n.io/api/pagination/) contract: workflow
+responses expose active state and trigger count, and collection responses must
+be followed until `nextCursor` is empty.
+
+## Seven-role workflow cutover
+
+Importing a workflow whose top-level ID is absent creates another n8n workflow
+record. Four portable exports have no instance ID, so merely deactivating the
+three original Scraper, Generator, and Archiver records cannot exclude an
+older active Alerter, Reviewer, Analytics, or Recommender. Claims reduce some
+duplicate durable writes, but they do not eliminate duplicate Slack delivery
+risk, recurring reads, report attempts, or scheduled-capacity consumption.
+
+The cutover gate treats every workflow whose name contains
+`Job Application Pipeline`, or whose nodes match a role signature, as a
+pipeline candidate. An unrecognized or multiply matching candidate blocks the
+cutover instead of being ignored. Target IDs are instance-specific and live
+only in the operator's temporary target map. The validator also requires the
+operator to confirm that the API identity can list workflows and executions
+instance-wide; cursor completion inside a restricted project is insufficient.
+
+Before activation:
+
+1. Import and rebind the seven target workflows while inactive.
+2. Unpublish or deactivate every existing copy of all seven roles.
+3. Restart the regular-mode n8n runtime. This is mandatory even if stored
+   `active=false` values look correct, because a prior CLI import may not have
+   removed schedules cached by the old process.
+4. Wait for readiness to recover and record the restart/readiness timestamps.
+5. Capture the complete workflow inventory plus complete `new`, `running`, and
+   `waiting` execution inventories.
+6. Require the pre-activation validator to report that all target and
+   non-target pipeline copies are inactive and no pipeline execution remains
+   in flight.
+
+After ordered activation, capture the complete workflow inventory again. The
+post-activation validator requires exactly one active workflow for each role,
+requires it to be the recorded target ID with at least one registered trigger,
+and rejects every active non-target copy.
+
+The capture output contains only workflow ID, name, active/archive state,
+trigger count, node name/type pairs, and minimal in-flight execution metadata.
+It excludes pinned data, node parameters, credential references, execution
+payloads, and the API key. Write the target map and evidence outside the
+repository with owner-only permissions, do not attach them to tickets, and
+delete them under the release-evidence retention policy after recording the
+pass result. The collector refuses to overwrite an existing evidence file and
+requires HTTPS except for a loopback n8n endpoint.
 
 ## Rollout and rollback
 
@@ -142,7 +210,10 @@ scraped metrics. Create a controlled collision of disabled-copy executions and
 confirm FIFO release without a five-minute queue wait. Seed only synthetic
 failed executions and verify age/count pruning after the hard-delete buffer.
 Before activating the production exports, inspect each generated custom cron
-rule in n8n and compare its next three local fire times with the runbook.
+rule in n8n and compare its next three local fire times with the runbook. Then
+complete the seven-role pre-activation evidence gate. Repeat the inventory
+capture immediately after ordered activation and require the post-activation
+gate to pass before ending the maintenance window.
 
 For rollback, preserve the previous environment configuration, stop new
 activations, wait for running and queued executions, restore the prior values,

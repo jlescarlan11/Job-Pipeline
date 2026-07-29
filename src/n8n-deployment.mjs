@@ -3,6 +3,7 @@ import {
   validateMinuteIntervalSchedule,
   validateRecommendationSchedule
 } from "./schedules.mjs";
+import { validateWorkflowCutoverPolicy } from "./workflow-cutover.mjs";
 
 const OFFICIAL_SOURCE_PREFIX = "https://docs.n8n.io/";
 const WEEK_MINUTES = 7 * 24 * 60;
@@ -261,6 +262,7 @@ export function validateN8nDeploymentPolicy(policy, configs) {
   if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
     return ["n8n deployment policy must be an object"];
   }
+  errors.push(...validateWorkflowCutoverPolicy(policy));
   if (policy.schema_version !== 1) {
     errors.push("n8n deployment policy schema_version must be 1");
   }

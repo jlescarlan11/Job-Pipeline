@@ -113,6 +113,8 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
     "alert_delivery",
     "alert_delivery"
   ];
+  invalid.workflow_cutover.roles =
+    invalid.workflow_cutover.roles.slice(0, 6);
   invalid.failure_detection.central_error_workflow_bound = true;
   const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
   assert.match(errors, /execution pruning must be enabled/);
@@ -127,6 +129,7 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
     errors,
     /canonical backlog and provider-result workflow events/
   );
+  assert.match(errors, /exactly seven unique roles/);
   assert.match(errors, /without a fabricated error-workflow binding/);
 });
 

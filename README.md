@@ -84,7 +84,9 @@ For self-hosted regular-mode n8n, the checked-in deployment template caps
 production concurrency at 3, rejects a scheduled burst above 2, retains a
 full 14-day all-scheduled-failure window (336 hours) within 10,000 execution
 rows, enables internal health/metrics, and pins
-the same execution-data defaults used by every workflow. Run
+the same execution-data defaults used by every workflow. It also defines
+seven structural workflow-role signatures for a fail-closed version cutover.
+Run
 `npm run validate:deployment` inside the configured runtime before activation;
 repository JSON does not claim those instance-level controls are already live.
 
@@ -115,7 +117,7 @@ The workflows share ten Google Sheet tabs:
 - `config/report-retention.json`: guarded Analytics and Recommender history bounds, cleanup batches, and store leases.
 - `config/n8n-deployment-policy.json`: validated self-hosted regular-mode
   concurrency, pruning, monitoring thresholds, structured workflow-event
-  contract, and failure-detection template.
+  contract, failure-detection template, and seven-role workflow-cutover gate.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
 - `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
 - `config/runtime.json`: workflow timezone and execution-data policy plus generator and archiver schedules, timeouts, caps, leases, and retries.
@@ -141,7 +143,10 @@ npm run validate
 3. Import all seven workflow JSON files into a non-production or disabled n8n context.
 4. Replace the exported environment-specific Sheet and credential references with test resources.
 5. Run the documented dry-run and smoke checks while every workflow remains disabled.
-6. Activate production workflows only in the documented order after the old writers are disabled and verification evidence is recorded.
+6. Activate production workflows only in the documented order after every old
+   Scraper, Generator, Alerter, Reviewer, Archiver, Analytics, and Recommender
+   copy is inactive, the runtime has restarted, and both cutover evidence gates
+   pass.
 
 No workflow applies to jobs. A candidate must copy/review the validated message,
 submit it on OnlineJobs.ph, and explicitly choose `I Applied` or `Skip` in

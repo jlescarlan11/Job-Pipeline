@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v5",
+  "policy_version": "2026-07-30/v6",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -10,7 +10,9 @@
     "https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/monitor-n8n",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/enable-prometheus-metrics",
     "https://docs.n8n.io/build/flow-logic/handle-errors-gracefully",
-    "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/"
+    "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/",
+    "https://docs.n8n.io/api/api-reference/",
+    "https://docs.n8n.io/api/pagination/"
   ],
   "environment": {
     "GENERIC_TIMEZONE": "Asia/Manila",
@@ -77,5 +79,98 @@
     "mode": "external_metrics_and_saved_failures",
     "central_error_workflow_bound": false,
     "reason": "Error-workflow selection stores an instance-assigned workflow binding and error executions bypass the production concurrency limit. Portable exports instead retain failed executions and require external metrics and durable-state alerts."
+  },
+  "workflow_cutover": {
+    "schema_version": 1,
+    "public_api_path": "/api/v1",
+    "inventory_page_limit": 250,
+    "inventory_scope_required": "instance_wide",
+    "exclude_pinned_data": true,
+    "pipeline_name_marker": "Job Application Pipeline",
+    "runtime_restart_required": true,
+    "pre_activation_execution_statuses": [
+      "new",
+      "running",
+      "waiting"
+    ],
+    "roles": [
+      {
+        "role": "scraper",
+        "name_markers": [
+          "Scraper",
+          "Resume-Driven Discovery"
+        ],
+        "required_node_names": [
+          "Fetch Search Page",
+          "Append Discovered Jobs"
+        ]
+      },
+      {
+        "role": "generator",
+        "name_markers": [
+          "Generator",
+          "Evaluation and Generation"
+        ],
+        "required_node_names": [
+          "Evaluate Job",
+          "Commit Generation Result"
+        ]
+      },
+      {
+        "role": "alerter",
+        "name_markers": [
+          "Alerter",
+          "High-Match Alerts"
+        ],
+        "required_node_names": [
+          "Send Slack Alert",
+          "Commit Alert Result"
+        ]
+      },
+      {
+        "role": "reviewer",
+        "name_markers": [
+          "Reviewer",
+          "Review Actions and Outcomes"
+        ],
+        "required_node_names": [
+          "Prepare Review Plan",
+          "Update Active Review Actions"
+        ]
+      },
+      {
+        "role": "archiver",
+        "name_markers": [
+          "Archiver",
+          "Idempotent Archive"
+        ],
+        "required_node_names": [
+          "Prepare Archive Candidates",
+          "Delete Confirmed Active Rows"
+        ]
+      },
+      {
+        "role": "analytics",
+        "name_markers": [
+          "Analytics",
+          "Conversion Analytics"
+        ],
+        "required_node_names": [
+          "Build Analytics Report",
+          "Publish Complete Analytics Report"
+        ]
+      },
+      {
+        "role": "recommender",
+        "name_markers": [
+          "Recommender",
+          "Weekly Recommendations"
+        ],
+        "required_node_names": [
+          "Build Weekly Recommendations",
+          "Publish Recommendation Report"
+        ]
+      }
+    ]
   }
 }
