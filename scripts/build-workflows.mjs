@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { validateReviewQueueConfig } from "../src/review.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const checkOnly = process.argv.includes("--check");
@@ -43,6 +44,40 @@ function codeNode({ id, name, position, jsCode, mode }) {
     },
     type: "n8n-nodes-base.code",
     typeVersion: 2,
+    position,
+    id,
+    name
+  };
+}
+
+function booleanIfNode({ id, name, position, leftValue }) {
+  return {
+    parameters: {
+      conditions: {
+        options: {
+          caseSensitive: true,
+          leftValue: "",
+          typeValidation: "strict",
+          version: 3
+        },
+        conditions: [
+          {
+            id: `${id}-condition`,
+            leftValue,
+            rightValue: true,
+            operator: {
+              type: "boolean",
+              operation: "true",
+              singleValue: true
+            }
+          }
+        ],
+        combinator: "and"
+      },
+      options: {}
+    },
+    type: "n8n-nodes-base.if",
+    typeVersion: 2.3,
     position,
     id,
     name
@@ -118,7 +153,10 @@ function schemaColumns(fields) {
 }
 
 function sheetExpression(field) {
-  return `={{ Array.isArray($json.${field}) ? JSON.stringify($json.${field}) : ($json.${field} ?? '') }}`;
+  const accessor = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(field)
+    ? `$json.${field}`
+    : `$json[${JSON.stringify(field)}]`;
+  return `={{ Array.isArray(${accessor}) ? JSON.stringify(${accessor}) : (${accessor} ?? '') }}`;
 }
 
 function appendSheetNode({ base, id, name, position, fields }) {
@@ -1560,6 +1598,12 @@ async function buildReviewer() {
   const archiver = await readJson("workflows/archiver.json");
   const schema = await readJson("config/pipeline-schema.json");
   const reviewConfig = await readJson("config/review-sheet.json");
+  const reviewQueueErrors = validateReviewQueueConfig(reviewConfig, schema);
+  if (reviewQueueErrors.length > 0) {
+    throw new Error(
+      `Invalid review queue configuration:\n- ${reviewQueueErrors.join("\n- ")}`
+    );
+  }
   const profile = await readJson("config/candidate-profile.json");
   const applicationPolicy = await readJson(
     "config/application-policy.json"
@@ -1577,7 +1621,7 @@ async function buildReviewer() {
 
   const schedule = nodeByName(generator, "Schedule Trigger");
   schedule.id = "88af9ce3-b45f-4aa8-a980-000000000001";
-  schedule.position = [-900, 240];
+  schedule.position = [-1810, 240];
   schedule.parameters = {
     rule: {
       interval: [
@@ -1591,32 +1635,55 @@ async function buildReviewer() {
 
   const activeRead = nodeByName(generator, "Get Active Rows");
   activeRead.id = "88af9ce3-b45f-4aa8-a980-000000000002";
-  activeRead.position = [-700, 240];
+  activeRead.position = [-1600, 240];
+  activeRead.alwaysOutputData = true;
 
   const archiveRead = nodeByName(archiver, "Get Archive Rows");
   archiveRead.id = "88af9ce3-b45f-4aa8-a980-000000000004";
-  archiveRead.position = [-280, 240];
+  archiveRead.position = [-1180, 240];
   archiveRead.alwaysOutputData = true;
 
-  const sharedCode = `${reviewCore}
+  const queueRead = structuredClone(activeRead);
+  queueRead.id = "88af9ce3-b45f-4aa8-a980-000000000005";
+  queueRead.name = "Get Review Queue Rows";
+  queueRead.position = [-760, 240];
+  queueRead.parameters.sheetName = {
+    __rl: true,
+    value: reviewConfig.review_queue.sheet,
+    mode: "name",
+    cachedResultName: reviewConfig.review_queue.sheet
+  };
+  queueRead.alwaysOutputData = true;
+
+  const planCode = `${reviewCore}
 
 const SCHEMA = ${JSON.stringify(schema)};
+const REVIEW_CONFIG = ${JSON.stringify(reviewConfig)};
 const MESSAGE_SAFETY = {
   profile: ${JSON.stringify(profile)},
   applicationPolicy: ${JSON.stringify(applicationPolicy)},
   packPolicy: ${JSON.stringify(packPolicy)}
 };
-const activeRows = $('Aggregate Active Rows').first().json.active_rows || [];
-const archiveRows = $input.all().map((item) => item.json).filter((row) => row && Object.keys(row).length > 0);
+const activeRows = ($('Aggregate Active Rows').first().json.active_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const archiveRows = ($('Aggregate Archive Rows').first().json.archive_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const queueRows = ($('Aggregate Review Queue Rows').first().json.queue_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
 const now = new Date().toISOString();
 const processed = processReviewActions(
   activeRows,
   archiveRows,
   SCHEMA,
   now,
-  MESSAGE_SAFETY
+  MESSAGE_SAFETY,
+  {
+    queueRows,
+    reviewConfig: REVIEW_CONFIG,
+    executionId: String($execution.id)
+  }
 );
-`;
+return [{ json: processed }];`;
 
   const updateFields = [
     "state_guard",
@@ -1654,6 +1721,12 @@ const processed = processReviewActions(
     "updated_at"
   ];
 
+  const activeUpdateBase = structuredClone(activeRead);
+  const queueAppendBase = structuredClone(activeRead);
+  queueAppendBase.parameters.sheetName = structuredClone(
+    queueRead.parameters.sheetName
+  );
+
   const dashboardNodeBase = structuredClone(activeRead);
   dashboardNodeBase.parameters.sheetName = {
     __rl: true,
@@ -1662,66 +1735,170 @@ const processed = processReviewActions(
     cachedResultName: reviewConfig.dashboard_sheet
   };
 
+  const activeAfterReview = structuredClone(activeRead);
+  activeAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000017";
+  activeAfterReview.name = "Get Active After Review";
+  activeAfterReview.position = [500, 20];
+  activeAfterReview.alwaysOutputData = true;
+
+  const queueAfterReview = structuredClone(queueRead);
+  queueAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000019";
+  queueAfterReview.name = "Get Review Queue After Review";
+  queueAfterReview.position = [900, 20];
+
+  const deleteQueueRows = nodeByAnyName(archiver, [
+    "Delete Confirmed Active Rows",
+    "Delete rows or columns from sheet"
+  ]);
+  deleteQueueRows.id = "88af9ce3-b45f-4aa8-a980-000000000025";
+  deleteQueueRows.name = "Delete Existing Review Queue Rows";
+  deleteQueueRows.position = [2080, -60];
+  deleteQueueRows.parameters = {
+    operation: "delete",
+    documentId: structuredClone(activeRead.parameters.documentId),
+    sheetName: structuredClone(queueRead.parameters.sheetName),
+    startIndex: "={{ $json.row_number }}"
+  };
+
+  const reconciliationCode = `${reviewCore}
+
+const SCHEMA = ${JSON.stringify(schema)};
+const REVIEW_CONFIG = ${JSON.stringify(reviewConfig)};
+const activeRows = ($('Aggregate Active After Review').first().json.active_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const currentQueueRows = ($('Aggregate Current Review Queue').first().json.queue_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const initialQueueRows = ($('Aggregate Review Queue Rows').first().json.queue_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const reconciliation = reconcileReviewQueue(
+  activeRows,
+  currentQueueRows,
+  initialQueueRows,
+  SCHEMA,
+  REVIEW_CONFIG,
+  new Date().toISOString()
+);
+console.log(JSON.stringify({
+  event: 'review_queue_reconciliation',
+  projected: reconciliation.queue_rows.length,
+  deleted: reconciliation.delete_rows.length,
+  protected_actions: reconciliation.protected_action_count,
+  invalid_records: reconciliation.invalid_records
+}));
+return [{ json: reconciliation }];`;
+
   const nodes = [
     schedule,
     activeRead,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000003",
       name: "Aggregate Active Rows",
-      position: [-480, 240],
+      position: [-1390, 240],
       destinationFieldName: "active_rows"
     }),
     archiveRead,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000028",
+      name: "Aggregate Archive Rows",
+      position: [-970, 240],
+      destinationFieldName: "archive_rows"
+    }),
+    queueRead,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000029",
+      name: "Aggregate Review Queue Rows",
+      position: [-550, 240],
+      destinationFieldName: "queue_rows"
+    }),
     codeNode({
-      id: "88af9ce3-b45f-4aa8-a980-000000000005",
-      name: "Prepare Active Review Updates",
-      position: [-40, 20],
-      jsCode: `${sharedCode}
-return processed.active_updates.map((record) => ({ json: record }));`
+      id: "88af9ce3-b45f-4aa8-a980-000000000030",
+      name: "Prepare Review Plan",
+      position: [-340, 240],
+      jsCode: planCode
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000031",
+      name: "Has Active Review Updates",
+      position: [-120, 20],
+      leftValue: "={{ $json.active_updates.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000032",
+      name: "Prepare Active Review Claims",
+      position: [100, -80],
+      jsCode:
+        "return $('Prepare Review Plan').first().json.active_claims.map((record) => ({ json: record }));"
     }),
     updateSheetByFieldNode({
-      base: activeRead,
+      base: activeUpdateBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000033",
+      name: "Mark Active Review Claims",
+      position: [300, -80],
+      matchingField: "state_guard",
+      fields: ["processing_commit_guard"]
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000034",
+      name: "Prepare Claimed Active Review Updates",
+      position: [500, -80],
+      jsCode: `const marked = new Set(
+  $input.all()
+    .map((item) => String(item.json.processing_commit_guard || ''))
+    .filter(Boolean)
+);
+return $('Prepare Review Plan').first().json.active_updates
+  .filter((record) => marked.has(String(record.processing_commit_guard || '')))
+  .map((record) => ({ json: record }));`
+    }),
+    updateSheetByFieldNode({
+      base: activeUpdateBase,
       id: "88af9ce3-b45f-4aa8-a980-000000000006",
       name: "Update Active Review Actions",
-      position: [220, 20],
-      matchingField: "canonical_job_id",
+      position: [700, -80],
+      matchingField: "processing_commit_guard",
       fields: updateFields
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000007",
       name: "Prepare Archive Review Updates",
-      position: [-40, 180],
-      jsCode: `${sharedCode}
-return processed.archive_updates.map((record) => ({ json: record }));`
+      position: [-120, 340],
+      jsCode:
+        "return $('Prepare Review Plan').first().json.archive_updates.map((record) => ({ json: record }));"
     }),
     updateSheetByFieldNode({
       base: archiveRead,
       id: "88af9ce3-b45f-4aa8-a980-000000000008",
       name: "Update Archive Review Actions",
-      position: [220, 180],
+      position: [100, 340],
       matchingField: "canonical_job_id",
       fields: updateFields
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000009",
       name: "Prepare Funnel Summary",
-      position: [-40, 340],
-      jsCode: `${sharedCode}
-return [{ json: buildFunnelSummary(activeRows, archiveRows, SCHEMA, now) }];`
+      position: [-120, 500],
+      jsCode: `${reviewCore}
+
+const SCHEMA = ${JSON.stringify(schema)};
+const activeRows = ($('Aggregate Active Rows').first().json.active_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const archiveRows = ($('Aggregate Archive Rows').first().json.archive_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+return [{ json: buildFunnelSummary(activeRows, archiveRows, SCHEMA, new Date().toISOString()) }];`
     }),
     upsertSheetNode({
       base: dashboardNodeBase,
       id: "88af9ce3-b45f-4aa8-a980-000000000010",
       name: "Update Dashboard Summary",
-      position: [220, 340],
+      position: [100, 500],
       fields: reviewConfig.dashboard_fields,
       matchingField: "metric_key"
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000011",
       name: "Log Invalid Review Actions",
-      position: [-40, 500],
-      jsCode: `${sharedCode}
+      position: [-120, 660],
+      jsCode: `const processed = $('Prepare Review Plan').first().json;
 if (processed.invalid_actions.length > 0) {
   console.log(JSON.stringify({
     event: 'invalid_review_actions',
@@ -1729,7 +1906,78 @@ if (processed.invalid_actions.length > 0) {
     actions: processed.invalid_actions
   }));
 }
-return [{ json: { event: 'review_run', invalid_actions: processed.invalid_actions.length } }];`
+return [{ json: {
+  event: 'review_run',
+  invalid_actions: processed.invalid_actions.length,
+  processed_queue_actions: processed.processed_queue_actions.length
+} }];`
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000036",
+      name: "Aggregate Active Review Updates",
+      position: [900, -80],
+      destinationFieldName: "updated_rows"
+    }),
+    activeAfterReview,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000018",
+      name: "Aggregate Active After Review",
+      position: [700, 20],
+      destinationFieldName: "active_rows"
+    }),
+    queueAfterReview,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000020",
+      name: "Aggregate Current Review Queue",
+      position: [1110, 20],
+      destinationFieldName: "queue_rows"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000021",
+      name: "Prepare Review Queue Reconciliation",
+      position: [1320, 20],
+      jsCode: reconciliationCode
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000022",
+      name: "Has Review Queue Deletions",
+      position: [1540, 20],
+      leftValue: "={{ $json.delete_rows.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000023",
+      name: "Prepare Review Queue Deletions",
+      position: [1760, -60],
+      jsCode:
+        "return $('Prepare Review Queue Reconciliation').first().json.delete_rows.map((record) => ({ json: record }));"
+    }),
+    deleteQueueRows,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000026",
+      name: "Aggregate Review Queue Deletions",
+      position: [2290, -60],
+      destinationFieldName: "deleted_rows"
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000024",
+      name: "Has Review Queue Appends",
+      position: [2500, 20],
+      leftValue:
+        "={{ $('Prepare Review Queue Reconciliation').first().json.queue_rows.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000027",
+      name: "Prepare Review Queue Appends",
+      position: [2720, -60],
+      jsCode:
+        "return $('Prepare Review Queue Reconciliation').first().json.queue_rows.map((record) => ({ json: record }));"
+    }),
+    appendSheetNode({
+      base: queueAppendBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000035",
+      name: "Append Review Queue Rows",
+      position: [2940, -60],
+      fields: reviewConfig.review_queue.fields
     })
   ];
 
@@ -1737,19 +1985,77 @@ return [{ json: { event: 'review_run', invalid_actions: processed.invalid_action
     "Schedule Trigger": { main: [[connection("Get Active Rows")]] },
     "Get Active Rows": { main: [[connection("Aggregate Active Rows")]] },
     "Aggregate Active Rows": { main: [[connection("Get Archive Rows")]] },
-    "Get Archive Rows": {
+    "Get Archive Rows": { main: [[connection("Aggregate Archive Rows")]] },
+    "Aggregate Archive Rows": { main: [[connection("Get Review Queue Rows")]] },
+    "Get Review Queue Rows": { main: [[connection("Aggregate Review Queue Rows")]] },
+    "Aggregate Review Queue Rows": { main: [[connection("Prepare Review Plan")]] },
+    "Prepare Review Plan": {
       main: [
         [
-          connection("Prepare Active Review Updates"),
+          connection("Has Active Review Updates"),
           connection("Prepare Archive Review Updates"),
           connection("Prepare Funnel Summary"),
           connection("Log Invalid Review Actions")
         ]
       ]
     },
-    "Prepare Active Review Updates": { main: [[connection("Update Active Review Actions")]] },
+    "Has Active Review Updates": {
+      main: [
+        [connection("Prepare Active Review Claims")],
+        [connection("Get Active After Review")]
+      ]
+    },
+    "Prepare Active Review Claims": { main: [[connection("Mark Active Review Claims")]] },
+    "Mark Active Review Claims": {
+      main: [[connection("Prepare Claimed Active Review Updates")]]
+    },
+    "Prepare Claimed Active Review Updates": {
+      main: [[connection("Update Active Review Actions")]]
+    },
+    "Update Active Review Actions": {
+      main: [[connection("Aggregate Active Review Updates")]]
+    },
+    "Aggregate Active Review Updates": {
+      main: [[connection("Get Active After Review")]]
+    },
     "Prepare Archive Review Updates": { main: [[connection("Update Archive Review Actions")]] },
-    "Prepare Funnel Summary": { main: [[connection("Update Dashboard Summary")]] }
+    "Prepare Funnel Summary": { main: [[connection("Update Dashboard Summary")]] },
+    "Get Active After Review": {
+      main: [[connection("Aggregate Active After Review")]]
+    },
+    "Aggregate Active After Review": {
+      main: [[connection("Get Review Queue After Review")]]
+    },
+    "Get Review Queue After Review": {
+      main: [[connection("Aggregate Current Review Queue")]]
+    },
+    "Aggregate Current Review Queue": {
+      main: [[connection("Prepare Review Queue Reconciliation")]]
+    },
+    "Prepare Review Queue Reconciliation": {
+      main: [[connection("Has Review Queue Deletions")]]
+    },
+    "Has Review Queue Deletions": {
+      main: [
+        [connection("Prepare Review Queue Deletions")],
+        [connection("Has Review Queue Appends")]
+      ]
+    },
+    "Prepare Review Queue Deletions": {
+      main: [[connection("Delete Existing Review Queue Rows")]]
+    },
+    "Delete Existing Review Queue Rows": {
+      main: [[connection("Aggregate Review Queue Deletions")]]
+    },
+    "Aggregate Review Queue Deletions": {
+      main: [[connection("Has Review Queue Appends")]]
+    },
+    "Has Review Queue Appends": {
+      main: [[connection("Prepare Review Queue Appends")], []]
+    },
+    "Prepare Review Queue Appends": {
+      main: [[connection("Append Review Queue Rows")]]
+    }
   };
 
   return {
@@ -1766,7 +2072,8 @@ return [{ json: { event: 'review_run', invalid_actions: processed.invalid_action
       versionId: "88af9ce3-b45f-4aa8-a980-000000000012",
       meta: {
         pipelineSchemaVersion: schema.storage_version,
-        reviewViewVersion: reviewConfig.view_version
+        reviewViewVersion: reviewConfig.view_version,
+        reviewQueueVersion: reviewConfig.review_queue.version
       },
       tags: []
     }

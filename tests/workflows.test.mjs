@@ -572,7 +572,7 @@ test("archiver export upserts by identity and confirms the copy before bottom-up
   );
 });
 
-test("reviewer export only applies explicit actions and upserts one deduplicated funnel row", () => {
+test("reviewer export safely synchronizes the simplified queue and preserves legacy review paths", () => {
   const workflow = workflows.reviewer;
   assert.deepEqual(review.manual_action_dropdown, schema.manual_actions);
   assert.deepEqual(review.editable_columns, [
@@ -581,7 +581,7 @@ test("reviewer export only applies explicit actions and upserts one deduplicated
     "manual_action",
     "notes"
   ]);
-  const prepare = nodeByName(workflow, "Prepare Active Review Updates").parameters.jsCode;
+  const prepare = nodeByName(workflow, "Prepare Review Plan").parameters.jsCode;
   assert.match(prepare, /if \(!record\.manual_action\) continue/);
   assert.match(prepare, /unsupported manual action/);
   assert.match(prepare, /pipeline_status: "applied"/);
@@ -595,8 +595,43 @@ test("reviewer export only applies explicit actions and upserts one deduplicated
   assert.match(prepare, /function validateApplicationPack\s*\(/);
   assert.match(
     prepare,
-    /processReviewActions\(\s*activeRows,\s*archiveRows,\s*SCHEMA,\s*now,\s*MESSAGE_SAFETY\s*\)/
+    /processReviewActions\(\s*activeRows,\s*archiveRows,\s*SCHEMA,\s*now,\s*MESSAGE_SAFETY,\s*\{[\s\S]*queueRows,[\s\S]*reviewConfig: REVIEW_CONFIG,[\s\S]*executionId: String\(\$execution\.id\)/
   );
+  assert.match(prepare, /Generate Application/);
+  assert.match(prepare, /I Applied/);
+  assert.match(prepare, /mark_applied/);
+  assert.match(prepare, /mark_skipped/);
+  assert.match(prepare, /stale review queue action/);
+  assert.match(prepare, /conflicting review queue actions/);
+
+  const queueRead = nodeByName(workflow, "Get Review Queue Rows");
+  assert.equal(queueRead.parameters.sheetName.value, review.review_queue.sheet);
+  const claim = nodeByName(workflow, "Mark Active Review Claims");
+  assert.deepEqual(claim.parameters.columns.matchingColumns, ["state_guard"]);
+  assert.deepEqual(Object.keys(claim.parameters.columns.value).sort(), [
+    "processing_commit_guard",
+    "state_guard"
+  ]);
+  const commit = nodeByName(workflow, "Update Active Review Actions");
+  assert.deepEqual(commit.parameters.columns.matchingColumns, [
+    "processing_commit_guard"
+  ]);
+  assertDirectConnection(
+    workflow,
+    "Prepare Active Review Claims",
+    "Mark Active Review Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Mark Active Review Claims",
+    "Prepare Claimed Active Review Updates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Claimed Active Review Updates",
+    "Update Active Review Actions"
+  );
+
   for (const field of [
     "processing_commit_guard",
     "first_reviewed_at",
@@ -616,10 +651,62 @@ test("reviewer export only applies explicit actions and upserts one deduplicated
       `archive reviewer commit is missing ${field}`
     );
   }
+
+  const reconciliation = nodeByName(
+    workflow,
+    "Prepare Review Queue Reconciliation"
+  ).parameters.jsCode;
+  assert.match(reconciliation, /reconcileReviewQueue\(/);
+  assert.match(reconciliation, /protected_action_count/);
+  assert.match(reconciliation, /invalid_records/);
+  const deleteRows = nodeByName(
+    workflow,
+    "Delete Existing Review Queue Rows"
+  );
+  assert.equal(deleteRows.parameters.operation, "delete");
+  assert.equal(deleteRows.parameters.sheetName.value, review.review_queue.sheet);
+  assert.match(deleteRows.parameters.startIndex, /row_number/);
+  const appendRows = nodeByName(workflow, "Append Review Queue Rows");
+  assert.equal(appendRows.parameters.operation, "append");
+  assert.equal(appendRows.parameters.sheetName.value, review.review_queue.sheet);
+  assert.deepEqual(
+    Object.keys(appendRows.parameters.columns.value),
+    review.review_queue.fields
+  );
+  assert.match(
+    appendRows.parameters.columns.value["Job title"],
+    /\$json\["Job title"\]/
+  );
+  assert.doesNotMatch(
+    appendRows.parameters.columns.value["Job title"],
+    /\$json\.Job title/
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active After Review",
+    "Get Review Queue After Review"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Current Review Queue",
+    "Prepare Review Queue Reconciliation"
+  );
+  assertDirectConnection(
+    workflow,
+    "Delete Existing Review Queue Rows",
+    "Aggregate Review Queue Deletions"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Review Queue Appends",
+    "Append Review Queue Rows"
+  );
+
   const dashboard = nodeByName(workflow, "Update Dashboard Summary");
   assert.equal(dashboard.parameters.operation, "appendOrUpdate");
   assert.deepEqual(dashboard.parameters.columns.matchingColumns, ["metric_key"]);
   assert.equal(dashboard.parameters.sheetName.value, review.dashboard_sheet);
+  assert.equal(workflow.meta.reviewQueueVersion, review.review_queue.version);
 });
 
 test("analytics export publishes completion only after every idempotent detail write", () => {

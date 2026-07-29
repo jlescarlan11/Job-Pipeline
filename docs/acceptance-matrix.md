@@ -107,7 +107,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC8 — No live default calls:** Tests use local JSON/HTML and pure functions; no network client is imported.
 - **I6-AC9 — Docs match exports:** README/architecture plus automated schedule/cap/retry/version drift checks.
 - **I6-AC10 — Profile/policy docs:** `docs/candidate-profile.md` and `docs/master-prompt.md` identify canonical sources/version behavior.
-- **I6-AC11 — Complete Sheet schema:** `docs/sheet-schema.md` defines all 90 canonical record fields, eight tabs, actions, states, and compatibility.
+- **I6-AC11 — Complete Sheet schema:** `docs/sheet-schema.md` defines all 90 canonical record fields, nine tabs, actions, states, and compatibility.
 - **I6-AC12 — Rollout runbook:** `docs/operations.md` includes backup, migration, profile validation, dry run, old-writer shutdown, activation, and checks.
 - **I6-AC13 — Rollback preservation:** Runbook keeps canonical identity, active/ready data, decisions/outcomes, and Archive dedup history.
 - **I6-AC14 — Production observations:** Runbook defines coverage, dedup, evaluation, generation, retry, stuck-claim, review, and archive counts without success targets.
@@ -581,3 +581,74 @@ failures, fixes, and reconciliation are recorded in
   suppression, claim cleanup, runtime findings, and final inactive state
   without credentials, webhook values, full messages/descriptions, or raw
   provider responses.
+
+## Issue #24 — Canonical-ID-synchronized Review Queue
+
+- **I24-AC1 — Additive setup:** Generated Apps Script creates `Review Queue`
+  without deleting or rewriting `Sheet1`/`Archive`; static and isolated setup
+  tests reject destructive operations.
+- **I24-AC2 — Idempotent setup:** `sheet-setup.test.mjs` runs queue creation
+  twice and verifies stable ordered headers with no second-pass column moves.
+- **I24-AC3 — Exact visible contract:** Versioned configuration and artifact
+  tests require the eight visible fields in the ticket's exact order.
+- **I24-AC4 — Hidden technical helpers:** Only hidden `canonical_job_id` and
+  `source_state_guard` follow the visible fields; row numbers, commands, and
+  processing fields are not queue columns.
+- **I24-AC5 — Action-only editing:** Generated layout tests require friendly
+  Action validation and warning-only protection on every other queue field.
+- **I24-AC6 — Eligible unique projection:** `review.test.mjs` verifies one
+  ordered row per unique eligible canonical identity.
+- **I24-AC7 — Initial statuses:** Configuration and projection tests restrict
+  the queue to `ready`, `recommended`, and `review_required`.
+- **I24-AC8 — Derived display state:** Projection tests source status, title,
+  company, message, URL, score, and hidden guard from normalized `Sheet1`
+  records.
+- **I24-AC9 — Legacy score:** Projection tests prefer `opportunity_score` and
+  fall back to `match_score` only when the former is missing.
+- **I24-AC10 — Review reason:** Bounded formula-neutralized warning, gap,
+  evidence, and safe-error rendering has direct tests; missing
+  `review_required` evidence renders explicit text.
+- **I24-AC11 — Friendly-only validation:** Configuration and generated setup
+  expose exactly `Generate Application`, `I Applied`, and `Skip`.
+- **I24-AC12 — Existing transition reuse:** Mapping tests prove those labels
+  call `promote`, `mark_applied`, and `mark_skipped` through
+  `applyManualAction`.
+- **I24-AC13 — Identity-safe movement:** Workflow tests require hidden
+  canonical identity plus state-guard claim and commit-guard finalization;
+  source and queue row numbers are presentation metadata.
+- **I24-AC14 — Invalid identity/state:** Direct tests reject stale guards,
+  missing identities/sources, and duplicate source identities with sanitized
+  diagnostics and no update.
+- **I24-AC15 — Replay safety:** Identical queue deliveries coalesce; existing
+  duplicate-decision and archive tests preserve the original snapshot,
+  timestamp, and one canonical archive record.
+- **I24-AC16 — Conflict safety:** Conflicting queue inputs fail closed and a
+  direct `Sheet1` action wins without a second transition.
+- **I24-AC17 — Source-write failure:** Reconciliation tests retain the pending
+  Action when the fresh source guard proves no transition committed.
+- **I24-AC18 — Cleanup failure:** Reconciliation is retry-safe after a source
+  state change and removes the stale row on the next successful cleanup.
+- **I24-AC19 — Completed removal:** Direct and E2E tests remove applied and
+  skipped source states from the projection.
+- **I24-AC20 — Promotion refresh:** Reconciliation tests clear the consumed
+  input and return a still-eligible promoted record as `recommended`.
+- **I24-AC21 — Archive continuity:** The E2E lifecycle now traverses
+  Review Queue → guarded `Sheet1` applied state → confirmed Archive while
+  preserving identity, message, decision, and application snapshot.
+- **I24-AC22 — Empty state:** Projection and setup tests retain headers and
+  controls with zero placeholder records.
+- **I24-AC23 — Legacy Reviewer paths:** Workflow and review tests retain direct
+  active actions plus archived outcome updates.
+- **I24-AC24 — Adjacent compatibility:** Schedule/config tests plus Dashboard,
+  message-safety, Archive, and no-auto-apply regression suites remain
+  authoritative.
+- **I24-AC25 — Failure/concurrency matrix:** Review, workflow, setup, Archive,
+  and E2E suites cover ordering, empty data, duplicates, stale/conflicting
+  state, unconfirmed commit, cleanup retry, concurrent Action preservation,
+  completed removal, promotion refresh, and archival.
+- **I24-AC26 — Generated artifacts:** `npm run build` owns
+  `google-apps-script/SheetSetup.gs` and `workflows/reviewer.json`;
+  `npm run validate` enforces drift checks and inactive exports.
+- **I24-AC27 — Activation gate:** `docs/operations.md` requires the complete
+  non-production desktop Sheet and disabled Reviewer failure/retry smoke matrix
+  before any production activation.

@@ -480,6 +480,7 @@ globalThis.quarantineLegacyMessagesForTest =
 test("Sheet setup artifact embeds the canonical schema and review controls", () => {
   assert.deepEqual(embedded.recordFields, schema.fields);
   assert.deepEqual(embedded.reviewColumns, review.review_columns);
+  assert.deepEqual(embedded.reviewQueue, review.review_queue);
   assert.deepEqual(embedded.manualActions, schema.manual_actions);
   assert.deepEqual(embedded.editableColumns, [
     "apply_points_input",
@@ -535,6 +536,112 @@ test("Sheet setup artifact embeds the canonical schema and review controls", () 
       recommendations.report_fields
     )
   );
+});
+
+test("Review Queue creation is additive, ordered, idempotent, and fail-closed", () => {
+  const context = vm.createContext({});
+  new vm.Script(
+    `${script}
+globalThis.ensureReviewQueueSheetForTest = ensureReviewQueueSheet_;`
+  ).runInContext(context);
+
+  const createSheet = (initialHeaders = []) => {
+    const headers = [...initialHeaders];
+    const operations = [];
+    const sheet = {
+      getLastColumn: () => headers.length,
+      getMaxRows: () => 100,
+      getRange(row, column, rowCount, columnCount) {
+        return {
+          column,
+          getDisplayValues: () => [
+            Array.from(
+              { length: columnCount },
+              (_, offset) => headers[column - 1 + offset] || ""
+            )
+          ],
+          setValues(values) {
+            operations.push({ action: "write", values: values[0] });
+            values[0].forEach((value, offset) => {
+              headers[column - 1 + offset] = value;
+            });
+            return this;
+          }
+        };
+      },
+      moveColumns(range, destination) {
+        operations.push({
+          action: "move",
+          from: range.column,
+          destination
+        });
+        const [header] = headers.splice(range.column - 1, 1);
+        headers.splice(destination - 1, 0, header);
+      },
+      setFrozenRows(rows) {
+        operations.push({ action: "freeze", rows });
+      }
+    };
+    return { sheet, headers, operations };
+  };
+
+  const created = createSheet();
+  const spreadsheet = {
+    getSheetByName: () => created.sheet,
+    insertSheet: () => created.sheet
+  };
+  context.ensureReviewQueueSheetForTest(
+    spreadsheet,
+    review.review_queue.sheet,
+    review.review_queue.fields
+  );
+  assert.deepEqual(created.headers, review.review_queue.fields);
+  const firstOperationCount = created.operations.length;
+  context.ensureReviewQueueSheetForTest(
+    spreadsheet,
+    review.review_queue.sheet,
+    review.review_queue.fields
+  );
+  assert.deepEqual(created.headers, review.review_queue.fields);
+  assert.equal(
+    created.operations
+      .slice(firstOperationCount)
+      .filter((operation) => operation.action === "move").length,
+    0
+  );
+
+  const unsupported = createSheet(["Status", "Unexpected operator column"]);
+  assert.throws(
+    () =>
+      context.ensureReviewQueueSheetForTest(
+        {
+          getSheetByName: () => unsupported.sheet,
+          insertSheet: () => unsupported.sheet
+        },
+        review.review_queue.sheet,
+        review.review_queue.fields
+      ),
+    /unsupported headers and requires manual reconciliation/
+  );
+  assert.deepEqual(unsupported.headers, [
+    "Status",
+    "Unexpected operator column"
+  ]);
+
+  const duplicate = createSheet(["Status", "Status"]);
+  assert.throws(
+    () =>
+      context.ensureReviewQueueSheetForTest(
+        {
+          getSheetByName: () => duplicate.sheet,
+          insertSheet: () => duplicate.sheet
+        },
+        review.review_queue.sheet,
+        review.review_queue.fields
+      ),
+    /duplicate headers and requires manual reconciliation/
+  );
+  assert.deepEqual(duplicate.headers, ["Status", "Status"]);
 });
 
 test("version fields are contract-derived, text-formatted before migration, and exclude timestamps", () => {
@@ -679,6 +786,29 @@ test("Sheet setup protects generated fields and validates explicit manual action
   assert.match(script, /LockService\.getDocumentLock/);
   assert.match(script, /range\.setValues\(rows\)/);
   assert.match(script, /sheet\.hideColumns\(column\)/);
+});
+
+test("Review Queue layout exposes only the friendly contract and protects derived fields", () => {
+  assert.match(
+    script,
+    /ensureReviewQueueSheet_\(\s*spreadsheet,\s*JOB_PIPELINE_SETUP\.reviewQueue\.sheet/
+  );
+  assert.match(script, /applyReviewQueueLayout_\(reviewQueue\)/);
+  assert.match(
+    script,
+    /requireValueInList\(\[''\]\.concat\(Object\.keys\(queue\.actions\)\), true\)/
+  );
+  assert.match(script, /Generate Application, I Applied, or Skip/);
+  assert.match(script, /queue\.visible_columns\.forEach/);
+  assert.match(script, /sheet\.showColumns\(column\)/);
+  assert.match(script, /queue\.hidden_columns\.forEach/);
+  assert.match(script, /sheet\.hideColumns\(column\)/);
+  assert.match(script, /if \(header === 'Action'\) return/);
+  assert.match(
+    script,
+    /Job Pipeline Review Queue generated field:/
+  );
+  assert.match(script, /protection\.setWarningOnly\(true\)/);
 });
 
 test("Sheet setup preserves unrelated conditional formatting rules", () => {
