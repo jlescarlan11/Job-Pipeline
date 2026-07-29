@@ -2,7 +2,10 @@ import {
   normalizeLegacyRecord,
   stateGuard
 } from "./contracts.mjs";
-import { selectWorkCandidates } from "./evaluation.mjs";
+import {
+  selectWorkCandidates,
+  workCandidateDueAt
+} from "./evaluation.mjs";
 
 const ACTIVE_ALERT_STATES = new Set([
   "pending",
@@ -27,47 +30,62 @@ function oldestAge(nowMs, timestamps) {
   return ageMinutes(nowMs, Math.min(...timestamps));
 }
 
-function generationDueAt(record, leaseMs) {
-  if (record.pipeline_status === "generating") {
-    const startedAt = timestamp(record.processing_started_at);
-    return Number.isFinite(startedAt) ? startedAt + leaseMs : undefined;
-  }
-  if (
-    record.pipeline_status === "retryable_error" &&
-    record.failed_stage === "generation"
-  ) {
-    return timestamp(record.next_retry_at);
-  }
-  if (record.pipeline_status === "recommended") {
-    return (
-      timestamp(record.evaluated_at) ??
-      timestamp(record.updated_at) ??
-      timestamp(record.created_at)
-    );
-  }
-  return undefined;
+function recordLocator(record) {
+  const rowNumber = String(record?.row_number ?? "").trim();
+  if (rowNumber) return `row:${rowNumber}`;
+  return `id:${String(record?.canonical_job_id || "").trim()}`;
 }
 
-function summarizeGenerationBacklog(
+function summarizeWorkBacklog(
   activeRows,
   schema,
   now,
-  generationLeaseMs
+  processingLeaseMs
 ) {
   const nowMs = Date.parse(now);
+  const rawByLocator = new Map(
+    activeRows.map((raw) => {
+      const normalized = normalizeLegacyRecord(raw, schema, now);
+      return [recordLocator(normalized), raw];
+    })
+  );
   const candidates = selectWorkCandidates(activeRows, schema, {
     now,
     maxItems: Math.max(1, activeRows.length),
-    leaseMs: generationLeaseMs
-  }).filter((record) => record.work_stage === "generation");
-  const dueTimestamps = candidates
-    .map((record) => generationDueAt(record, generationLeaseMs))
-    .filter((value) => Number.isFinite(value) && value <= nowMs);
+    leaseMs: processingLeaseMs.generation
+  });
+  const stageSummary = (stage) => {
+    const stageCandidates = candidates.filter(
+      (record) => record.work_stage === stage
+    );
+    const dueTimestamps = stageCandidates
+      .map((record) =>
+        workCandidateDueAt(
+          record,
+          stage,
+          processingLeaseMs[stage],
+          rawByLocator.get(recordLocator(record))
+        )
+      )
+      .filter((value) => Number.isFinite(value) && value <= nowMs);
+    return {
+      count: stageCandidates.length,
+      oldest_minutes: oldestAge(nowMs, dueTimestamps),
+      age_unobservable_count:
+        stageCandidates.length - dueTimestamps.length
+    };
+  };
+  const generation = stageSummary("generation");
+  const evaluation = stageSummary("evaluation");
   return {
-    due_generation_count: candidates.length,
-    oldest_due_generation_minutes: oldestAge(nowMs, dueTimestamps),
+    due_generation_count: generation.count,
+    oldest_due_generation_minutes: generation.oldest_minutes,
     generation_age_unobservable_count:
-      candidates.length - dueTimestamps.length
+      generation.age_unobservable_count,
+    due_evaluation_count: evaluation.count,
+    oldest_due_evaluation_minutes: evaluation.oldest_minutes,
+    evaluation_age_unobservable_count:
+      evaluation.age_unobservable_count
   };
 }
 
@@ -227,11 +245,14 @@ export function summarizeOperationalBacklog(
     normalizeLegacyRecord(row, schema, now)
   );
   return {
-    ...summarizeGenerationBacklog(
+    ...summarizeWorkBacklog(
       activeRows,
       schema,
       now,
-      generationLeaseMs
+      {
+        ...processingLeaseMs,
+        generation: generationLeaseMs
+      }
     ),
     ...summarizeAlertBacklog(normalizedActive, nowMs),
     ...summarizeManualActions({

@@ -9,7 +9,7 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | Export | Schedule | Responsibility |
 | --- | --- | --- |
 | `workflows/scraper.json` | Every 4 hours | Start 22 evidence-linked queries, follow source pagination only while a next page exists up to the 3-page cap, preserve result-card alignment, reconcile active/archive history, and append only the winning discovery claim. |
-| `workflows/generator.json` | Every 90 minutes | Select at most 1 eligible job, gate Groq on a ready application pack, validate the first draft, make at most one validation-aware repair call after a 65-second wait, and persist ready, review, retry, or terminal state. |
+| `workflows/generator.json` | Every 90 minutes | Select at most one generation candidate and one deterministic evaluation candidate, enforce a 120-minute maximum priority wait before fair oldest-due ordering, gate at most one Groq request path on a ready application pack, and persist ready, review, retry, or terminal state. |
 | `workflows/alerter.json` | Every 15 minutes | Claim newly ready high-opportunity jobs, send one Slack alert with the complete copy-ready message and safe links through an environment-bound webhook, and persist delivery or bounded failure evidence. |
 | `workflows/reviewer.json` | Every 15 minutes | Exit after six reads when the complete review snapshot is unchanged, otherwise reconcile Review Queue and Applied Jobs, safely commit guarded decisions/outcomes, and publish a post-action funnel summary only when its metrics change. |
 | `workflows/analytics.json` | Every 24 hours | Read deduplicated active/archive state, skip a content-identical complete result, otherwise publish versioned conversion/calibration detail and mark it complete only after all detail rows persist. |
@@ -35,12 +35,14 @@ progress snapshots. At the configured cadences this avoids saving payloads for
 1,730 normally successful scheduled executions per week; the authoritative
 success state remains in Google Sheets.
 
-The Generator's 90-minute cadence and cap of 1 are the checked-in conservative
-baseline for the selected model's documented 200,000-token developer-base
-daily allowance. Its character-based planning ceiling is 183,056 tokens and
-34 requests per day, including one repair for every selected record. The
-initial and repair calls are separated by 65 seconds. Exact account limits and
-provider token measurements must still pass the live activation gate.
+The Generator's 90-minute cadence and generation cap of 1 are the checked-in
+conservative baseline for the selected model's documented 200,000-token
+developer-base daily allowance. A separate deterministic-evaluation cap of one
+keeps discovery moving without increasing Groq capacity. Its character-based
+planning ceiling is 183,056 tokens and 34 requests per day, including one
+repair for every generation candidate. The initial and repair calls are
+separated by 65 seconds. Exact account limits and provider token measurements
+must still pass the live activation gate.
 
 The five interval workflows use explicit six-field cron rules with fixed
 `Asia/Manila` phases, rather than relying on n8n's per-field

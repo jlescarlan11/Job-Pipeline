@@ -21,6 +21,8 @@ test("runtime timeouts are positive, scheduled, lease-safe, and Manila-bound", (
   assert.equal(workflowTimezone(runtime), "Asia/Manila");
   assert.equal(runtime.generator.schedule_minutes, 90);
   assert.equal(runtime.generator.per_run_cap, 1);
+  assert.equal(runtime.generator.evaluation_per_run_cap, 1);
+  assert.equal(runtime.generator.maximum_priority_wait_minutes, 120);
   assert.deepEqual(workflowExecutionDataSettings(runtime), {
     saveDataSuccessExecution: "none",
     saveDataErrorExecution: "all",
@@ -60,6 +62,9 @@ test("runtime validation rejects overlap, expired ownership, and wrong timezone"
   invalid.execution_data.save_failed_production_executions = "none";
   invalid.execution_data.save_execution_progress = true;
   invalid.execution_data.save_manual_executions = false;
+  invalid.generator.evaluation_per_run_cap = 2;
+  invalid.generator.maximum_priority_wait_minutes =
+    invalid.generator.schedule_minutes * 2 + 1;
   const errors = validateRuntimeConfig(invalid).join("\n");
   assert.match(errors, /timezone must be Asia\/Manila/);
   assert.match(errors, /generator schedule_offset_minutes/);
@@ -70,6 +75,8 @@ test("runtime validation rejects overlap, expired ownership, and wrong timezone"
   assert.match(errors, /save_failed_production_executions must be all/);
   assert.match(errors, /save_execution_progress must be false/);
   assert.match(errors, /save_manual_executions must be true/);
+  assert.match(errors, /generation and evaluation per-run caps must both be 1/);
+  assert.match(errors, /maximum priority wait must be between one and two schedules/);
 
   const invalidReview = {
     ...review,

@@ -1237,13 +1237,151 @@ function isRetryDue(record, nowMs) {
   return !Number.isFinite(retryAt) || retryAt <= nowMs;
 }
 
+function firstTimestamp(...values) {
+  for (const value of values) {
+    const parsed = Date.parse(String(value || ""));
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
+
+function candidateDueAt(record, workStage, leaseMs) {
+  if (record.pipeline_status === "retryable_error") {
+    return firstTimestamp(record.next_retry_at);
+  }
+  if (
+    workStage === "evaluation" &&
+    record.pipeline_status === "evaluating"
+  ) {
+    const startedAt = firstTimestamp(record.processing_started_at);
+    return Number.isFinite(startedAt) &&
+      Number.isFinite(leaseMs) &&
+      leaseMs > 0
+      ? startedAt + leaseMs
+      : undefined;
+  }
+  if (
+    workStage === "generation" &&
+    record.pipeline_status === "generating"
+  ) {
+    const startedAt = firstTimestamp(record.processing_started_at);
+    return Number.isFinite(startedAt) &&
+      Number.isFinite(leaseMs) &&
+      leaseMs > 0
+      ? startedAt + leaseMs
+      : undefined;
+  }
+  if (workStage === "generation" && record.pipeline_status === "recommended") {
+    return firstTimestamp(
+      record.evaluated_at,
+      record.updated_at,
+      record.created_at,
+      record.posted_at
+    );
+  }
+  if (
+    workStage === "generation" &&
+    ["promote", "regenerate"].includes(String(record.manual_action || ""))
+  ) {
+    return undefined;
+  }
+  return firstTimestamp(
+    record.created_at,
+    record.posted_at,
+    record.evaluated_at,
+    record.updated_at
+  );
+}
+
+function durableCandidateRecord(record, raw) {
+  const durable = { ...record };
+  for (const field of [
+    "created_at",
+    "updated_at",
+    "evaluated_at",
+    "next_retry_at",
+    "processing_started_at"
+  ]) {
+    durable[field] =
+      raw?.[field] ??
+      (field === "created_at" ? raw?.["created_at "] : undefined) ??
+      "";
+  }
+  return durable;
+}
+
+export function workCandidateDueAt(
+  record,
+  workStage,
+  leaseMs,
+  rawRecord = record
+) {
+  return candidateDueAt(
+    durableCandidateRecord(record, rawRecord),
+    workStage,
+    leaseMs
+  );
+}
+
+function compareStableCandidateIdentity(left, right) {
+  const leftRow = Number(left.record.row_number);
+  const rightRow = Number(right.record.row_number);
+  if (
+    Number.isFinite(leftRow) &&
+    Number.isFinite(rightRow) &&
+    leftRow !== rightRow
+  ) {
+    return leftRow - rightRow;
+  }
+  return String(left.record.canonical_job_id || "").localeCompare(
+    String(right.record.canonical_job_id || "")
+  );
+}
+
+function compareFairCandidatePriority(
+  left,
+  right,
+  nowMs,
+  maximumPriorityWaitMs
+) {
+  const fairnessEnabled =
+    Number.isFinite(maximumPriorityWaitMs) && maximumPriorityWaitMs > 0;
+  const leftOverdue =
+    fairnessEnabled &&
+    (!Number.isFinite(left.dueAt) ||
+      nowMs - left.dueAt >= maximumPriorityWaitMs);
+  const rightOverdue =
+    fairnessEnabled &&
+    (!Number.isFinite(right.dueAt) ||
+      nowMs - right.dueAt >= maximumPriorityWaitMs);
+  if (leftOverdue !== rightOverdue) return leftOverdue ? -1 : 1;
+  if (leftOverdue && rightOverdue) {
+    if (Number.isFinite(left.dueAt) !== Number.isFinite(right.dueAt)) {
+      return Number.isFinite(left.dueAt) ? 1 : -1;
+    }
+    if (
+      Number.isFinite(left.dueAt) &&
+      left.dueAt !== right.dueAt
+    ) {
+      return left.dueAt - right.dueAt;
+    }
+    return compareStableCandidateIdentity(left, right);
+  }
+  return (
+    compareRankingPriority(left.record, right.record) ||
+    compareStableCandidateIdentity(left, right)
+  );
+}
+
 export function selectWorkCandidates(
   rawRows,
   schema,
   {
     now = new Date().toISOString(),
     maxItems = 5,
-    leaseMs = 10 * 60 * 1000
+    leaseMs = 10 * 60 * 1000,
+    stageCaps,
+    maximumPriorityWaitMs
   } = {}
 ) {
   const nowMs = Date.parse(now);
@@ -1266,7 +1404,8 @@ export function selectWorkCandidates(
       workStage = record.pipeline_status === "evaluating" ? "evaluation" : "generation";
     }
     if (record.pipeline_status === "retryable_error" && isRetryDue(record, nowMs)) {
-      workStage = record.failed_stage || "evaluation";
+      workStage =
+        record.failed_stage === "generation" ? "generation" : "evaluation";
     }
     if (record.pipeline_status === "recommended") {
       workStage =
@@ -1283,19 +1422,52 @@ export function selectWorkCandidates(
     }
     if (!workStage) continue;
 
-    candidates.push({
+    const candidate = {
       ...record,
       work_stage: workStage
+    };
+    candidates.push({
+      record: candidate,
+      dueAt: workCandidateDueAt(
+        candidate,
+        workStage,
+        leaseMs,
+        raw
+      )
     });
   }
 
+  const compare = (left, right) =>
+    compareFairCandidatePriority(
+      left,
+      right,
+      nowMs,
+      maximumPriorityWaitMs
+    );
+  if (stageCaps !== undefined) {
+    for (const stage of ["generation", "evaluation"]) {
+      if (!Number.isInteger(stageCaps?.[stage]) || stageCaps[stage] < 1) {
+        throw new Error(`stageCaps.${stage} must be a positive integer`);
+      }
+    }
+    return ["generation", "evaluation"].flatMap((stage) =>
+      candidates
+        .filter((candidate) => candidate.record.work_stage === stage)
+        .sort(compare)
+        .slice(0, stageCaps[stage])
+        .map((candidate) => candidate.record)
+    );
+  }
   return candidates
     .sort((left, right) => {
-      const stageOrder = Number(right.work_stage === "generation") - Number(left.work_stage === "generation");
+      const stageOrder =
+        Number(right.record.work_stage === "generation") -
+        Number(left.record.work_stage === "generation");
       if (stageOrder !== 0) return stageOrder;
-      return compareRankingPriority(left, right);
+      return compare(left, right);
     })
-    .slice(0, maxItems);
+    .slice(0, maxItems)
+    .map((candidate) => candidate.record);
 }
 
 function sanitizeError(value) {

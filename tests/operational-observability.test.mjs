@@ -77,6 +77,11 @@ test("operational backlog summarizes exact due work and canonical claim markers"
       processing_stage: "evaluation",
       processing_token: "current-token",
       processing_started_at: "2026-07-30T11:55:00.000Z"
+    }),
+    job(9, {
+      pipeline_status: "discovered",
+      created_at: "2026-07-30T09:00:00.000Z",
+      updated_at: "2026-07-30T09:00:00.000Z"
     })
   ];
   const archiveRows = [
@@ -117,6 +122,9 @@ test("operational backlog summarizes exact due work and canonical claim markers"
   assert.equal(summary.due_generation_count, 4);
   assert.equal(summary.oldest_due_generation_minutes, 180);
   assert.equal(summary.generation_age_unobservable_count, 1);
+  assert.equal(summary.due_evaluation_count, 1);
+  assert.equal(summary.oldest_due_evaluation_minutes, 180);
+  assert.equal(summary.evaluation_age_unobservable_count, 0);
   assert.equal(summary.pending_alert_count, 2);
   assert.equal(summary.oldest_pending_alert_minutes, 150);
   assert.equal(summary.pending_alert_age_unobservable_count, 0);
@@ -181,6 +189,11 @@ test("future operational timestamps fail closed instead of hiding backlog", () =
           processing_stage: "evaluation",
           processing_token: "future-token",
           processing_started_at: "2026-07-30T13:00:00.000Z"
+        }),
+        job(204, {
+          pipeline_status: "discovered",
+          created_at: "2026-07-30T13:00:00.000Z",
+          updated_at: "2026-07-30T13:00:00.000Z"
         })
       ]
     },
@@ -190,12 +203,34 @@ test("future operational timestamps fail closed instead of hiding backlog", () =
   assert.equal(summary.due_generation_count, 1);
   assert.equal(summary.oldest_due_generation_minutes, null);
   assert.equal(summary.generation_age_unobservable_count, 1);
+  assert.equal(summary.due_evaluation_count, 1);
+  assert.equal(summary.oldest_due_evaluation_minutes, null);
+  assert.equal(summary.evaluation_age_unobservable_count, 1);
   assert.equal(summary.pending_alert_count, 1);
   assert.equal(summary.oldest_pending_alert_minutes, null);
   assert.equal(summary.pending_alert_age_unobservable_count, 1);
   assert.equal(summary.active_claim_past_lease_count, 1);
   assert.equal(summary.invalid_active_claim_marker_count, 1);
   assert.equal(summary.oldest_active_claim_past_lease_minutes, null);
+});
+
+test("discovered overload is visible even when no generation work exists", () => {
+  const activeRows = Array.from({ length: 100 }, (_, index) =>
+    job(index + 300, {
+      pipeline_status: "discovered",
+      created_at: "2026-07-30T08:00:00.000Z",
+      updated_at: "2026-07-30T08:00:00.000Z"
+    })
+  );
+  const summary = summarizeOperationalBacklog(
+    { activeRows },
+    schema,
+    leaseOptions
+  );
+  assert.equal(summary.due_generation_count, 0);
+  assert.equal(summary.due_evaluation_count, 100);
+  assert.equal(summary.oldest_due_evaluation_minutes, 240);
+  assert.equal(summary.evaluation_age_unobservable_count, 0);
 });
 
 test("operational events expose categories without record evidence", () => {

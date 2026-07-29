@@ -157,12 +157,19 @@ Discovery reconciliation combines query and role-family provenance, updates `las
 
 ## Evaluation and generation workflow
 
-Eligible records are ordered by generation stage, opportunity score, ranking
-confidence, posting time, creation time, and canonical identity, then capped at
-5 per execution. A legacy record without an opportunity score falls back to its
-unchanged `match_score`; the fallback is a queue value only and does not populate
-either new score. Existing application decisions and historical ready messages
-are not selected.
+Eligible records are split into generation and deterministic-evaluation queues.
+Each 90-minute execution selects at most one from each queue, so a generation
+backlog cannot consume the evaluation slot and the Groq path remains capped at
+one. Within either queue, fresh work retains opportunity score, confidence,
+posting time, creation time, and canonical-identity priority. Once work has
+waited 120 minutes—or its durable age is malformed or unavailable—it enters a
+fail-closed oldest-due tier ahead of fresh work. This prevents continuous
+higher-scored or newer arrivals from starving a fixed record. A malformed
+legacy retry stage falls back to deterministic evaluation rather than being
+routed to Groq. A legacy record without an opportunity score falls back to its
+unchanged `match_score`; the fallback is a queue value only and does not
+populate either new score. Existing application decisions and historical ready
+messages are not selected.
 
 Evaluation work uses a stored description when available; otherwise it fetches the detail page once and persists parsed metadata for reuse. Deleted/unavailable pages route to `unavailable`; insufficient content routes to `unscorable`. Deterministic evaluation uses full description evidence, known skills, role family, unsupported requirements, and seniority. It stores score, tier, decision, reasons, gaps, profile version, and timestamp.
 
@@ -599,9 +606,10 @@ is rewritten and requires manual reconciliation.
 Workflow execution logs emit structured summaries for discovery coverage,
 claim winners/losses, archive planning/reconciliation, invalid review actions,
 and the `operational_backlog` event. The Reviewer derives due-generation,
-pending-alert, and canonical active-claim ages from snapshots it already
-reads. Since Sheet Action cells have no edit timestamp, it emits bounded,
-privacy-safe manual-action fingerprints for stateful first-seen monitoring.
+due-evaluation, pending-alert, and canonical active-claim ages from snapshots
+it already reads. Since Sheet Action cells have no edit timestamp, it emits
+bounded, privacy-safe manual-action fingerprints for stateful first-seen
+monitoring.
 The `generator_result` and `alert_delivery` events expose only
 stage/status/category so repeated provider rate limits can be counted from
 `category=rate_limit` without relying on overwritten row state. Their

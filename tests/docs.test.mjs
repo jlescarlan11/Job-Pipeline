@@ -131,9 +131,29 @@ test("deployment documentation pins bounded self-hosted controls without claimin
   assert.match(deploymentDoc, /metrics endpoint[\s\S]{0,100}internal/i);
   assert.match(deploymentDoc, /instance-assigned workflow/i);
   assert.match(deploymentDoc, /error executions[\s\S]{0,100}bypass/i);
-  assert.match(operations, /oldest due generation exceeds 120 minutes/i);
-  assert.match(operations, /pending alert exceeds 45 minutes/i);
+  assert.match(
+    operations,
+    /oldest due\s+generation or deterministic evaluation exceeds 120 minutes/i
+  );
+  assert.match(operations, /pending alert\s+exceeds 45 minutes/i);
   assert.match(operations, /manual action exceeds 30 minutes/i);
+});
+
+test("Generator documentation preserves separate capacity and bounded fairness", () => {
+  for (const document of [readme, architecture, operations]) {
+    assert.match(
+      document,
+      /(?:separate|split)[\s\S]{0,100}(?:deterministic[- ]evaluation|evaluation)/i
+    );
+    assert.match(document, /evaluation[\s\S]{0,160}(?:cap|slot|at most one)/i);
+    assert.match(document, /120-minute maximum\s+priority wait|waited 120 minutes/i);
+  }
+  assert.match(
+    architecture,
+    /generation\s+backlog cannot consume the evaluation slot/i
+  );
+  assert.match(architecture, /oldest-due tier/i);
+  assert.match(operations, /due-generation, due-evaluation/i);
 });
 
 test("Reviewer idle-path documentation preserves the fail-closed operation bound", () => {

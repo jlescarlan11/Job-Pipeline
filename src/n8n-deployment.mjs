@@ -31,6 +31,7 @@ const REQUIRED_MONITORING_THRESHOLDS = [
   "production_queue_wait_seconds",
   "operational_backlog_event_stale_minutes",
   "oldest_due_generation_minutes",
+  "oldest_due_evaluation_minutes",
   "oldest_pending_alert_minutes",
   "oldest_manual_action_minutes",
   "active_claim_past_lease_count",
@@ -473,6 +474,22 @@ export function validateN8nDeploymentPolicy(policy, configs) {
     ) {
       errors.push(
         "manual-action threshold must allow two scheduled Reviewer observations"
+      );
+    }
+    const maximumPriorityWaitMinutes = positiveInteger(
+      configs.runtime?.generator?.maximum_priority_wait_minutes
+    );
+    if (
+      maximumPriorityWaitMinutes &&
+      (
+        monitoringThresholds.oldest_due_generation_minutes !==
+          maximumPriorityWaitMinutes ||
+        monitoringThresholds.oldest_due_evaluation_minutes !==
+          maximumPriorityWaitMinutes
+      )
+    ) {
+      errors.push(
+        "Generator evaluation and generation backlog thresholds must match maximum priority wait"
       );
     }
     let capacity;

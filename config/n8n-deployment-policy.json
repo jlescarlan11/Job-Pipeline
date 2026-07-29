@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v6",
+  "policy_version": "2026-07-30/v7",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -69,6 +69,7 @@
       "production_queue_wait_seconds": 300,
       "operational_backlog_event_stale_minutes": 20,
       "oldest_due_generation_minutes": 120,
+      "oldest_due_evaluation_minutes": 120,
       "oldest_pending_alert_minutes": 45,
       "oldest_manual_action_minutes": 30,
       "active_claim_past_lease_count": 1,

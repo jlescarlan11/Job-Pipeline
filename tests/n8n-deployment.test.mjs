@@ -179,6 +179,7 @@ test("deployment policy fails closed on malformed timeouts and missing alerts", 
   invalid.environment.EXECUTIONS_TIMEOUT = "not-a-number";
   invalid.capacity.queue_wait_alert_seconds = 301;
   invalid.monitoring.thresholds.operational_backlog_event_stale_minutes = 17;
+  invalid.monitoring.thresholds.oldest_due_evaluation_minutes = 121;
   invalid.monitoring.thresholds.oldest_manual_action_minutes = 29;
   delete invalid.monitoring.thresholds.oldest_pending_alert_minutes;
   const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
@@ -195,5 +196,9 @@ test("deployment policy fails closed on malformed timeouts and missing alerts", 
   assert.match(
     errors,
     /manual-action threshold must allow two scheduled Reviewer observations/
+  );
+  assert.match(
+    errors,
+    /evaluation and generation backlog thresholds must match maximum priority wait/
   );
 });

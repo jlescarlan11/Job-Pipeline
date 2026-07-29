@@ -98,15 +98,17 @@ by n8n. Alert if no `operational_backlog` event arrives for 20 minutes. The
 checked-in thresholds also flag:
 
 - a due generation record older than 120 minutes;
+- a due deterministic evaluation record older than 120 minutes;
 - a pending alert older than 45 minutes;
 - a manual action older than 30 minutes;
 - any active processing marker beyond its stage lease; or
 - three provider rate-limit events within 15 minutes.
 
 The Reviewer emits `operational_backlog` from the Sheet snapshots it already
-reads. It reports the eligible generation count and oldest durable due time,
-pending-alert count and age, canonical active markers past their
-stage-specific lease, and up to 100 deterministic manual-action fingerprints.
+reads. It reports eligible generation and evaluation counts with their oldest
+durable due times, pending-alert count and age, canonical active markers past
+their stage-specific lease, and up to 100 deterministic manual-action
+fingerprints.
 It does not count expired append-only `ProcessingClaims` rows as stuck active
 claims. Manual Action cells have no edit timestamp, so the external monitor
 must record when each fingerprint is first observed, remove it when absent,

@@ -71,12 +71,36 @@ export function validateRuntimeConfig(runtime) {
   );
   for (const field of [
     "per_run_cap",
+    "evaluation_per_run_cap",
+    "maximum_priority_wait_minutes",
     "request_retry_backoff_ms",
     "http_timeout_ms"
   ]) {
     if (!positiveInteger(runtime.generator?.[field])) {
       errors.push(`generator.${field} must be a positive integer`);
     }
+  }
+  if (
+    runtime.generator?.per_run_cap !== 1 ||
+    runtime.generator?.evaluation_per_run_cap !== 1
+  ) {
+    errors.push(
+      "generator generation and evaluation per-run caps must both be 1"
+    );
+  }
+  if (
+    positiveInteger(runtime.generator?.maximum_priority_wait_minutes) &&
+    positiveInteger(runtime.generator?.schedule_minutes) &&
+    (
+      runtime.generator.maximum_priority_wait_minutes <
+        runtime.generator.schedule_minutes ||
+      runtime.generator.maximum_priority_wait_minutes >
+        runtime.generator.schedule_minutes * 2
+    )
+  ) {
+    errors.push(
+      "generator maximum priority wait must be between one and two schedules"
+    );
   }
   for (const field of ["max_attempts", "backoff_ms"]) {
     if (!positiveInteger(runtime.generator?.retry?.[field])) {

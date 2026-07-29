@@ -912,9 +912,10 @@ failures, fixes, and reconciliation are recorded in
 - **RATE-AC2 — Per-minute bound:** Character-based worst-case initial and
   repair estimates, including maximum output, are 4,384 and 6,384; each stays
   below the selected model's documented 8,000 TPM developer-base limit.
-- **RATE-AC3 — Daily bound:** A 90-minute schedule, cap of 1, boundary-aware
-  17-run planning count, and one repair per record produce at most 34 requests
-  and 183,056 character-estimated tokens per day.
+- **RATE-AC3 — Daily bound:** A 90-minute schedule, Groq generation cap of 1,
+  separate deterministic-evaluation cap of 1, boundary-aware 17-run planning
+  count, and one repair per generation record produce at most 34 requests and
+  183,056 character-estimated tokens per day.
 - **RATE-AC4 — Build rejection:** Provider/runtime validation rejects a
   one-minute pacing overlap, a request above TPM, scheduled RPD/TPD exhaustion,
   or pacing that consumes the Generator's outer timeout.
@@ -933,10 +934,11 @@ failures, fixes, and reconciliation are recorded in
   workflow tests require one `operational_backlog` event derived from the
   active, Archive, Review Queue, and Applied Jobs snapshots already read.
   There is no added provider call or Sheet operation.
-- **OBS-AC2 — Exact due-generation evidence:** Deterministic tests cover
-  recommended, stale-generating, due-retry, and manual-triggered candidates.
-  The summary reports candidate count, oldest durable due age, and the count
-  whose eligibility time is not stored instead of inventing a timestamp.
+- **OBS-AC2 — Exact Generator backlog evidence:** Deterministic tests cover
+  discovered, recommended, stale-processing, due-retry, and manual-triggered
+  evaluation/generation candidates. The summary reports each queue's candidate
+  count, oldest durable due age, and the count whose eligibility time is not
+  stored instead of inventing a timestamp.
 - **OBS-AC3 — Pending-alert evidence:** Tests measure pending, sending, and
   retryable alerts from the current generation/attempt state and separately
   disclose missing age evidence.

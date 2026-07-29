@@ -721,6 +721,144 @@ test("work selection honors status, manual promotion, retries, priority, and cap
   assert.deepEqual(pendingManualDecision, []);
 });
 
+test("stage caps guarantee bounded evaluation progress beside generation work", () => {
+  const fairNow = "2026-07-30T10:00:00.000Z";
+  const selected = selectWorkCandidates(
+    [
+      {
+        row_number: 1,
+        canonical_job_id: "onlinejobs.ph:generation",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/generation-work-3101",
+        pipeline_status: "recommended",
+        opportunity_score: 99,
+        evaluated_at: "2026-07-30T09:30:00.000Z"
+      },
+      {
+        row_number: 2,
+        canonical_job_id: "onlinejobs.ph:old-evaluation",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/old-evaluation-3102",
+        pipeline_status: "discovered",
+        created_at: "2026-07-30T06:00:00.000Z",
+        posted_at: "2026-07-30T06:00:00.000Z"
+      },
+      {
+        row_number: 3,
+        canonical_job_id: "onlinejobs.ph:new-evaluation",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/new-evaluation-3103",
+        pipeline_status: "discovered",
+        created_at: "2026-07-30T09:30:00.000Z",
+        posted_at: "2026-07-30T09:30:00.000Z"
+      }
+    ],
+    schema,
+    {
+      now: fairNow,
+      leaseMs: 600000,
+      stageCaps: {
+        generation: 1,
+        evaluation: 1
+      },
+      maximumPriorityWaitMs: 120 * 60 * 1000
+    }
+  );
+  assert.deepEqual(
+    selected.map(({ canonical_job_id, work_stage }) => [
+      canonical_job_id,
+      work_stage
+    ]),
+    [
+      ["onlinejobs.ph:generation", "generation"],
+      ["onlinejobs.ph:old-evaluation", "evaluation"]
+    ]
+  );
+});
+
+test("fresh work keeps score priority while aged and malformed work cannot starve", () => {
+  const fairNow = "2026-07-30T10:00:00.000Z";
+  const base = {
+    pipeline_status: "recommended",
+    created_at: "2026-07-30T09:00:00.000Z"
+  };
+  const fresh = selectWorkCandidates(
+    [
+      {
+        ...base,
+        row_number: 1,
+        canonical_job_id: "onlinejobs.ph:fresh-lower",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/fresh-lower-3111",
+        opportunity_score: 70,
+        evaluated_at: "2026-07-30T09:00:00.000Z"
+      },
+      {
+        ...base,
+        row_number: 2,
+        canonical_job_id: "onlinejobs.ph:fresh-higher",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/fresh-higher-3112",
+        opportunity_score: 90,
+        evaluated_at: "2026-07-30T09:00:00.000Z"
+      }
+    ],
+    schema,
+    {
+      now: fairNow,
+      stageCaps: { generation: 1, evaluation: 1 },
+      maximumPriorityWaitMs: 120 * 60 * 1000
+    }
+  );
+  assert.equal(fresh[0].canonical_job_id, "onlinejobs.ph:fresh-higher");
+
+  const malformedRetry = selectWorkCandidates(
+    [
+      {
+        row_number: 1,
+        canonical_job_id: "onlinejobs.ph:aged",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/aged-generation-3113",
+        pipeline_status: "recommended",
+        opportunity_score: 10,
+        evaluated_at: "2026-07-30T06:00:00.000Z"
+      },
+      {
+        row_number: 2,
+        canonical_job_id: "onlinejobs.ph:new",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/new-generation-3114",
+        pipeline_status: "recommended",
+        opportunity_score: 100,
+        evaluated_at: "2026-07-30T09:30:00.000Z"
+      },
+      {
+        row_number: 3,
+        canonical_job_id: "onlinejobs.ph:malformed-retry",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/malformed-retry-3115",
+        pipeline_status: "retryable_error",
+        failed_stage: "unsupported-stage",
+        next_retry_at: "not-a-timestamp"
+      }
+    ],
+    schema,
+    {
+      now: fairNow,
+      stageCaps: { generation: 1, evaluation: 1 },
+      maximumPriorityWaitMs: 120 * 60 * 1000
+    }
+  );
+  assert.equal(malformedRetry[0].canonical_job_id, "onlinejobs.ph:aged");
+  assert.equal(
+    malformedRetry.find(
+      ({ canonical_job_id }) =>
+        canonical_job_id === "onlinejobs.ph:malformed-retry"
+    )?.work_stage,
+    "evaluation"
+  );
+});
+
 test("generation work uses opportunity score, deterministic tie-breakers, and legacy fallback", () => {
   const base = {
     pipeline_status: "recommended",

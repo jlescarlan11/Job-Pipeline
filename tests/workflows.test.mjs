@@ -274,12 +274,36 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   );
   assert.equal(generator.meta.generatorPerRunCap, runtime.generator.per_run_cap);
   assert.equal(
+    generator.meta.generatorEvaluationPerRunCap,
+    runtime.generator.evaluation_per_run_cap
+  );
+  assert.equal(
+    generator.meta.generatorMaximumPriorityWaitMinutes,
+    runtime.generator.maximum_priority_wait_minutes
+  );
+  assert.equal(
     generator.meta.scheduleOffsetMinutes,
     runtime.generator.schedule_offset_minutes
   );
   assert.equal(
     generator.settings.executionTimeout,
     runtime.generator.execution_timeout_seconds
+  );
+  const prepareWorkCode = nodeByName(
+    generator,
+    "Prepare Work Candidates"
+  ).parameters.jsCode;
+  assert.match(
+    prepareWorkCode,
+    new RegExp(
+      `generation:\\s*${runtime.generator.per_run_cap}[\\s\\S]*evaluation:\\s*${runtime.generator.evaluation_per_run_cap}`
+    )
+  );
+  assert.match(
+    prepareWorkCode,
+    new RegExp(
+      `${runtime.generator.maximum_priority_wait_minutes}\\s*\\*\\s*60\\s*\\*\\s*1000`
+    )
   );
   assert.ok(
     runtime.generator.execution_timeout_seconds * 1000 <

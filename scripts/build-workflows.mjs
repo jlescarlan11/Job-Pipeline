@@ -1010,8 +1010,13 @@ const selected = selectWorkCandidates(
   SCHEMA,
   {
     now,
-    maxItems: ${runtime.generator.per_run_cap},
-    leaseMs: ${runtime.generator.claim_lease_ms}
+    leaseMs: ${runtime.generator.claim_lease_ms},
+    stageCaps: {
+      generation: ${runtime.generator.per_run_cap},
+      evaluation: ${runtime.generator.evaluation_per_run_cap}
+    },
+    maximumPriorityWaitMs:
+      ${runtime.generator.maximum_priority_wait_minutes} * 60 * 1000
   }
 );
 return selected.map((record) => {
@@ -1849,6 +1854,10 @@ return {
           groqPolicy.generation.request_interval_ms,
         pipelineSchemaVersion: schema.storage_version,
         generatorPerRunCap: runtime.generator.per_run_cap,
+        generatorEvaluationPerRunCap:
+          runtime.generator.evaluation_per_run_cap,
+        generatorMaximumPriorityWaitMinutes:
+          runtime.generator.maximum_priority_wait_minutes,
         scheduleMinutes: runtime.generator.schedule_minutes,
         scheduleOffsetMinutes:
           runtime.generator.schedule_offset_minutes,

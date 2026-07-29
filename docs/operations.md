@@ -143,7 +143,9 @@ run must clear zero additional inputs.
    into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
 6. Confirm the configured schedules are 4 hours, 90 minutes, 15 minutes,
-   15 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 1. Confirm
+   15 minutes, 45 minutes, 24 hours, and 168 hours; Generator has separate
+   generation and deterministic-evaluation caps of 1 and a 120-minute maximum
+   priority wait. Confirm
    Analytics is fixed at 02:00 daily and Recommender at 02:45 Mondays in
    `Asia/Manila`, leaving the configured 30-minute timeout plus 15-minute
    completion buffer. Confirm the five interval exports use custom cron rules:
@@ -516,7 +518,9 @@ Alert after two missed one-minute readiness checks, any unexpected failed
 execution in 15 minutes, or a production execution waiting five minutes.
 Ingest the structured `operational_backlog`, `generator_result`, and
 `alert_delivery` log events and alert if the backlog event is absent for 20
-minutes. Reconcile those signals with Sheet state. Alert when the oldest due generation exceeds 120 minutes, a pending alert exceeds 45 minutes, or a
+minutes. Reconcile those signals with Sheet state. Alert when the oldest due
+generation or deterministic evaluation exceeds 120 minutes, a pending alert
+exceeds 45 minutes, or a
 manual action exceeds 30 minutes based on its continuously present
 fingerprint. Also alert when any canonical active processing marker exceeds
 its stage lease, or three provider events have
@@ -642,16 +646,19 @@ Do not invent hiring or conversion targets. Record observed counts and reconcile
   `maximum_page_requests`; confirm exhausted queries do not request later
   pages, capped queries remain partial, and a later-page failure retains the
   earlier successful page counts and jobs.
-- Evaluation: selected, enriched from source, reused stored detail, recommended, review-required, not-recommended, unscorable, unavailable.
+- Evaluation: eligible, oldest due age, age-unobservable, selected, enriched
+  from source, reused stored detail, recommended, review-required,
+  not-recommended, unscorable, unavailable, and whether the separate
+  evaluation slot made progress beside generation work.
 - Generation: attempted, validated ready, retryable, terminal, claim losers, per-run maximum.
 - Alert: queued, eligible, sent, suppressed, retryable, terminal, stale
   `sending`, attempts, provider categories, and time from ready commit to
   confirmed delivery.
 - Recovery: failures by stage/category, next retries, attempts at cap, expired claims, non-empty processing stages older than the lease.
-- Operational backlog: event freshness, due-generation/pending-alert counts
-  and oldest ages, manual-action fingerprint first-seen age and truncation,
-  canonical active markers past their stage lease, and rate-limit events from
-  Generator/Alerter result logs.
+- Operational backlog: event freshness, due-generation, due-evaluation, and
+  pending-alert counts and oldest ages; age-unobservable counts; manual-action
+  fingerprint first-seen age and truncation; canonical active markers past
+  their stage lease; and rate-limit events from Generator/Alerter result logs.
 - Claim retention: policy version, rows seen, threshold state, eligible,
   selected, deferred, preserved-by-reason counts, delete ranges, committed
   deletions, and any failed or response-ambiguous batch.
@@ -673,8 +680,9 @@ Do not invent hiring or conversion targets. Record observed counts and reconcile
 - Data invariants: one canonical identity across active/archive, no missing historical ready messages/decisions/outcomes, and no automatic applied/skipped transition.
 
 Investigate when a summary is missing, the operational backlog event is more
-than 20 minutes old, query coverage unexpectedly drops, a canonical claim
-marker remains active beyond its lease, a retryable row archives,
+than 20 minutes old, generation or evaluation work exceeds its 120-minute
+priority wait, query coverage unexpectedly drops, a canonical claim marker
+remains active beyond its lease, a retryable row archives,
 active/archive both contain the same identity beyond one recovery cycle, or
 counts cannot be reconciled.
 
