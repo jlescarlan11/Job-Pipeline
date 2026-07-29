@@ -255,7 +255,11 @@ record stage, category, sanitized summary, attempt count, and exponential
 next-retry time starting at 5 minutes. An initial provider failure, an invalid
 repaired draft, or a repair provider failure increments the execution's attempt
 once; the third failed attempt or a non-retryable request becomes
-`terminal_error`.
+`terminal_error`. The detail fetch and both Agent error outputs normalize
+n8n's string-shaped error item before classification or validation. An initial
+provider error therefore records one stage failure and never masquerades as an
+empty draft or consumes the repair request; the repair path remains exclusive
+to a real initial draft that failed deterministic validation.
 
 ## Alert workflow
 

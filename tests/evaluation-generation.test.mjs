@@ -13,6 +13,7 @@ import {
   buildApplicationUserMessage,
   classifyExternalError,
   evaluateJob,
+  externalResultErrorMessage,
   parseJobDetail,
   rankingConfidenceForSignals,
   recommendApplyPoints,
@@ -954,6 +955,22 @@ test("temporary errors retry with sanitized evidence and terminalize at the cap"
     }
   );
   assert.equal(terminal.pipeline_status, "terminal_error");
+});
+
+test("n8n provider error items remain provider failures instead of empty drafts", () => {
+  assert.equal(
+    externalResultErrorMessage({ error: "provider timeout" }),
+    "provider timeout"
+  );
+  assert.equal(
+    externalResultErrorMessage({ error: { message: "rate limit 429" } }),
+    "rate limit 429"
+  );
+  assert.equal(
+    externalResultErrorMessage({ error_description: "connection reset" }),
+    "connection reset"
+  );
+  assert.equal(externalResultErrorMessage({ output: "valid draft" }), "");
 });
 
 test("application prompt uses only the canonical profile and separate policy", () => {

@@ -653,6 +653,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Commit Generation Result"
   );
   assertDirectConnection(workflow, "AI Agent", "Validate Initial Draft");
+  assert.match(
+    nodeByName(workflow, "Parse Job Detail").parameters.jsCode,
+    /externalResultErrorMessage\(payload\)/
+  );
   assertDirectConnection(workflow, "Validate Initial Draft", "Needs Repair");
   assertDirectConnection(workflow, "Needs Repair", "Wait Before Repair");
   assertDirectConnection(workflow, "Wait Before Repair", "Repair AI Agent");
@@ -753,6 +757,7 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   );
   assert.match(generationCode, /function validateGeneratedMessage\s*\(/);
   assert.match(generationCode, /function validateApplicationPack\s*\(/);
+  assert.match(generationCode, /externalResultErrorMessage\(payload\)/);
   assert.match(generationCode, /const originalRecord = \$\('Keep Winning Claims'\)/);
   assert.match(generationCode, /applyGeneratedApplicationPack/);
   assert.match(
@@ -770,6 +775,7 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Validate Repaired Message"
   ).parameters.jsCode;
   assert.match(repairCode, /validateGeneratedMessage/);
+  assert.match(repairCode, /externalResultErrorMessage\(payload\)/);
   assert.match(repairCode, /recordStageFailure\(originalRecord/);
   assert.match(repairCode, /applyGeneratedApplicationPack/);
   const nonReadyCode = nodeByName(

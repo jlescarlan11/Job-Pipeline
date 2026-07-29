@@ -361,6 +361,11 @@ compatible and reconcile on the next run.
 - Confirm a valid repair is committed once under the original processing claim.
   Confirm an invalid or failed repair increments `attempt_count` once, never
   stores the rejected draft, and cannot overwrite a newer manual decision.
+- Force the initial Agent to return an n8n error-output item and confirm the
+  execution persists one categorized generation failure with no repair call.
+  Separately force the Repair Agent error output and confirm the initial plus
+  repair calls still count as one failed pipeline attempt. In both cases,
+  verify the sanitized provider error is not reclassified as an empty draft.
 - Confirm the description persists after the first fetch.
 - Confirm a valid message preserves formatting and records profile version.
 - Confirm every quarantined legacy row is evaluated first when its stored

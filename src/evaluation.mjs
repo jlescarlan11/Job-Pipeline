@@ -1477,6 +1477,17 @@ function sanitizeError(value) {
     .slice(0, 200);
 }
 
+export function externalResultErrorMessage(result) {
+  const error = result?.error;
+  return normalizeText(
+    (typeof error === "string" ? error : error?.message || error?.description) ||
+      result?.errorMessage ||
+      result?.error_description ||
+      result?.message ||
+      ""
+  );
+}
+
 export function classifyExternalError(error) {
   const message = normalizeText(error?.message || error || "");
   const status = Number(error?.statusCode || error?.status || 0);

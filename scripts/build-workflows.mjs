@@ -1064,7 +1064,7 @@ return winners.map((record) => ({ json: record }));`;
 
 const record = $('Keep Winning Claims').item.json;
 const payload = $json || {};
-const errorMessage = payload.error?.message || payload.message || '';
+const errorMessage = externalResultErrorMessage(payload);
 if (errorMessage && !payload.data && !payload.body) {
   return {
     json: {
@@ -1132,7 +1132,7 @@ const now = new Date().toISOString();
 const commitToken = record.processing_token;
 const commitGuard =
   record.processing_commit_guard || processingCommitGuard(commitToken);
-const errorMessage = payload.error?.message || payload.message || '';
+const errorMessage = externalResultErrorMessage(payload);
 if (errorMessage && !payload.output) {
   const failed = recordStageFailure(originalRecord, new Error(errorMessage), {
     stage: 'generation',
@@ -1267,7 +1267,7 @@ const now = new Date().toISOString();
 const commitToken = record.processing_token;
 const commitGuard =
   record.processing_commit_guard || processingCommitGuard(commitToken);
-const errorMessage = payload.error?.message || payload.message || '';
+const errorMessage = externalResultErrorMessage(payload);
 if (errorMessage && !payload.output) {
   const failed = recordStageFailure(originalRecord, new Error(errorMessage), {
     stage: 'generation',

@@ -78,6 +78,11 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   same pack/message validator and `processing_commit_guard`; failed work starts
   from the pre-generation record so prior valid data and newer manual state
   remain authoritative.
+- **I28-AC5 — Provider errors do not trigger repair:** Unit and generated-export
+  checks normalize n8n's string-shaped Agent error item on both provider paths.
+  The disabled-workflow smoke requires an initial provider error to persist one
+  categorized attempt with zero repair calls; only a real rejected draft may
+  enter the bounded repair path.
 
 ## Issue #4 — Idempotent archive
 
