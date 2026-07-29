@@ -467,6 +467,10 @@ test("alerter export claims, validates, sends, and commits without state-changin
   assert.match(prepare, /review_confirmation/);
   assert.match(prepare, /configuration_error/);
   assert.match(prepare, /evaluatePersistedMessageSafety/);
+  assert.match(prepare, /Application message — copy below/);
+  assert.match(prepare, /function slackEscapeLiteral\s*\(/);
+  assert.match(prepare, /alertRenderErrorCategory\(error\)/);
+  assert.match(prepare, /preflight_error/);
   assert.match(
     nodeByName(
       workflow,
@@ -487,9 +491,17 @@ test("alerter export claims, validates, sends, and commits without state-changin
   assert.doesNotMatch(prepare, /request_url/);
   const prepareRuntime = prepare.slice(prepare.lastIndexOf("const POLICY ="));
   assert.match(prepareRuntime, /processing_commit_guard:\s*commitGuard/);
+  assert.match(
+    prepareRuntime,
+    /catch\s*\(error\)[\s\S]*should_send:\s*false/
+  );
   assert.doesNotMatch(
     prepareRuntime,
     /processing_token:\s*commitToken/
+  );
+  assert.doesNotMatch(
+    prepareRuntime,
+    /console\.(?:log|error)\([^)]*(?:generated_message|alertPayload|error)/
   );
   const send = nodeByName(workflow, "Send Slack Alert");
   assert.equal(

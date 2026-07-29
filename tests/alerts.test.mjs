@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   alertIdempotencyKey,
+  alertRenderErrorCategory,
   applyAlertProviderResult,
   classifyAlertProviderResult,
   evaluateAlertEligibility as evaluateAlertEligibilityCore,
@@ -59,6 +60,23 @@ const renderAlert = (record, usedPolicy, options) =>
     ...options,
     messageSafetyContext
   });
+
+function decodeSlackEntities(value) {
+  return String(value)
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function extractApplicationMessage(alertText) {
+  const marker = "*Application message — copy below:*\n```";
+  const start = alertText.indexOf(marker);
+  assert.notEqual(start, -1, "application message marker is missing");
+  const contentStart = start + marker.length;
+  const end = alertText.indexOf("```", contentStart);
+  assert.notEqual(end, -1, "application message closing fence is missing");
+  return decodeSlackEntities(alertText.slice(contentStart, end));
+}
 
 const ready = (overrides = {}) => ({
   row_number: 2,
@@ -249,14 +267,21 @@ test("eligible committed packs are immediately queued with one idempotency key",
   assert.equal(selected.candidates[0].delivery_mode, "deliver");
 });
 
-test("rendered Slack alert is concise, complete, and contains only non-mutating actions", () => {
+test("rendered Slack alert preserves the complete copyable message and non-mutating actions", () => {
+  const generatedMessage = `Subject line: TypeScript Developer Application — John Lester Escarlan
+
+Hi there,
+
+I build TypeScript & React features with evidence < assumptions > hype.  I keep the original paragraph spacing intact.
+
+GitHub: ${profile.candidate.links.github}`;
   const record = ready({
     alert_status: "pending",
     alert_policy_version: policy.policy_version,
     alert_idempotency_key: "onlinejobs.ph:7001|2026-07-28/v1",
     alert_last_attempt_at: now,
     job_description: "FULL DESCRIPTION MUST NOT APPEAR",
-    generated_message: "FULL MESSAGE MUST NOT APPEAR",
+    generated_message: generatedMessage,
     application_instructions: [
       { type: "subject", text: "Use subject line CODE-TS" }
     ],
@@ -277,7 +302,11 @@ test("rendered Slack alert is concise, complete, and contains only non-mutating 
   assert.match(alert.text, /Instructions: Use subject line CODE-TS/);
   assert.match(alert.text, /Confirm skip in Sheet/);
   assert.match(alert.text, /Open OnlineJobs\.ph/);
-  assert.doesNotMatch(alert.text, /FULL DESCRIPTION|FULL MESSAGE/);
+  assert.doesNotMatch(alert.text, /FULL DESCRIPTION/);
+  assert.match(alert.text, /\*Application message — copy below:\*\n```/);
+  assert.match(alert.text, /TypeScript &amp; React/);
+  assert.match(alert.text, /evidence &lt; assumptions &gt; hype/);
+  assert.equal(extractApplicationMessage(alert.text), generatedMessage);
   assert.equal(alert.review_action.mode, "authorized_review_surface");
   assert.equal(alert.skip_action.mode, "review_confirmation");
   assert.equal(alert.source_action.mode, "open_only");
@@ -322,6 +351,124 @@ test("rendered Slack alert is concise, complete, and contains only non-mutating 
   assert.match(bounded.text, /Review in authorized Sheet/);
   assert.match(bounded.text, /Confirm skip in Sheet/);
   assert.match(bounded.text, /Open OnlineJobs\.ph/);
+  assert.equal(
+    extractApplicationMessage(bounded.text),
+    "Existing ready message"
+  );
+});
+
+test("message fitting drops optional context before altering the complete message", () => {
+  const generatedMessage = "x".repeat(3000);
+  const alert = renderAlert(
+    ready({
+      generated_message: generatedMessage,
+      alert_last_attempt_at: now,
+      company: "c".repeat(policy.summary_item_characters),
+      salary_text: "s".repeat(policy.summary_item_characters),
+      application_instructions: Array.from({ length: 3 }, () => ({
+        type: "format",
+        required: false,
+        text: "i".repeat(policy.summary_item_characters)
+      }))
+    }),
+    policy,
+    {
+      reviewUrl: "https://docs.google.com/spreadsheets/d/example"
+    }
+  );
+
+  assert.ok(alert.text.length <= policy.maximum_message_characters);
+  assert.equal(extractApplicationMessage(alert.text), generatedMessage);
+  assert.doesNotMatch(alert.text, /Warnings:/);
+  assert.match(alert.text, /Open OnlineJobs\.ph/);
+});
+
+test("complete messages are accepted at the exact payload boundary and rejected one character beyond it", () => {
+  const reviewUrl = "https://docs.google.com/spreadsheets/d/example";
+  const sourceUrl = ready().canonical_url;
+  const links = [
+    `<${reviewUrl}|Review in authorized Sheet>`,
+    `<${reviewUrl}|Confirm skip in Sheet>`,
+    `<${sourceUrl}|Open OnlineJobs.ph>`
+  ].join(" · ");
+  const requiredOverhead =
+    "*Application message — copy below:*\n".length +
+    "``````".length +
+    1 +
+    links.length;
+  const maximumApplicationMessageLength =
+    policy.maximum_message_characters - requiredOverhead;
+  const exactMessage = "x".repeat(maximumApplicationMessageLength);
+  const exact = renderAlert(
+    ready({
+      generated_message: exactMessage,
+      alert_last_attempt_at: now
+    }),
+    policy,
+    { reviewUrl }
+  );
+  assert.equal(exact.text.length, policy.maximum_message_characters);
+  assert.equal(extractApplicationMessage(exact.text), exactMessage);
+
+  assert.throws(
+    () =>
+      renderAlert(
+        ready({
+          generated_message: `${exactMessage}x`,
+          alert_last_attempt_at: now
+        }),
+        policy,
+        { reviewUrl }
+      ),
+    (error) =>
+      alertRenderErrorCategory(error) === "message_too_long"
+  );
+});
+
+test("unrenderable messages fail closed without exposing or modifying the pack", () => {
+  const cases = [
+    ["message_too_long", "x".repeat(10000)],
+    ["message_code_block_unsafe", "Copy this ```unsafe fence```"],
+    ["message_code_block_unsafe", "`boundary backtick"],
+    ["message_control_characters", "invisible\u200bseparator"]
+  ];
+
+  for (const [category, generatedMessage] of cases) {
+    const record = ready({
+      generated_message: generatedMessage,
+      alert_last_attempt_at: now,
+      processing_token: `claim-${category}`,
+      processing_stage: "alert"
+    });
+    let thrown;
+    try {
+      renderAlert(record, policy, {
+        reviewUrl: "https://docs.google.com/spreadsheets/d/example"
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    assert.ok(thrown, `${category} did not fail rendering`);
+    assert.equal(alertRenderErrorCategory(thrown), category);
+    assert.doesNotMatch(thrown.message, new RegExp(generatedMessage.slice(0, 20)));
+
+    const finalized = applyAlertProviderResult(
+      record,
+      {
+        preflight_error: alertRenderErrorCategory(thrown),
+        at: now
+      },
+      policy
+    );
+    assert.equal(finalized.alert_status, "terminal_failure");
+    assert.equal(finalized.alert_error_category, category);
+    assert.equal(finalized.alert_next_retry_at, "");
+    assert.equal(finalized.processing_token, "");
+    assert.equal(finalized.processing_stage, "");
+    assert.equal(finalized.generated_message, generatedMessage);
+    assert.equal(finalized.application_pack_status, "ready");
+    assert.doesNotMatch(finalized.alert_error_summary, /x{20}|unsafe fence|invisible/);
+  }
 });
 
 test("confirmed success persists delivery evidence and suppresses duplicate initial alerts", () => {
@@ -460,6 +607,25 @@ test("ambiguous timeout and missing configuration fail visibly without blind ret
   );
   assert.equal(missingConfig.category, "configuration_error");
   assert.equal(missingConfig.retryable, false);
+
+  const unexpectedPreflight = classifyAlertProviderResult(
+    {
+      preflight_error: "api_key=must-not-leak",
+      at: now
+    },
+    policy,
+    now
+  );
+  assert.equal(unexpectedPreflight.category, "render_failure");
+  assert.equal(unexpectedPreflight.retryable, false);
+  assert.doesNotMatch(
+    unexpectedPreflight.summary,
+    /api_key|must-not-leak/
+  );
+  assert.equal(
+    alertRenderErrorCategory({ alert_category: "toString" }),
+    "render_failure"
+  );
 });
 
 test("known-unavailable pending alerts are claimed for suppression, not delivery", () => {

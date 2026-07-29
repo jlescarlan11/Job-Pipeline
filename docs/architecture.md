@@ -139,12 +139,16 @@ delivery queue.
 The alerter claims at most the configured per-run cap through
 `ProcessingClaims`, marks a deliverable record `sending`, validates the
 environment-bound Slack webhook and authorized HTTPS review URL, and sends a
-length-bounded summary. The summary uses explicit `Unknown`/`None detected`
-labels and includes scores, confidence, employer, salary, freshness, advisory
-Apply Points, major gaps, instructions, screening questions, selected proofs,
-and warnings. Review and skip links open the authorized Sheet surface; they
-carry no state-changing token. The source link is open-only. Only the reviewer
-workflow can persist a skip or application decision.
+length-bounded alert. The alert places the complete validated application
+message in one copyable Slack code block and keeps the required review, skip,
+and source links outside that block. Optional context uses explicit
+`Unknown`/`None detected` labels and includes scores, confidence, employer,
+salary, freshness, advisory Apply Points, major gaps, instructions, screening
+questions, selected proofs, and warnings when it fits. Context is trimmed or
+omitted before the application message or required links. Review and skip links
+open the authorized Sheet surface; they carry no state-changing token. The
+source link is open-only. Only the reviewer workflow can persist a skip or
+application decision.
 
 `canonical_job_id + alert_policy_version` is the idempotency scope. Confirmed
 success stores `sent`, timestamp, attempt count, and any non-sensitive provider
@@ -154,7 +158,11 @@ a `sending` record outlives its claim lease—covering delivery followed by a
 failed acknowledgement commit—it is terminalized as `ambiguous_delivery`
 without automatic resend. Missing configuration, invalid URLs, permanent
 provider rejection, and source unavailability fail or suppress visibly without
-discarding the ready application pack.
+discarding the ready application pack. A message that would break the Slack
+code-block boundary, contains unsupported invisible controls, or cannot fit
+completely with the required links is terminalized before any provider request.
+That deterministic preflight path releases the claim, records only a sanitized
+category and summary, and is never treated as ambiguous delivery.
 
 ## Review workflow
 

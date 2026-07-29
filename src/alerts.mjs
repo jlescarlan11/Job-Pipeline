@@ -9,6 +9,15 @@ import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 
 const ALLOWED_CHANNELS = ["slack"];
 const ENVIRONMENT_NAME = /^[A-Z][A-Z0-9_]{2,63}$/;
+const ALERT_RENDER_ERROR_SUMMARIES = Object.freeze({
+  message_code_block_unsafe:
+    "The validated application message cannot be represented safely in a Slack code block.",
+  message_control_characters:
+    "The validated application message contains unsupported control characters.",
+  message_too_long:
+    "The complete application message and required actions exceed the configured Slack alert limit.",
+  render_failure: "The Slack alert could not be rendered safely."
+});
 
 function cleanText(value, maximum = 500) {
   return String(value || "")
@@ -434,30 +443,69 @@ function slackEscape(value) {
     .replace(/>/g, "&gt;");
 }
 
+function slackEscapeLiteral(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function alertRenderError(category) {
+  const normalizedCategory =
+    Object.hasOwn(ALERT_RENDER_ERROR_SUMMARIES, category)
+      ? category
+      : "render_failure";
+  const error = new Error(ALERT_RENDER_ERROR_SUMMARIES[normalizedCategory]);
+  error.name = "AlertRenderError";
+  error.alert_category = normalizedCategory;
+  return error;
+}
+
+export function alertRenderErrorCategory(error) {
+  const category = String(error?.alert_category || "");
+  return Object.hasOwn(ALERT_RENDER_ERROR_SUMMARIES, category)
+    ? category
+    : "render_failure";
+}
+
 function fitAlertLines(lines, minimums, maximum) {
-  const result = [...lines];
+  if (!Number.isFinite(maximum) || maximum <= 0) return "";
+  const result = lines.map((line, index) => ({
+    text: line,
+    minimum: minimums[index] ?? 0
+  }));
   const length = () =>
-    result.reduce((sum, line) => sum + line.length, 0) +
+    result.reduce((sum, line) => sum + line.text.length, 0) +
     Math.max(0, result.length - 1);
   while (length() > maximum) {
     let candidate = -1;
     let reducible = 0;
     for (let index = 0; index < result.length; index += 1) {
-      const available = result[index].length - minimums[index];
+      const available =
+        result[index].text.length - result[index].minimum;
       if (available > reducible) {
         candidate = index;
         reducible = available;
       }
     }
-    if (candidate < 0 || reducible <= 0) break;
-    const excess = length() - maximum;
-    const nextLength =
-      result[candidate].length - Math.min(reducible, excess);
-    result[candidate] = `${result[candidate]
-      .slice(0, Math.max(minimums[candidate] - 1, nextLength - 1))
-      .trimEnd()}…`;
+    if (candidate >= 0 && reducible > 0) {
+      const excess = length() - maximum;
+      const nextLength =
+        result[candidate].text.length - Math.min(reducible, excess);
+      result[candidate].text = `${result[candidate].text
+        .slice(
+          0,
+          Math.max(
+            result[candidate].minimum - 1,
+            nextLength - 1
+          )
+        )
+        .trimEnd()}…`;
+      continue;
+    }
+    result.pop();
   }
-  return result.join("\n");
+  return result.map((line) => line.text).join("\n");
 }
 
 export function renderAlert(
@@ -511,6 +559,28 @@ export function renderAlert(
     safeReviewUrl ? `<${safeReviewUrl}|Confirm skip in Sheet>` : "Skip: unavailable",
     sourceUrl ? `<${sourceUrl}|Open OnlineJobs.ph>` : "Source: unavailable"
   ].join(" · ");
+  const applicationMessage = String(record.generated_message ?? "");
+  if (
+    applicationMessage.includes("```") ||
+    applicationMessage.startsWith("`") ||
+    applicationMessage.endsWith("`")
+  ) {
+    throw alertRenderError("message_code_block_unsafe");
+  }
+  if (
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200d\u2060\ufeff]/u.test(
+      applicationMessage
+    )
+  ) {
+    throw alertRenderError("message_control_characters");
+  }
+  const applicationBlock =
+    `*Application message — copy below:*\n` +
+    `\`\`\`${slackEscapeLiteral(applicationMessage)}\`\`\``;
+  const requiredTail = `${applicationBlock}\n${links}`;
+  if (requiredTail.length > policy.maximum_message_characters) {
+    throw alertRenderError("message_too_long");
+  }
   const contextLines = [
     `*High-opportunity job:* ${slackEscape(record.job_title) || "Untitled role"}`,
     `Qualification ${record.qualification_score}/100 · Opportunity ${record.opportunity_score}/100 · Confidence ${record.ranking_confidence}`,
@@ -523,12 +593,17 @@ export function renderAlert(
     `Proofs: ${slackEscape(proofs)}`,
     `Warnings: ${slackEscape(warnings)}`
   ];
-  const tail = `\n${links}`;
-  const text = `${fitAlertLines(
+  const context = fitAlertLines(
     contextLines,
     [60, 80, 100, 100, 120, 120, 120, 180],
-    policy.maximum_message_characters - tail.length
-  )}${tail}`;
+    policy.maximum_message_characters - requiredTail.length - 1
+  );
+  const text = context
+    ? `${context}\n${requiredTail}`
+    : requiredTail;
+  if (text.length > policy.maximum_message_characters) {
+    throw alertRenderError("message_too_long");
+  }
   return {
     channel: policy.channel,
     idempotency_key: alertIdempotencyKey(record, policy),
@@ -558,6 +633,20 @@ export function classifyAlertProviderResult(
     result?.error?.message || result?.message || result?.body || "",
     200
   );
+  if (result?.preflight_error) {
+    const category = String(result.preflight_error);
+    const normalizedCategory =
+      Object.hasOwn(ALERT_RENDER_ERROR_SUMMARIES, category)
+        ? category
+        : "render_failure";
+    return {
+      success: false,
+      retryable: false,
+      category: normalizedCategory,
+      summary: ALERT_RENDER_ERROR_SUMMARIES[normalizedCategory],
+      at: now
+    };
+  }
   if (result?.configuration_error) {
     return {
       success: false,

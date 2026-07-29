@@ -10,7 +10,7 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | --- | --- | --- |
 | `workflows/scraper.json` | Every 4 hours | Run 22 evidence-linked queries across at most 3 pages each, preserve result-card alignment, reconcile active/archive history, and append only the winning discovery claim. |
 | `workflows/generator.json` | Every 15 minutes | Select at most 5 eligible jobs, enrich details, evaluate fit, generate approved messages through Groq, validate them, and persist retry or terminal state. |
-| `workflows/alerter.json` | Every minute | Claim newly ready high-opportunity jobs, send one concise Slack alert through an environment-bound webhook, and persist delivery or bounded failure evidence. |
+| `workflows/alerter.json` | Every minute | Claim newly ready high-opportunity jobs, send one Slack alert with the complete copy-ready message and safe links through an environment-bound webhook, and persist delivery or bounded failure evidence. |
 | `workflows/reviewer.json` | Every 5 minutes | Apply explicit Sheet actions, update active or archived outcomes, and upsert a deduplicated funnel summary. |
 | `workflows/analytics.json` | Every 24 hours | Read deduplicated active/archive state, publish versioned conversion/calibration detail, and mark a report complete only after all detail rows persist. |
 | `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |

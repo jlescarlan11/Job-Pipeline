@@ -179,9 +179,17 @@ Slack HTTP node must remain an explicit JSON `POST`.
 
 - Use a disposable, fresh, high-confidence record at each configured score
   boundary and confirm the committed ready pack immediately becomes `pending`.
-- Confirm one Slack alert includes the configured concise summary, uses
-  `Unknown`/`None detected` labels for absent optional data, and exposes only
-  review-Sheet, skip-confirmation, and open-source links.
+- Confirm one Slack alert includes the complete validated application message
+  in a dedicated code block, uses `Unknown`/`None detected` labels for absent
+  optional data, and exposes only review-Sheet, skip-confirmation, and
+  open-source links outside the code block. Copy the code-block content into a
+  plain-text comparison surface and verify the paragraphs, spacing,
+  punctuation, Unicode characters, and approved URLs match the stored message.
+- Exercise a near-limit message and confirm optional context is reduced before
+  the message or required links. Exercise an over-limit message, an embedded
+  code fence, and an unsupported invisible control; confirm each terminalizes
+  with sanitized preflight evidence, releases the claim, preserves the ready
+  pack, and makes no Slack request.
 - Re-run the alerter and confirm the same canonical job/policy version does not
   receive a second initial alert.
 - Force a rate limit or provider `5xx` response and verify bounded backoff,

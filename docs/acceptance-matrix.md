@@ -214,6 +214,31 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   empty work. Export tests enforce disabled state, secret references,
   sanitization, and absence of application actions.
 
+## Issue #22 — Copyable Slack application messages
+
+- **Complete copy block:** `renderAlert` independently revalidates the persisted
+  message and ready pack, encodes only Slack control characters, and places the
+  complete application message in one labeled code block. Tests decode the
+  rendered block and compare it with multiline source text containing spacing,
+  punctuation, Unicode, approved URLs, and Slack metacharacters.
+- **Message-first fitting:** The renderer reserves the complete code block and
+  review/skip/source link tail before fitting optional alert context. Boundary
+  tests prove an exact-limit message is unchanged, optional context is omitted
+  first, and one additional character fails closed rather than truncating.
+- **Deterministic preflight:** Embedded code-fence boundaries, unsupported
+  invisible controls, and over-limit messages become sanitized non-retryable
+  preflight failures before the Slack HTTP node. The guarded commit releases
+  the claim, preserves the valid message/pack, and never reports a provider
+  timeout or sends a partial message.
+- **Compatibility and authority:** Eligibility thresholds, policy-version
+  idempotency, provider retry behavior, inactive exports, review/skip
+  confirmation, and manual OnlineJobs.ph submission remain unchanged. A
+  renderer-only rollout does not requeue previously confirmed alerts.
+- **Operational verification:** The alert runbook requires a disabled
+  non-production delivery, plain-text copy comparison, render-failure controls,
+  duplicate suppression, and confirmation that no Slack link mutates
+  application state.
+
 ## Issue #12 — Manual learning telemetry
 
 - **Review and application capture:** Explicit `mark_reviewed` stamps

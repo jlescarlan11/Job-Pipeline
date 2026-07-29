@@ -7,7 +7,9 @@ eligibility, cadence, caps, leases, retry limits, content limits, and
 environment-variable names. The repository stores no webhook credential. Alert
 actions never apply to a job or mutate a decision: review and skip both open the
 authorized Google Sheet review surface, while the OnlineJobs.ph link is
-open-only.
+open-only. An eligible alert includes the complete current validated application
+message in a copyable Slack code block; it does not add clipboard authority or
+change the candidate's responsibility to review and submit manually.
 
 ## Eligibility and queueing
 
@@ -69,17 +71,31 @@ choosing a future policy-version change or manual recovery.
 Alert errors and execution summaries exclude credentials, raw provider
 responses, full descriptions, resumes, and generated application messages. A
 delivery failure never clears or rewrites the valid application pack.
-Message fitting trims bounded context fields first and preserves the complete
-review, skip-confirmation, and source link tail. A job with an invalid or
-over-limit source URL is ineligible rather than producing a partial action set.
+Message fitting reserves the complete encoded application message and the
+review, skip-confirmation, and source link tail before fitting optional context.
+The application message uses only Slack-required literal escaping for `&`,
+`<`, and `>` so its paragraphs and spacing remain intact when copied. Bounded
+context fields are trimmed and then omitted from lowest priority when needed.
+The application message and required links are never truncated.
+
+A message containing a code-fence boundary, unsupported invisible control
+characters, or content that cannot fit completely is a deterministic
+non-retryable preflight failure. The workflow does not call Slack, does not
+persist the complete message in its error evidence, atomically releases the
+alert claim, and preserves the ready application pack. This path is distinct
+from a provider timeout because delivery never began. A job with an invalid or
+over-limit source URL remains ineligible rather than producing a partial action
+set.
 
 ## Disabled import and rollback
 
 Checked-in `workflows/alerter.json` is inactive. Import and rebind it against a
 non-production Sheet first, supply test environment variables, and exercise
 success, known transient rejection, invalid configuration, source suppression,
-and a stale `sending` row. Activate it only after the generator and reviewer are
-verified.
+deterministic render failure, and a stale `sending` row. For the success case,
+copy the Slack code-block content into a plain-text comparison surface and
+verify it matches the stored message before activating anything. Activate the
+alerter only after the generator and reviewer are verified.
 
 To roll back, disable the alerter first and wait for running executions. Preserve
 all alert fields and inspect any `sending` row as potentially delivered. Never

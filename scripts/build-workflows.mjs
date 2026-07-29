@@ -1942,11 +1942,31 @@ if (configurationErrors.length > 0) {
     }
   };
 }
-const alertPayload = renderAlert(
-  { ...record, alert_last_attempt_at: now },
-  POLICY,
-  { reviewUrl, messageSafetyContext: MESSAGE_SAFETY }
-);
+let alertPayload;
+try {
+  alertPayload = renderAlert(
+    { ...record, alert_last_attempt_at: now },
+    POLICY,
+    { reviewUrl, messageSafetyContext: MESSAGE_SAFETY }
+  );
+} catch (error) {
+  const finalized = applyAlertProviderResult(
+    record,
+    {
+      preflight_error: alertRenderErrorCategory(error),
+      at: now
+    },
+    POLICY
+  );
+  return {
+    json: {
+      ...finalized,
+      processing_commit_guard: commitGuard,
+      commit_token: commitToken,
+      should_send: false
+    }
+  };
+}
 return {
   json: {
     ...record,
