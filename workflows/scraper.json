@@ -548,8 +548,7 @@
           "id": "4Vxkm1v1ZER0YYlg",
           "name": "Google Sheets account"
         }
-      },
-      "onError": "continueErrorOutput"
+      }
     },
     {
       "parameters": {
@@ -1577,8 +1576,7 @@
           "id": "4Vxkm1v1ZER0YYlg",
           "name": "Google Sheets account"
         }
-      },
-      "onError": "continueErrorOutput"
+      }
     },
     {
       "parameters": {
@@ -1738,8 +1736,7 @@
           "id": "4Vxkm1v1ZER0YYlg",
           "name": "Google Sheets account"
         }
-      },
-      "onError": "continueErrorOutput"
+      }
     },
     {
       "parameters": {

@@ -211,6 +211,15 @@ function sheetExpression(field) {
   return `={{ Array.isArray(${accessor}) ? JSON.stringify(${accessor}) : (${accessor} ?? '') }}`;
 }
 
+function enforceSingleAttemptFailClosedSheetWrite(node) {
+  delete node.onError;
+  delete node.continueOnFail;
+  delete node.retryOnFail;
+  delete node.maxTries;
+  delete node.waitBetweenTries;
+  return node;
+}
+
 function appendSheetNode({ base, id, name, position, fields }) {
   const node = structuredClone(base);
   node.id = id;
@@ -225,7 +234,7 @@ function appendSheetNode({ base, id, name, position, fields }) {
     attemptToConvertTypes: false,
     convertFieldsToString: false
   };
-  return node;
+  return enforceSingleAttemptFailClosedSheetWrite(node);
 }
 
 function updateSheetNode({ base, id, name, position, fields }) {
@@ -245,7 +254,7 @@ function updateSheetNode({ base, id, name, position, fields }) {
     attemptToConvertTypes: false,
     convertFieldsToString: false
   };
-  return node;
+  return enforceSingleAttemptFailClosedSheetWrite(node);
 }
 
 function updateSheetByFieldNode({ base, id, name, position, fields, matchingField }) {
@@ -265,7 +274,7 @@ function updateSheetByFieldNode({ base, id, name, position, fields, matchingFiel
     attemptToConvertTypes: false,
     convertFieldsToString: false
   };
-  return node;
+  return enforceSingleAttemptFailClosedSheetWrite(node);
 }
 
 function upsertSheetNode({ base, id, name, position, fields, matchingField }) {
@@ -282,7 +291,7 @@ function upsertSheetNode({ base, id, name, position, fields, matchingField }) {
     attemptToConvertTypes: false,
     convertFieldsToString: false
   };
-  return node;
+  return enforceSingleAttemptFailClosedSheetWrite(node);
 }
 
 function connection(node, index = 0) {
@@ -445,7 +454,9 @@ async function buildScraper() {
   };
   claimsRead.alwaysOutputData = true;
 
-  const claimsAppend = structuredClone(appendBase);
+  const claimsAppend = enforceSingleAttemptFailClosedSheetWrite(
+    structuredClone(appendBase)
+  );
   claimsAppend.id = "5b0d6e3f-0eae-4d1e-a0b4-000000000013";
   claimsAppend.name = "Append Discovery Claims";
   claimsAppend.position = [1460, -100];

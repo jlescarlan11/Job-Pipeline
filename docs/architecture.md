@@ -153,7 +153,16 @@ page/query fails. Coverage records `complete`, `empty`, `partial`, or `failed`
 per query, plus actual and maximum page-request counts; reaching the configured
 page cap while a next page exists is `partial`, never `complete`.
 
-Discovery reconciliation combines query and role-family provenance, updates `last_seen_at`, and preserves existing evaluation, message, manual decision, and outcome fields. Active and Archive legacy URLs participate in deduplication. Concurrent new rows pass through append-only discovery claims before insertion.
+Discovery reconciliation combines query and role-family provenance, updates
+`last_seen_at`, and preserves existing evaluation, message, manual decision,
+and outcome fields. Active and Archive legacy URLs participate in
+deduplication. Concurrent new rows pass through append-only discovery claims
+before insertion. Discovery claim, active insert, and seen-update Sheet writes
+are single-attempt and fail closed: any reported write error fails the
+execution instead of escaping through an unconnected error output. The next
+scheduled or manual run reads fresh active, Archive, and claim snapshots before
+reconciling again, so a partially committed run recovers without blindly
+repeating an ambiguous write.
 
 ## Evaluation and generation workflow
 

@@ -554,6 +554,19 @@ test("discovery export retains bounded resume-driven coverage and active/archive
   assertDirectConnection(workflow, "Prepare Discovery Inserts", "Append Discovered Jobs");
   assertDirectConnection(workflow, "Prepare Active Seen Updates", "Update Active Seen");
   assertDirectConnection(workflow, "Prepare Archive Seen Updates", "Update Archive Seen");
+  for (const writeName of [
+    "Append Discovery Claims",
+    "Append Discovered Jobs",
+    "Update Active Seen",
+    "Update Archive Seen"
+  ]) {
+    const writeNode = nodeByName(workflow, writeName);
+    assert.equal(writeNode.onError, undefined, `${writeName} must stop on write failure`);
+    assert.equal(writeNode.continueOnFail, undefined);
+    assert.equal(writeNode.retryOnFail, undefined, `${writeName} must not retry ambiguous writes`);
+    assert.equal(writeNode.maxTries, undefined);
+    assert.equal(writeNode.waitBetweenTries, undefined);
+  }
   const summary = nodeByName(
     workflow,
     "Log Discovery Summary"

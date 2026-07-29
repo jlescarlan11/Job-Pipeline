@@ -327,6 +327,13 @@ compatible and reconcile on the next run.
 - Confirm requests are paced and bounded.
 - Record per-query complete/empty/partial/failed counts, unique jobs, active/archive duplicates, malformed cards, seniority exclusions, and discovery-claim losses.
 - Run the same fixture/input again and confirm canonical identity prevents a second row.
+- On the workbook copy, force each critical Sheet mutation to fail once:
+  discovery-claim append, active-row append, active seen update, and Archive
+  seen update. Confirm every case fails the n8n execution rather than reporting
+  success. Restore the binding, rerun from fresh Sheet snapshots, and confirm
+  canonical reconciliation creates no duplicate active row. The discovery
+  coverage log is planning evidence emitted before these writes, not proof
+  that persistence committed.
 
 ### Evaluation/generation
 

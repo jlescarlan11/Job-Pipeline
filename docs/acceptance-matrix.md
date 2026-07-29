@@ -31,6 +31,11 @@ This matrix maps every GitHub acceptance criterion to checked-in evidence. “Au
 - **I2-AC12 — Pacing/run limits:** Automated config/export drift checks for first-page-only fan-out, 2-second in-wave and between-wave pacing, 15-second timeout, 3 attempts, source-exhaustion continuation, and page/query bounds.
 - **I2-AC13 — Required discovery fixtures:** Automated multi-page, empty, duplicate config/result, active/archive duplicate, malformed/invalid date, seniority, and temporary failure coverage.
 - **I2-AC14 — Four-hour schedule:** Automated export/config equality.
+- **I2-AC15 — Critical writes fail closed:** Workflow regression checks require
+  discovery-claim append, active insert, and active/Archive seen updates to
+  stop the execution on a reported Sheet error with no ambiguous automatic
+  retry. The release smoke forces each failure on the copied workbook, then
+  verifies fresh-snapshot reconciliation does not duplicate an active row.
 
 Concurrent discovery is additionally protected by append-only `discovery` claims before active insertion.
 
