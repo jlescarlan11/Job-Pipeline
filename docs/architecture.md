@@ -140,15 +140,16 @@ The alerter claims at most the configured per-run cap through
 `ProcessingClaims`, marks a deliverable record `sending`, validates the
 environment-bound Slack webhook and authorized HTTPS review URL, and sends a
 length-bounded alert. The alert places the complete validated application
-message in one copyable Slack code block and keeps the required review, skip,
-and source links outside that block. Optional context uses explicit
+message in one copyable Slack code block and keeps one required `Open Review
+Queue` link plus the source link outside that block. Optional context uses explicit
 `Unknown`/`None detected` labels and includes scores, confidence, employer,
 salary, freshness, advisory Apply Points, major gaps, instructions, screening
 questions, selected proofs, and warnings when it fits. Context is trimmed or
-omitted before the application message or required links. Review and skip links
-open the authorized Sheet surface; they carry no state-changing token. The
-source link is open-only. Only the reviewer workflow can persist a skip or
-application decision.
+omitted before the application message or required links. The environment-bound
+review URL is the full credential-free Google Sheets deep link for `Review
+Queue`; it carries no job identifier, command, or state-changing token. The
+source link is open-only. Only the Reviewer can persist promotion, skip, or
+application decisions after an explicit in-sheet action.
 
 `canonical_job_id + alert_policy_version` is the idempotency scope. Confirmed
 success stores `sent`, timestamp, attempt count, and any non-sensitive provider

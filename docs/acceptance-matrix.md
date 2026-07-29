@@ -222,7 +222,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   rendered block and compare it with multiline source text containing spacing,
   punctuation, Unicode, approved URLs, and Slack metacharacters.
 - **Message-first fitting:** The renderer reserves the complete code block and
-  review/skip/source link tail before fitting optional alert context. Boundary
+  Review Queue/source link tail before fitting optional alert context. Boundary
   tests prove an exact-limit message is unchanged, optional context is omitted
   first, and one additional character fails closed rather than truncating.
 - **Deterministic preflight:** Embedded code-fence boundaries, unsupported
@@ -231,8 +231,8 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   the claim, preserves the valid message/pack, and never reports a provider
   timeout or sends a partial message.
 - **Compatibility and authority:** Eligibility thresholds, policy-version
-  idempotency, provider retry behavior, inactive exports, review/skip
-  confirmation, and manual OnlineJobs.ph submission remain unchanged. A
+  idempotency, provider retry behavior, inactive exports, non-mutating review
+  navigation, and manual OnlineJobs.ph submission remain unchanged. A
   renderer-only rollout does not requeue previously confirmed alerts.
 - **Operational verification:** The alert runbook requires a disabled
   non-production delivery, plain-text copy comparison, render-failure controls,
@@ -652,3 +652,58 @@ failures, fixes, and reconciliation are recorded in
 - **I24-AC27 — Activation gate:** `docs/operations.md` requires the complete
   non-production desktop Sheet and disabled Reviewer failure/retry smoke matrix
   before any production activation.
+
+## Issue #25 — Slack Review Queue navigation
+
+- **I25-AC1 — One review link:** `alerts.test.mjs` requires one configured
+  review URL occurrence labeled `Open Review Queue`.
+- **I25-AC2 — Legacy labels removed:** Direct, bounded, and generated-workflow
+  tests reject `Review in Sheet`, `Review in authorized Sheet`, and
+  `Confirm skip in Sheet`.
+- **I25-AC3 — Exact environment URL:** Rendering returns the validated
+  configured URL unchanged and appends no job ID, command, credential, or
+  reusable action token.
+- **I25-AC4 — Deep-link rollout:** `docs/alerts.md` and
+  `docs/operations.md` require distinct environment values containing the
+  `Review Queue` sheet identifier and a desktop/web click test before
+  activation.
+- **I25-AC5 — Source action retained:** Alert tests require one canonical
+  OnlineJobs.ph action with `open_only` mode.
+- **I25-AC6 — Navigation cannot mutate:** Returned actions contain no token or
+  record payload; tampered/forwarded-link tests and the explicit Reviewer
+  boundary prove Slack cannot change lifecycle, decision, or outcome state.
+- **I25-AC7 — One metadata action:** Rendering returns only
+  `review_action` and `source_action`; obsolete `skip_action` metadata is
+  absent.
+- **I25-AC8 — Complete message retained:** Existing multiline copy-block tests
+  compare decoded paragraphs, punctuation, Unicode, spaces, Slack literals,
+  and approved URLs with the stored message.
+- **I25-AC9 — Recalculated payload boundary:** Exact-limit and one-character
+  overflow tests reserve only the Review Queue/source tail; optional context
+  still drops first.
+- **I25-AC10 — Configuration fails closed:** Existing policy/provider tests
+  cover missing, invalid, overlong, credential-bearing, and non-HTTPS values;
+  workflow preflight prevents a Slack request and stores sanitized evidence.
+- **I25-AC11 — Sent records remain sent:** Alert idempotency stays scoped to
+  canonical identity plus the unchanged alert policy version; confirmed-sent
+  regression tests do not requeue the record.
+- **I25-AC12 — Delivery compatibility:** Pending/retryable selection,
+  ambiguous timeout, suppression, transient backoff, terminal preflight, and
+  application-pack preservation tests remain unchanged.
+- **I25-AC13 — Direct alert coverage:** `alerts.test.mjs` verifies exact label,
+  count, target, legacy-label absence, size bounds, message fidelity,
+  configuration denial, and non-mutating metadata.
+- **I25-AC14 — Generated workflow coverage:** `workflows.test.mjs` verifies the
+  new label, rejects obsolete labels/modes and state-changing paths, requires
+  environment references, and keeps the export inactive.
+- **I25-AC15 — Generated artifact ownership:** `npm run build` regenerates
+  `workflows/alerter.json`; artifact checks reject direct-export drift.
+- **I25-AC16 — Documentation:** Alert, architecture, operations, and acceptance
+  documents describe one Review Queue link and the explicit in-sheet action
+  boundary.
+- **I25-AC17 — Release validation:** `npm run build` and `npm run validate` are
+  automated gates; the runbook additionally requires a non-production Slack
+  desktop/web deep-link smoke before activation.
+- **I25-AC18 — Adjacent regression:** Full alert, review, generation, Archive,
+  workflow, and E2E suites retain eligibility, manual submission, and durable
+  state behavior.

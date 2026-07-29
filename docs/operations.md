@@ -119,9 +119,9 @@ run must quarantine zero additional rows.
 2. Rebind every Google Sheets node to the non-production workbook and test OAuth credential.
 3. Rebind the Groq model node to a test credential.
 4. Set `JOB_PIPELINE_SLACK_WEBHOOK_URL` to a test Slack incoming webhook and
-   `JOB_PIPELINE_REVIEW_URL` to the authorized non-production Sheet URL in the
-   n8n runtime. Never paste either value into workflow JSON, the Sheet, logs, or
-   test evidence.
+   `JOB_PIPELINE_REVIEW_URL` to the authorized non-production Sheet's full
+   `Review Queue` tab deep link in the n8n runtime. Never paste either value
+   into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
 6. Confirm the configured schedules are 4 hours, 15 minutes, 1 minute,
    5 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5.
@@ -213,10 +213,16 @@ Slack HTTP node must remain an explicit JSON `POST`.
   boundary and confirm the committed ready pack immediately becomes `pending`.
 - Confirm one Slack alert includes the complete validated application message
   in a dedicated code block, uses `Unknown`/`None detected` labels for absent
-  optional data, and exposes only review-Sheet, skip-confirmation, and
-  open-source links outside the code block. Copy the code-block content into a
+  optional data, and exposes only one `Open Review Queue` link plus the
+  open-source link outside the code block. Assert the legacy review and
+  skip-confirmation labels are absent. Copy the code-block content into a
   plain-text comparison surface and verify the paragraphs, spacing,
   punctuation, Unicode characters, and approved URLs match the stored message.
+- In Slack desktop or web, click `Open Review Queue` and confirm the configured
+  non-production `JOB_PIPELINE_REVIEW_URL` opens the copied workbook with
+  `Review Queue` selected. Forward and reopen the link, then verify
+  `pipeline_status`, `manual_action`, `application_decision`, and outcome state
+  are unchanged.
 - Exercise a near-limit message and confirm optional context is reduced before
   the message or required links. Exercise an over-limit message, an embedded
   code fence, and an unsupported invisible control; confirm each terminalizes
@@ -303,7 +309,8 @@ Only after dry-run evidence passes:
    actions. Confirm the new queue projection and source/archive/dashboard
    counts before enabling schedules.
 7. Verify the production Slack/review environment variables without recording
-   their values, then activate in this order: reviewer, generator, alerter,
+   their values, including that `JOB_PIPELINE_REVIEW_URL` is the full
+   `Review Queue` tab deep link, then activate in this order: reviewer, generator, alerter,
    scraper, archiver, analytics, recommender.
 8. Wait for and verify one cycle at each cadence before ending the window.
 

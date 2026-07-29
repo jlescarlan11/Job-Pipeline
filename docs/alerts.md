@@ -5,9 +5,9 @@
 `config/alert-policy.json` is the versioned source of truth for Slack alert
 eligibility, cadence, caps, leases, retry limits, content limits, and
 environment-variable names. The repository stores no webhook credential. Alert
-actions never apply to a job or mutate a decision: review and skip both open the
-authorized Google Sheet review surface, while the OnlineJobs.ph link is
-open-only. An eligible alert includes the complete current validated application
+actions never apply to a job or mutate a decision: one `Open Review Queue`
+link opens the authorized simplified Google Sheet tab, while the OnlineJobs.ph
+link is open-only. An eligible alert includes the complete current validated application
 message in a copyable Slack code block; it does not add clipboard authority or
 change the candidate's responsibility to review and submit manually.
 
@@ -43,12 +43,17 @@ Set these variables in the n8n runtime, not in workflow JSON or the Sheet:
 
 - `JOB_PIPELINE_SLACK_WEBHOOK_URL`: an HTTPS incoming webhook on
   `hooks.slack.com` or `hooks.slack-gov.com`
-- `JOB_PIPELINE_REVIEW_URL`: the HTTPS URL of the authorized review Sheet
+- `JOB_PIPELINE_REVIEW_URL`: the credential-free HTTPS Google Sheets deep link
+  for the authorized `Review Queue` tab, including its sheet identifier (for
+  example, `https://docs.google.com/spreadsheets/d/.../edit#gid=...`)
 
 The provider configuration is validated before each send. Missing or invalid
 configuration produces a terminal, sanitized `configuration_error` and no HTTP
-request. Rebind and smoke-test the Google Sheet and credentials independently;
-the review URL does not grant authorization by itself.
+request. Set and smoke-test distinct non-production and production values
+without recording their private workbook IDs. Each value must open with
+`Review Queue` selected rather than defaulting to `Sheet1`. The review URL does
+not grant authorization or contain a job ID, command, credential, action token,
+or other mutation capability.
 
 The Slack HTTP node references the webhook environment variable directly. The
 credential is never copied into an n8n item, alert payload, Sheet field, or
@@ -75,7 +80,7 @@ Alert errors and execution summaries exclude credentials, raw provider
 responses, full descriptions, resumes, and generated application messages. A
 delivery failure never clears or rewrites the valid application pack.
 Message fitting reserves the complete encoded application message and the
-review, skip-confirmation, and source link tail before fitting optional context.
+single Review Queue and source link tail before fitting optional context.
 The application message uses only Slack-required literal escaping for `&`,
 `<`, and `>` so its paragraphs and spacing remain intact when copied. Bounded
 context fields are trimmed and then omitted from lowest priority when needed.
@@ -97,7 +102,9 @@ non-production Sheet first, supply test environment variables, and exercise
 success, known transient rejection, invalid configuration, source suppression,
 deterministic render failure, and a stale `sending` row. For the success case,
 copy the Slack code-block content into a plain-text comparison surface and
-verify it matches the stored message before activating anything. Activate the
+verify it matches the stored message. In Slack desktop or web, click `Open
+Review Queue`, confirm the intended tab is selected, and verify that merely
+opening, forwarding, or reopening the link changes no job state. Activate the
 alerter only after the generator and reviewer are verified.
 
 To roll back, disable the alerter first and wait for running executions. Preserve

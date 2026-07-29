@@ -464,7 +464,11 @@ test("alerter export claims, validates, sends, and commits without state-changin
     "Prepare Alert Delivery"
   ).parameters.jsCode;
   assert.match(prepare, /validateAlertProviderConfiguration/);
-  assert.match(prepare, /review_confirmation/);
+  assert.match(prepare, /Open Review Queue/);
+  assert.doesNotMatch(
+    prepare,
+    /Review in Sheet|Review in authorized Sheet|Confirm skip in Sheet|review_confirmation/
+  );
   assert.match(prepare, /configuration_error/);
   assert.match(prepare, /evaluatePersistedMessageSafety/);
   assert.match(prepare, /Application message — copy below/);
