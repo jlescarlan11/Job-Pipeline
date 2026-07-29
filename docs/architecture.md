@@ -25,7 +25,7 @@ Sheet1: recommended / review_required / ready / recovery
         |      Slack: review / confirm skip in Sheet / open source
         |
         v
-Reviewer (10m) <-- explicit manual_action
+Reviewer (15m) <-- explicit manual_action
         |
         +--> Dashboard: current funnel summary
         |
@@ -50,7 +50,7 @@ Archive: terminal history and employer outcomes
 ```
 
 Configured schedules are scraper every 4 hours, generator every 90 minutes,
-alerter every 15 minutes, reviewer every 10 minutes, archiver every 45 minutes,
+alerter every 15 minutes, reviewer every 15 minutes, archiver every 45 minutes,
 analytics every 24 hours, and recommender every 168 hours. Analytics uses a
 fixed daily 02:00 start, and Recommender uses a fixed Monday 02:45 start, both
 in `Asia/Manila`. This places the weekly consumer after Analytics' 30-minute
@@ -60,7 +60,7 @@ on the workflows' activation-relative interval phases.
 The other five schedules are also phase-fixed in `Asia/Manila`: Scraper starts
 at 01:08 and repeats every four hours; Generator starts at 00:01 and repeats
 every 90 minutes; Alerter runs at :02/:17/:32/:47; Reviewer runs at
-:04/:14/:24/:34/:44/:54; and Archiver starts at 00:19 and repeats every 45
+:13/:28/:43/:58; and Archiver starts at 00:19 and repeats every 45
 minutes. The builder emits explicit six-field cron rules. This is necessary
 because an n8n minute-step expression applies within the 0–59 minute field:
 90 is outside the Schedule Trigger v1.3 minute range, while 45 produces
@@ -81,7 +81,7 @@ commit guards, idempotent upserts, and complete-report markers.
 
 All workflows explicitly retain failed production executions and manual
 executions, but do not retain successful production executions or per-node
-progress snapshots. The schedules produce 2,066 scheduled executions per week
+progress snapshots. The schedules produce 1,730 scheduled executions per week
 before failures or manual runs; retaining every normal payload would duplicate
 large Sheet reads in n8n's execution store even though Sheet state, report
 completion rows, claims, and guarded record fields already provide the
@@ -92,12 +92,12 @@ control and must still be verified independently.
 For a self-hosted regular-mode deployment,
 `config/n8n-deployment-policy.json` pins a production concurrency limit of 3,
 execution pruning at 336 hours or 10,000 records, and internal readiness and
-workflow-labeled metrics. The maximum-timeout schedule model consumes 0.785
-slots on average, or 26.2% of the limit. A second, phase-aware one-week model
+workflow-labeled metrics. The maximum-timeout schedule model consumes 0.685
+slots on average, or 22.8% of the limit. A second, phase-aware one-week model
 proves a maximum of two simultaneous scheduled executions and requires one
 remaining production slot; aligned phase drift that would create five
-simultaneous interval starts is rejected. Even if all 2,066 scheduled weekly
-executions fail, 14 days produces 4,132 saved executions and remains below the
+simultaneous interval starts is rejected. Even if all 1,730 scheduled weekly
+executions fail, 14 days produces 3,460 saved executions and remains below the
 count cap. The template is validated but not claimed active until
 `npm run validate:deployment` succeeds inside the production runtime.
 
@@ -428,21 +428,26 @@ valid or invalid actions, all identities are unambiguous, and claim retention
 has no deletion work. A formula, duplicate, missing row, changed cell, pending
 action, source update, invalid projection, or retention batch fails the gate
 closed. An edit after the snapshot is never cleared and is handled by the next
-ten-minute poll. The three-minute execution timeout remains below the
+15-minute poll. The three-minute execution timeout remains below the
 four-minute projection lease, and both expire before the next scheduled run.
 Actions are processed from the complete snapshot without a per-run action cap,
-so the cadence changes observation latency rather than action throughput.
+so the cadence changes observation latency rather than action throughput. The
+30-minute manual-action threshold allows two scheduled observations, while
+the 20-minute backlog-event freshness threshold covers one cadence plus the
+outer timeout.
 
 The exact stable path therefore falls from at least 14 Sheet/Sheets API
 requests to six reads, avoids one `applied_jobs_projection` claim, and avoids a
-Dashboard mutation. At 144 polls per day, the stable-case upper bound is 1,152
-avoided requests and 144 avoided claim rows per day (420,480 requests and
-52,560 rows per 365-day year); actual savings are proportional to stable polls.
-Compared with the previous five-minute schedule, the ten-minute sweep also
-avoids 52,560 Reviewer executions and 315,360 mandatory six-surface reads per
+Dashboard mutation. At 96 polls per day, the stable-case upper bound is 768
+avoided requests and 96 avoided claim rows per day (280,320 requests and
+35,040 rows per 365-day year); actual savings are proportional to stable polls.
+Compared with the previous five-minute schedule, the 15-minute sweep avoids
+70,080 Reviewer executions and 420,480 mandatory six-surface reads per year.
+Compared with the immediately previous ten-minute schedule, it avoids 17,520
+executions, 105,120 mandatory reads, and 17,520 bounded backlog log events per
 year. The worst-case projection or manual-action observation time changes from
-under five to under ten minutes; durable inputs and compare-and-commit guards
-are unchanged.
+under ten to under 15 minutes; durable inputs, action throughput, and
+compare-and-commit guards are unchanged.
 
 When work is required, the Dashboard upserts one deduplicated current summary
 from the authoritative active/archive reread after guarded Reviewer actions

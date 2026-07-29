@@ -448,6 +448,31 @@ export function validateN8nDeploymentPolicy(policy, configs) {
   }
 
   if (configs) {
+    const reviewerScheduleMinutes = positiveInteger(
+      configs.review?.schedule_minutes
+    );
+    const reviewerTimeoutSeconds = positiveInteger(
+      configs.review?.execution_timeout_seconds
+    );
+    if (
+      reviewerScheduleMinutes &&
+      reviewerTimeoutSeconds &&
+      monitoringThresholds.operational_backlog_event_stale_minutes * 60 <
+        reviewerScheduleMinutes * 60 + reviewerTimeoutSeconds
+    ) {
+      errors.push(
+        "operational backlog freshness must cover one Reviewer cadence plus its timeout"
+      );
+    }
+    if (
+      reviewerScheduleMinutes &&
+      monitoringThresholds.oldest_manual_action_minutes <
+        reviewerScheduleMinutes * 2
+    ) {
+      errors.push(
+        "manual-action threshold must allow two scheduled Reviewer observations"
+      );
+    }
     let capacity;
     try {
       capacity = deploymentCapacity(configs);

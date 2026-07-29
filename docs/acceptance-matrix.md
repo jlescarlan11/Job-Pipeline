@@ -137,7 +137,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC18 — Bounded execution-data writes:** Runtime/config and generated
   workflow tests require all seven exports to retain failures and manual smoke
   runs while skipping successful production payloads and per-node progress.
-  The checked-in cadences total 2,066 scheduled runs per week; authoritative
+  The checked-in cadences total 1,730 scheduled runs per week; authoritative
   success remains in Sheets, and the runbook separately gates instance-level
   age/count pruning.
 - **I6-AC19 — Ordered learning schedules:** Configuration, policy, generated
@@ -148,14 +148,14 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC20 — Bounded self-hosted runtime:** A credential-free deployment
   policy and validator pin regular-mode production concurrency to 3,
   timeout-weighted demand to at most 1.5 slots, execution pruning to 336 hours
-  or 10,000 rows, and internal readiness/workflow-labeled metrics. At 2,066
-  scheduled runs per week, a 14-day all-failure case is 4,132 rows. Tests
+  or 10,000 rows, and internal readiness/workflow-labeled metrics. At 1,730
+  scheduled runs per week, a 14-day all-failure case is 3,460 rows. Tests
   reject disabled pruning, insufficient retention, exhausted concurrency
   headroom, public metrics, or a fabricated portable error-workflow binding.
   The runbook requires validation inside production and separately gates Cloud
   or queue-mode deployment.
 - **I6-AC21 — Exact staggered interval schedules:** Canonical offsets and
-  generated six-field cron rules preserve the 240-, 90-, 15-, 10-, and
+  generated six-field cron rules preserve the 240-, 90-, 15-, 15-, and
   45-minute gaps across hour and midnight boundaries. A phase-aware one-week
   maximum-timeout simulation proves a peak scheduled burst of 2 beneath the
   production limit of 3 and rejects an aligned five-workflow burst. This also
@@ -727,10 +727,11 @@ failures, fixes, and reconciliation are recorded in
   claim cleanup; and formula-visible reads before the Reviewer may exit. The
   stable path uses six reads and no writes instead of at least 14
   Sheet/Sheets API requests, one projection claim, and one Dashboard mutation.
-  At the ten-minute cadence this also avoids 52,560 executions and 315,360
-  mandatory reads per year compared with five-minute polling. Inputs remain
-  durable and are observed within ten minutes; the three-minute timeout and
-  four-minute lease both finish before the next run. Retention work still
+  At the 15-minute cadence this also avoids 70,080 executions and 420,480
+  mandatory reads per year compared with five-minute polling, including
+  17,520 executions and 105,120 reads beyond the prior ten-minute cadence.
+  Inputs remain durable and are observed within 15 minutes; the three-minute
+  timeout and four-minute lease both finish before the next run. Retention work still
   enters the existing projection-lease arbitration path.
 - **I24-AC25 — Failure/concurrency matrix:** Review, workflow, setup, Archive,
   and E2E suites cover ordering, empty data, duplicates, stale/conflicting
@@ -960,3 +961,28 @@ failures, fixes, and reconciliation are recorded in
   all embedded Code, require the event emitters and configured lease values,
   and retain inactive imports. Build, validation, and artifact-drift checks
   cover the complete generated state.
+
+## Production audit — Reviewer polling cadence
+
+- **REVIEW-CADENCE-AC1 — Freshness budget:** The 15-minute schedule retains
+  two observation opportunities within the 30-minute manual-action threshold.
+  Deployment validation rejects a threshold that cannot cover two polls.
+- **REVIEW-CADENCE-AC2 — Health evidence:** The 20-minute operational-backlog
+  freshness threshold exceeds one 15-minute cadence plus the three-minute
+  outer timeout; validation rejects unsafe drift.
+- **REVIEW-CADENCE-AC3 — Lease and throughput safety:** The three-minute
+  timeout and four-minute projection lease remain below the interval. Manual
+  actions are still processed from the complete snapshot with no per-run cap,
+  so only worst-case observation latency changes.
+- **REVIEW-CADENCE-AC4 — Fixed safe phase:** Reviewer runs at
+  :13/:28/:43/:58 in `Asia/Manila`. The one-week maximum-timeout simulation
+  retains a peak of two scheduled executions and one production slot of
+  headroom; offset 04 would create a three-workflow overlap at the new cadence.
+- **REVIEW-CADENCE-AC5 — Measured reduction:** Reviewer falls from 52,560 to
+  35,040 executions per year, avoiding 17,520 executions, 105,120 mandatory
+  six-surface reads, and 17,520 bounded backlog events versus ten-minute
+  polling. Repository-wide scheduled runs fall from 2,066 to 1,730 per week.
+- **REVIEW-CADENCE-AC6 — Recovery and compatibility:** Actions, source guards,
+  claims, projections, Dashboard state, and legacy rows are unchanged and
+  remain durable until the next sweep. The runbook restores the exact prior
+  ten-minute schedule and phase for rollback.

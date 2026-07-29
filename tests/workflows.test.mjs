@@ -172,10 +172,15 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     (7 * 24 * 60) / runtime.archiver.schedule_minutes +
     (7 * 24) / analyticsPolicy.schedule_hours +
     (7 * 24) / recommendationPolicy.schedule_hours;
-  assert.equal(scheduledRunsPerWeek, 2066);
+  assert.equal(scheduledRunsPerWeek, 1730);
   assert.equal((7 * 24 * 60) / alertPolicy.schedule_minutes, 672);
-  assert.equal(review.schedule_minutes, 10);
-  assert.equal((7 * 24 * 60) / review.schedule_minutes, 1008);
+  assert.equal(review.schedule_minutes, 15);
+  assert.equal((7 * 24 * 60) / review.schedule_minutes, 672);
+  const annualReviewerExecutions =
+    (365 * 24 * 60) / review.schedule_minutes;
+  assert.equal(annualReviewerExecutions, 35040);
+  assert.equal(52560 - annualReviewerExecutions, 17520);
+  assert.equal((52560 - annualReviewerExecutions) * 6, 105120);
   assert.ok(
     (runtime.generator.schedule_minutes / alertPolicy.schedule_minutes) *
       alertPolicy.per_run_cap >=

@@ -71,6 +71,9 @@ test("README and architecture document the checked-in schedules, bounds, and man
     assert.match(document, /00:01/i);
     assert.match(document, /00:19/i);
   }
+  for (const document of [architecture, operations]) {
+    assert.match(document, /:13\/:28\/:43\/:58/i);
+  }
 });
 
 test("runtime documentation matches every workflow timeout and Manila timezone", () => {
@@ -107,7 +110,7 @@ test("runtime documentation preserves failure evidence without successful execut
     assert.match(document, /per-node\s+(?:execution\s+)?progress/i);
   }
   for (const document of [readme, architecture]) {
-    assert.match(document, /2,066 (?:normally successful )?scheduled executions per week/i);
+    assert.match(document, /1,730 (?:normally successful )?scheduled executions per week/i);
   }
   assert.match(operations, /instance-level pruning/i);
 });
@@ -119,12 +122,12 @@ test("deployment documentation pins bounded self-hosted controls without claimin
     assert.match(document, /10,000/i);
     assert.match(document, /validate:deployment/i);
   }
-  assert.match(deploymentDoc, /0\.785 execution slots/i);
+  assert.match(deploymentDoc, /0\.685 execution slots/i);
   assert.match(
     deploymentDoc,
     /at least one slot\s+of scheduled-burst headroom/i
   );
-  assert.match(deploymentDoc, /4,132 records/i);
+  assert.match(deploymentDoc, /3,460 records/i);
   assert.match(deploymentDoc, /metrics endpoint[\s\S]{0,100}internal/i);
   assert.match(deploymentDoc, /instance-assigned workflow/i);
   assert.match(deploymentDoc, /error executions[\s\S]{0,100}bypass/i);
@@ -140,10 +143,12 @@ test("Reviewer idle-path documentation preserves the fail-closed operation bound
     assert.match(document, /one[\s\S]{0,40}claim/i);
     assert.match(document, /Dashboard mutation/i);
   }
-  assert.match(architecture, /1,152\s+avoided\s+requests/i);
-  assert.match(architecture, /52,560\s+rows/i);
-  assert.match(architecture, /52,560 Reviewer executions/i);
-  assert.match(architecture, /315,360 mandatory six-surface reads/i);
+  assert.match(architecture, /768\s+avoided\s+requests/i);
+  assert.match(architecture, /35,040\s+rows/i);
+  assert.match(architecture, /70,080 Reviewer executions/i);
+  assert.match(architecture, /420,480 mandatory six-surface reads/i);
+  assert.match(architecture, /17,520\s+executions/i);
+  assert.match(architecture, /105,120\s+mandatory reads/i);
   assert.match(operations, /review_snapshot_unchanged/i);
   assert.match(operations, /exactly\s+six Sheet reads/i);
   assert.match(

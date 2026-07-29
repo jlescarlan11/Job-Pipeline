@@ -141,12 +141,12 @@ run must clear zero additional inputs.
    into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
 6. Confirm the configured schedules are 4 hours, 90 minutes, 15 minutes,
-   10 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 1. Confirm
+   15 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 1. Confirm
    Analytics is fixed at 02:00 daily and Recommender at 02:45 Mondays in
    `Asia/Manila`, leaving the configured 30-minute timeout plus 15-minute
    completion buffer. Confirm the five interval exports use custom cron rules:
    Scraper 01:08 then every four hours; Generator 00:01 then every 90 minutes;
-   Alerter :02/:17/:32/:47; Reviewer :04/:14/:24/:34/:44/:54; and Archiver
+   Alerter :02/:17/:32/:47; Reviewer :13/:28/:43/:58; and Archiver
    00:19 then every 45 minutes. Inspect at least three next-fire timestamps for
    Generator and Archiver across an hour boundary; do not replace them with a
    `minutesInterval` value.
@@ -270,12 +270,15 @@ Slack HTTP node must remain an explicit JSON `POST`.
   row, and replace a Dashboard count with a formula. Confirm each case fails
   the idle gate closed. Restore one valid current row, run without metric
   changes, and confirm no Dashboard upsert occurs; `generated_at` is the last
-  material summary publication, not a ten-minute health signal.
+  material summary publication, not a 15-minute health signal.
 - Enter one valid action immediately after a completed Reviewer run. Confirm it
-  remains intact until the next sweep, is observed within ten minutes, and is
+  remains intact until the next sweep, is observed within 15 minutes, and is
   committed exactly once. Confirm a second concurrent edit still survives the
-  compare-and-commit path. The three-minute timeout and four-minute projection
-  lease must both end before the next scheduled Reviewer run.
+  compare-and-commit path. Confirm two scheduled observation opportunities fit
+  within the 30-minute manual-action alert. The three-minute timeout and
+  four-minute projection lease must both end before the next scheduled Reviewer
+  run, and a successful backlog event remains inside the 20-minute freshness
+  threshold.
 - Repeat those interruption and concurrent-edit checks for Applied Jobs,
   including an archived source commit and an active-to-Archive race. Confirm an
   unconfirmed write retains Action, a confirmed write survives cleanup retry,
@@ -306,11 +309,11 @@ Slack HTTP node must remain an explicit JSON `POST`.
   points remains valid.
 
 To roll back only the Reviewer cadence, disable the imported workflow and wait
-for running executions, restore `schedule_minutes=5` in
-`config/review-sheet.json`, regenerate, import inactive, and repeat the
-concurrent-action smoke case. Do not clear `Action`, source guards, claims, or
-derived rows: existing and legacy inputs remain compatible and reconcile on
-the next run.
+for running executions, restore `schedule_minutes=10` and
+`schedule_offset_minutes=4` in `config/review-sheet.json`, regenerate, import
+inactive, and repeat the concurrent-action smoke case. Do not clear `Action`,
+source guards, claims, or derived rows: existing and legacy inputs remain
+compatible and reconcile on the next run.
 
 ### Discovery
 

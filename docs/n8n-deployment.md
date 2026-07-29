@@ -21,7 +21,7 @@ regular-mode policy here sets the production concurrency limit to 3.
 n8n regular mode has no production concurrency limit by default. The template
 sets `N8N_CONCURRENCY_PRODUCTION_LIMIT=3`. Summing each workflow's outer
 timeout divided by its trigger interval gives a conservative
-timeout-weighted average demand of 0.785 execution slots. Average demand does
+timeout-weighted average demand of 0.685 execution slots. Average demand does
 not prove burst safety, so the validator also expands every fixed local phase
 and maximum timeout across a complete week. The checked-in phases peak at two
 simultaneous scheduled executions, and the policy requires at least one slot
@@ -31,9 +31,9 @@ executions queue in FIFO order; a five-minute queue wait remains an alert
 condition and consumes one-third of the Alerter recovery interval.
 
 Scraper starts at 01:08, Generator at 00:01, Alerter at minute 02 of its
-15-minute cycle, Reviewer at minute 04 of its 10-minute cycle, and Archiver at
+15-minute cycle, Reviewer at minute 13 of its 15-minute cycle, and Archiver at
 00:19, all in `Asia/Manila`. Their generated six-field cron rules preserve the
-declared 240-, 90-, 15-, 10-, and 45-minute gaps across hour and midnight
+declared 240-, 90-, 15-, 15-, and 45-minute gaps across hour and midnight
 boundaries. This avoids interpreting an elapsed interval as a cron step inside
 the minute field.
 
@@ -57,9 +57,9 @@ Pruning is explicit rather than inherited from an n8n default:
 - `EXECUTIONS_DATA_PRUNE_MAX_COUNT=10000`
 - `EXECUTIONS_DATA_HARD_DELETE_BUFFER=1` hour
 
-At 2,066 scheduled executions per week, an extreme case where every scheduled
-run fails and is retained creates 4,132 records in 14 days. The 10,000-record
-cap therefore preserves the complete age window plus 5,868 manual, retry, or
+At 1,730 scheduled executions per week, an extreme case where every scheduled
+run fails and is retained creates 3,460 records in 14 days. The 10,000-record
+cap therefore preserves the complete age window plus 6,540 manual, retry, or
 error executions while still bounding database growth. Running or waiting
 executions and annotated evidence are subject to n8n's documented pruning
 semantics and must be inspected separately.

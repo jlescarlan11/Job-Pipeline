@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v4",
+  "policy_version": "2026-07-30/v5",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -42,7 +42,7 @@
     "maximum_age_hours": 336,
     "maximum_count": 10000,
     "hard_delete_buffer_hours": 1,
-    "scheduled_failure_count_at_maximum_age": 4132
+    "scheduled_failure_count_at_maximum_age": 3460
   },
   "monitoring": {
     "metrics_internal_only": true,

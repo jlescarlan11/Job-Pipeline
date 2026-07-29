@@ -41,9 +41,9 @@ const configs = {
 test("deployment policy bounds self-hosted concurrency and execution retention", () => {
   assert.deepEqual(validateN8nDeploymentPolicy(policy, configs), []);
   const capacity = deploymentCapacity(configs);
-  assert.equal(capacity.scheduled_executions_per_week, 2066);
+  assert.equal(capacity.scheduled_executions_per_week, 1730);
   assert.ok(
-    Math.abs(capacity.timeout_weighted_concurrency - 0.7848214285714286) <
+    Math.abs(capacity.timeout_weighted_concurrency - 0.6848214285714287) <
       1e-12
   );
   assert.equal(capacity.maximum_workflow_timeout_seconds, 1800);
@@ -59,7 +59,7 @@ test("deployment policy bounds self-hosted concurrency and execution retention",
   );
   assert.equal(
     policy.execution_retention.scheduled_failure_count_at_maximum_age,
-    4132
+    3460
   );
   assert.ok(
     policy.execution_retention.maximum_count >
@@ -150,10 +150,33 @@ test("deployment policy rejects phase-aligned scheduled bursts", () => {
   assert.match(errors, /lacks scheduled burst headroom/);
 });
 
+test("Reviewer cadence uses the phase that preserves scheduled headroom", () => {
+  const legacyPhaseConfigs = structuredClone(configs);
+  legacyPhaseConfigs.review.schedule_offset_minutes = 4;
+  const legacyPhaseCapacity = deploymentCapacity(legacyPhaseConfigs);
+  assert.equal(
+    legacyPhaseCapacity.maximum_simultaneous_scheduled_executions,
+    3
+  );
+  assert.deepEqual(legacyPhaseCapacity.peak_workflows, [
+    "archiver",
+    "reviewer",
+    "scraper"
+  ]);
+  const errors = validateN8nDeploymentPolicy(
+    policy,
+    legacyPhaseConfigs
+  ).join("\n");
+  assert.match(errors, /scheduled execution burst exceeds policy/);
+  assert.match(errors, /lacks scheduled burst headroom/);
+});
+
 test("deployment policy fails closed on malformed timeouts and missing alerts", () => {
   const invalid = structuredClone(policy);
   invalid.environment.EXECUTIONS_TIMEOUT = "not-a-number";
   invalid.capacity.queue_wait_alert_seconds = 301;
+  invalid.monitoring.thresholds.operational_backlog_event_stale_minutes = 17;
+  invalid.monitoring.thresholds.oldest_manual_action_minutes = 29;
   delete invalid.monitoring.thresholds.oldest_pending_alert_minutes;
   const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
   assert.match(errors, /instance timeout bounds must cover every workflow timeout/);
@@ -162,4 +185,12 @@ test("deployment policy fails closed on malformed timeouts and missing alerts", 
     /required monitoring threshold oldest_pending_alert_minutes/
   );
   assert.match(errors, /capacity and monitoring queue-wait thresholds must match/);
+  assert.match(
+    errors,
+    /backlog freshness must cover one Reviewer cadence plus its timeout/
+  );
+  assert.match(
+    errors,
+    /manual-action threshold must allow two scheduled Reviewer observations/
+  );
 });
