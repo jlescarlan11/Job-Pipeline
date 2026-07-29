@@ -22,7 +22,8 @@ The workflows share ten Google Sheet tabs:
 - `Review Queue`: simplified derived review surface; `Sheet1` remains authoritative.
 - `Applied Jobs`: derived outcome-follow-up surface across active and archived applications.
 - `Archive`: idempotent terminal history and post-application outcomes.
-- `ProcessingClaims`: append-only discovery, evaluation, generation, alert, and archive leases.
+- `ProcessingClaims`: append-written coordination leases with bounded,
+  fail-closed retention of expired history.
 - `Dashboard`: one `metric_key=current` funnel row.
 - `Analytics`: versioned conversion, efficiency, coverage, and calibration detail rows.
 - `AnalyticsReports`: append-safe identifiers for complete analytic reports.

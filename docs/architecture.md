@@ -59,7 +59,16 @@ Configured schedules are scraper every 4 hours, generator every 15 minutes, aler
 
 `state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Claim marking also writes a hidden `processing_commit_guard` derived from the winning token. Final evaluation, generation, and alert commits match that guard while atomically writing blank `processing_token`, `processing_stage`, and `processing_started_at`. The retained commit guard is not an active claim: a new claim replaces it and a manual lifecycle action clears it, so stale results match zero rows. There is no second canonical-ID cleanup write that could erase a newer claim.
 
-`ProcessingClaims` is append-only. For a canonical job and stage, the lowest valid Sheet row number wins until its configured lease expires. This arbitrates concurrent discovery, evaluation, generation, alert, and archival executions without treating a mutable active-row number as identity.
+`ProcessingClaims` is append-written. For a canonical job and stage, the
+lowest valid Sheet row number wins until its configured lease expires. This
+arbitrates concurrent discovery, evaluation, generation, alert, archival, and
+Applied Jobs projection executions without treating a mutable active-row
+number as identity. The projection winner also performs fail-closed retention:
+once 10,000 data rows exist, it can delete at most 1,000 uniquely addressed
+claim rows per run only after 30 days beyond expiry. Active/recent, malformed,
+unknown-stage, and duplicate-locator rows are preserved. Descending ranges are
+sent in one atomic Sheets batch; an uncertain response is not retried against
+shifted row numbers.
 
 ## Discovery workflow
 
@@ -248,7 +257,7 @@ compare-and-commit sequence as active actions. The Reviewer then rereads both
 sources and both operator surfaces before reconciling them. Applied Jobs
 maintenance never deletes or updates by `row_number`: desired records are
 upserted by `canonical_job_id`, and every cell update omits `Action`, so a user
-selection made during any workflow step cannot be erased. An append-only
+selection made during any workflow step cannot be erased. An append-written
 `applied_jobs_projection` claim in `ProcessingClaims` selects one maintenance
 winner; the workflow's three-minute timeout is shorter than the four-minute
 lease. The winner clears stale generated cells and guards, rereads the sheet,

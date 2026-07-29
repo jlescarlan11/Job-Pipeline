@@ -41,12 +41,22 @@ an applied job does not imply a reply, interview, or offer.
 The allowed statuses and transitions are machine-readable in
 `config/pipeline-schema.json`. Invalid transitions fail closed.
 
-The required `ProcessingClaims` tab is an append-only coordination boundary for
-discovery, evaluation, generation, alert, and archival executions. Each claim records
-canonical job ID, stage, token, creation time, and expiry. The earliest
-unexpired Sheet row for one job and stage owns the work; later claims exit
-without performing the guarded write or external generation. Expired claims
-remain audit data and are ignored.
+The required `ProcessingClaims` tab is an append-written coordination boundary
+for discovery, evaluation, generation, alert, archival, and Applied Jobs
+projection executions. Each claim records canonical job ID, stage, token,
+creation time, and expiry. The earliest unexpired Sheet row for one job and
+stage owns the work; later claims exit without performing the guarded write or
+external generation. Arbitration ignores expired claims.
+
+`config/claim-retention.json` bounds that otherwise unbounded history. Only the
+Reviewer execution that already won the `applied_jobs_projection` lease may
+plan cleanup. It preserves every unexpired claim and at least 30 days of
+expired history. Malformed timestamps or identity/token fields, unknown
+stages, and missing or duplicate `row_number` locators fail closed and remain
+untouched. Once the tab has at least 10,000 data rows, the winner may delete at
+most 1,000 uniquely addressed old rows in descending contiguous ranges through
+one atomic Sheets batch. A failed or ambiguous request is never retried
+in-place; the next scheduled run rereads the Sheet and computes a new plan.
 
 Generator and alert claim marking matches `state_guard`. The guard covers
 lifecycle, first review, actual Apply Points, message strategy, current

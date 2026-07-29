@@ -9,6 +9,9 @@ const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
 const alertPolicy = await loadJson("../config/alert-policy.json");
 const groqPolicy = await loadJson("../config/groq-provider-policy.json");
+const claimRetentionPolicy = await loadJson(
+  "../config/claim-retention.json"
+);
 const analyticsPolicy = await loadJson("../config/analytics-policy.json");
 const recommendationPolicy = await loadJson(
   "../config/recommendation-policy.json"
@@ -1014,6 +1017,39 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     claimAppend.parameters.sheetName.value,
     review.claims_sheet
   );
+  assert.equal(
+    workflow.meta.claimRetentionPolicyVersion,
+    claimRetentionPolicy.policy_version
+  );
+  const claimCleanupPlan = nodeByName(
+    workflow,
+    "Plan Processing Claims Cleanup"
+  ).parameters.jsCode;
+  assert.match(claimCleanupPlan, /planProcessingClaimRetention/);
+  assert.match(claimCleanupPlan, /processing_claim_cleanup_plan/);
+  assert.match(
+    claimCleanupPlan,
+    new RegExp(claimRetentionPolicy.policy_version.replace("/", "\\/"))
+  );
+  const prepareClaimCleanup = nodeByName(
+    workflow,
+    "Prepare Processing Claims Batch Cleanup"
+  ).parameters.jsCode;
+  assert.match(prepareClaimCleanup, /deleteDimension/);
+  assert.match(prepareClaimCleanup, /startIndex: range\.start_index/);
+  assert.match(prepareClaimCleanup, /endIndex: range\.end_index/);
+  const deleteClaims = nodeByName(
+    workflow,
+    "Delete Expired Processing Claims"
+  );
+  assert.equal(deleteClaims.parameters.method, "POST");
+  assert.match(deleteClaims.parameters.url, /:batchUpdate$/);
+  assert.equal(
+    deleteClaims.parameters.nodeCredentialType,
+    "googleSheetsOAuth2Api"
+  );
+  assert.equal(deleteClaims.retryOnFail, false);
+  assert.equal(deleteClaims.continueOnFail, undefined);
   const atomicCleanup = nodeByName(
     workflow,
     "Prepare Applied Jobs Atomic Cleanup"
@@ -1080,6 +1116,31 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     workflow,
     "Keep Winning Applied Jobs Projection Claim",
     "Get Applied Jobs Before Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Keep Winning Applied Jobs Projection Claim",
+    "Plan Processing Claims Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Plan Processing Claims Cleanup",
+    "Get Processing Claims Sheet Metadata"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Processing Claims Sheet Metadata",
+    "Prepare Processing Claims Batch Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Processing Claims Batch Cleanup",
+    "Delete Expired Processing Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Delete Expired Processing Claims",
+    "Log Processing Claims Cleanup"
   );
   assertDirectConnection(
     workflow,

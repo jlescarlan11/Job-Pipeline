@@ -229,9 +229,16 @@ One row per canonical job after idempotent reconciliation. It retains all suppor
 | `processing_stage` | `discovery`, `evaluation`, `generation`, `alert`, `archival`, or `applied_jobs_projection`. |
 | `processing_token` | Execution/job/stage token. |
 | `created_at` | Claim creation time. |
-| `expires_at` | End of the 10-minute lease. |
+| `expires_at` | End of the stage-specific lease. |
 
-Claims are append-only arbitration history. For one canonical job/stage, the lowest non-expired Sheet row wins. Expired rows may be purged only during an operator-controlled maintenance window with all workflows disabled.
+Claims are append-written arbitration history. For one canonical job/stage,
+the lowest unexpired Sheet row wins. The Reviewer’s existing projection-lease
+winner also owns bounded retention: after the tab reaches 10,000 data rows, it
+may remove at most 1,000 uniquely addressed claim rows whose expiry is at least 30
+days old. It preserves active/recent claims and every malformed, unknown-stage,
+or ambiguously addressed row. Deletions are descending `deleteDimension`
+ranges in one atomic Sheets batch with no automatic retry. Operators must not
+manually sort or delete claim rows while workflows are enabled.
 
 ### `Dashboard`
 

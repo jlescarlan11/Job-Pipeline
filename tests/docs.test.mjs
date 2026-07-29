@@ -21,6 +21,7 @@ const recommendations = await loadJson(
   "../config/recommendation-policy.json"
 );
 const groqProvider = await loadJson("../config/groq-provider-policy.json");
+const claimRetention = await loadJson("../config/claim-retention.json");
 
 test("README and architecture document the checked-in schedules, bounds, and manual boundary", () => {
   for (const document of [readme, architecture]) {
@@ -115,4 +116,30 @@ test("Groq documentation preserves the model lifecycle, measurement, and activat
   assert.match(groqProviderDoc, /--live/);
   assert.match(groqProviderDoc, /never prints prompts/i);
   assert.match(groqProviderDoc, /rollback/i);
+});
+
+test("claim-retention documentation preserves cleanup bounds and rollback safety", () => {
+  for (const document of [architecture, sheetSchema, operations]) {
+    assert.match(
+      document,
+      new RegExp(
+        `${claimRetention.minimum_rows_before_cleanup.toLocaleString("en-US")}(?:(?:\\s+data)?\\s+rows?|[- ]row)`,
+        "i"
+      )
+    );
+    assert.match(
+      document,
+      new RegExp(
+        `${claimRetention.maximum_rows_per_cleanup.toLocaleString("en-US")}(?:\\s+uniquely\\s+addressed)?(?:\\s+claim)?\\s+rows`,
+        "i"
+      )
+    );
+    assert.match(
+      document,
+      new RegExp(`${claimRetention.retention_days}(?:-|\\s+)days?`, "i")
+    );
+  }
+  assert.match(architecture, /fail-closed retention/i);
+  assert.match(sheetSchema, /no automatic retry/i);
+  assert.match(operations, /recoverable only from the\s+timestamped workbook backup/i);
 });

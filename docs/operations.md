@@ -38,7 +38,8 @@ Before schema or workflow changes:
 1. In Google Sheets, create a timestamped full workbook copy and export an `.xlsx` backup.
 2. Export the currently active scraper, generator, and archiver from n8n.
 3. Preserve current n8n credential bindings separately; never put secret values in the repository.
-4. Record counts for Sheet1, Archive, status, applied/skipped decisions, non-empty generated messages, and outcomes.
+4. Record counts for Sheet1, Archive, ProcessingClaims, status,
+   applied/skipped decisions, non-empty generated messages, and outcomes.
 5. Spot-check at least one legacy pending, ready, applied, skipped, error, and archived row when those categories exist.
 
 Do not continue if either the Sheet or workflow export backup cannot be opened.
@@ -98,8 +99,9 @@ and confirm the second `versionMigration` summary reports no repairs.
 Inspect the `processingClaimMigration` result for cleared, preserved-active,
 skipped, and conflicting counts. On the copied workbook, verify the five
 confirmed terminal records have blank token/stage/start values and that a
-second setup run reports zero cleared claims. Do not delete append-only
-`ProcessingClaims` history.
+second setup run reports zero cleared claims. The setup script must not delete
+`ProcessingClaims` history; bounded runtime retention is tested separately
+against the workbook copy.
 Inspect `legacyMessageMigration` and `archivedLegacyMessageMigration` for
 eight unique target identities accounted for as quarantined,
 already-quarantined, current-safe, or archived, with no missing identities,
@@ -236,6 +238,16 @@ Slack HTTP node must remain an explicit JSON `POST`.
   verify the selected Action remains attached to its canonical identity. Run two
   overlapping Reviewer copies and verify only the earliest unexpired
   `applied_jobs_projection` claim reaches maintenance.
+- For claim-retention smoke testing, use only the backed-up workbook copy.
+  First set the copy below the configured 10,000-row threshold and confirm the
+  plan logs a no-op with no metadata or batch-update request. Then seed uniquely
+  addressed claims on both sides of the 30-day expiry cutoff plus an active
+  claim, malformed timestamp, unknown stage, and duplicate `row_number`
+  locator. Confirm only old valid rows are selected, no more than 1,000 rows
+  are removed, descending ranges target the expected rows, and the committed
+  log reconciles the selected count. Interrupt the batch request once; do not
+  retry that execution. Rerun from a fresh Sheet read and confirm arbitration
+  still selects the same active winner.
 - Confirm the application snapshot remains unchanged after a permitted
   regeneration/correction path, and that a legacy applied row with blank
   points remains valid.
@@ -403,6 +415,9 @@ Do not invent hiring or conversion targets. Record observed counts and reconcile
   `sending`, attempts, provider categories, and time from ready commit to
   confirmed delivery.
 - Recovery: failures by stage/category, next retries, attempts at cap, expired claims, non-empty processing stages older than the lease.
+- Claim retention: policy version, rows seen, threshold state, eligible,
+  selected, deferred, preserved-by-reason counts, delete ranges, committed
+  deletions, and any failed or response-ambiguous batch.
 - Review: projected queue rows, protected concurrent actions, queue actions
   applied, invalid/stale/conflicting actions, applied/skipped decisions,
   explicit outcomes, and queue cleanup/appends.
@@ -426,6 +441,10 @@ If verification fails:
    recommender, and analytics, and wait for running executions to stop. Treat every remaining
    `sending` alert as potentially delivered; do not reset it to `pending`.
 2. Export the current migrated Sheet before changing anything; it contains new identities and any decisions/outcomes created after activation.
+   If claim cleanup contributed to the failure, disabling the Reviewer stops
+   future cleanup. To keep other Reviewer behavior running while retention is
+   investigated, set `enabled=false` in `config/claim-retention.json`, rebuild,
+   validate, and import the replacement inactive before activation.
 3. Do not delete new columns, `Review Queue`, or Archive rows. The queue is
    derived and may be left stale while the Reviewer is disabled; never copy it
    back over `Sheet1`.
@@ -436,6 +455,11 @@ If verification fails:
 8. Recheck active/archive counts, ready messages, application decisions, outcomes, and URL deduplication.
 
 The migration is additive, so leaving new columns in place is the preferred rollback. Never roll back by deleting canonical identity, messages, application decisions, outcomes, or Archive history.
+Expired claim rows already removed by retention are recoverable only from the
+timestamped workbook backup. Do not replace a live workbook merely to restore
+those audit rows; preserve the backup as evidence or reconcile with workflows
+disabled and verify that every restored claim is expired before any writer is
+reactivated.
 
 Disabling only the recommender stops future weekly reports and leaves
 discovery, ranking, application packs, alerts, review, analytics, and archival

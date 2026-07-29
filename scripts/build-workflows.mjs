@@ -6,6 +6,7 @@ import {
   validateAppliedJobsConfig,
   validateReviewQueueConfig
 } from "../src/review.mjs";
+import { validateClaimRetentionPolicy } from "../src/claim-retention.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const checkOnly = process.argv.includes("--check");
@@ -1967,6 +1968,17 @@ async function buildReviewer() {
   const archiver = await readJson("workflows/archiver.json");
   const schema = await readJson("config/pipeline-schema.json");
   const reviewConfig = await readJson("config/review-sheet.json");
+  const claimRetentionPolicy = await readJson(
+    "config/claim-retention.json"
+  );
+  const claimRetentionErrors = validateClaimRetentionPolicy(
+    claimRetentionPolicy
+  );
+  if (claimRetentionErrors.length > 0) {
+    throw new Error(
+      `Invalid claim retention policy:\n- ${claimRetentionErrors.join("\n- ")}`
+    );
+  }
   const reviewQueueErrors = validateReviewQueueConfig(reviewConfig, schema);
   if (reviewQueueErrors.length > 0) {
     throw new Error(
@@ -1988,6 +2000,7 @@ async function buildReviewer() {
   );
   const reviewCore = await bundledCore(
     "src/contracts.mjs",
+    "src/claim-retention.mjs",
     "src/profile.mjs",
     "src/evaluation.mjs",
     "src/message-safety.mjs",
@@ -2523,6 +2536,109 @@ return [{ json: {
     },
     credentials: googleSheetsCredentials
   };
+  const claimRetentionPlanCode = `${reviewCore}
+
+const POLICY = ${JSON.stringify(claimRetentionPolicy)};
+const claims = $('Get Applied Jobs Projection Claims').all()
+  .map((item) => item.json)
+  .filter((row) => row && Object.keys(row).length > 0);
+const plan = planProcessingClaimRetention(
+  claims,
+  POLICY,
+  new Date().toISOString()
+);
+console.log(JSON.stringify({
+  event: 'processing_claim_cleanup_plan',
+  policy_version: plan.policy_version,
+  enabled: plan.enabled,
+  threshold_reached: plan.threshold_reached,
+  retention_cutoff_at: plan.retention_cutoff_at,
+  ...plan.counts,
+  delete_ranges: plan.delete_ranges.length
+}));
+return plan.delete_ranges.length > 0 ? [{ json: plan }] : [];`;
+  const claimRetentionBatchCode = `
+const SHEET_NAME = ${JSON.stringify(reviewConfig.claims_sheet)};
+const plan = $('Plan Processing Claims Cleanup').first().json;
+const metadata = $input.first().json;
+const sheet = (metadata.sheets || []).find(
+  (entry) => entry?.properties?.title === SHEET_NAME
+);
+const sheetId = Number(sheet?.properties?.sheetId);
+if (!Number.isInteger(sheetId) || sheetId < 0) {
+  throw new Error('ProcessingClaims sheet metadata is missing');
+}
+if (!Array.isArray(plan.delete_ranges) || plan.delete_ranges.length === 0) {
+  return [];
+}
+const requests = plan.delete_ranges.map((range) => ({
+  deleteDimension: {
+    range: {
+      sheetId,
+      dimension: 'ROWS',
+      startIndex: range.start_index,
+      endIndex: range.end_index
+    }
+  }
+}));
+return [{ json: {
+  batch_update: { requests },
+  policy_version: plan.policy_version,
+  retention_cutoff_at: plan.retention_cutoff_at,
+  rows_seen: plan.counts.rows_seen,
+  rows_deleted: plan.counts.selected,
+  delete_ranges: requests.length
+} }];`;
+  const claimRetentionLogCode = `
+const plan = $('Prepare Processing Claims Batch Cleanup').first().json;
+console.log(JSON.stringify({
+  event: 'processing_claim_cleanup_committed',
+  policy_version: plan.policy_version,
+  retention_cutoff_at: plan.retention_cutoff_at,
+  rows_seen: plan.rows_seen,
+  rows_deleted: plan.rows_deleted,
+  delete_ranges: plan.delete_ranges
+}));
+return [{ json: {
+  event: 'processing_claim_cleanup_committed',
+  policy_version: plan.policy_version,
+  rows_deleted: plan.rows_deleted,
+  delete_ranges: plan.delete_ranges
+} }];`;
+  const processingClaimsMetadata = {
+    id: "88af9ce3-b45f-4aa8-a980-000000000093",
+    name: "Get Processing Claims Sheet Metadata",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [2420, 780],
+    parameters: {
+      url: appliedJobsMetadataUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      options: {}
+    },
+    credentials: googleSheetsCredentials
+  };
+  const processingClaimsBatchUpdate = {
+    id: "88af9ce3-b45f-4aa8-a980-000000000095",
+    name: "Delete Expired Processing Claims",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [2860, 780],
+    parameters: {
+      method: "POST",
+      url: appliedJobsBatchUpdateUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      sendBody: true,
+      contentType: "raw",
+      rawContentType: "application/json",
+      body: "={{ JSON.stringify($json.batch_update) }}",
+      options: {}
+    },
+    retryOnFail: false,
+    credentials: googleSheetsCredentials
+  };
 
   const nodes = [
     schedule,
@@ -2920,6 +3036,26 @@ return [{ json: {
       position: [1980, 700],
       jsCode: projectionWinnerCode
     }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000087",
+      name: "Plan Processing Claims Cleanup",
+      position: [2200, 780],
+      jsCode: claimRetentionPlanCode
+    }),
+    processingClaimsMetadata,
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000094",
+      name: "Prepare Processing Claims Batch Cleanup",
+      position: [2640, 780],
+      jsCode: claimRetentionBatchCode
+    }),
+    processingClaimsBatchUpdate,
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000096",
+      name: "Log Processing Claims Cleanup",
+      position: [3080, 780],
+      jsCode: claimRetentionLogCode
+    }),
     appliedJobsBeforeCleanup,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000067",
@@ -3237,7 +3373,22 @@ return [{ json: {
       main: [[connection("Keep Winning Applied Jobs Projection Claim")]]
     },
     "Keep Winning Applied Jobs Projection Claim": {
-      main: [[connection("Get Applied Jobs Before Cleanup")]]
+      main: [[
+        connection("Get Applied Jobs Before Cleanup"),
+        connection("Plan Processing Claims Cleanup")
+      ]]
+    },
+    "Plan Processing Claims Cleanup": {
+      main: [[connection("Get Processing Claims Sheet Metadata")]]
+    },
+    "Get Processing Claims Sheet Metadata": {
+      main: [[connection("Prepare Processing Claims Batch Cleanup")]]
+    },
+    "Prepare Processing Claims Batch Cleanup": {
+      main: [[connection("Delete Expired Processing Claims")]]
+    },
+    "Delete Expired Processing Claims": {
+      main: [[connection("Log Processing Claims Cleanup")]]
     },
     "Get Applied Jobs Before Cleanup": {
       main: [[connection("Aggregate Applied Jobs Before Cleanup")]]
@@ -3342,7 +3493,8 @@ return [{ json: {
         pipelineSchemaVersion: schema.storage_version,
         reviewViewVersion: reviewConfig.view_version,
         reviewQueueVersion: reviewConfig.review_queue.version,
-        appliedJobsVersion: reviewConfig.applied_jobs.version
+        appliedJobsVersion: reviewConfig.applied_jobs.version,
+        claimRetentionPolicyVersion: claimRetentionPolicy.policy_version
       },
       tags: []
     }
