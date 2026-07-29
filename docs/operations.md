@@ -101,6 +101,10 @@ Confirm quarantined rows have no active message,
 `message_validation_status=quarantined`, `alert_status=not_eligible`, the
 stable suppression reason, and no application decision change. A second setup
 run must quarantine zero additional rows.
+Inspect `applicationInputMigration` and confirm exact legacy zero sentinels in
+`apply_points_input` are cleared to blank, valid values remain unchanged, and
+no unsupported or concurrently changed value is overwritten. A second setup
+run must clear zero additional inputs.
 
 ## 5. Disabled import and rebinding
 

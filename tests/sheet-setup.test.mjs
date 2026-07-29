@@ -619,6 +619,156 @@ globalThis.inspectArchivedLegacyMessageTargetsForTest =
   );
 });
 
+test("generated setup clears only legacy zero Apply Points sentinels", () => {
+  const context = vm.createContext({});
+  new vm.Script(
+    `${script}
+globalThis.repairLegacyApplyPointsInputsForTest =
+  repairLegacyApplyPointsInputs_;`
+  ).runInContext(context);
+  const headers = ["canonical_job_id", "apply_points_input"];
+  const rows = [
+    ["onlinejobs.ph:1", 0],
+    ["onlinejobs.ph:2", "0"],
+    ["onlinejobs.ph:3", ""],
+    ["onlinejobs.ph:4", 5]
+  ];
+  const sheet = {
+    getName: () => "Sheet1",
+    getLastColumn: () => headers.length,
+    getLastRow: () => rows.length + 1,
+    getRange(row, column, rowCount = 1, columnCount = 1) {
+      return {
+        getDisplayValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        },
+        getValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        },
+        getValue() {
+          return rows[row - 2][column - 1];
+        },
+        setValue(value) {
+          rows[row - 2][column - 1] = value;
+          return this;
+        }
+      };
+    }
+  };
+
+  const first = JSON.parse(
+    JSON.stringify(
+      context.repairLegacyApplyPointsInputsForTest(sheet)
+    )
+  );
+  assert.deepEqual(first.counts, {
+    cleared: 2,
+    blank: 1,
+    valid: 1,
+    conflicting: 0
+  });
+  assert.deepEqual(
+    rows.map((row) => row[1]),
+    ["", "", "", 5]
+  );
+
+  const second = JSON.parse(
+    JSON.stringify(
+      context.repairLegacyApplyPointsInputsForTest(sheet)
+    )
+  );
+  assert.deepEqual(second.counts, {
+    cleared: 0,
+    blank: 3,
+    valid: 1,
+    conflicting: 0
+  });
+});
+
+test("generated setup leaves legacy Apply Points untouched on conflict", () => {
+  const context = vm.createContext({});
+  new vm.Script(
+    `${script}
+globalThis.repairLegacyApplyPointsInputsForTest =
+  repairLegacyApplyPointsInputs_;`
+  ).runInContext(context);
+  const headers = ["canonical_job_id", "apply_points_input"];
+  const rows = [
+    ["onlinejobs.ph:1", 0],
+    ["onlinejobs.ph:2", 99]
+  ];
+  const sheet = {
+    getName: () => "Sheet1",
+    getLastColumn: () => headers.length,
+    getLastRow: () => rows.length + 1,
+    getRange(row, column, rowCount = 1, columnCount = 1) {
+      return {
+        getDisplayValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        },
+        getValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        },
+        getValue() {
+          return rows[row - 2][column - 1];
+        },
+        setValue(value) {
+          rows[row - 2][column - 1] = value;
+          return this;
+        }
+      };
+    }
+  };
+
+  const result = JSON.parse(
+    JSON.stringify(
+      context.repairLegacyApplyPointsInputsForTest(sheet)
+    )
+  );
+  assert.equal(result.counts.cleared, 0);
+  assert.equal(result.counts.conflicting, 1);
+  assert.deepEqual(
+    rows.map((row) => row[1]),
+    [0, 99]
+  );
+});
+
 test("Sheet setup artifact embeds the canonical schema and review controls", () => {
   assert.equal(LEGACY_MESSAGE_QUARANTINE_IDS.length, 8);
   assert.deepEqual(embedded.recordFields, schema.fields);

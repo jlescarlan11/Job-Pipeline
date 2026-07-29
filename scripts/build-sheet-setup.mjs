@@ -223,6 +223,19 @@ function setupJobPipelineSheets() {
       })
     );
   }
+  const applicationInputMigration = [
+    repairLegacyApplyPointsInputs_(active),
+    repairLegacyApplyPointsInputs_(archive)
+  ];
+  const conflictingApplicationInputs = applicationInputMigration.flatMap(
+    (result) => result.records.conflicting
+  );
+  if (conflictingApplicationInputs.length > 0) {
+    throw new Error(
+      'Invalid legacy Apply Points inputs require manual review before workflow activation. ' +
+      JSON.stringify(conflictingApplicationInputs.slice(0, 20))
+    );
+  }
 
   migrateLegacyCreatedAt_(active);
   migrateLegacyCreatedAt_(archive);
@@ -260,7 +273,8 @@ function setupJobPipelineSheets() {
     versionMigration,
     processingClaimMigration,
     legacyMessageMigration,
-    archivedLegacyMessageMigration
+    archivedLegacyMessageMigration,
+    applicationInputMigration
   };
 }
 
@@ -334,6 +348,89 @@ function inspectArchivedLegacyMessageTargets_(sheet) {
       row_number: matches[0].row_number,
       canonical_job_id: identity
     });
+  });
+  return summary;
+}
+
+function repairLegacyApplyPointsInputs_(sheet) {
+  const summary = {
+    sheet: sheet.getName(),
+    counts: {
+      cleared: 0,
+      blank: 0,
+      valid: 0,
+      conflicting: 0
+    },
+    records: {
+      cleared: [],
+      conflicting: []
+    }
+  };
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const column = headers.indexOf('apply_points_input') + 1;
+  if (column < 1) {
+    summary.counts.conflicting += 1;
+    summary.records.conflicting.push({
+      row_number: 1,
+      reason: 'required_header_missing'
+    });
+    return summary;
+  }
+
+  const rowCount = Math.max(sheet.getLastRow() - 1, 0);
+  if (rowCount === 0) return summary;
+  const values = sheet.getRange(2, column, rowCount, 1).getValues();
+  const candidates = [];
+  values.forEach((row, index) => {
+    const value = row[0];
+    if (value === '' || value === null || value === undefined) {
+      summary.counts.blank += 1;
+      return;
+    }
+    if (value === 0 || String(value).trim() === '0') {
+      candidates.push(index + 2);
+      return;
+    }
+    const numeric = Number(value);
+    if (
+      Number.isInteger(numeric) &&
+      numeric >= JOB_PIPELINE_SETUP.reviewInputRules.applyPoints.minimum &&
+      numeric <= JOB_PIPELINE_SETUP.reviewInputRules.applyPoints.maximum
+    ) {
+      summary.counts.valid += 1;
+      return;
+    }
+    summary.counts.conflicting += 1;
+    summary.records.conflicting.push({
+      row_number: index + 2,
+      value: String(value).slice(0, 64),
+      reason: 'unsupported_legacy_value'
+    });
+  });
+  if (summary.counts.conflicting > 0) return summary;
+
+  candidates.forEach((rowNumber) => {
+    const range = sheet.getRange(rowNumber, column);
+    const current = range.getValue();
+    if (!(current === 0 || String(current).trim() === '0')) {
+      summary.counts.conflicting += 1;
+      summary.records.conflicting.push({
+        row_number: rowNumber,
+        value: String(current).slice(0, 64),
+        reason: 'target_changed_during_cleanup'
+      });
+      return;
+    }
+    range.setValue('');
+    summary.counts.cleared += 1;
+    if (summary.records.cleared.length < 20) {
+      summary.records.cleared.push({
+        row_number: rowNumber,
+        reason: 'legacy_zero_sentinel'
+      });
+    }
   });
   return summary;
 }
