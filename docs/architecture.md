@@ -76,9 +76,21 @@ shifted row numbers.
 
 `config/search-plan.json` defines 22 enabled, evidence-linked queries across full-stack, frontend, backend/API, React/Next.js/TypeScript/Node.js, database, Flutter/mobile, ASP.NET Core/C#, automation/AI integration, production support, and payment integration. Validation rejects duplicate queries and evidence references absent from the profile.
 
-Each scheduled run emits at most 66 page requests: 22 queries multiplied by 3 pages. Requests are paced one every 2 seconds, time out after 15 seconds, and retry up to 3 times with 5-second waits. Saved search pages are parsed as parent cards to keep title, URL, date, description, badge, and salary aligned. A seven-day cutoff and seniority exclusion remain configured.
+Each scheduled run starts one page for each of 22 queries and follows the
+source's next-page signal adaptively, up to 3 pages and 66 requests. Requests
+remain globally wave-paced by at least 2 seconds, time out after 15 seconds,
+and retry up to 3 times with 5-second waits. A successful earlier page remains
+in the query's accumulated state if a later page exhausts its retries. Saved
+search pages are parsed as parent cards to keep title, URL, date, description,
+badge, and salary aligned. A seven-day cutoff and seniority exclusion remain
+configured.
 
-Successful pages are retained when another page/query fails. Coverage records `complete`, `empty`, `partial`, or `failed` per query; reaching the configured page cap while a next page exists is `partial`, never `complete`.
+Pagination stops only when the source no longer advertises a next page or the
+configured cap is reached. It does not stop merely because every parsed card
+was old, excluded, or malformed. Successful pages are retained when another
+page/query fails. Coverage records `complete`, `empty`, `partial`, or `failed`
+per query, plus actual and maximum page-request counts; reaching the configured
+page cap while a next page exists is `partial`, never `complete`.
 
 Discovery reconciliation combines query and role-family provenance, updates `last_seen_at`, and preserves existing evaluation, message, manual decision, and outcome fields. Active and Archive legacy URLs participate in deduplication. Concurrent new rows pass through append-only discovery claims before insertion.
 

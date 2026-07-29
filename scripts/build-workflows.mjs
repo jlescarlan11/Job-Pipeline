@@ -103,6 +103,35 @@ function aggregateNode({ id, name, position, destinationFieldName }) {
   };
 }
 
+function appendMergeNode({ id, name, position }) {
+  return {
+    parameters: {
+      mode: "append",
+      numberInputs: 2
+    },
+    type: "n8n-nodes-base.merge",
+    typeVersion: 3.2,
+    position,
+    id,
+    name
+  };
+}
+
+function intervalWaitNode({ id, name, position, milliseconds }) {
+  return {
+    parameters: {
+      resume: "timeInterval",
+      amount: milliseconds / 1000,
+      unit: "seconds"
+    },
+    type: "n8n-nodes-base.wait",
+    typeVersion: 1.1,
+    position,
+    id,
+    name
+  };
+}
+
 function schemaColumns(fields) {
   return [
     ...fields.map((field) => ({
@@ -291,6 +320,8 @@ const summary = {
   timestamp: now,
   plan_version: SEARCH_PLAN.plan_version,
   status: coverage.status,
+  pages_requested: coverage.pages_requested,
+  maximum_page_requests: coverage.maximum_page_requests,
   queries: coverage.queries,
   discovered_unique: reconciliation.discovered_unique,
   new_jobs: reconciliation.new_jobs.length,
@@ -322,11 +353,11 @@ async function buildScraper() {
       interval: [{ field: "hours", hoursInterval: plan.schedule_hours }]
     }
   };
-  schedule.position = [-1320, 260];
+  schedule.position = [-2600, 260];
 
   const fetchPage = nodeByAnyName(current, ["HTTP Request", "Fetch Search Page"]);
   fetchPage.name = "Fetch Search Page";
-  fetchPage.position = [-900, 260];
+  fetchPage.position = [-2200, 260];
   fetchPage.parameters = {
     url: "={{ $json.request_url }}",
     sendHeaders: true,
@@ -361,11 +392,11 @@ async function buildScraper() {
 
   const activeRead = nodeByAnyName(current, ["Get row(s) in sheet", "Get Active Rows"]);
   activeRead.name = "Get Active Rows";
-  activeRead.position = [-300, 120];
+  activeRead.position = [600, 120];
 
   const archiveRead = nodeByAnyName(current, ["Get rows from Archive", "Get Archive Rows"]);
   archiveRead.name = "Get Archive Rows";
-  archiveRead.position = [120, 120];
+  archiveRead.position = [1020, 120];
   archiveRead.alwaysOutputData = true;
 
   const appendBase = nodeByAnyName(current, [
@@ -378,7 +409,7 @@ async function buildScraper() {
   const claimsRead = structuredClone(activeRead);
   claimsRead.id = "5b0d6e3f-0eae-4d1e-a0b4-000000000012";
   claimsRead.name = "Get Processing Claims";
-  claimsRead.position = [980, -100];
+  claimsRead.position = [1900, -100];
   claimsRead.parameters.sheetName = {
     __rl: true,
     value: "ProcessingClaims",
@@ -390,7 +421,7 @@ async function buildScraper() {
   const claimsAppend = structuredClone(appendBase);
   claimsAppend.id = "5b0d6e3f-0eae-4d1e-a0b4-000000000013";
   claimsAppend.name = "Append Discovery Claims";
-  claimsAppend.position = [560, -100];
+  claimsAppend.position = [1460, -100];
   claimsAppend.parameters.operation = "append";
   claimsAppend.parameters.sheetName = structuredClone(claimsRead.parameters.sheetName);
   claimsAppend.parameters.columns = {
@@ -427,83 +458,182 @@ async function buildScraper() {
     "updated_at"
   ];
 
-  const parseCode = `${discoveryCore}
+  const parseSearchPageCode = (stateNodeName) => `${discoveryCore}
 
-const request = $('Load Search Plan').item.json;
+const SEARCH_PLAN = ${JSON.stringify(plan)};
+const state = $(${JSON.stringify(stateNodeName)}).item.json;
+const request = {
+  query_id: state.query_id,
+  query: state.query,
+  role_family: state.role_family,
+  evidence_refs: Array.isArray(state.evidence_refs) ? state.evidence_refs : [],
+  page_number: state.page_number,
+  request_url: state.request_url
+};
 const payload = $json || {};
-const errorMessage = payload.error?.message || payload.message || '';
+const errorMessage =
+  payload.error?.message ||
+  payload.message ||
+  (typeof payload.error === 'string' ? payload.error : '');
+let parsed;
 if (errorMessage && !payload.data && !payload.body) {
-  return {
-    json: {
+  parsed = {
       ...request,
       ok: false,
       jobs: [],
       excluded: [],
       malformed: [],
+      result_card_count: 0,
+      has_next: false,
+      reported_last_page: request.page_number,
       error_category: /429|rate/i.test(errorMessage) ? 'rate_limit' : /timeout/i.test(errorMessage) ? 'timeout' : 'request_failure',
       error_summary: String(errorMessage)
         .replace(/https?:\\/\\/\\S+/gi, '[url]')
         .replace(/(api[_-]?key|token|authorization)\\s*[:=]\\s*\\S+/gi, '$1=[redacted]')
         .slice(0, 200)
-    }
   };
-}
-const html = typeof payload === 'string' ? payload : (payload.data || payload.body || '');
-return {
-  json: parseSearchResults(html, request, {
+} else {
+  const html = typeof payload === 'string' ? payload : (payload.data || payload.body || '');
+  parsed = parseSearchResults(html, request, {
     now: new Date().toISOString(),
     lookbackDays: ${plan.lookback_days}
-  })
+  });
+}
+return {
+  json: advanceSearchPagination(state, parsed, SEARCH_PLAN)
 };`;
+
+  const loadSearchPlan = codeNode({
+    id: "5b0d6e3f-0eae-4d1e-a0b4-000000000001",
+    name: "Load Search Plan",
+    position: [-2400, 260],
+    jsCode: `const requests = ${JSON.stringify(requests)};\nreturn requests.map((request) => ({ json: request }));`
+  });
+  const parseFirstPage = codeNode({
+    id: "5b0d6e3f-0eae-4d1e-a0b4-000000000002",
+    name: "Parse Search Page",
+    position: [-2000, 260],
+    mode: "runOnceForEachItem",
+    jsCode: parseSearchPageCode("Load Search Plan")
+  });
+  const paginationNodes = [];
+  const paginationConnections = {};
+  let paginationTail = parseFirstPage.name;
+  for (
+    let pageNumber = 2;
+    pageNumber <= plan.max_pages_per_query;
+    pageNumber += 1
+  ) {
+    const idBase = 100 + pageNumber * 10;
+    const stageX = -1800 + (pageNumber - 2) * 1000;
+    const hasPageName = `Has Search Page ${pageNumber}`;
+    const waitName = `Wait Before Search Page ${pageNumber}`;
+    const fetchName = `Fetch Search Page ${pageNumber}`;
+    const parseName = `Parse Search Page ${pageNumber}`;
+    const mergeName = `Merge Search Page ${pageNumber} Results`;
+    const nodeId = (offset) =>
+      `5b0d6e3f-0eae-4d1e-a0b4-${String(idBase + offset).padStart(12, "0")}`;
+    const stageFetch = structuredClone(fetchPage);
+    stageFetch.id = nodeId(2);
+    stageFetch.name = fetchName;
+    stageFetch.position = [stageX + 400, 180];
+    paginationNodes.push(
+      booleanIfNode({
+        id: nodeId(0),
+        name: hasPageName,
+        position: [stageX, 260],
+        leftValue: "={{ $json.fetch_next_page === true }}"
+      }),
+      intervalWaitNode({
+        id: nodeId(1),
+        name: waitName,
+        position: [stageX + 200, 180],
+        milliseconds: plan.request_interval_ms
+      }),
+      stageFetch,
+      codeNode({
+        id: nodeId(3),
+        name: parseName,
+        position: [stageX + 600, 180],
+        mode: "runOnceForEachItem",
+        jsCode: parseSearchPageCode(waitName)
+      }),
+      appendMergeNode({
+        id: nodeId(4),
+        name: mergeName,
+        position: [stageX + 800, 260]
+      })
+    );
+    paginationConnections[paginationTail] = {
+      main: [[connection(hasPageName)]]
+    };
+    paginationConnections[hasPageName] = {
+      main: [
+        [connection(waitName)],
+        [connection(mergeName, 1)]
+      ]
+    };
+    paginationConnections[waitName] = {
+      main: [[connection(fetchName)]]
+    };
+    paginationConnections[fetchName] = {
+      main: [[connection(parseName)]]
+    };
+    paginationConnections[parseName] = {
+      main: [[connection(mergeName, 0)]]
+    };
+    paginationTail = mergeName;
+  }
+  const expandPageResults = codeNode({
+    id: "5b0d6e3f-0eae-4d1e-a0b4-000000000140",
+    name: "Expand Search Page Results",
+    position: [200, 260],
+    jsCode:
+      "return $input.all().flatMap((item) => (item.json.page_results || []).map((page) => ({ json: page })));"
+  });
+  paginationConnections[paginationTail] = {
+    main: [[connection(expandPageResults.name)]]
+  };
 
   const nodes = [
     schedule,
-    codeNode({
-      id: "5b0d6e3f-0eae-4d1e-a0b4-000000000001",
-      name: "Load Search Plan",
-      position: [-1120, 260],
-      jsCode: `const requests = ${JSON.stringify(requests)};\nreturn requests.map((request) => ({ json: request }));`
-    }),
+    loadSearchPlan,
     fetchPage,
-    codeNode({
-      id: "5b0d6e3f-0eae-4d1e-a0b4-000000000002",
-      name: "Parse Search Page",
-      position: [-700, 260],
-      mode: "runOnceForEachItem",
-      jsCode: parseCode
-    }),
+    parseFirstPage,
+    ...paginationNodes,
+    expandPageResults,
     aggregateNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000003",
       name: "Aggregate Search Pages",
-      position: [-500, 260],
+      position: [400, 260],
       destinationFieldName: "page_results"
     }),
     activeRead,
     aggregateNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000004",
       name: "Aggregate Active Rows",
-      position: [-80, 120],
+      position: [820, 120],
       destinationFieldName: "active_rows"
     }),
     archiveRead,
     codeNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000005",
       name: "Prepare New Jobs",
-      position: [340, -100],
+      position: [1240, -100],
       jsCode: prepareDiscoveryCode({ core: discoveryCore, schema, plan, mode: "new" })
     }),
     claimsAppend,
     aggregateNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000014",
       name: "Aggregate Discovery Claims",
-      position: [760, -100],
+      position: [1680, -100],
       destinationFieldName: "claims_written"
     }),
     claimsRead,
     codeNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000015",
       name: "Keep Winning Discovery Claims",
-      position: [1190, -100],
+      position: [2110, -100],
       jsCode: `${discoveryCore}
 
 const proposed = $('Prepare New Jobs').all().map((item) => item.json);
@@ -520,7 +650,7 @@ return winners.map((record) => ({ json: record }));`
     codeNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000016",
       name: "Prepare Discovery Inserts",
-      position: [1400, -100],
+      position: [2320, -100],
       jsCode: `return $input.all().map((item) => {
   const {
     work_stage,
@@ -542,39 +672,39 @@ return winners.map((record) => ({ json: record }));`
       base: appendBase,
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000006",
       name: "Append Discovered Jobs",
-      position: [1610, -100],
+      position: [2530, -100],
       fields: workflowFields
     }),
     codeNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000007",
       name: "Prepare Active Seen Updates",
-      position: [340, 80],
+      position: [1240, 80],
       jsCode: prepareDiscoveryCode({ core: discoveryCore, schema, plan, mode: "active" })
     }),
     updateSheetNode({
       base: appendBase,
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000008",
       name: "Update Active Seen",
-      position: [580, 80],
+      position: [1480, 80],
       fields: seenFields
     }),
     codeNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000009",
       name: "Prepare Archive Seen Updates",
-      position: [340, 260],
+      position: [1240, 260],
       jsCode: prepareDiscoveryCode({ core: discoveryCore, schema, plan, mode: "archive" })
     }),
     updateSheetNode({
       base: archiveUpdateBase,
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000010",
       name: "Update Archive Seen",
-      position: [580, 260],
+      position: [1480, 260],
       fields: seenFields
     }),
     codeNode({
       id: "5b0d6e3f-0eae-4d1e-a0b4-000000000011",
       name: "Log Discovery Summary",
-      position: [340, 440],
+      position: [1240, 440],
       jsCode: prepareDiscoveryCode({ core: discoveryCore, schema, plan, mode: "summary" })
     })
   ];
@@ -583,7 +713,10 @@ return winners.map((record) => ({ json: record }));`
     "Schedule Trigger": { main: [[connection("Load Search Plan")]] },
     "Load Search Plan": { main: [[connection("Fetch Search Page")]] },
     "Fetch Search Page": { main: [[connection("Parse Search Page")]] },
-    "Parse Search Page": { main: [[connection("Aggregate Search Pages")]] },
+    ...paginationConnections,
+    "Expand Search Page Results": {
+      main: [[connection("Aggregate Search Pages")]]
+    },
     "Aggregate Search Pages": { main: [[connection("Get Active Rows")]] },
     "Get Active Rows": { main: [[connection("Aggregate Active Rows")]] },
     "Aggregate Active Rows": { main: [[connection("Get Archive Rows")]] },

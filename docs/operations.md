@@ -418,6 +418,10 @@ Never run old and new writers against the same workbook.
 Do not invent hiring or conversion targets. Record observed counts and reconcile invariants:
 
 - Discovery: enabled queries, complete/empty/partial/failed/capped queries, pages, unique new jobs, active duplicates, archive duplicates, malformed cards, exclusions, claim winners/losses.
+- Discovery pagination: compare `pages_requested` with
+  `maximum_page_requests`; confirm exhausted queries do not request later
+  pages, capped queries remain partial, and a later-page failure retains the
+  earlier successful page counts and jobs.
 - Evaluation: selected, enriched from source, reused stored detail, recommended, review-required, not-recommended, unscorable, unavailable.
 - Generation: attempted, validated ready, retryable, terminal, claim losers, per-run maximum.
 - Alert: queued, eligible, sent, suppressed, retryable, terminal, stale

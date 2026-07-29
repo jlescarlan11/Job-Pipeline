@@ -19,16 +19,16 @@ This matrix maps every GitHub acceptance criterion to checked-in evidence. “Au
 
 - **I2-AC1 — Query evidence traceability:** Automated `validateSearchPlan` checks every enabled evidence reference.
 - **I2-AC2 — Required role catalog:** Artifact: 22 queries in `config/search-plan.json`; workflow test asserts all 22 are embedded.
-- **I2-AC3 — Bounded accessible pages:** Artifact: 3 pages/query, 7-day lookback, 66-request maximum, timeout and pacing; automated request-plan count.
+- **I2-AC3 — Bounded adaptive pages:** Artifact: one initial page/query, source-next-page continuation, 3-page/query and 66-request maximum, 7-day lookback, timeout and pacing; automated initial/next/cap request coverage.
 - **I2-AC4 — Complete vs capped/partial:** Automated complete, empty, failed, and page-limit partial coverage fixtures.
 - **I2-AC5 — Multi-query canonical merge:** Automated two-query/two-page canonical merge and combined provenance test.
 - **I2-AC6 — Legacy URL prevents rediscovery:** Automated active and Archive legacy duplicate fixtures.
 - **I2-AC7 — Repeated discovery preserves manual state:** Automated reconciliation retains status/message and updates provenance/last-seen.
 - **I2-AC8 — Posted date/salary persist:** Automated parser alignment assertions; fields mapped in scraper export.
 - **I2-AC9 — Unknown company/salary remain blank:** Parser/config use blank values; no `Not Given` fallback exists.
-- **I2-AC10 — One query failure preserves success:** Automated partial-run reconciliation test; export logs per-query coverage.
+- **I2-AC10 — One query failure preserves success:** Automated partial-run reconciliation test; adaptive state carries successful earlier pages and export logs per-query coverage.
 - **I2-AC11 — Parent-card alignment:** Automated optional badge, neighboring card, malformed card, title/URL/date/salary alignment fixtures.
-- **I2-AC12 — Pacing/run limits:** Automated config/export drift checks for 2-second interval, 15-second timeout, 3 attempts, and page/query bounds.
+- **I2-AC12 — Pacing/run limits:** Automated config/export drift checks for first-page-only fan-out, 2-second in-wave and between-wave pacing, 15-second timeout, 3 attempts, source-exhaustion continuation, and page/query bounds.
 - **I2-AC13 — Required discovery fixtures:** Automated multi-page, empty, duplicate config/result, active/archive duplicate, malformed/invalid date, seniority, and temporary failure coverage.
 - **I2-AC14 — Four-hour schedule:** Automated export/config equality.
 

@@ -65,8 +65,16 @@ function evidenceExists(reference, profile) {
 export function validateSearchPlan(plan, profile) {
   const errors = [];
   if (plan?.schema_version !== 1) errors.push("search plan schema_version must be 1");
+  if (!/^\d{4}-\d{2}-\d{2}\/v\d+$/.test(plan?.plan_version || "")) {
+    errors.push("search plan plan_version must use YYYY-MM-DD/vN");
+  }
   if (plan?.candidate_profile_version !== profile?.profile_version) {
     errors.push("search plan candidate_profile_version must match the candidate profile");
+  }
+  if (plan?.pagination_mode !== "adaptive_source_exhaustion") {
+    errors.push(
+      "pagination_mode must be adaptive_source_exhaustion"
+    );
   }
   for (const field of [
     "schedule_hours",
@@ -111,22 +119,71 @@ export function validateSearchPlan(plan, profile) {
 }
 
 export function buildSearchRequests(plan) {
-  const requests = [];
-  for (const query of plan.queries.filter((entry) => entry.enabled)) {
-    for (let pageNumber = 1; pageNumber <= plan.max_pages_per_query; pageNumber += 1) {
-      const offset = (pageNumber - 1) * plan.page_size;
-      const path = pageNumber === 1 ? "/jobseekers/jobsearch" : `/jobseekers/jobsearch/${offset}`;
-      requests.push({
-        query_id: query.id,
-        query: query.query,
-        role_family: query.role_family,
-        evidence_refs: query.evidence_refs,
-        page_number: pageNumber,
-        request_url: `https://www.onlinejobs.ph${path}?jobkeyword=${encodeURIComponent(query.query)}`
-      });
-    }
+  return plan.queries
+    .filter((entry) => entry.enabled)
+    .map((query) => searchRequest(query, 1, plan));
+}
+
+function searchRequest(query, pageNumber, plan) {
+  const offset = (pageNumber - 1) * plan.page_size;
+  const path =
+    pageNumber === 1
+      ? "/jobseekers/jobsearch"
+      : `/jobseekers/jobsearch/${offset}`;
+  return {
+    query_id: query.id,
+    query: query.query,
+    role_family: query.role_family,
+    evidence_refs: query.evidence_refs,
+    page_number: pageNumber,
+    request_url:
+      `https://www.onlinejobs.ph${path}?jobkeyword=` +
+      encodeURIComponent(query.query)
+  };
+}
+
+function sourceResultCardCount(page) {
+  if (
+    Number.isInteger(page?.result_card_count) &&
+    page.result_card_count >= 0
+  ) {
+    return page.result_card_count;
   }
-  return requests;
+  return ["jobs", "excluded", "malformed"].reduce(
+    (total, field) =>
+      total + (Array.isArray(page?.[field]) ? page[field].length : 0),
+    0
+  );
+}
+
+function sourcePageExhausted(page) {
+  return Boolean(page?.ok && !page.has_next);
+}
+
+export function buildNextSearchRequest(page, plan) {
+  if (
+    !page?.ok ||
+    sourcePageExhausted(page) ||
+    !Number.isInteger(page.page_number) ||
+    page.page_number < 1 ||
+    page.page_number >= plan.max_pages_per_query
+  ) {
+    return null;
+  }
+  return searchRequest(page, page.page_number + 1, plan);
+}
+
+export function advanceSearchPagination(state, page, plan) {
+  const nextRequest = buildNextSearchRequest(page, plan);
+  return {
+    ...state,
+    ...(nextRequest || {}),
+    page_results: [
+      ...(Array.isArray(state?.page_results) ? state.page_results : []),
+      page
+    ],
+    fetch_next_page: Boolean(nextRequest)
+  };
 }
 
 export function parseSearchResults(
@@ -145,8 +202,10 @@ export function parseSearchResults(
     /<a\s+href=["'](\/jobseekers\/job\/[^"']+)["'][^>]*>\s*<div[^>]*class=["'][^"']*jobpost-cat-box[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<\/a>/gi;
   const cutoff = Date.parse(now) - lookbackDays * 24 * 60 * 60 * 1000;
 
+  let resultCardCount = 0;
   let match;
   while ((match = cardRegex.exec(pageText)) !== null) {
+    resultCardCount += 1;
     const urlPath = match[1];
     const cardHtml = match[2];
     const titleMatch = cardHtml.match(/<h4[^>]*>([\s\S]*?)<\/h4>/i);
@@ -208,6 +267,7 @@ export function parseSearchResults(
     jobs,
     excluded,
     malformed,
+    result_card_count: resultCardCount,
     has_next: hasNext,
     reported_last_page: reportedLastPage
   };
@@ -218,7 +278,7 @@ function effectivePagesForQuery(pages) {
   const effective = [];
   for (const page of sorted) {
     effective.push(page);
-    if (page.ok && (!page.has_next || page.jobs.length === 0)) break;
+    if (sourcePageExhausted(page)) break;
   }
   return effective;
 }
@@ -237,10 +297,14 @@ export function summarizeCoverage(pageResults, plan) {
 
     if (successes.length > 0 && failures.length > 0) {
       status = "partial";
-    } else if (successes.length > 0 && successes[0].jobs.length === 0) {
+    } else if (
+      successes.length > 0 &&
+      sourceResultCardCount(successes[0]) === 0 &&
+      sourcePageExhausted(successes[0])
+    ) {
       status = "empty";
       stopReason = "no_results";
-    } else if (lastSuccess && (!lastSuccess.has_next || lastSuccess.jobs.length === 0)) {
+    } else if (lastSuccess && sourcePageExhausted(lastSuccess)) {
       status = "complete";
       stopReason = "source_exhausted";
     } else if (lastSuccess?.page_number >= plan.max_pages_per_query) {
@@ -259,6 +323,10 @@ export function summarizeCoverage(pageResults, plan) {
       stop_reason: stopReason,
       pages_succeeded: successes.length,
       pages_failed: failures.length,
+      result_cards_seen: successes.reduce(
+        (total, page) => total + sourceResultCardCount(page),
+        0
+      ),
       jobs_found: successes.reduce((total, page) => total + page.jobs.length, 0),
       malformed_count: successes.reduce((total, page) => total + page.malformed.length, 0),
       excluded_count: successes.reduce((total, page) => total + page.excluded.length, 0)
@@ -270,6 +338,14 @@ export function summarizeCoverage(pageResults, plan) {
       : queries.every((query) => query.status === "empty")
         ? "empty"
         : "complete",
+    pages_requested: queries.reduce(
+      (total, query) =>
+        total + query.pages_succeeded + query.pages_failed,
+      0
+    ),
+    maximum_page_requests:
+      plan.queries.filter((query) => query.enabled).length *
+      plan.max_pages_per_query,
     queries
   };
 }

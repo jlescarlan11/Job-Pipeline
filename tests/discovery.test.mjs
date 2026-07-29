@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  advanceSearchPagination,
+  buildNextSearchRequest,
   buildSearchRequests,
   parseSearchResults,
   reconcileDiscovery,
@@ -30,14 +32,15 @@ const request = (queryId, query, roleFamily, pageNumber) => ({
   request_url: "https://onlinejobs.ph/example"
 });
 
-test("search plan is profile-traceable and emits every configured page", () => {
+test("search plan is profile-traceable and starts only the first adaptive page", () => {
   assert.deepEqual(validateSearchPlan(plan, profile), []);
   const requests = buildSearchRequests(plan);
   assert.equal(
     requests.length,
-    plan.queries.filter((query) => query.enabled).length * plan.max_pages_per_query
+    plan.queries.filter((query) => query.enabled).length
   );
-  assert.match(requests[1].request_url, /jobsearch\/30/);
+  assert.ok(requests.every((entry) => entry.page_number === 1));
+  assert.ok(requests.every((entry) => !/jobsearch\/30/.test(entry.request_url)));
   assert.match(requests[1].request_url, /jobkeyword=/);
 });
 
@@ -54,7 +57,95 @@ test("search parser preserves card alignment and excludes senior jobs", () => {
   assert.equal(parsed.excluded.length, 1);
   assert.equal(parsed.excluded[0].source_job_id, "1002");
   assert.equal(parsed.malformed.length, 1);
+  assert.equal(parsed.result_card_count, 3);
   assert.equal(parsed.has_next, true);
+});
+
+test("adaptive pagination follows source cards, stops at exhaustion, and retains the cap", () => {
+  const first = parseSearchResults(
+    page1Html,
+    request("typescript", "typescript developer", "full-stack", 1),
+    { now, lookbackDays: 7 }
+  );
+  const secondRequest = buildNextSearchRequest(first, plan);
+  assert.equal(secondRequest.page_number, 2);
+  assert.match(secondRequest.request_url, /jobsearch\/30/);
+  const firstState = advanceSearchPagination(
+    request("typescript", "typescript developer", "full-stack", 1),
+    first,
+    plan
+  );
+  assert.equal(firstState.fetch_next_page, true);
+  assert.equal(firstState.page_number, 2);
+  assert.deepEqual(firstState.page_results, [first]);
+
+  const second = parseSearchResults(page2Html, secondRequest, {
+    now,
+    lookbackDays: 7
+  });
+  assert.equal(buildNextSearchRequest(second, plan), null);
+  const failedSecond = {
+    ...secondRequest,
+    ok: false,
+    jobs: [],
+    excluded: [],
+    malformed: [],
+    result_card_count: 0,
+    has_next: false,
+    error_category: "timeout"
+  };
+  const failedState = advanceSearchPagination(
+    firstState,
+    failedSecond,
+    plan
+  );
+  assert.equal(failedState.fetch_next_page, false);
+  assert.deepEqual(failedState.page_results, [first, failedSecond]);
+
+  const capped = {
+    ...second,
+    page_number: plan.max_pages_per_query,
+    has_next: true
+  };
+  assert.equal(buildNextSearchRequest(capped, plan), null);
+
+  const excludedOnly = parseSearchResults(
+    `
+      <a href="/jobseekers/job/senior-only-7001">
+        <div class="jobpost-cat-box">
+          <h4>Senior TypeScript Developer</h4>
+          <em data-temp="2026-07-28 10:00:00">Posted recently</em>
+        </div>
+      </a>
+      <a href="/jobseekers/jobsearch/30?jobkeyword=typescript"
+         rel="next">Next</a>
+    `,
+    request("typescript", "typescript developer", "full-stack", 1),
+    { now, lookbackDays: 7 }
+  );
+  assert.equal(excludedOnly.jobs.length, 0);
+  assert.equal(excludedOnly.excluded.length, 1);
+  assert.equal(excludedOnly.result_card_count, 1);
+  assert.equal(buildNextSearchRequest(excludedOnly, plan).page_number, 2);
+
+  const empty = parseSearchResults(
+    emptyHtml,
+    request("typescript", "typescript developer", "full-stack", 1),
+    { now, lookbackDays: 7 }
+  );
+  assert.equal(empty.result_card_count, 0);
+  assert.equal(buildNextSearchRequest(empty, plan), null);
+
+  const zeroCardsWithNext = parseSearchResults(
+    '<a href="/jobseekers/jobsearch/30?jobkeyword=typescript" rel="next">Next</a>',
+    request("typescript", "typescript developer", "full-stack", 1),
+    { now, lookbackDays: 7 }
+  );
+  assert.equal(zeroCardsWithNext.result_card_count, 0);
+  assert.equal(
+    buildNextSearchRequest(zeroCardsWithNext, plan).page_number,
+    2
+  );
 });
 
 test("multi-page and multi-query discoveries merge into one canonical record", () => {
@@ -185,6 +276,11 @@ test("empty, failed, complete, and capped query coverage are distinguishable", (
   assert.equal(byId.failed.status, "failed");
   assert.equal(byId.capped.status, "partial");
   assert.equal(byId.capped.stop_reason, "page_limit");
+  assert.equal(coverage.pages_requested, 6);
+  assert.equal(
+    coverage.maximum_page_requests,
+    localPlan.queries.length * localPlan.max_pages_per_query
+  );
   assert.equal(coverage.status, "partial");
 });
 
@@ -216,6 +312,13 @@ test("duplicate query configuration and invalid dates fail deterministically", (
   };
   assert.match(validateSearchPlan(duplicatePlan, profile).join("\n"), /duplicate search query id/);
   assert.match(validateSearchPlan(duplicatePlan, profile).join("\n"), /duplicate search query text/);
+  assert.match(
+    validateSearchPlan(
+      { ...plan, pagination_mode: "eager" },
+      profile
+    ).join("\n"),
+    /pagination_mode/
+  );
 
   const invalidDateHtml = `
     <a href="/jobseekers/job/invalid-date-9001">

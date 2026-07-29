@@ -140,14 +140,37 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     nodeByName(scraper, "Schedule Trigger").parameters.rule.interval[0].hoursInterval,
     searchPlan.schedule_hours
   );
-  const searchFetch = nodeByName(scraper, "Fetch Search Page");
-  assert.equal(
-    searchFetch.parameters.options.batching.batch.batchInterval,
-    searchPlan.request_interval_ms
-  );
-  assert.equal(searchFetch.parameters.options.timeout, searchPlan.request_timeout_ms);
-  assert.equal(searchFetch.maxTries, searchPlan.retry.max_attempts);
-  assert.equal(searchFetch.waitBetweenTries, searchPlan.retry.backoff_ms);
+  for (
+    let pageNumber = 1;
+    pageNumber <= searchPlan.max_pages_per_query;
+    pageNumber += 1
+  ) {
+    const suffix = pageNumber === 1 ? "" : ` ${pageNumber}`;
+    const searchFetch = nodeByName(scraper, `Fetch Search Page${suffix}`);
+    assert.equal(
+      searchFetch.parameters.options.batching.batch.batchInterval,
+      searchPlan.request_interval_ms
+    );
+    assert.equal(
+      searchFetch.parameters.options.timeout,
+      searchPlan.request_timeout_ms
+    );
+    assert.equal(searchFetch.maxTries, searchPlan.retry.max_attempts);
+    assert.equal(searchFetch.waitBetweenTries, searchPlan.retry.backoff_ms);
+    if (pageNumber > 1) {
+      const wait = nodeByName(
+        scraper,
+        `Wait Before Search Page ${pageNumber}`
+      );
+      assert.equal(wait.parameters.resume, "timeInterval");
+      assert.equal(
+        wait.parameters.amount * 1000,
+        searchPlan.request_interval_ms
+      );
+      assert.equal(wait.parameters.unit, "seconds");
+    }
+  }
+  assert.equal(scraper.meta.searchPlanVersion, searchPlan.plan_version);
 
   assert.equal(
     nodeByName(generator, "Schedule Trigger").parameters.rule.interval[0].minutesInterval,
@@ -265,7 +288,47 @@ test("discovery export retains bounded resume-driven coverage and active/archive
     loadPlan,
     new RegExp(`const requests = \\[`)
   );
-  assert.match(loadPlan, new RegExp(`"page_number":${searchPlan.max_pages_per_query}`));
+  assert.equal(
+    (loadPlan.match(/"page_number":1/g) || []).length,
+    enabledQueries.length
+  );
+  assert.doesNotMatch(loadPlan, /"page_number":2/);
+  const firstParse = nodeByName(
+    workflow,
+    "Parse Search Page"
+  ).parameters.jsCode;
+  assert.match(firstParse, /buildNextSearchRequest/);
+  assert.match(firstParse, /result_card_count/);
+  for (
+    let pageNumber = 2;
+    pageNumber <= searchPlan.max_pages_per_query;
+    pageNumber += 1
+  ) {
+    const hasPage = `Has Search Page ${pageNumber}`;
+    const wait = `Wait Before Search Page ${pageNumber}`;
+    const fetch = `Fetch Search Page ${pageNumber}`;
+    const parse = `Parse Search Page ${pageNumber}`;
+    const merge = `Merge Search Page ${pageNumber} Results`;
+    nodeByName(workflow, hasPage);
+    nodeByName(workflow, wait);
+    nodeByName(workflow, fetch);
+    const parseNode = nodeByName(workflow, parse);
+    const mergeNode = nodeByName(workflow, merge);
+    assert.equal(mergeNode.parameters.mode, "append");
+    assert.equal(mergeNode.parameters.numberInputs, 2);
+    assert.match(parseNode.parameters.jsCode, /buildNextSearchRequest/);
+    assert.deepEqual(workflow.connections[hasPage].main, [
+      [{ node: wait, type: "main", index: 0 }],
+      [{ node: merge, type: "main", index: 1 }]
+    ]);
+    assertDirectConnection(workflow, wait, fetch);
+    assertDirectConnection(workflow, fetch, parse);
+    assertDirectConnection(workflow, parse, merge);
+  }
+  assert.match(
+    nodeByName(workflow, "Expand Search Page Results").parameters.jsCode,
+    /page_results/
+  );
   assert.ok(nodeByName(workflow, "Get Active Rows").alwaysOutputData);
   assert.ok(nodeByName(workflow, "Get Archive Rows").alwaysOutputData);
   assert.equal(
@@ -277,7 +340,13 @@ test("discovery export retains bounded resume-driven coverage and active/archive
   assertDirectConnection(workflow, "Prepare Discovery Inserts", "Append Discovered Jobs");
   assertDirectConnection(workflow, "Prepare Active Seen Updates", "Update Active Seen");
   assertDirectConnection(workflow, "Prepare Archive Seen Updates", "Update Archive Seen");
-  assert.match(nodeByName(workflow, "Log Discovery Summary").parameters.jsCode, /coverage/);
+  const summary = nodeByName(
+    workflow,
+    "Log Discovery Summary"
+  ).parameters.jsCode;
+  assert.match(summary, /coverage/);
+  assert.match(summary, /pages_requested/);
+  assert.match(summary, /maximum_page_requests/);
 });
 
 test("generator export gates Groq behind evaluation, claim arbitration, and validation", () => {
