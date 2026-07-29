@@ -372,6 +372,11 @@ the next run.
   pack, and makes no Slack request.
 - Re-run the alerter and confirm the same canonical job/policy version does not
   receive a second initial alert.
+- On the copied workbook, retain one prior-policy sent row and one
+  prior-policy retryable row at attempt 2 with a future due time. Confirm the
+  current Generator/Alerter do not requeue the sent row or move the retry
+  earlier, and that the retry terminalizes at attempt 3 if its due provider
+  call fails again.
 - Force a rate limit or provider `5xx` response and verify bounded backoff,
   sanitized error evidence, and preservation of the application pack. Confirm
   a check at one minute is not yet due and appends no retry claim, the scheduled

@@ -33,10 +33,15 @@ Ineligible records are explicit `not_eligible` records. An unsafe queued or
 sending record is terminalized through a state-only alert claim with the stable
 `message_quarantined` reason and no provider request. A queued job that becomes
 unavailable is changed to `suppressed` under an alert claim and is not sent.
-Changing the versioned policy creates a new idempotency scope; it is therefore
-an operator-visible product change, not an invisible configuration edit.
-Policy changes apply to newly committed packs and unsent pending or retryable
-alerts. Records already marked `sent` are not replayed automatically.
+Changing the versioned policy creates a new idempotency scope for newly queued
+work and is therefore an operator-visible product change, not an invisible
+configuration edit. Existing `pending` or `retryable_failure` records are
+revalidated and rendered under the current policy but retain their attempt
+count, due time, and original delivery key until the next actual provider
+result. Existing `sending`, `terminal_failure`, and `sent` states are never
+reopened merely because a policy version changed. This preserves bounded retry
+ownership and prevents a configuration rollout from replaying a confirmed or
+ambiguous delivery.
 
 ## Provider configuration
 

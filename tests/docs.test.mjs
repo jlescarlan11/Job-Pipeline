@@ -335,6 +335,14 @@ test("alert documentation keeps retries behind claim expiry and execution timeou
   assert.match(alertsDoc, /480 to 96 per day/i);
   assert.match(alertsDoc, /140,160\s+scheduled\s+executions/i);
   assert.match(alertsDoc, /capacity for 30\s+alerts/i);
+  assert.match(
+    alertsDoc,
+    /retain their attempt\s+count, due time, and original delivery key/i
+  );
+  assert.match(
+    alertsDoc,
+    /never\s+reopened merely because a policy version changed/i
+  );
   assert.match(alertsDoc, /deployment-stable n8n\s+workflow ID/i);
   assert.match(architecture, /starve\s+the\s+due retry/i);
   assert.match(operations, /appends no retry\s+claim/i);

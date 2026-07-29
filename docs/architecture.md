@@ -249,7 +249,10 @@ application decisions after an explicit in-sheet action.
 
 `canonical_job_id + alert_policy_version` is the idempotency scope. Confirmed
 success stores `sent`, timestamp, attempt count, and any non-sensitive provider
-reference. The workflow is capped at 90 seconds, below its 2-minute claim
+reference. A policy rollout never resets an existing pending/retryable
+attempt budget or due time and never reopens `sending`, `terminal_failure`, or
+`sent`; current eligibility and rendering still fail closed before delivery.
+The workflow is capped at 90 seconds, below its 2-minute claim
 lease. A known transient rejection uses bounded exponential retry beginning at
 2 minutes, never before the prior append-only claim expires. The next
 15-minute poll is also after expiry. This prevents polls from appending a

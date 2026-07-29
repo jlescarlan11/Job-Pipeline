@@ -574,6 +574,67 @@ test("confirmed success persists delivery evidence and suppresses duplicate init
     ).candidates,
     []
   );
+  assert.deepEqual(
+    queueAlertState(sentUnderPreviousPolicy, policy, now),
+    sentUnderPreviousPolicy,
+    "a policy rollout must not requeue a confirmed delivery"
+  );
+});
+
+test("policy rollout preserves pending retry ownership, due time, and attempt budget", () => {
+  const previousPolicy = {
+    ...policy,
+    policy_version: "2026-07-30/v3"
+  };
+  const retryDueAt = "2026-07-28T12:05:00.000Z";
+  const retryable = {
+    ...queueAlertState(ready(), previousPolicy, now),
+    alert_status: "retryable_failure",
+    alert_attempt_count: 2,
+    alert_last_attempt_at: "2026-07-28T12:03:00.000Z",
+    alert_next_retry_at: retryDueAt,
+    alert_error_category: "provider_failure",
+    alert_error_summary: "Provider response was not a confirmed success."
+  };
+
+  assert.deepEqual(
+    queueAlertState(retryable, policy, now),
+    retryable,
+    "policy changes must not make a retry early or replenish attempts"
+  );
+  assert.deepEqual(
+    selectAlertCandidates([retryable], schema, policy, now).candidates,
+    []
+  );
+
+  const due = {
+    ...retryable,
+    alert_next_retry_at: "2026-07-28T11:59:00.000Z"
+  };
+  const selected = selectAlertCandidates(
+    [due],
+    schema,
+    policy,
+    now
+  ).candidates;
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].alert_attempt_count, 2);
+  const exhausted = applyAlertProviderResult(
+    {
+      ...selected[0],
+      processing_token: "rollover-retry",
+      processing_stage: "alert"
+    },
+    {
+      statusCode: 503,
+      body: "unavailable",
+      at: now
+    },
+    policy
+  );
+  assert.equal(exhausted.alert_status, "terminal_failure");
+  assert.equal(exhausted.alert_attempt_count, 3);
+  assert.equal(exhausted.alert_next_retry_at, "");
 });
 
 test("a stale in-flight delivery is terminalized without a blind resend", () => {

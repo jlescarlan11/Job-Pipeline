@@ -245,7 +245,9 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **Delivery state/idempotency:** Canonical identity plus alert-policy version
   scopes one initial alert. Confirmed delivery persists channel/version/time
   and bounded provider reference; known transient rejection retries with
-  bounded backoff. The 90-second workflow timeout is shorter than the
+  bounded backoff. A policy rollout preserves existing retry attempts and due
+  time and cannot reopen a sending, terminal, or sent lifecycle. The 90-second
+  workflow timeout is shorter than the
   2-minute lease, the lease expires before the next 15-minute poll, and retry
   backoff never precedes lease expiry, so polls cannot create a starvation
   chain of losing claims. Six capped sweeps per Generator interval can process

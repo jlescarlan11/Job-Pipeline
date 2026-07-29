@@ -308,10 +308,7 @@ export function queueAlertState(
     messageSafetyContext
   );
   const key = alertIdempotencyKey(record, policy);
-  if (
-    record.alert_status === "sent" &&
-    record.alert_idempotency_key === key
-  ) {
+  if (record.alert_status === "sent") {
     return record;
   }
   if (record.source_availability === "unavailable") {
@@ -339,7 +336,6 @@ export function queueAlertState(
     };
   }
   if (
-    record.alert_idempotency_key === key &&
     ["pending", "sending", "retryable_failure", "terminal_failure"].includes(
       record.alert_status
     )
