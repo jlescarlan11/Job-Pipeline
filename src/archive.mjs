@@ -113,6 +113,17 @@ export function prepareArchiveCandidates(
       retained.push({ record, reason: "retryable_error" });
       continue;
     }
+    if (
+      record.pipeline_status === "terminal_error" &&
+      record.failed_stage === "generation" &&
+      !record.application_decision
+    ) {
+      retained.push({
+        record,
+        reason: "terminal_generation_requires_review"
+      });
+      continue;
+    }
     if (!allowed.has(record.pipeline_status)) continue;
     if (!record.canonical_job_id || !record.canonical_url || !record.row_number) {
       retained.push({ record, reason: "invalid_identity_or_row" });

@@ -126,19 +126,30 @@ fields as hidden workflow helpers. Internal commands, processing tokens,
 source row numbers, and reconciliation metadata are not exposed in the normal
 review experience.
 
-Queue membership is versioned in `config/review-sheet.json` and initially
-matches the existing Priority Queue states: `ready`, `recommended`, and
-`review_required`. Score is current `opportunity_score`, or the established
+Queue membership is versioned in `config/review-sheet.json`. It contains
+`ready`, `recommended`, and `review_required`, plus only
+`retryable_error`/`terminal_error` rows whose `failed_stage` is `generation`.
+Failures from evaluation, discovery, alerts, or archival remain outside this
+simplified surface. Score is current `opportunity_score`, or the established
 legacy `match_score` fallback when opportunity score is missing. Reason for
 review is bounded persisted evidence; `review_required` never renders a blank
-reason. An empty queue retains its headers, validation, formatting, and
+reason. Generation-recovery reasons distinguish a pending/due automatic retry
+from exhausted attempts and include only a sanitized bounded cause. Rejected
+drafts, provider payloads, stack traces, credentials, and raw URLs are not
+projected. An empty queue retains its headers, validation, formatting, and
 protections without placeholder records.
 
 | Friendly Action | Internal action | Source behavior |
 | --- | --- | --- |
-| `Generate Application` | `promote` | Uses the existing valid-state promotion contract. |
-| `I Applied` | `mark_applied` | Revalidates the current safe ready message and records the application snapshot. |
-| `Skip` | `mark_skipped` | Records an explicit skip from an allowed current state. |
+| `Generate Application` | Contextual `promote` or `retry` | Promotes supported review states; resets and schedules the failed generation stage for recovery rows. |
+| `I Applied` | `mark_applied` | Available only outside recovery rows; revalidates the current safe ready message and records the application snapshot. |
+| `Skip` | `mark_skipped` | Records an explicit skip from an allowed review or generation-failure state. |
+
+The generated Apps Script refreshes each Action dropdown when the workbook
+opens and when its Action cell is selected. A generation-recovery row offers
+only `Generate Application` and `Skip`; other queue rows retain the three
+friendly labels. Reviewer validation remains authoritative if a stale or
+forged value bypasses Sheet validation.
 
 The Reviewer resolves each action by hidden canonical identity, checks the
 hidden source guard against a fresh `Sheet1` read, and commits through an

@@ -251,8 +251,13 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Fetch Job Detail",
     "Evaluate Job",
     "Prepare Application Pack",
+    "Is Application Pack Ready",
+    "Persist Non-Ready Pack",
     "AI Agent",
-    "Validate Generated Message",
+    "Validate Initial Draft",
+    "Needs Repair",
+    "Repair AI Agent",
+    "Validate Repaired Message",
     "Commit Generation Result"
   ]) {
     nodeByName(workflow, requiredNode);
@@ -297,9 +302,40 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   const markClaim = nodeByName(workflow, "Mark Claimed Jobs");
   assert.ok(markClaim.parameters.columns.value.processing_commit_guard);
   assert.ok(markClaim.parameters.columns.value.processing_token);
-  assertDirectConnection(workflow, "Prepare Application Pack", "AI Agent");
-  assertDirectConnection(workflow, "AI Agent", "Validate Generated Message");
-  assertDirectConnection(workflow, "Validate Generated Message", "Commit Generation Result");
+  assertDirectConnection(
+    workflow,
+    "Prepare Application Pack",
+    "Is Application Pack Ready"
+  );
+  assertDirectConnection(workflow, "Is Application Pack Ready", "AI Agent");
+  assertDirectConnection(
+    workflow,
+    "Is Application Pack Ready",
+    "Persist Non-Ready Pack"
+  );
+  assertDirectConnection(
+    workflow,
+    "Persist Non-Ready Pack",
+    "Commit Generation Result"
+  );
+  assertDirectConnection(workflow, "AI Agent", "Validate Initial Draft");
+  assertDirectConnection(workflow, "Validate Initial Draft", "Needs Repair");
+  assertDirectConnection(workflow, "Needs Repair", "Repair AI Agent");
+  assertDirectConnection(
+    workflow,
+    "Needs Repair",
+    "Commit Generation Result"
+  );
+  assertDirectConnection(
+    workflow,
+    "Repair AI Agent",
+    "Validate Repaired Message"
+  );
+  assertDirectConnection(
+    workflow,
+    "Validate Repaired Message",
+    "Commit Generation Result"
+  );
   assert.ok(
     workflow.nodes.every((node) => !/Clear (?:Evaluation|Generation) Claim/.test(node.name)),
     "a canonical-id cleanup write could erase a newer processing claim"
@@ -327,11 +363,11 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   );
   const generationRuntime = nodeByName(
     workflow,
-    "Validate Generated Message"
+    "Validate Initial Draft"
   ).parameters.jsCode.slice(
     nodeByName(
       workflow,
-      "Validate Generated Message"
+      "Validate Initial Draft"
     ).parameters.jsCode.lastIndexOf("const PROFILE =")
   );
   assert.match(generationRuntime, /processing_commit_guard:\s*commitGuard/);
@@ -360,10 +396,12 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Prepare Application Pack"
   ).parameters.jsCode;
   assert.match(packCode, /buildApplicationPack/);
+  assert.match(packCode, /validateApplicationPack/);
+  assert.match(packCode, /application_pack_ready/);
   assert.match(packCode, /buildApplicationUserMessage\(record, pack\)/);
   const generationCode = nodeByName(
     workflow,
-    "Validate Generated Message"
+    "Validate Initial Draft"
   ).parameters.jsCode;
   assert.match(
     generationCode,
@@ -379,6 +417,30 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   );
   assert.match(generationCode, /applicationPolicy:\s*POLICY/);
   assert.match(generationCode, /recordStageFailure\(originalRecord/);
+  assert.match(generationCode, /buildApplicationRepairMessage/);
+  assert.match(generationCode, /buildApplicationUserMessage\(record, record\)/);
+  assert.match(generationCode, /should_repair:\s*true/);
+  const repairCode = nodeByName(
+    workflow,
+    "Validate Repaired Message"
+  ).parameters.jsCode;
+  assert.match(repairCode, /validateGeneratedMessage/);
+  assert.match(repairCode, /recordStageFailure\(originalRecord/);
+  assert.match(repairCode, /applyGeneratedApplicationPack/);
+  const nonReadyCode = nodeByName(
+    workflow,
+    "Persist Non-Ready Pack"
+  ).parameters.jsCode;
+  assert.match(nonReadyCode, /applyNonReadyApplicationPack/);
+  assert.doesNotMatch(nonReadyCode, /AI Agent|Groq Chat Model/);
+  assert.equal(
+    workflow.nodes.filter((node) => node.name === "Repair AI Agent").length,
+    1
+  );
+  assert.equal(
+    nodeByName(workflow, "Repair AI Agent").parameters.text,
+    "={{ $json.repair_prompt }}"
+  );
   const generationCommit = nodeByName(
     workflow,
     "Commit Generation Result"

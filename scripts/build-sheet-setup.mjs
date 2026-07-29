@@ -118,6 +118,30 @@ function onOpen() {
     .addItem('Set up or migrate sheets', 'setupJobPipelineSheets')
     .addItem('Sort priority queue', 'sortPriorityQueue')
     .addToUi();
+  const reviewQueue = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(
+    JOB_PIPELINE_SETUP.reviewQueue.sheet
+  );
+  if (reviewQueue) applyReviewQueueActionValidation_(reviewQueue);
+}
+
+function onSelectionChange(event) {
+  const range = event && event.range;
+  if (!range) return;
+  const sheet = range.getSheet();
+  if (
+    sheet.getName() !== JOB_PIPELINE_SETUP.reviewQueue.sheet ||
+    range.getRow() < 2
+  ) return;
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const actionColumn = headers.indexOf('Action') + 1;
+  if (
+    actionColumn <= 0 ||
+    range.getColumn() > actionColumn ||
+    range.getLastColumn() < actionColumn
+  ) return;
+  applyReviewQueueActionValidation_(sheet, range.getRow());
 }
 
 function setupJobPipelineSheets() {
@@ -1241,14 +1265,7 @@ function applyReviewQueueLayout_(sheet) {
   const dataRows = Math.max(sheet.getMaxRows() - 1, 1);
   const actionColumn = headers.indexOf('Action') + 1;
   if (actionColumn > 0) {
-    const validation = SpreadsheetApp.newDataValidation()
-      .requireValueInList([''].concat(Object.keys(queue.actions)), true)
-      .setAllowInvalid(false)
-      .setHelpText(
-        'Choose Generate Application, I Applied, or Skip. The Reviewer revalidates Sheet1 before applying the action.'
-      )
-      .build();
-    sheet.getRange(2, actionColumn, dataRows, 1).setDataValidation(validation);
+    applyReviewQueueActionValidation_(sheet);
     sheet.setColumnWidth(actionColumn, 190);
   }
 
@@ -1258,7 +1275,9 @@ function applyReviewQueueLayout_(sheet) {
     const rules = [
       conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="ready"', '#d9ead3'),
       conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="recommended"', '#cfe2f3'),
-      conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="review_required"', '#fff2cc')
+      conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="review_required"', '#fff2cc'),
+      conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="retryable_error"', '#fce5cd'),
+      conditionalRule_(range, '=$' + columnLetter_(statusColumn) + '2="terminal_error"', '#f4cccc')
     ];
     const unrelatedRules = sheet.getConditionalFormatRules().filter((rule) =>
       rule.getRanges().every(
@@ -1313,6 +1332,48 @@ function applyReviewQueueLayout_(sheet) {
       .setDescription('Job Pipeline Review Queue generated field: ' + header);
     protection.setWarningOnly(true);
   });
+}
+
+function applyReviewQueueActionValidation_(sheet, selectedRow) {
+  const queue = JOB_PIPELINE_SETUP.reviewQueue;
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const actionColumn = headers.indexOf('Action') + 1;
+  const statusColumn = headers.indexOf('Status') + 1;
+  if (actionColumn <= 0 || statusColumn <= 0) return;
+  const firstRow = Math.max(Number(selectedRow) || 2, 2);
+  const rowCount = selectedRow
+    ? 1
+    : Math.max(sheet.getMaxRows() - 1, 1);
+  const statuses = sheet
+    .getRange(firstRow, statusColumn, rowCount, 1)
+    .getDisplayValues();
+  const recoveryStatuses = new Set(
+    queue.generation_recovery.statuses
+  );
+  const recoveryValidation = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['', 'Generate Application', 'Skip'], true)
+    .setAllowInvalid(false)
+    .setHelpText(
+      'Retry generation or skip this job. I Applied is unavailable until a validated message is ready.'
+    )
+    .build();
+  const defaultValidation = SpreadsheetApp.newDataValidation()
+    .requireValueInList([''].concat(Object.keys(queue.actions)), true)
+    .setAllowInvalid(false)
+    .setHelpText(
+      'Choose Generate Application, I Applied, or Skip. The Reviewer revalidates Sheet1 before applying the action.'
+    )
+    .build();
+  const validations = statuses.map((values) => [
+    recoveryStatuses.has(String(values[0] || '').trim())
+      ? recoveryValidation
+      : defaultValidation
+  ]);
+  sheet
+    .getRange(firstRow, actionColumn, rowCount, 1)
+    .setDataValidations(validations);
 }
 
 function formatInternalSheet_(sheet) {

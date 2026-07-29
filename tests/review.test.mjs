@@ -116,6 +116,10 @@ test("review configuration exposes required information and controlled actions",
     "I Applied": "mark_applied",
     Skip: "mark_skipped"
   });
+  assert.deepEqual(view.review_queue.generation_recovery, {
+    statuses: ["retryable_error", "terminal_error"],
+    failed_stage: "generation"
+  });
   for (const field of [
     "job_title",
     "company",
@@ -744,6 +748,110 @@ test("simplified queue projects exact review fields, reasons, eligibility, and l
   );
 });
 
+test("generation failures stay visible with bounded friendly recovery context", () => {
+  const retryable = job({
+    source_job_id: "6127",
+    canonical_job_id: "onlinejobs.ph:6127",
+    company: "Example Co",
+    pipeline_status: "retryable_error",
+    failed_stage: "generation",
+    attempt_count: 2,
+    next_retry_at: "2026-07-28T10:05:00.000Z",
+    error_category: "processing_failure",
+    error_summary:
+      "message_validation: message exceeds 300 words; unsupported skill: Expo; token=private",
+    generated_message: "Rejected draft must not be projected"
+  });
+  const terminal = job({
+    source_job_id: "6128",
+    canonical_job_id: "onlinejobs.ph:6128",
+    pipeline_status: "terminal_error",
+    failed_stage: "generation",
+    attempt_count: 3,
+    next_retry_at: "",
+    error_category: "timeout",
+    error_summary:
+      "=HYPERLINK(\"https://example.invalid/private/provider-log\", \"provider timeout\")",
+    generated_message: ""
+  });
+  const unrelatedTerminal = job({
+    source_job_id: "6129",
+    canonical_job_id: "onlinejobs.ph:6129",
+    pipeline_status: "terminal_error",
+    failed_stage: "evaluation",
+    error_summary: "Evaluation failed"
+  });
+
+  const projection = buildReviewQueueProjection(
+    [retryable, terminal, unrelatedTerminal],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(
+    projection.rows.map((row) => row.canonical_job_id),
+    ["onlinejobs.ph:6127", "onlinejobs.ph:6128"]
+  );
+  const retryableRow = projection.rows[0];
+  assert.equal(retryableRow.Status, "retryable_error");
+  assert.equal(retryableRow["Job title"], retryable.job_title);
+  assert.equal(retryableRow.Company, "Example Co");
+  assert.equal(retryableRow.Score, retryable.opportunity_score);
+  assert.equal(retryableRow["Job link"], retryable.canonical_url);
+  assert.equal(retryableRow["Generated message"], "");
+  assert.match(
+    retryableRow["Reason for review"],
+    /Automatic retry is pending/
+  );
+  assert.match(
+    retryableRow["Reason for review"],
+    /message exceeds 300 words; unsupported skill: Expo/
+  );
+  assert.doesNotMatch(retryableRow["Reason for review"], /private/);
+
+  const terminalRow = projection.rows[1];
+  assert.match(
+    terminalRow["Reason for review"],
+    /attempts are exhausted after 3 attempts/
+  );
+  assert.match(
+    terminalRow["Reason for review"],
+    /Generate Application to retry or Skip/
+  );
+  assert.doesNotMatch(
+    terminalRow["Reason for review"],
+    /example\.invalid|private\/provider-log/
+  );
+  assert.ok(
+    terminalRow["Reason for review"].length <=
+      view.review_queue.reason_maximum_length
+  );
+  assert.equal(projection.invalid_records.length, 0);
+
+  const due = reasonForReview(
+    { ...retryable, next_retry_at: "2026-07-28T09:55:00.000Z" },
+    view,
+    now
+  );
+  assert.match(due, /Automatic retry is due/);
+
+  const packNotReady = reasonForReview(
+    {
+      ...terminal,
+      error_category: "processing_failure",
+      error_summary:
+        "Invalid application pack: application_pack_status must be ready"
+    },
+    view,
+    now
+  );
+  assert.match(
+    packNotReady,
+    /application pack needs attention before generation/
+  );
+  assert.doesNotMatch(packNotReady, /application_pack_status/);
+});
+
 test("simplified queue excludes ambiguous source identities instead of projecting duplicates", () => {
   const duplicate = job({
     source_job_id: "6131",
@@ -823,6 +931,164 @@ test("friendly queue actions reuse guarded manual transitions by canonical ident
     assert.equal(processed.processed_queue_actions.length, 1);
     assert.deepEqual(processed.invalid_actions, []);
   }
+});
+
+test("recovery actions retry or skip generation failures while apply fails closed", () => {
+  for (const initialStatus of ["retryable_error", "terminal_error"]) {
+    const source = job({
+      row_number: initialStatus === "retryable_error" ? 51 : 52,
+      source_job_id: `recovery-${initialStatus}`,
+      canonical_job_id: `onlinejobs.ph:recovery-${initialStatus}`,
+      pipeline_status: initialStatus,
+      failed_stage: "generation",
+      attempt_count: 3,
+      next_retry_at: "",
+      error_category: "processing_failure",
+      error_summary: "message_validation: unsupported skill: Expo",
+      generated_message: ""
+    });
+    source.state_guard = stateGuard(source);
+    const retried = processReviewActions(
+      [source],
+      [],
+      schema,
+      now,
+      {
+        executionId: `recovery-${initialStatus}`,
+        reviewConfig: view,
+        queueRows: [
+          {
+            row_number: 8,
+            Action: "Generate Application",
+            canonical_job_id: source.canonical_job_id,
+            source_state_guard: source.state_guard
+          }
+        ]
+      }
+    );
+    assert.deepEqual(retried.invalid_actions, []);
+    assert.equal(retried.active_updates.length, 1);
+    assert.equal(
+      retried.active_updates[0].pipeline_status,
+      "retryable_error"
+    );
+    assert.equal(retried.active_updates[0].attempt_count, 0);
+    assert.equal(retried.active_updates[0].next_retry_at, now);
+    assert.equal(retried.active_updates[0].failed_stage, "generation");
+    assert.equal(
+      retried.processed_queue_actions[0].manual_action,
+      "retry"
+    );
+  }
+
+  const failure = job({
+    source_job_id: "recovery-skip",
+    canonical_job_id: "onlinejobs.ph:recovery-skip",
+    pipeline_status: "terminal_error",
+    failed_stage: "generation",
+    attempt_count: 3,
+    generated_message: ""
+  });
+  failure.state_guard = stateGuard(failure);
+  const skipped = processReviewActions(
+    [failure],
+    [],
+    schema,
+    now,
+    {
+      executionId: "recovery-skip",
+      reviewConfig: view,
+      queueRows: [
+        {
+          row_number: 9,
+          Action: "Skip",
+          canonical_job_id: failure.canonical_job_id,
+          source_state_guard: failure.state_guard
+        }
+      ]
+    }
+  );
+  assert.deepEqual(skipped.invalid_actions, []);
+  assert.equal(skipped.active_updates[0].pipeline_status, "skipped");
+  assert.equal(
+    skipped.active_updates[0].application_decision,
+    "skipped"
+  );
+  const firstDecisionAt =
+    skipped.active_updates[0].application_decided_at;
+  const replay = applyManualAction(
+    {
+      ...skipped.active_updates[0],
+      manual_action: "mark_skipped"
+    },
+    schema,
+    "2026-07-28T11:00:00.000Z"
+  );
+  assert.equal(replay.valid, true);
+  assert.equal(replay.record.application_decided_at, firstDecisionAt);
+
+  const forgedApply = processReviewActions(
+    [failure],
+    [],
+    schema,
+    now,
+    {
+      executionId: "recovery-forged-apply",
+      reviewConfig: view,
+      queueRows: [
+        {
+          row_number: 10,
+          Action: "I Applied",
+          canonical_job_id: failure.canonical_job_id,
+          source_state_guard: failure.state_guard
+        }
+      ]
+    }
+  );
+  assert.deepEqual(forgedApply.active_updates, []);
+  assert.equal(forgedApply.invalid_actions.length, 1);
+  assert.match(
+    forgedApply.invalid_actions[0].error,
+    /unavailable until a current validated message is ready/
+  );
+  assert.equal(failure.application_decision, "");
+
+  const directForgedApply = applyManualAction(
+    { ...failure, manual_action: "mark_applied" },
+    schema,
+    now
+  );
+  assert.equal(directForgedApply.valid, false);
+  assert.equal(directForgedApply.record.pipeline_status, "terminal_error");
+  assert.equal(directForgedApply.record.application_decision, "");
+});
+
+test("a successful retry returns the same canonical job as ready with its validated message", () => {
+  const recovered = job({
+    source_job_id: "recovery-ready",
+    canonical_job_id: "onlinejobs.ph:recovery-ready",
+    pipeline_status: "ready",
+    failed_stage: "",
+    error_category: "",
+    error_summary: "",
+    generated_message: "Validated repaired message"
+  });
+  const projection = buildReviewQueueProjection(
+    [recovered],
+    schema,
+    view,
+    now
+  );
+  assert.equal(projection.rows.length, 1);
+  assert.equal(
+    projection.rows[0].canonical_job_id,
+    recovered.canonical_job_id
+  );
+  assert.equal(projection.rows[0].Status, "ready");
+  assert.equal(
+    projection.rows[0]["Generated message"],
+    "Validated repaired message"
+  );
 });
 
 test("duplicate, stale, missing, and conflicting queue actions fail closed", () => {

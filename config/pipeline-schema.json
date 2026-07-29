@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "storage_version": "2026-07-28-claim-finalization",
+  "storage_version": "2026-07-29-generation-recovery",
   "canonical_identity": {
     "source": "onlinejobs.ph",
     "preferred": "source_job_id",
@@ -357,6 +357,7 @@
     ],
     "generating": [
       "ready",
+      "review_required",
       "retryable_error",
       "terminal_error"
     ],
@@ -368,10 +369,12 @@
     "retryable_error": [
       "evaluating",
       "generating",
+      "skipped",
       "terminal_error"
     ],
     "terminal_error": [
-      "archived"
+      "archived",
+      "skipped"
     ],
     "unavailable": [
       "evaluating",

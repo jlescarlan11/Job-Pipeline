@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "profile_version": "2026-07-28",
+  "profile_version": "2026-07-29",
   "candidate": {
     "name": "John Lester Escarlan",
     "location": "Cebu City, Philippines",
@@ -74,7 +74,7 @@
       "organization": "Pharmacy & Acute Care University",
       "location": "Remote",
       "start": "2026-02",
-      "end": "present",
+      "end": "2026-08",
       "highlights": [
         "Build and maintain full-stack features for an online learning platform, including admin workflows, personalized study programs, eBook and reader access, review reminders, and subscription-based access.",
         "Diagnose production issues involving React and TypeScript interfaces, Node.js APIs, PostgreSQL schemas and migrations, content assets, and entitlement rules; implement targeted fixes that restore blocked learner and administrator workflows.",

@@ -11,6 +11,8 @@ const OBSOLETE_PROFILE_TERMS = [
 ];
 
 const PROFILE_VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const UNRESOLVED_PLACEHOLDER_PATTERN =
+  /\[(?:add|insert|month|year|tbd|todo|unknown|not provided)\b[^\]]*\]/i;
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -100,6 +102,12 @@ export function validateCandidateProfile(profile) {
   for (const project of profile.projects ?? []) {
     if (!project.id || !project.name) errors.push("every project requires id and name");
     if (project.url) validateHttpsUrl(project.url, `projects.${project.id || "unknown"}.url`, errors);
+    const technologyDuplicates = findDuplicates(project.technologies ?? []);
+    if (technologyDuplicates.length > 0) {
+      errors.push(
+        `duplicate project technologies for ${project.id || "unknown"}: ${technologyDuplicates.join(", ")}`
+      );
+    }
   }
 
   const projectIdDuplicates = findDuplicates((profile.projects ?? []).map((project) => project.id));
@@ -116,7 +124,7 @@ export function validateCandidateProfile(profile) {
       errors.push(`obsolete or unsupported profile term: ${obsolete}`);
     }
   }
-  if (/\[add measurable result/i.test(profileText)) {
+  if (UNRESOLVED_PLACEHOLDER_PATTERN.test(profileText)) {
     errors.push("resume placeholders are not allowed");
   }
 

@@ -41,6 +41,7 @@ function safeReviewText(value, maximum = 500) {
       /(api[_-]?key|token|authorization|password|secret)\s*[:=]\s*\S+/gi,
       "$1=[redacted]"
     )
+    .replace(/https?:\/\/\S+/gi, "[url]")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maximum);
@@ -106,6 +107,22 @@ export function validateReviewQueueConfig(reviewConfig, schema) {
   ) {
     errors.push("review_queue.statuses must be unique supported statuses");
   }
+  const recovery = queue.generation_recovery;
+  if (
+    !recovery ||
+    !Array.isArray(recovery.statuses) ||
+    recovery.statuses.length === 0 ||
+    recovery.statuses.some(
+      (status, index, all) =>
+        !["retryable_error", "terminal_error"].includes(status) ||
+        all.indexOf(status) !== index
+    ) ||
+    recovery.failed_stage !== "generation"
+  ) {
+    errors.push(
+      "review_queue.generation_recovery must define unique error statuses for generation"
+    );
+  }
   for (const command of Object.values(queue.actions || {})) {
     if (!schema?.manual_actions?.includes(command)) {
       errors.push(`review_queue action is unsupported: ${command}`);
@@ -119,6 +136,47 @@ export function validateReviewQueueConfig(reviewConfig, schema) {
     errors.push("review_queue.reason_maximum_length must be from 1 to 2000");
   }
   return errors;
+}
+
+function isGenerationRecovery(record, reviewConfig) {
+  const recovery =
+    reviewQueueConfiguration(reviewConfig).generation_recovery || {};
+  return (
+    recovery.failed_stage === "generation" &&
+    record.failed_stage === recovery.failed_stage &&
+    (recovery.statuses || []).includes(record.pipeline_status)
+  );
+}
+
+function generationFailureCause(record) {
+  const rawSummary = String(record.error_summary || "");
+  const isPackNotReadySummary =
+    /application(?:_| )pack.*(?:not ready|must be ready|application_pack_status)/i.test(
+      rawSummary
+    );
+  const isValidationSummary =
+    /^(?:message_validation|validation):/i.test(rawSummary);
+  const summary = isValidationSummary
+    ? safeReviewText(rawSummary, 180)
+        .replace(/^message_validation:\s*/i, "")
+        .replace(/^validation:\s*/i, "")
+    : "";
+  const categories = {
+    timeout: "The message provider timed out.",
+    rate_limit: "The message provider is temporarily rate limited.",
+    external_failure: "The message provider is temporarily unavailable.",
+    invalid_request: "The message provider rejected the request.",
+    application_pack_not_ready:
+      "The application pack needs attention before generation.",
+    processing_failure: "The generated message did not pass validation."
+  };
+  const categoryKey = isPackNotReadySummary
+    ? "application_pack_not_ready"
+    : String(record.error_category || "").trim();
+  const category =
+    categories[categoryKey] ||
+    "Application-message generation failed.";
+  return summary ? `${category} ${summary}` : category;
 }
 
 function reviewEvidenceText(value) {
@@ -151,7 +209,11 @@ function reviewEvidenceList(values, maximumItems = 3) {
     .join("; ");
 }
 
-export function reasonForReview(record, reviewConfig) {
+export function reasonForReview(
+  record,
+  reviewConfig,
+  now = new Date().toISOString()
+) {
   const queue = reviewQueueConfiguration(reviewConfig);
   const maximum = queue.reason_maximum_length || 500;
   const parts = [];
@@ -160,6 +222,32 @@ export function reasonForReview(record, reviewConfig) {
   const gaps = reviewEvidenceList(record.requirement_gaps);
   const matchReasons = reviewEvidenceList(record.match_reasons);
   const error = safeReviewText(record.error_summary, 180);
+
+  if (isGenerationRecovery(record, reviewConfig)) {
+    const attempts = Math.max(Number(record.attempt_count || 0), 0);
+    const cause = generationFailureCause(record);
+    if (record.pipeline_status === "retryable_error") {
+      const retryAt = Date.parse(record.next_retry_at || "");
+      const nowMs = Date.parse(now);
+      const timing =
+        Number.isFinite(retryAt) &&
+        Number.isFinite(nowMs) &&
+        retryAt <= nowMs
+          ? "Automatic retry is due."
+          : "Automatic retry is pending.";
+      return safeReviewText(
+        `Generation attempt ${attempts || 1} needs another try. ${timing} ${cause}`,
+        maximum
+      );
+    }
+    const displayAttempts = attempts || 1;
+    return safeReviewText(
+      `Automatic generation attempts are exhausted after ${displayAttempts} attempt${
+        displayAttempts === 1 ? "" : "s"
+      }. Choose Generate Application to retry or Skip. ${cause}`,
+      maximum
+    );
+  }
 
   if (warnings) parts.push(`Warnings: ${warnings}`);
   if (gapDetails || gaps) {
@@ -180,15 +268,18 @@ export function reasonForReview(record, reviewConfig) {
   return safeReviewText(parts.join(" | "), maximum);
 }
 
-function reviewQueueRow(record, reviewConfig) {
+function reviewQueueRow(record, reviewConfig, now) {
   const priority = rankingPriorityValue(record);
+  const recovery = isGenerationRecovery(record, reviewConfig);
   return {
     Status: record.pipeline_status,
     "Job title": formulaSafeReviewCell(record.job_title),
     Company: formulaSafeReviewCell(record.company),
     Score: priority.source === "missing" ? "" : priority.value,
-    "Reason for review": reasonForReview(record, reviewConfig),
-    "Generated message": formulaSafeReviewCell(record.generated_message),
+    "Reason for review": reasonForReview(record, reviewConfig, now),
+    "Generated message": recovery
+      ? ""
+      : formulaSafeReviewCell(record.generated_message),
     "Job link": formulaSafeReviewCell(record.canonical_url),
     Action: "",
     canonical_job_id: record.canonical_job_id,
@@ -209,7 +300,11 @@ export function buildReviewQueueProjection(
   const queue = reviewQueueConfiguration(reviewConfig);
   const records = rows
     .map((row) => normalizeLegacyRecord(row, schema, now))
-    .filter((record) => queue.statuses.includes(record.pipeline_status));
+    .filter(
+      (record) =>
+        queue.statuses.includes(record.pipeline_status) ||
+        isGenerationRecovery(record, reviewConfig)
+    );
   const identityCounts = new Map();
   for (const record of records) {
     const identity = String(record.canonical_job_id || "").trim();
@@ -242,7 +337,9 @@ export function buildReviewQueueProjection(
     return compareRankingPriority(left, right);
   });
   return {
-    rows: valid.map((record) => reviewQueueRow(record, reviewConfig)),
+    rows: valid.map((record) =>
+      reviewQueueRow(record, reviewConfig, now)
+    ),
     invalid_records: invalidRecords
   };
 }
@@ -524,7 +621,20 @@ export function applyManualAction(
         record
       );
     }
-    if (!["ready", "recommended", "review_required", "unscorable"].includes(record.pipeline_status)) {
+    const isGenerationFailure =
+      record.failed_stage === "generation" &&
+      ["retryable_error", "terminal_error"].includes(
+        record.pipeline_status
+      );
+    if (
+      ![
+        "ready",
+        "recommended",
+        "review_required",
+        "unscorable"
+      ].includes(record.pipeline_status) &&
+      !isGenerationFailure
+    ) {
       return { changed: false, valid: false, record, error: `mark_skipped is invalid from ${record.pipeline_status}` };
     }
     return changed({
@@ -693,6 +803,7 @@ export function processReviewActions(
       raw,
       canonical_job_id: canonicalJobId,
       source_state_guard: String(raw.source_state_guard || "").trim(),
+      label,
       command
     });
     queueActionsById.set(canonicalJobId, entries);
@@ -751,12 +862,47 @@ export function processReviewActions(
     let queueAction = "";
     if (queueEntries.length > 0) {
       consumedQueueIdentities.add(identity);
-      const commands = new Set(queueEntries.map((entry) => entry.command));
-      const guards = new Set(
-        queueEntries.map((entry) => entry.source_state_guard)
+      const contextualEntries = queueEntries.map((entry) => {
+        if (!isGenerationRecovery(record, queueContext.reviewConfig)) {
+          return entry;
+        }
+        if (entry.label === "Generate Application") {
+          return { ...entry, command: "retry" };
+        }
+        if (entry.label === "Skip") {
+          return { ...entry, command: "mark_skipped" };
+        }
+        return { ...entry, command: "" };
+      });
+      const invalidContextualEntries = contextualEntries.filter(
+        (entry) => !entry.command
       );
-      if (commands.size !== 1 || guards.size !== 1) {
-        for (const entry of queueEntries) {
+      for (const entry of invalidContextualEntries) {
+        invalidAction({
+          location: "review_queue",
+          raw: entry.raw,
+          canonicalJobId: identity,
+          error:
+            "I Applied is unavailable until a current validated message is ready"
+        });
+      }
+      const actionableEntries = contextualEntries.filter(
+        (entry) => entry.command
+      );
+      const commands = new Set(
+        actionableEntries.map((entry) => entry.command)
+      );
+      const guards = new Set(
+        actionableEntries.map((entry) => entry.source_state_guard)
+      );
+      if (actionableEntries.length === 0) {
+        queueAction = "";
+      } else if (
+        actionableEntries.length !== queueEntries.length ||
+        commands.size !== 1 ||
+        guards.size !== 1
+      ) {
+        for (const entry of actionableEntries) {
           invalidAction({
             location: "review_queue",
             raw: entry.raw,

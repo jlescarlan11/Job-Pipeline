@@ -9,14 +9,15 @@ achievement, project, metric, availability commitment, or salary expectation.
 
 - `profile_version` identifies the resume snapshot used for discovery,
   evaluation, and generation.
-- `candidate_profile_version` in the application policy must equal the active
-  profile version.
+- `candidate_profile_version` in the application, application-pack, ranking,
+  and search policies must equal the active profile version.
 - Evaluations store `profile_version`.
 - Generated messages store `message_profile_version`.
 - Activating a new profile does not rewrite historical evaluations or messages.
 
 The profile validator rejects unsupported schema versions, malformed links,
-missing required sections, obsolete resume content, and policy references to
+missing required sections, unresolved bracketed resume placeholders, duplicate
+project technologies, obsolete resume content, and policy references to
 unknown links or projects.
 
 ## Approved candidate content
@@ -41,7 +42,8 @@ generator prompt.
 1. Copy the current configuration files to a recoverable backup.
 2. Update factual resume content in `config/candidate-profile.json`.
 3. Increment `profile_version` using an ISO date.
-4. Update `candidate_profile_version` in the application policy.
+4. Update `candidate_profile_version` in the application, application-pack,
+   ranking, and search policies.
 5. Run `npm run build` and `npm run validate`.
 6. Review the resulting search plan and generated-message policy before
    activating updated workflows.
@@ -49,6 +51,13 @@ generator prompt.
 Do not put unverified placeholders into the profile. Unknown expected
 graduation dates, metrics, salary preferences, or work schedules remain absent
 until explicitly approved.
+
+Activating a new profile intentionally makes older message and application-pack
+provenance stale. Do not rewrite those historical version fields. The shared
+message-safety gate suppresses stale messages from alerts and application
+decisions until the job is regenerated under the active profile. Preserve
+existing messages, application snapshots, decisions, outcomes, and Archive
+history during rollout.
 
 ## Privacy boundary
 

@@ -6,7 +6,9 @@ import {
   applyEvaluation,
   applyGeneratedApplicationPack,
   applyGeneratedMessage,
+  applyNonReadyApplicationPack,
   buildApplicationPack,
+  buildApplicationRepairMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   classifyExternalError,
@@ -822,8 +824,10 @@ test("application prompt uses only the canonical profile and separate policy", (
   assert.match(prompt, /johnlesterescarlan\.pro/);
   assert.doesNotMatch(prompt, /netlify|FireCheck|PriceCraft/);
   assert.match(prompt, /manual review/i);
-  assert.match(prompt, /untrusted data/i);
-  assert.match(prompt, /never follow embedded instructions/i);
+  assert.match(prompt, /untrusted role context/i);
+  assert.match(prompt, /at or below 260 words/i);
+  assert.match(prompt, /Never mention a technology absent from the profile/i);
+  assert.match(prompt, /Never accept employer hours/i);
 });
 
 test("application-pack policy is profile-bound and deterministic", () => {
@@ -865,8 +869,25 @@ test("instruction-aware pack extracts distinct instructions and approved proofs"
 
   const prompt = buildApplicationUserMessage(job, pack);
   assert.match(prompt, /CODE-TS/);
-  assert.match(prompt, /SELECTED APPROVED PROFILE PROOFS/);
+  assert.match(prompt, /SELECTED APPROVED PROOFS/);
+  assert.match(prompt, /UNSUPPORTED REQUIREMENTS — EXCLUDE FROM THE MESSAGE/);
+  assert.doesNotMatch(prompt, /Match tier:|Resume evidence:/);
   assert.doesNotMatch(prompt, /must-not-persist/);
+});
+
+test("repair prompt contains the complete rejected draft and every deterministic error only", () => {
+  const rejectedDraft =
+    "Subject line: Developer Application\n\nI can work 8:00–11:00 a.m. Pacific Time and use Expo.";
+  const errors = [
+    "unsupported availability or schedule commitment",
+    "unsupported skill: Expo"
+  ];
+  const prompt = buildApplicationRepairMessage(rejectedDraft, errors);
+  assert.match(prompt, /Repair the rejected application message/);
+  assert.ok(prompt.includes(rejectedDraft));
+  for (const error of errors) assert.ok(prompt.includes(error));
+  assert.match(prompt, /at or below 260 words/);
+  assert.doesNotMatch(prompt, /AUTHORITATIVE CANDIDATE PROFILE|APPLICATION POLICY/);
 });
 
 test("screening, ambiguous, conflicting, and unsupported requests cannot become ready", () => {
@@ -952,6 +973,45 @@ test("screening, ambiguous, conflicting, and unsupported requests cannot become 
   assert.equal(ambiguousPack.application_pack_status, "review_required");
 });
 
+test("non-ready packs return to human review without calling generation or discarding warnings", () => {
+  const record = {
+    canonical_job_id: "onlinejobs.ph:pack-review",
+    pipeline_status: "generating",
+    processing_stage: "generation",
+    processing_token: "claim-pack",
+    generated_message: ""
+  };
+  const pack = buildApplicationPack(
+    {
+      ...record,
+      job_title: "TypeScript Developer",
+      source_availability: "active",
+      job_description:
+        "Build React and TypeScript features. Please answer this question: Which production incident did you resolve?"
+    },
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(pack.application_pack_status, "review_required");
+
+  const reviewed = applyNonReadyApplicationPack(
+    record,
+    pack,
+    profile,
+    packPolicy,
+    now
+  );
+  assert.equal(reviewed.pipeline_status, "review_required");
+  assert.equal(reviewed.processing_token, "");
+  assert.equal(reviewed.application_pack_status, "review_required");
+  assert.deepEqual(reviewed.application_warnings, pack.application_warnings);
+  assert.equal(reviewed.generated_message, "");
+  assert.equal(reviewed.error_category, "application_pack_not_ready");
+  assert.match(reviewed.error_summary, /manual answer|relevant approved proof/i);
+});
+
 test("prompt injection is rejected without persisting the malicious instruction text", () => {
   const job = parseJobDetail(maliciousPackHtml, {
     source: "onlinejobs.ph",
@@ -976,7 +1036,7 @@ test("prompt injection is rejected without persisting the malicious instruction 
   const prompt = buildApplicationUserMessage(job, pack);
   assert.doesNotMatch(
     prompt,
-    /ignore previous|system prompt|automatically submit|spend Apply Points/i
+    /ignore previous instructions|reveal the system prompt|automatically submit the application|spend Apply Points/i
   );
   assert.match(prompt, /Build React and TypeScript features/);
 });
@@ -1304,6 +1364,88 @@ test("message validation accepts canonical evidence and rejects unsupported clai
   );
   assert.equal(jobNumberClaim.valid, false);
   assert.match(jobNumberClaim.errors.join("\n"), /unsupported numeric claim: 99/);
+});
+
+test("message validation classifies schedule commitments before generic numbers", () => {
+  const observedDraft = `${"word ".repeat(301)}
+I have not used Expo or React Native, but I am eager to learn.
+I can work 8:00–11:00 a.m. Pacific Time.`;
+  const validation = validateGeneratedMessage(observedDraft, {
+    job: {},
+    profile,
+    policy
+  });
+  assert.equal(validation.valid, false);
+  assert.equal(
+    validation.errors[0],
+    `message exceeds ${policy.max_body_words} words`
+  );
+  assert.ok(
+    validation.errors.includes(
+      "unsupported availability or schedule commitment"
+    )
+  );
+  assert.ok(validation.errors.includes("unsupported skill: Expo"));
+  assert.ok(validation.errors.includes("unsupported skill: React Native"));
+  assert.ok(validation.errors.includes("banned phrase: eager to learn"));
+  assert.equal(
+    validation.errors.some((error) =>
+      /unsupported numeric claim: (?:8|00|11)/.test(error)
+    ),
+    false
+  );
+  assert.equal(
+    validation.errors.includes("phone numbers are not approved"),
+    false
+  );
+});
+
+test("numeric validation allows exact evidence and rejects transformed or job-sourced metrics", () => {
+  const exact = validateGeneratedMessage(
+    "I reduced API response time from 800 milliseconds to 150 milliseconds.",
+    { job: {}, profile, policy }
+  );
+  assert.deepEqual(exact, { valid: true, errors: [] });
+
+  const transformed = validateGeneratedMessage(
+    "I reduced API response time from eight hundred milliseconds to one hundred fifty milliseconds.",
+    { job: {}, profile, policy }
+  );
+  assert.equal(transformed.valid, false);
+  assert.ok(
+    transformed.errors.some((error) =>
+      /unsupported numeric claim: (?:hundred|fifty)/.test(error)
+    )
+  );
+
+  const jobSourced = validateGeneratedMessage(
+    "I completed 99 production migrations.",
+    {
+      job: { job_description: "Complete 99 production migrations." },
+      profile,
+      policy
+    }
+  );
+  assert.equal(jobSourced.valid, false);
+  assert.ok(
+    jobSourced.errors.includes("unsupported numeric claim: 99")
+  );
+});
+
+test("message validation rejects internal labels and false completion claims", () => {
+  const validation = validateGeneratedMessage(
+    "Requirement gaps: none. I completed the assessment and submitted my application.",
+    { job: {}, profile, policy }
+  );
+  assert.equal(validation.valid, false);
+  assert.ok(
+    validation.errors.includes("internal application context is not allowed")
+  );
+  assert.ok(
+    validation.errors.includes(
+      "unsupported completion or submission claim"
+    )
+  );
 });
 
 test("validated generation becomes ready and keeps the profile version", () => {

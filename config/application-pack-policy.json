@@ -2,7 +2,7 @@
   "schema_version": 1,
   "policy_version": "2026-07-28/v1",
   "pack_version": "2026-07-28/v1",
-  "candidate_profile_version": "2026-07-28",
+  "candidate_profile_version": "2026-07-29",
   "application_policy_version": "2026-07-28",
   "minimum_preferred_proofs": 2,
   "maximum_proofs": 3,
