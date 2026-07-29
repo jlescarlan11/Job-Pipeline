@@ -960,6 +960,8 @@ test("alerter export claims, validates, sends, and commits without state-changin
     "Finalize Alert Delivery"
   ).parameters.jsCode;
   assert.match(finalize, /applyAlertProviderResult/);
+  assert.match(finalize, /alertProviderErrorMessage\(payload\)/);
+  assert.match(finalize, /error:\s*payload\.error/);
   const finalizeRuntime = finalize.slice(finalize.lastIndexOf("const POLICY ="));
   assert.match(finalizeRuntime, /processing_commit_guard:\s*commitGuard/);
   assert.match(finalizeRuntime, /payload\.error\?\.status/);

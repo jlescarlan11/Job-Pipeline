@@ -771,7 +771,7 @@ test("transient provider failures retry with bounded backoff and preserve the pa
 
 test("ambiguous timeout and missing configuration fail visibly without blind retry", () => {
   const timeout = classifyAlertProviderResult(
-    { message: "request timed out", at: now },
+    { error: "request timed out", at: now },
     policy,
     now
   );
@@ -804,6 +804,32 @@ test("ambiguous timeout and missing configuration fail visibly without blind ret
     alertRenderErrorCategory({ alert_category: "toString" }),
     "render_failure"
   );
+});
+
+test("n8n string-shaped Slack errors retain retry and category semantics", () => {
+  const rateLimit = classifyAlertProviderResult(
+    { error: "Slack rate limit 429" },
+    policy,
+    now
+  );
+  assert.equal(rateLimit.category, "rate_limit");
+  assert.equal(rateLimit.retryable, true);
+
+  const unavailable = classifyAlertProviderResult(
+    { error: "503 service temporarily unavailable" },
+    policy,
+    now
+  );
+  assert.equal(unavailable.category, "provider_failure");
+  assert.equal(unavailable.retryable, true);
+
+  const connection = classifyAlertProviderResult(
+    { error: "connect ECONNRESET" },
+    policy,
+    now
+  );
+  assert.equal(connection.category, "provider_failure");
+  assert.equal(connection.retryable, true);
 });
 
 test("known-unavailable pending alerts are claimed for suppression, not delivery", () => {

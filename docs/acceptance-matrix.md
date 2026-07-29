@@ -913,6 +913,10 @@ failures, fixes, and reconciliation are recorded in
 - **I25-AC18 — Adjacent regression:** Full alert, review, generation, Archive,
   workflow, and E2E suites retain eligibility, manual submission, and durable
   state behavior.
+- **I25-AC19 — n8n error-item classification:** Direct and generated-workflow
+  tests cover string-shaped rate-limit, `5xx`, connection, and timeout errors.
+  Transient failures retain bounded retry categories; ambiguous timeouts
+  remain terminal and are never blindly resent.
 
 ## Production audit — Groq rate capacity
 

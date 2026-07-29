@@ -314,6 +314,10 @@ or cannot fit completely with the required links is terminalized before any
 provider request. That deterministic preflight path releases the claim, records
 only a sanitized category and summary, and is never treated as ambiguous
 delivery.
+The Slack response handler normalizes n8n's string-shaped error output before
+classification and recovers an embedded HTTP error status when necessary.
+Rate limits, `5xx`, and connection failures therefore keep bounded retry
+semantics, while a timeout remains terminal `ambiguous_timeout`.
 
 The bounded recovery poll is intentionally independent of the Generator. An
 n8n child-workflow edge would require an import-specific workflow identifier,

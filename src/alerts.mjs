@@ -686,16 +686,30 @@ export function renderAlert(
   };
 }
 
+export function alertProviderErrorMessage(result) {
+  const error = result?.error;
+  return cleanText(
+    (typeof error === "string" ? error : error?.message || error?.description) ||
+      result?.errorMessage ||
+      result?.error_description ||
+      result?.message ||
+      result?.body ||
+      "",
+    200
+  );
+}
+
 export function classifyAlertProviderResult(
   result,
   policy,
   now = new Date().toISOString()
 ) {
-  const status = Number(result?.statusCode || result?.status || 0);
-  const message = cleanText(
-    result?.error?.message || result?.message || result?.body || "",
-    200
+  const message = alertProviderErrorMessage(result);
+  const explicitStatus = Number(result?.statusCode || result?.status || 0);
+  const inferredStatus = Number(
+    message.match(/\b([45]\d{2})\b/)?.[1] || 0
   );
+  const status = explicitStatus || inferredStatus;
   if (result?.preflight_error) {
     const category = String(result.preflight_error);
     const normalizedCategory =
@@ -739,17 +753,22 @@ export function classifyAlertProviderResult(
       at: now
     };
   }
-  const retryable =
-    status === 429 ||
+  const rateLimited =
+    status === 429 || /rate.?limit|too many requests/i.test(message);
+  const transientProviderFailure =
     status >= 500 ||
-    (status === 0 && /temporar|connection|econn/i.test(message));
+    (status === 0 &&
+      /temporar|connection|econn|network|socket|service unavailable/i.test(
+        message
+      ));
+  const retryable = rateLimited || transientProviderFailure;
   return {
     success: false,
     retryable,
     category:
-      status === 429
+      rateLimited
         ? "rate_limit"
-        : status >= 500
+        : transientProviderFailure
           ? "provider_failure"
           : status >= 400
             ? "provider_rejected"

@@ -406,6 +406,10 @@ compatible and reconcile on the next run.
   call fails again.
 - Force a rate limit or provider `5xx` response and verify bounded backoff,
   sanitized error evidence, and preservation of the application pack. Confirm
+  the n8n error-output item may contain a string `error`, and verify it still
+  classifies as `rate_limit` or `provider_failure` rather than
+  `provider_malformed_response`. Force a string-shaped timeout separately and
+  verify terminal `ambiguous_timeout` with no blind resend. Confirm
   a check at one minute is not yet due and appends no retry claim, the scheduled
   15-minute poll occurs after the 2-minute lease expires, the due retry wins, and
   no rolling chain of losing alert claims remains. Confirm the 90-second

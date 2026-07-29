@@ -4137,12 +4137,13 @@ const providerResult = {
     payload.error?.statusCode ||
     payload.error?.status ||
     0,
+  error: payload.error,
   body: typeof payload.body === 'string'
     ? payload.body
     : typeof payload.data === 'string'
       ? payload.data
       : '',
-  message: payload.error?.message || payload.message || '',
+  message: alertProviderErrorMessage(payload),
   at: now
 };
 const finalized = applyAlertProviderResult(record, providerResult, POLICY);

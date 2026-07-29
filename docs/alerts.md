@@ -83,7 +83,11 @@ as `sending` before the Slack request. Confirmed `2xx`/`ok` delivery becomes
 reference.
 
 Known transient failures such as rate limiting or provider `5xx` responses use
-bounded exponential backoff. The workflow has a 90-second execution timeout,
+bounded exponential backoff. The response classifier normalizes n8n's
+string-shaped HTTP error item and recovers an embedded `4xx`/`5xx` status when
+the structured status was discarded, so connection failures, rate limits, and
+provider failures retain their intended category. The workflow has a
+90-second execution timeout,
 the claim lease is 2 minutes, and the first retry waits at least those 2
 minutes. This ordering is a correctness requirement: a completed claim row
 remains eligible for arbitration until expiry. Retrying or polling sooner would
