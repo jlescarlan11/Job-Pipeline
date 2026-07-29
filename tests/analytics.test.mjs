@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  analyticsResultKey,
   buildAnalyticsReport,
   deduplicateAnalyticsRecords,
   latestCompleteAnalyticsReport,
+  reusableAnalyticsReport,
   validateAnalyticsPolicy
 } from "../src/analytics.mjs";
 
@@ -431,6 +434,149 @@ test("latest complete report ignores partial and malformed refreshes", () => {
   assert.equal(latestCompleteAnalyticsReport([]), undefined);
 });
 
+test("analytics result identity is content-addressed and safely reusable", () => {
+  const first = buildAnalyticsReport(
+    fixture.active,
+    fixture.archive,
+    schema,
+    policy,
+    now,
+    { runId: "first-execution" }
+  );
+  const unchangedLater = buildAnalyticsReport(
+    fixture.active,
+    fixture.archive,
+    schema,
+    policy,
+    "2026-07-29T12:00:00.000Z",
+    { runId: "second-execution" }
+  );
+  assert.equal(unchangedLater.completion.report_id, first.completion.report_id);
+  assert.equal(unchangedLater.metadata.result_key, first.metadata.result_key);
+
+  const existing = {
+    ...first.completion,
+    record_count: String(first.completion.record_count),
+    application_count: String(first.completion.application_count),
+    detail_row_count: String(first.completion.detail_row_count)
+  };
+  assert.equal(
+    reusableAnalyticsReport([existing], unchangedLater.completion)?.report_id,
+    first.completion.report_id
+  );
+  assert.equal(
+    reusableAnalyticsReport(
+      [
+        existing,
+        {
+          ...existing,
+          report_id: "different-newer-result",
+          generated_at: "2026-07-29T13:00:00.000Z"
+        }
+      ],
+      unchangedLater.completion
+    ),
+    undefined,
+    "a return to an older result must republish it as the current report"
+  );
+  assert.equal(
+    reusableAnalyticsReport(
+      [{ ...existing, status: "writing" }],
+      unchangedLater.completion
+    ),
+    undefined
+  );
+  assert.equal(
+    reusableAnalyticsReport(
+      [{ ...existing, detail_row_count: "1" }],
+      unchangedLater.completion
+    ),
+    undefined
+  );
+
+  const changedFixture = structuredClone(fixture);
+  changedFixture.active[1].outcome_events = [
+    ...(changedFixture.active[1].outcome_events || []),
+    {
+      id: "new-outcome",
+      type: "replied",
+      at: "2026-07-29T01:00:00.000Z"
+    }
+  ];
+  const changed = buildAnalyticsReport(
+    changedFixture.active,
+    changedFixture.archive,
+    schema,
+    policy,
+    "2026-07-29T12:00:00.000Z"
+  );
+  assert.notEqual(changed.completion.report_id, first.completion.report_id);
+});
+
+test("analytics result keys use SHA-256 over Unicode-safe canonical evidence", () => {
+  const rows = [
+    {
+      metric_definition_version: "2026-07-28/v1",
+      band_version: "2026-07-28/v1",
+      window_type: "all_time",
+      window_start_at: "2026-07-01T00:00:00.000Z",
+      section: "conversion",
+      dimension: "search_query",
+      segment_key: "mañana",
+      segment_label: "Mañana",
+      metric_key: "reply_rate",
+      numerator: 1,
+      denominator: 2,
+      value: 0.5,
+      unit: "rate",
+      sample_size: 2,
+      coverage_numerator: 2,
+      coverage_denominator: 2,
+      attribution: "multi_touch_full_credit",
+      non_additive: true,
+      note: ""
+    }
+  ];
+  const summary = {
+    analysis_timezone: "Asia/Manila",
+    record_count: 2,
+    application_count: 2,
+    attribution_policy: "multi_touch_full_credit",
+    warning_summary: ""
+  };
+  const canonical = JSON.stringify({
+    key_version: "analytics-result/v1",
+    ...summary,
+    rows: [
+      [
+        "2026-07-28/v1",
+        "2026-07-28/v1",
+        "all_time",
+        "2026-07-01T00:00:00.000Z",
+        "conversion",
+        "search_query",
+        "mañana",
+        "Mañana",
+        "reply_rate",
+        1,
+        2,
+        0.5,
+        "rate",
+        2,
+        2,
+        2,
+        "multi_touch_full_credit",
+        true,
+        ""
+      ]
+    ]
+  });
+  assert.equal(
+    analyticsResultKey(rows, summary),
+    createHash("sha256").update(canonical).digest("hex")
+  );
+});
+
 test("deduplication reports invalid identities and immutable snapshot conflicts", () => {
   const first = {
     ...fixture.active[0],
@@ -612,7 +758,7 @@ test("malformed gap and pack arrays lower coverage without failing the report", 
   );
 });
 
-test("analytics rows neutralize spreadsheet formulas and scope IDs to one execution", () => {
+test("analytics rows neutralize spreadsheet formulas and scope IDs to one result", () => {
   const malicious = {
     ...fixture.active[0],
     source_job_id: "9991",
@@ -629,7 +775,10 @@ test("analytics rows neutralize spreadsheet formulas and scope IDs to one execut
     now,
     { runId: "execution-42" }
   );
-  assert.match(report.completion.report_id, /execution-42$/);
+  assert.match(
+    report.completion.report_id,
+    /^analytics-2026-07-28-v1-[a-f0-9]{64}$/
+  );
   const skill = report.rows.find(
     (candidate) =>
       candidate.dimension === "matched_skill" &&

@@ -99,11 +99,107 @@ function uniqueObjects(values, keyFor) {
   return [...result.values()];
 }
 
-function reportId(policy, now, runId) {
-  const suffix = String(runId || "")
-    .replace(/[^a-z0-9_-]/gi, "")
-    .slice(0, 64);
-  return `analytics-${policy.metric_definition_version.replace(/[^a-z0-9]+/gi, "-")}-${now.replace(/[^0-9]/g, "")}${suffix ? `-${suffix}` : ""}`;
+function rotateRight(value, amount) {
+  return (value >>> amount) | (value << (32 - amount));
+}
+
+function sha256(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const paddedLength = Math.ceil((bytes.length + 9) / 64) * 64;
+  const padded = new Uint8Array(paddedLength);
+  padded.set(bytes);
+  padded[bytes.length] = 0x80;
+  const bitLength = bytes.length * 8;
+  const lengthView = new DataView(padded.buffer);
+  lengthView.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000));
+  lengthView.setUint32(paddedLength - 4, bitLength >>> 0);
+
+  const constants = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+  const state = new Uint32Array([
+    0x6a09e667,
+    0xbb67ae85,
+    0x3c6ef372,
+    0xa54ff53a,
+    0x510e527f,
+    0x9b05688c,
+    0x1f83d9ab,
+    0x5be0cd19
+  ]);
+  const words = new Uint32Array(64);
+
+  for (let offset = 0; offset < padded.length; offset += 64) {
+    for (let index = 0; index < 16; index += 1) {
+      words[index] = lengthView.getUint32(offset + index * 4);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const previous15 = words[index - 15];
+      const previous2 = words[index - 2];
+      const sigma0 =
+        rotateRight(previous15, 7) ^
+        rotateRight(previous15, 18) ^
+        (previous15 >>> 3);
+      const sigma1 =
+        rotateRight(previous2, 17) ^
+        rotateRight(previous2, 19) ^
+        (previous2 >>> 10);
+      words[index] =
+        (words[index - 16] + sigma0 + words[index - 7] + sigma1) >>> 0;
+    }
+
+    let [a, b, c, d, e, f, g, h] = state;
+    for (let index = 0; index < 64; index += 1) {
+      const sum1 =
+        rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+      const choice = (e & f) ^ (~e & g);
+      const temporary1 =
+        (h + sum1 + choice + constants[index] + words[index]) >>> 0;
+      const sum0 =
+        rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+      const majority = (a & b) ^ (a & c) ^ (b & c);
+      const temporary2 = (sum0 + majority) >>> 0;
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temporary1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temporary1 + temporary2) >>> 0;
+    }
+    state[0] = (state[0] + a) >>> 0;
+    state[1] = (state[1] + b) >>> 0;
+    state[2] = (state[2] + c) >>> 0;
+    state[3] = (state[3] + d) >>> 0;
+    state[4] = (state[4] + e) >>> 0;
+    state[5] = (state[5] + f) >>> 0;
+    state[6] = (state[6] + g) >>> 0;
+    state[7] = (state[7] + h) >>> 0;
+  }
+  return [...state]
+    .map((word) => word.toString(16).padStart(8, "0"))
+    .join("");
+}
+
+function reportId(policy, resultKey) {
+  const version = policy.metric_definition_version.replace(/[^a-z0-9]+/gi, "-");
+  return `analytics-${version}-${resultKey}`;
 }
 
 function validateBands(bands, maximum, name) {
@@ -1305,13 +1401,70 @@ function overallRows(
   return rows;
 }
 
+const ANALYTICS_RESULT_FIELDS = [
+  "metric_definition_version",
+  "band_version",
+  "window_type",
+  "window_start_at",
+  "section",
+  "dimension",
+  "segment_key",
+  "segment_label",
+  "metric_key",
+  "numerator",
+  "denominator",
+  "value",
+  "unit",
+  "sample_size",
+  "coverage_numerator",
+  "coverage_denominator",
+  "attribution",
+  "non_additive",
+  "note"
+];
+
+export function analyticsResultKey(rows, summary) {
+  const canonicalRows = rows.map((row) =>
+    ANALYTICS_RESULT_FIELDS.map((field) => row?.[field] ?? "")
+  );
+  return sha256(
+    JSON.stringify({
+      key_version: "analytics-result/v1",
+      analysis_timezone: summary.analysis_timezone,
+      record_count: summary.record_count,
+      application_count: summary.application_count,
+      attribution_policy: summary.attribution_policy,
+      warning_summary: summary.warning_summary,
+      rows: canonicalRows
+    })
+  );
+}
+
+export function reusableAnalyticsReport(reportRows, completion) {
+  const latest = latestCompleteAnalyticsReport(reportRows);
+  return latest &&
+    latest.report_id === completion.report_id &&
+    latest.metric_definition_version === completion.metric_definition_version &&
+    latest.band_version === completion.band_version &&
+    latest.window_type === completion.window_type &&
+    latest.window_start_at === completion.window_start_at &&
+    latest.analysis_timezone === completion.analysis_timezone &&
+    Number(latest.record_count) === completion.record_count &&
+    Number(latest.application_count) === completion.application_count &&
+    Number(latest.detail_row_count) === completion.detail_row_count &&
+    latest.attribution_policy === completion.attribution_policy &&
+    String(latest.warning_summary || "") === completion.warning_summary
+    ? latest
+    : undefined;
+}
+
 export function buildAnalyticsReport(
   activeRows,
   archiveRows,
   schema,
   policy,
   now = new Date().toISOString(),
-  { runId = "" } = {}
+  _options = {}
 ) {
   const policyErrors = validateAnalyticsPolicy(policy);
   if (policyErrors.length > 0) {
@@ -1332,7 +1485,7 @@ export function buildAnalyticsReport(
     .filter((value) => timestamp(value) !== undefined)
     .sort((left, right) => timestamp(left) - timestamp(right));
   const metadata = {
-    report_id: reportId(policy, now, runId),
+    report_id: "",
     metric_definition_version: policy.metric_definition_version,
     band_version: policy.band_version,
     generated_at: now,
@@ -1340,7 +1493,7 @@ export function buildAnalyticsReport(
     window_start_at: validApplicationTimes[0] || "",
     window_end_at: now
   };
-  const rows = [
+  const resultRows = [
     ...overallRows(
       metadata,
       records,
@@ -1351,15 +1504,7 @@ export function buildAnalyticsReport(
     ),
     ...dimensionsReport(metadata, applications, policy, schema),
     ...discoveryAndSkillDemandRows(metadata, records, policy)
-  ].map((row, index) => {
-    const completeRow = {
-      ...row,
-      analytics_row_id: `${metadata.report_id}|${String(index + 1).padStart(5, "0")}`
-    };
-    return Object.fromEntries(
-      policy.detail_fields.map((field) => [field, completeRow[field] ?? ""])
-    );
-  });
+  ];
   const warnings = [];
   if (applications.length === 0) warnings.push("no_applications");
   if (diagnostics.invalid_identity_rows > 0) warnings.push("invalid_identity_rows");
@@ -1378,6 +1523,24 @@ export function buildAnalyticsReport(
   if (diagnostics.malformed_application_warning_rows > 0) {
     warnings.push("malformed_application_warning_rows");
   }
+  metadata.result_key = analyticsResultKey(resultRows, {
+    analysis_timezone: policy.analysis_timezone,
+    record_count: records.length,
+    application_count: applications.length,
+    attribution_policy: policy.attribution.policy,
+    warning_summary: warnings.join(",")
+  });
+  metadata.report_id = reportId(policy, metadata.result_key);
+  const rows = resultRows.map((row, index) => {
+    const completeRow = {
+      ...row,
+      report_id: metadata.report_id,
+      analytics_row_id: `${metadata.report_id}|${String(index + 1).padStart(5, "0")}`
+    };
+    return Object.fromEntries(
+      policy.detail_fields.map((field) => [field, completeRow[field] ?? ""])
+    );
+  });
   const completion = {
     report_id: metadata.report_id,
     status: "complete",

@@ -8,12 +8,22 @@ and Sheet output contracts. `src/analytics.mjs` is a pure deterministic
 aggregator. `workflows/analytics.json` reads `Sheet1` and `Archive`; it never
 updates a job, ranking policy, search plan, application pack, or outcome.
 
-Every refresh has a unique `report_id`. Detail rows are idempotently upserted
-to `Analytics` by `analytics_row_id`. Only after the workflow observes every
-expected detail write does it upsert `status=complete` to `AnalyticsReports`.
-Consumers must select the newest valid complete metadata row and then filter
-`Analytics` to that report ID. Detail rows without complete metadata are from a
-failed/partial refresh and must not replace the previous complete report.
+Every distinct aggregate result has a SHA-256 content-addressed `report_id`.
+The identity includes the complete ordered metric result, versions, cohort
+counts, window start, timezone, attribution, and warnings, but excludes the run
+ID, generation time, and moving all-time window end. Before publishing, the
+workflow reads `AnalyticsReports`; an exact compatible complete result ends as
+a successful unchanged refresh with no detail or completion writes only when
+that result is already the latest complete report. A missing, older, partial,
+incompatible, or malformed prior row never authorizes the skip.
+
+Detail rows are idempotently upserted to `Analytics` by `analytics_row_id`.
+Only after the workflow observes every expected detail write does it upsert
+`status=complete` to `AnalyticsReports`. Concurrent or recovered executions
+with the same result converge on the same IDs. Consumers select the newest
+valid complete metadata row and then filter `Analytics` to that report ID.
+Detail rows without complete metadata are from a failed/partial refresh and
+must not replace the previous complete report.
 
 ## Cohort and outcome definitions
 

@@ -302,10 +302,13 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   outcome rates/sample sizes. Separate discovery volume and promising-job gap
   frequency/coverage support guarded weekly recommendations without becoming
   conversion evidence.
-- **Complete-report boundary:** Daily detail IDs are execution-scoped and
-  idempotent. Only a matching full detail write publishes `status=complete`;
-  partial/orphan rows cannot supersede the previous complete report. Empty
-  input is explicitly successful.
+- **Complete-report boundary:** Detail and report IDs are SHA-256
+  content-addressed and idempotent. An exact compatible complete result skips
+  every analytic write only when it is already latest; older, partial,
+  incompatible, malformed, or changed results cannot authorize the skip. Only
+  a matching full detail write publishes `status=complete`; partial/orphan rows
+  cannot supersede the previous complete report. Empty input is explicitly
+  successful.
 - **Compatibility/privacy/tests:** Existing Dashboard behavior is unchanged.
   Output is formula-neutral, aggregate-only, and read-only against job state.
   `analytics.test.mjs`, workflow/Sheet/docs tests, and fixed fixtures cover all

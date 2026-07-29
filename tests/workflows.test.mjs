@@ -1389,9 +1389,12 @@ test("Applied Jobs atomic retirement templates are case-fold unique and delete o
 test("analytics export publishes completion only after every idempotent detail write", () => {
   const workflow = workflows.analytics;
   for (const name of [
+    "Get Analytics Reports",
+    "Aggregate Analytics Reports",
     "Get Active Rows",
     "Get Archive Rows",
     "Build Analytics Report",
+    "Should Publish Analytics Report",
     "Prepare Analytics Rows",
     "Upsert Analytics Rows",
     "Aggregate Analytics Row Writes",
@@ -1400,6 +1403,15 @@ test("analytics export publishes completion only after every idempotent detail w
   ]) {
     nodeByName(workflow, name);
   }
+  const reports = nodeByName(workflow, "Get Analytics Reports");
+  assert.equal(reports.parameters.sheetName.value, analyticsPolicy.reports_sheet);
+  assert.equal(reports.parameters.operation, "read");
+  assert.equal(reports.onError, "continueRegularOutput");
+  assertDirectConnection(
+    workflow,
+    "Aggregate Analytics Reports",
+    "Get Active Rows"
+  );
   const details = nodeByName(workflow, "Upsert Analytics Rows");
   assert.equal(details.parameters.sheetName.value, analyticsPolicy.detail_sheet);
   assert.equal(details.parameters.operation, "appendOrUpdate");
@@ -1416,6 +1428,20 @@ test("analytics export publishes completion only after every idempotent detail w
   );
   assert.equal(completion.parameters.operation, "appendOrUpdate");
   assert.deepEqual(completion.parameters.columns.matchingColumns, ["report_id"]);
+  assertDirectConnection(
+    workflow,
+    "Build Analytics Report",
+    "Should Publish Analytics Report"
+  );
+  assertDirectConnection(
+    workflow,
+    "Should Publish Analytics Report",
+    "Prepare Analytics Rows"
+  );
+  assert.deepEqual(
+    workflow.connections["Should Publish Analytics Report"].main[1],
+    []
+  );
   assertDirectConnection(
     workflow,
     "Upsert Analytics Rows",
@@ -1436,6 +1462,9 @@ test("analytics export publishes completion only after every idempotent detail w
   assert.match(build, /application_opportunity_score/);
   assert.match(build, /outcome_events/);
   assert.match(build, /multi_touch_full_credit/);
+  assert.match(build, /reusableAnalyticsReport/);
+  assert.match(build, /analytics report store could not be read/);
+  assert.match(build, /publish_required: publishRequired/);
   const publishGuard = nodeByName(
     workflow,
     "Prepare Analytics Completion"

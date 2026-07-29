@@ -120,10 +120,12 @@ current view; legacy outcome values do not fabricate historical events.
 
 `Analytics` and `AnalyticsReports` are derived append-safe reporting state, not
 part of the canonical job record. `analytics_row_id` is the idempotent detail
-key; `report_id` joins detail to its metadata. A report is authoritative only
-when `AnalyticsReports.status=complete` and its recorded `detail_row_count`
-matches the persisted detail cohort. Partial/orphan detail rows remain
-diagnostic evidence and never change source records or the existing Dashboard.
+key; a SHA-256 content-addressed `report_id` joins detail to its metadata.
+Equivalent aggregate results converge on the same identifiers even across
+different run timestamps. A report is authoritative only when
+`AnalyticsReports.status=complete` and its recorded `detail_row_count` matches
+the persisted detail cohort. Partial/orphan detail rows remain diagnostic
+evidence and never change source records or the existing Dashboard.
 
 Every detail row records metric/band versions, all-time window boundaries,
 dimension/segment, numerator, denominator, value, unit, sample size, coverage,

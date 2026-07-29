@@ -4097,6 +4097,20 @@ async function buildAnalytics() {
   activeRead.position = [-980, 240];
   activeRead.alwaysOutputData = true;
 
+  const reportsRead = structuredClone(activeRead);
+  reportsRead.id = "a13a17c5-0000-4000-8000-000000000012";
+  reportsRead.name = "Get Analytics Reports";
+  reportsRead.position = [-1420, 240];
+  reportsRead.parameters.operation = "read";
+  reportsRead.parameters.sheetName = {
+    __rl: true,
+    value: policy.reports_sheet,
+    mode: "name",
+    cachedResultName: policy.reports_sheet
+  };
+  reportsRead.alwaysOutputData = true;
+  reportsRead.onError = "continueRegularOutput";
+
   const archiveRead = nodeByName(archiver, "Get Archive Rows");
   archiveRead.id = "a13a17c5-0000-4000-8000-000000000004";
   archiveRead.name = "Get Archive Rows";
@@ -4122,6 +4136,13 @@ async function buildAnalytics() {
 
 const SCHEMA = ${JSON.stringify(schema)};
 const POLICY = ${JSON.stringify(policy)};
+const reportRows = ($('Aggregate Analytics Reports').first().json.analytics_report_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+if (reportRows.some(
+  (row) => row.error || row.errorMessage || row.error_description
+)) {
+  throw new Error('analytics report store could not be read');
+}
 const activeRows = ($('Aggregate Active Rows').first().json.active_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 const archiveRows = $input.all()
@@ -4135,9 +4156,12 @@ const report = buildAnalyticsReport(
   new Date().toISOString(),
   { runId: String($execution.id) }
 );
+const reusable = reusableAnalyticsReport(reportRows, report.completion);
+const publishRequired = !reusable;
 console.log(JSON.stringify({
   event: 'analytics_report_built',
   report_id: report.completion.report_id,
+  action: publishRequired ? 'publish' : 'unchanged',
   records: report.completion.record_count,
   applications: report.completion.application_count,
   detail_rows: report.completion.detail_row_count,
@@ -4146,7 +4170,8 @@ console.log(JSON.stringify({
 return [{
   json: {
     analytics_rows: report.rows,
-    completion: report.completion
+    completion: report.completion,
+    publish_required: publishRequired
   }
 }];`;
 
@@ -4177,13 +4202,20 @@ return [{ json: completion }];`;
     },
     type: "n8n-nodes-base.scheduleTrigger",
     typeVersion: 1.2,
-    position: [-1200, 240],
+    position: [-1640, 240],
     id: "a13a17c5-0000-4000-8000-000000000001",
     name: "Schedule Trigger"
   };
 
   const nodes = [
     schedule,
+    reportsRead,
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000013",
+      name: "Aggregate Analytics Reports",
+      position: [-1200, 240],
+      destinationFieldName: "analytics_report_rows"
+    }),
     activeRead,
     aggregateNode({
       id: "a13a17c5-0000-4000-8000-000000000003",
@@ -4198,48 +4230,65 @@ return [{ json: completion }];`;
       position: [-340, 240],
       jsCode: buildCode
     }),
+    booleanIfNode({
+      id: "a13a17c5-0000-4000-8000-000000000014",
+      name: "Should Publish Analytics Report",
+      position: [-100, 240],
+      leftValue: "={{ $json.publish_required }}"
+    }),
     codeNode({
       id: "a13a17c5-0000-4000-8000-000000000006",
       name: "Prepare Analytics Rows",
-      position: [-100, 240],
+      position: [140, 240],
       jsCode: prepareRowsCode
     }),
     upsertSheetNode({
       base: analyticsWriteBase,
       id: "a13a17c5-0000-4000-8000-000000000007",
       name: "Upsert Analytics Rows",
-      position: [140, 240],
+      position: [380, 240],
       fields: policy.detail_fields,
       matchingField: "analytics_row_id"
     }),
     aggregateNode({
       id: "a13a17c5-0000-4000-8000-000000000008",
       name: "Aggregate Analytics Row Writes",
-      position: [380, 240],
+      position: [620, 240],
       destinationFieldName: "analytics_rows_written"
     }),
     codeNode({
       id: "a13a17c5-0000-4000-8000-000000000009",
       name: "Prepare Analytics Completion",
-      position: [620, 240],
+      position: [860, 240],
       jsCode: prepareCompletionCode
     }),
     upsertSheetNode({
       base: reportsWriteBase,
       id: "a13a17c5-0000-4000-8000-000000000010",
       name: "Publish Complete Analytics Report",
-      position: [860, 240],
+      position: [1100, 240],
       fields: policy.report_fields,
       matchingField: "report_id"
     })
   ];
 
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Active Rows")]] },
+    "Schedule Trigger": { main: [[connection("Get Analytics Reports")]] },
+    "Get Analytics Reports": {
+      main: [[connection("Aggregate Analytics Reports")]]
+    },
+    "Aggregate Analytics Reports": {
+      main: [[connection("Get Active Rows")]]
+    },
     "Get Active Rows": { main: [[connection("Aggregate Active Rows")]] },
     "Aggregate Active Rows": { main: [[connection("Get Archive Rows")]] },
     "Get Archive Rows": { main: [[connection("Build Analytics Report")]] },
-    "Build Analytics Report": { main: [[connection("Prepare Analytics Rows")]] },
+    "Build Analytics Report": {
+      main: [[connection("Should Publish Analytics Report")]]
+    },
+    "Should Publish Analytics Report": {
+      main: [[connection("Prepare Analytics Rows")], []]
+    },
     "Prepare Analytics Rows": { main: [[connection("Upsert Analytics Rows")]] },
     "Upsert Analytics Rows": {
       main: [[connection("Aggregate Analytics Row Writes")]]

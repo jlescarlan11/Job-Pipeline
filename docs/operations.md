@@ -342,6 +342,10 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - Interrupt after a subset of detail writes. Confirm the incomplete report has
   no `status=complete` metadata and the previous complete report remains the
   newest authoritative result. Rerun and verify deterministic row upserts.
+- Rerun an unchanged copied source at a later time. Confirm the same
+  content-addressed report ID is selected, the execution logs
+  `action=unchanged`, and neither `Analytics` nor `AnalyticsReports` receives a
+  write. Change one outcome and confirm a new result publishes normally.
 - Confirm the workflow performs read-only operations against `Sheet1` and
   `Archive` and does not alter Dashboard, ranking, search, or application data.
 
