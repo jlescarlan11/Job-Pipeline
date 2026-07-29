@@ -171,7 +171,14 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     (7 * 24 * 60) / runtime.archiver.schedule_minutes +
     (7 * 24) / analyticsPolicy.schedule_hours +
     (7 * 24) / recommendationPolicy.schedule_hours;
-  assert.equal(scheduledRunsPerWeek, 6322);
+  assert.equal(scheduledRunsPerWeek, 4978);
+  assert.equal((7 * 24 * 60) / alertPolicy.schedule_minutes, 2016);
+  assert.ok(
+    (runtime.generator.schedule_minutes / alertPolicy.schedule_minutes) *
+      alertPolicy.per_run_cap >=
+      runtime.generator.per_run_cap,
+    "Alerter recovery capacity must cover the Generator's maximum output"
+  );
   assert.equal(
     Object.values(workflows).filter(
       (workflow) => workflow.settings.saveDataSuccessExecution !== "none"

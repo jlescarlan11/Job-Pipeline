@@ -50,7 +50,7 @@ Archive: terminal history and employer outcomes
 ```
 
 Configured schedules are scraper every 4 hours, generator every 15 minutes,
-alerter every 3 minutes, reviewer every 5 minutes, archiver every 45 minutes,
+alerter every 5 minutes, reviewer every 5 minutes, archiver every 45 minutes,
 analytics every 24 hours, and recommender every 168 hours. Analytics uses a
 fixed daily 02:00 start, and Recommender uses a fixed Monday 02:45 start, both
 in `Asia/Manila`. This places the weekly consumer after Analytics' 30-minute
@@ -71,7 +71,7 @@ commit guards, idempotent upserts, and complete-report markers.
 
 All workflows explicitly retain failed production executions and manual
 executions, but do not retain successful production executions or per-node
-progress snapshots. The schedules produce 6,322 scheduled executions per week
+progress snapshots. The schedules produce 4,978 scheduled executions per week
 before failures or manual runs; retaining every normal payload would duplicate
 large Sheet reads in n8n's execution store even though Sheet state, report
 completion rows, claims, and guarded record fields already provide the
@@ -220,11 +220,13 @@ application decisions after an explicit in-sheet action.
 success stores `sent`, timestamp, attempt count, and any non-sensitive provider
 reference. The workflow is capped at 90 seconds, below its 2-minute claim
 lease. A known transient rejection uses bounded exponential retry beginning at
-2 minutes, never before the prior append-only claim expires. The next 3-minute
+2 minutes, never before the prior append-only claim expires. The next 5-minute
 poll is also after expiry. This prevents polls from appending a rolling chain
-of losing claims that can starve the due retry. The cap of 5 matches the
-Generator’s maximum output per run and keeps the capped serial
-provider-timeout budget inside the workflow timeout. Provider timeouts are
+of losing claims that can starve the due retry. Three capped sweeps per
+Generator interval can handle 15 alerts, three times the Generator’s maximum
+5-record output, and the cap keeps the serial provider-timeout budget inside
+the workflow timeout. New, retryable, and stale ambiguous states are observed
+within one five-minute sweep. Provider timeouts are
 terminal because Slack cannot reconcile an ambiguous delivery. If a `sending`
 record outlives its claim lease—covering
 delivery followed by a failed acknowledgement commit—it is terminalized as
@@ -236,6 +238,14 @@ or cannot fit completely with the required links is terminalized before any
 provider request. That deterministic preflight path releases the claim, records
 only a sanitized category and summary, and is never treated as ambiguous
 delivery.
+
+The bounded recovery poll is intentionally independent of the Generator. An
+n8n child-workflow edge would require an import-specific workflow identifier,
+while a webhook handoff would add an authenticated delivery and
+acknowledgement boundary. Neither can be encoded safely in disabled,
+environment-portable exports without adding deployment coupling. Five-minute
+polling preserves recovery and avoids making a successful application-pack
+commit depend on Slack or Alerter availability.
 
 ## Review workflow
 

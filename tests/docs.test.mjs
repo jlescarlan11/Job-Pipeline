@@ -91,7 +91,7 @@ test("runtime documentation preserves failure evidence without successful execut
     assert.match(document, /per-node\s+(?:execution\s+)?progress/i);
   }
   for (const document of [readme, architecture]) {
-    assert.match(document, /6,322 (?:normally successful )?scheduled executions per week/i);
+    assert.match(document, /4,978 (?:normally successful )?scheduled executions per week/i);
   }
   assert.match(operations, /instance-level pruning/i);
 });
@@ -306,7 +306,10 @@ test("alert documentation keeps retries behind claim expiry and execution timeou
     alertsDoc,
     new RegExp(`cap of ${alertPolicy.per_run_cap}\\b`, "i")
   );
-  assert.match(alertsDoc, /1,440 to 480 per day/i);
+  assert.match(alertsDoc, /480 to 288 per day/i);
+  assert.match(alertsDoc, /70,080 scheduled\s+executions/i);
+  assert.match(alertsDoc, /capacity for 15\s+alerts/i);
+  assert.match(alertsDoc, /deployment-stable n8n\s+workflow ID/i);
   assert.match(architecture, /starve\s+the\s+due retry/i);
   assert.match(operations, /appends no retry\s+claim/i);
 });

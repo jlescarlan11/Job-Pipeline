@@ -124,6 +124,12 @@ const ready = (overrides = {}) => ({
 
 test("alert policy is versioned, bounded, and secret-free", () => {
   assert.deepEqual(validateAlertPolicy(policy), []);
+  assert.equal(policy.schedule_minutes, 5);
+  assert.equal(
+    (15 / policy.schedule_minutes) * policy.per_run_cap,
+    15,
+    "three recovery sweeps must expose capacity for 15 alerts per Generator interval"
+  );
   assert.equal(policy.eligibility.minimum_opportunity_score, 50);
   assert.match(policy.environment.provider_webhook_url, /^[A-Z0-9_]+$/);
   assert.doesNotMatch(JSON.stringify(policy), /hooks\.slack\.com|Bearer|https:\/\//i);

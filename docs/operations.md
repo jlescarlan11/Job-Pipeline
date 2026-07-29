@@ -130,7 +130,7 @@ run must clear zero additional inputs.
    deregistering schedules already cached by a long-running n8n process. If the
    workflow existed in that process, deactivate it through the supported
    runtime surface or restart n8n, then inspect execution history through at
-   least the 3-minute alert cadence before treating it as inactive.
+   least the 5-minute alert cadence before treating it as inactive.
 2. Rebind every Google Sheets node to the non-production workbook and test OAuth credential.
 3. Rebind the Groq model node to a test credential. Confirm the project permits
    `config/groq-provider-policy.json`'s selected model; a credential alone does
@@ -140,7 +140,7 @@ run must clear zero additional inputs.
    `Review Queue` tab deep link in the n8n runtime. Never paste either value
    into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
-6. Confirm the configured schedules are 4 hours, 15 minutes, 3 minutes,
+6. Confirm the configured schedules are 4 hours, 15 minutes, 5 minutes,
    5 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5. Confirm
    Analytics is fixed at 02:00 daily and Recommender at 02:45 Mondays in
    `Asia/Manila`, leaving the configured 30-minute timeout plus 15-minute
@@ -349,14 +349,25 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - Force a rate limit or provider `5xx` response and verify bounded backoff,
   sanitized error evidence, and preservation of the application pack. Confirm
   a check at one minute is not yet due and appends no retry claim, the scheduled
-  3-minute poll occurs after the 2-minute lease expires, the due retry wins, and
+  5-minute poll occurs after the 2-minute lease expires, the due retry wins, and
   no rolling chain of losing alert claims remains. Confirm the 90-second
   workflow timeout is shorter than the lease and the cap remains 5.
+- Queue 5 new ready alerts immediately after an Alerter run. Confirm the next
+  sweep processes all 5 within five minutes. Over one 15-minute Generator
+  interval, confirm the three Alerter sweeps expose capacity for 15 alerts
+  without making generation wait for Slack.
 - Test an invalid/missing webhook, an unavailable source, and a stale `sending`
   row. Confirm no provider request for the first two suppression/configuration
   paths and no blind resend for the ambiguous stale delivery.
 - Confirm forwarded/tampered review URLs cannot directly mutate a decision and
   repeated skip still requires a valid, explicit reviewer action.
+
+To roll back only the cadence, disable the imported Alerter and wait for
+running executions, restore `schedule_minutes=3` in
+`config/alert-policy.json`, regenerate, import inactive, and rerun the retry
+claim-expiry smoke case. Do not clear pending/retryable timestamps or reset a
+`sending` row: existing rows remain compatible, and `sending` is potentially
+delivered.
 
 ### Analytics
 

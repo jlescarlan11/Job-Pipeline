@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v2",
+  "policy_version": "2026-07-30/v3",
   "channel": "slack",
-  "schedule_minutes": 3,
+  "schedule_minutes": 5,
   "per_run_cap": 5,
   "execution_timeout_seconds": 90,
   "claim_lease_ms": 120000,

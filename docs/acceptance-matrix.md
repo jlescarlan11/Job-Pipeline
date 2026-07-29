@@ -137,7 +137,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC18 — Bounded execution-data writes:** Runtime/config and generated
   workflow tests require all seven exports to retain failures and manual smoke
   runs while skipping successful production payloads and per-node progress.
-  The checked-in cadences total 6,322 scheduled runs per week; authoritative
+  The checked-in cadences total 4,978 scheduled runs per week; authoritative
   success remains in Sheets, and the runbook separately gates instance-level
   age/count pruning.
 - **I6-AC19 — Ordered learning schedules:** Configuration, policy, generated
@@ -226,7 +226,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   score/confidence/freshness/gap/pack eligibility only after atomic pack commit
   and stores `pending` immediately, independent of the reviewer cadence.
 - **Configured provider and complete payload:** `config/alert-policy.json` and
-  the 3-minute Slack workflow use environment-bound webhook/review values and
+  the 5-minute Slack workflow use environment-bound webhook/review values and
   render all required score, employer/salary/freshness, gap, Apply Points,
   instruction/question/proof/warning, and safe action context with explicit
   unknown labels.
@@ -237,9 +237,11 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   scopes one initial alert. Confirmed delivery persists channel/version/time
   and bounded provider reference; known transient rejection retries with
   bounded backoff. The 90-second workflow timeout is shorter than the
-  2-minute lease, the lease expires before the next 3-minute poll, and retry
+  2-minute lease, the lease expires before the next 5-minute poll, and retry
   backoff never precedes lease expiry, so polls cannot create a starvation
-  chain of losing claims. The cap of 5 matches Generator throughput.
+  chain of losing claims. Three capped sweeps per Generator interval can
+  process 15 alerts, three times its maximum 5-record output. New work and
+  recovery states are observed within five minutes.
   Configuration/permanent/unavailable paths remain visible.
 - **Ambiguous delivery safety:** Records move through `sending`; timeout or a
   lost acknowledgement is terminal/ambiguous and never blindly resent.
