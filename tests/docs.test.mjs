@@ -7,6 +7,7 @@ const loadJson = async (path) => JSON.parse(await loadText(path));
 
 const readme = await loadText("../README.md");
 const architecture = await loadText("../docs/architecture.md");
+const analyticsDoc = await loadText("../docs/analytics.md");
 const sheetSchema = await loadText("../docs/sheet-schema.md");
 const operations = await loadText("../docs/operations.md");
 const recommendationsDoc = await loadText("../docs/recommendations.md");
@@ -90,6 +91,18 @@ test("runtime documentation preserves failure evidence without successful execut
     assert.match(document, /6,322 (?:normally successful )?scheduled executions per week/i);
   }
   assert.match(operations, /instance-level pruning/i);
+});
+
+test("learning schedule documentation preserves fixed ordering and safe fallback", () => {
+  for (const document of [readme, architecture, operations]) {
+    assert.match(document, /02:00/i);
+    assert.match(document, /Monday(?:s)?[\s\S]{0,80}02:45/i);
+    assert.match(document, /15-minute\s+completion buffer/i);
+  }
+  assert.match(analyticsDoc, /fixed 02:00 start/i);
+  assert.match(recommendationsDoc, /Mondays at 02:45/i);
+  assert.match(recommendationsDoc, /15-minute completion buffer/i);
+  assert.match(recommendationsDoc, /latest complete[\s\S]{0,80}report/i);
 });
 
 test("Sheet schema documentation covers every persisted field, status, and manual action", () => {

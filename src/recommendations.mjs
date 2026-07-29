@@ -2,6 +2,7 @@ import {
   latestCompleteAnalyticsReport,
   stableSha256
 } from "./analytics.mjs";
+import { validateRecommendationSchedule } from "./schedules.mjs";
 
 const DIRECTIONAL_STATUS = "recommendation";
 
@@ -53,6 +54,7 @@ export function validateRecommendationPolicy(policy) {
   if (!Number.isInteger(policy.schedule_hours) || policy.schedule_hours < 24) {
     errors.push("schedule_hours must be at least 24");
   }
+  errors.push(...validateRecommendationSchedule(policy));
   if (
     !Number.isInteger(policy.execution_timeout_seconds) ||
     policy.execution_timeout_seconds < 1

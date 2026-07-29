@@ -2,6 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import {
+  analyticsScheduleRule,
+  learningScheduleTiming,
+  recommendationScheduleRule
+} from "../src/schedules.mjs";
+
 const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
 const profile = await loadJson("../config/candidate-profile.json");
 const policy = await loadJson("../config/application-policy.json");
@@ -310,10 +316,9 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     alertPolicy.provider_timeout_ms * alertPolicy.per_run_cap <
       alertPolicy.execution_timeout_seconds * 1000
   );
-  assert.equal(
-    nodeByName(analytics, "Schedule Trigger").parameters.rule.interval[0]
-      .hoursInterval,
-    analyticsPolicy.schedule_hours
+  assert.deepEqual(
+    nodeByName(analytics, "Schedule Trigger").parameters.rule.interval,
+    [analyticsScheduleRule(analyticsPolicy)]
   );
   assert.equal(
     analytics.meta.metricDefinitionVersion,
@@ -327,10 +332,17 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     analytics.settings.executionTimeout,
     analyticsPolicy.execution_timeout_seconds
   );
+  assert.deepEqual(
+    nodeByName(recommender, "Schedule Trigger").parameters.rule.interval,
+    [recommendationScheduleRule(analyticsPolicy, recommendationPolicy)]
+  );
+  const learningTiming = learningScheduleTiming(
+    analyticsPolicy,
+    recommendationPolicy
+  );
   assert.equal(
-    nodeByName(recommender, "Schedule Trigger").parameters.rule.interval[0]
-      .hoursInterval,
-    recommendationPolicy.schedule_hours
+    learningTiming.completion_buffer_minutes,
+    recommendationPolicy.source_completion_buffer_minutes
   );
   assert.equal(
     recommender.meta.recommendationPolicyVersion,
@@ -343,6 +355,10 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   assert.equal(
     recommender.settings.executionTimeout,
     recommendationPolicy.execution_timeout_seconds
+  );
+  assert.equal(
+    recommender.meta.sourceCompletionBufferMinutes,
+    recommendationPolicy.source_completion_buffer_minutes
   );
   assert.equal(recommender.meta.recommendationMode, "read_only_advisory");
   for (const workflow of Object.values(workflows)) {

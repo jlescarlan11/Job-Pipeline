@@ -128,6 +128,17 @@ const completeAnalytics = (records = cohort()) => {
 test("recommendation policy is versioned, weekly, guarded, and read-only by contract", () => {
   assert.deepEqual(validateRecommendationPolicy(recommendationPolicy), []);
   assert.equal(recommendationPolicy.schedule_hours, 168);
+  assert.deepEqual(recommendationPolicy.schedule, {
+    field: "weeks",
+    weeks_interval: 1,
+    trigger_at_days: [1],
+    trigger_at_hour: 2,
+    trigger_at_minute: 45
+  });
+  assert.equal(
+    recommendationPolicy.source_completion_buffer_minutes,
+    15
+  );
   assert.equal(recommendationPolicy.minimums.overall_applications, 20);
   assert.equal(recommendationPolicy.minimums.segment_applications, 5);
   assert.equal(
@@ -137,11 +148,13 @@ test("recommendation policy is versioned, weekly, guarded, and read-only by cont
 
   const invalid = structuredClone(recommendationPolicy);
   invalid.schedule_hours = 1;
+  invalid.schedule.trigger_at_days = [7];
   invalid.execution_timeout_seconds = invalid.schedule_hours * 60 * 60;
   invalid.minimums.dimension_coverage = 2;
   invalid.comparisons.composite_outcomes = ["offer_rate"];
   const errors = validateRecommendationPolicy(invalid).join("\n");
   assert.match(errors, /schedule_hours must be at least 24/);
+  assert.match(errors, /weekday from 0 through 6/);
   assert.match(
     errors,
     /execution timeout must be shorter than the recommendation schedule/

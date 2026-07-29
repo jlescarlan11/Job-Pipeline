@@ -140,6 +140,11 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   The checked-in cadences total 6,322 scheduled runs per week; authoritative
   success remains in Sheets, and the runbook separately gates instance-level
   age/count pruning.
+- **I6-AC19 — Ordered learning schedules:** Configuration, policy, generated
+  workflow, and documentation tests pin Analytics to 02:00 daily and
+  Recommender to 02:45 Monday in `Asia/Manila`. The 45-minute separation
+  covers Analytics' 30-minute outer timeout plus a required 15-minute
+  completion buffer without relying on activation-relative interval phases.
 
 ## Issue #8 — Extended learning contract
 
@@ -330,8 +335,11 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 ## Issue #14 — Guarded weekly recommendations
 
 - **Versioned weekly run:** `config/recommendation-policy.json` defines the
-  168-hour schedule, all-time input, required metric/band versions, production
-  sample/coverage gates, comparisons, and output schemas.
+  168-hour schedule with a Monday 02:45 `Asia/Manila` start, after the daily
+  02:00 Analytics run's timeout plus 15-minute completion buffer, as well as
+  all-time input, required metric/band versions, production sample/coverage
+  gates, comparisons, and output schemas. A failed or overrun same-day source
+  cannot displace the latest complete report.
 - **Complete eligible evidence only:** `src/recommendations.mjs` selects the
   newest complete compatible analytics report and verifies its exact detail
   cohort. Sparse overall data emits one abstention; low coverage emits only a

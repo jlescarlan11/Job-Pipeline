@@ -31,16 +31,24 @@ test("analytics policy versions all bands, attribution, timezone, and output con
   assert.deepEqual(validateAnalyticsPolicy(policy), []);
   assert.equal(policy.analysis_window.type, "all_time");
   assert.equal(policy.analysis_timezone, "Asia/Manila");
+  assert.deepEqual(policy.schedule, {
+    field: "days",
+    days_interval: 1,
+    trigger_at_hour: 2,
+    trigger_at_minute: 0
+  });
   assert.equal(policy.attribution.policy, "multi_touch_full_credit");
 
   const invalid = structuredClone(policy);
   invalid.score_bands[1].maximum = 10;
   invalid.analysis_timezone = "Invalid/Timezone";
+  invalid.schedule.trigger_at_hour = 24;
   invalid.attribution.non_additive_dimensions = [];
   invalid.execution_timeout_seconds = invalid.schedule_hours * 60 * 60;
   const errors = validateAnalyticsPolicy(invalid).join("\n");
   assert.match(errors, /score_bands must be ordered/);
   assert.match(errors, /supported IANA timezone/);
+  assert.match(errors, /trigger_at_hour must be from 0 through 23/);
   assert.match(errors, /non-additive dimensions are incomplete/);
   assert.match(
     errors,

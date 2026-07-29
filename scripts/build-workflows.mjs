@@ -12,6 +12,11 @@ import {
   validateRuntimeConfig,
   workflowExecutionDataSettings
 } from "../src/runtime.mjs";
+import {
+  analyticsScheduleRule,
+  recommendationScheduleRule,
+  validateLearningSchedulePair
+} from "../src/schedules.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const checkOnly = process.argv.includes("--check");
@@ -4112,6 +4117,7 @@ async function buildAnalytics() {
   const policy = await readJson("config/analytics-policy.json");
   const analyticsCore = await bundledCore(
     "src/contracts.mjs",
+    "src/schedules.mjs",
     "src/analytics.mjs"
   );
   const { validateAnalyticsPolicy } = await import(
@@ -4225,8 +4231,7 @@ return [{ json: completion }];`;
       rule: {
         interval: [
           {
-            field: "hours",
-            hoursInterval: policy.schedule_hours
+            ...analyticsScheduleRule(policy)
           }
         ]
       }
@@ -4365,9 +4370,11 @@ async function buildRecommender() {
   const runtime = await readJson("config/runtime.json");
   assertValidRuntime(runtime);
   const policy = await readJson("config/recommendation-policy.json");
+  const analyticsPolicy = await readJson("config/analytics-policy.json");
   const profile = await readJson("config/candidate-profile.json");
   const recommendationCore = await bundledCore(
     "src/contracts.mjs",
+    "src/schedules.mjs",
     "src/analytics.mjs",
     "src/recommendations.mjs"
   );
@@ -4378,6 +4385,15 @@ async function buildRecommender() {
   if (policyErrors.length > 0) {
     throw new Error(
       `Invalid recommendation policy:\n- ${policyErrors.join("\n- ")}`
+    );
+  }
+  const scheduleErrors = validateLearningSchedulePair(
+    analyticsPolicy,
+    policy
+  );
+  if (scheduleErrors.length > 0) {
+    throw new Error(
+      `Invalid learning schedule:\n- ${scheduleErrors.join("\n- ")}`
     );
   }
 
@@ -4529,8 +4545,7 @@ return [{ json: report }];`;
       rule: {
         interval: [
           {
-            field: "hours",
-            hoursInterval: policy.schedule_hours
+            ...recommendationScheduleRule(analyticsPolicy, policy)
           }
         ]
       }
@@ -4668,6 +4683,8 @@ return [{ json: report }];`;
           policy.required_metric_definition_version,
         requiredAnalyticsBandVersion: policy.required_band_version,
         recommendationScheduleHours: policy.schedule_hours,
+        sourceCompletionBufferMinutes:
+          policy.source_completion_buffer_minutes,
         executionTimeoutSeconds: policy.execution_timeout_seconds,
         recommendationMode: "read_only_advisory"
       },

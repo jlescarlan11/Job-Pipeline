@@ -4,9 +4,12 @@
 
 `config/analytics-policy.json` versions the metric definitions, bands,
 attribution rule, all-time window, `Asia/Manila` day boundary, daily cadence,
-and Sheet output contracts. `src/analytics.mjs` is a pure deterministic
-aggregator. `workflows/analytics.json` reads `Sheet1` and `Archive`; it never
-updates a job, ranking policy, search plan, application pack, or outcome.
+fixed 02:00 start, and Sheet output contracts. `src/analytics.mjs` is a pure
+deterministic aggregator. `workflows/analytics.json` reads `Sheet1` and
+`Archive`; it never updates a job, ranking policy, search plan, application
+pack, or outcome. The fixed time provides the weekly consumer with a
+configuration-validated completion window; workflow activation time does not
+define this phase.
 
 Every distinct aggregate result has a SHA-256 content-addressed `report_id`.
 The identity includes the complete ordered metric result, versions, cohort

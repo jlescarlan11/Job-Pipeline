@@ -2,6 +2,7 @@ import {
   mergeOutcomeEvents,
   normalizeLegacyRecord
 } from "./contracts.mjs";
+import { validateAnalyticsSchedule } from "./schedules.mjs";
 
 const DAY_MS = 86_400_000;
 const OUTCOME_METRICS = {
@@ -244,6 +245,7 @@ export function validateAnalyticsPolicy(policy) {
   if (!Number.isInteger(policy.schedule_hours) || policy.schedule_hours < 1) {
     errors.push("schedule_hours must be a positive integer");
   }
+  errors.push(...validateAnalyticsSchedule(policy));
   if (
     !Number.isInteger(policy.execution_timeout_seconds) ||
     policy.execution_timeout_seconds < 1

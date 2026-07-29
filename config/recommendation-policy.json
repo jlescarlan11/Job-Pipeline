@@ -2,6 +2,16 @@
   "schema_version": 1,
   "policy_version": "2026-07-28/v1",
   "schedule_hours": 168,
+  "schedule": {
+    "field": "weeks",
+    "weeks_interval": 1,
+    "trigger_at_days": [
+      1
+    ],
+    "trigger_at_hour": 2,
+    "trigger_at_minute": 45
+  },
+  "source_completion_buffer_minutes": 15,
   "execution_timeout_seconds": 900,
   "required_window_type": "all_time",
   "required_metric_definition_version": "2026-07-28/v1",

@@ -51,7 +51,11 @@ Archive: terminal history and employer outcomes
 
 Configured schedules are scraper every 4 hours, generator every 15 minutes,
 alerter every 3 minutes, reviewer every 5 minutes, archiver every 45 minutes,
-analytics every 24 hours, and recommender every 168 hours.
+analytics every 24 hours, and recommender every 168 hours. Analytics uses a
+fixed daily 02:00 start, and Recommender uses a fixed Monday 02:45 start, both
+in `Asia/Manila`. This places the weekly consumer after Analytics' 30-minute
+outer timeout plus a required 15-minute completion buffer instead of depending
+on the workflows' activation-relative interval phases.
 
 All seven exports run in the explicit `Asia/Manila` workflow timezone. Their
 outer execution budgets are Scraper 900-second, Generator 540-second, Alerter
@@ -370,8 +374,8 @@ as data-quality metrics. Existing Dashboard funnel behavior remains owned by
 the reviewer.
 
 `config/analytics-policy.json` versions an all-time cohort, `Asia/Manila` day
-boundary, score/salary/posting-age bands, top-ranked threshold, and
-multi-touch full-credit attribution. Output includes explicit
+boundary and fixed daily 02:00 schedule, score/salary/posting-age bands,
+top-ranked threshold, and multi-touch full-credit attribution. Output includes explicit
 numerator/denominator/sample/window rows for overall and dimensional
 conversion, per-ten outcomes, time to action, Apply Point efficiency,
 instruction/top-rank comparisons, hard-gap non-applications, pack blockers,
@@ -399,8 +403,12 @@ and metric/band versions, and rejects missing or mismatched detail. The source
 analytics and every operational tab remain read-only.
 
 `config/recommendation-policy.json` versions the 168-hour schedule, overall and
+fixed Monday 02:45 start, 15-minute post-timeout source-completion buffer,
 segment sample minimums, explicit-outcome and per-dimension coverage gates,
 comparison delta, ordered score/confidence bands, and output contracts.
+If that day's Analytics execution fails or exceeds its budget, the consumer
+still selects the latest complete report and never treats partial detail as
+current.
 Eligible query and role cohorts are assessed on reply/interview/offer
 conversion rather than discovery volume alone. Ordered qualification,
 opportunity, and confidence cohorts expose possible overconfidence,

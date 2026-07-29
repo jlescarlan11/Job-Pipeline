@@ -2,12 +2,17 @@
 
 ## Boundary and source
 
-The disabled-by-default `workflows/recommender.json` runs every 168 hours. It
-reads only `AnalyticsReports` and `Analytics`, selects the newest valid
-`status=complete` analytics report, and filters detail to that report ID.
+The disabled-by-default `workflows/recommender.json` runs every 168 hours,
+starting Mondays at 02:45 in `Asia/Manila`. The daily Analytics workflow starts
+at 02:00, so the weekly consumer begins after Analytics' 30-minute outer
+timeout and a required 15-minute completion buffer. It reads only
+`AnalyticsReports` and `Analytics`, selects the newest valid `status=complete`
+analytics report, and filters detail to that report ID.
 `config/recommendation-policy.json` pins the required all-time window, metric
 definition, band definition, thresholds, output contracts, and policy version.
 An incomplete, incompatible, or orphaned analytics refresh is never eligible.
+If the same-day Analytics refresh fails or overruns, the latest complete
+earlier report remains eligible; partial same-day detail cannot replace it.
 If the source contains analytics metadata but no valid complete report, the
 weekly run is recorded as failed rather than as a successful abstention or
 empty result. A genuinely empty source produces a complete `empty` report.

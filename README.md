@@ -16,6 +16,12 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, skip an already-current equivalent successful result, otherwise publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
 | `workflows/archiver.json` | Every 45 minutes | Upsert eligible terminal records into Archive, reread both tabs, verify the source snapshot and archive copy, then delete confirmed rows from bottom to top. |
 
+The daily Analytics run has a fixed 02:00 start in `Asia/Manila`. The weekly
+Recommender starts Mondays at 02:45, after Analytics' 30-minute outer timeout
+and a required 15-minute completion buffer. If the daily refresh fails or
+overruns, the Recommender remains safe by selecting the latest complete
+analytics report rather than partial output.
+
 Every export uses the `Asia/Manila` workflow timezone and an explicit outer
 execution budget: Scraper 900-second, Generator 540-second, Alerter 90-second,
 Reviewer 180-second, Archiver 540-second, Analytics 1800-second, and

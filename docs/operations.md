@@ -141,7 +141,10 @@ run must clear zero additional inputs.
    into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
 6. Confirm the configured schedules are 4 hours, 15 minutes, 3 minutes,
-   5 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5.
+   5 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5. Confirm
+   Analytics is fixed at 02:00 daily and Recommender at 02:45 Mondays in
+   `Asia/Manila`, leaving the configured 30-minute timeout plus 15-minute
+   completion buffer.
 7. Confirm every export uses `Asia/Manila` and the checked-in workflow timeout:
    Scraper 900-second, Generator 540-second, Alerter 90-second, Reviewer
    180-second, Archiver 540-second, Analytics 1800-second, and Recommender
@@ -347,6 +350,8 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - Hand-calculate a small applied cohort with active/archive overlap,
   multi-query provenance, progressive outcomes, known/unknown Apply Points,
   complete/incomplete packs, and score-band boundary values.
+- Confirm the Schedule Trigger is a daily 02:00 `Asia/Manila` rule rather than
+  an activation-relative hourly interval.
 - Run analytics and compare every overall numerator/denominator, per-ten value,
   point total, time coverage, unknown bucket, non-additive attribution flag,
   and calibration sample size.
@@ -372,6 +377,10 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - Temporarily use a non-production policy copy only if the production minimum
   of 20 applications prevents fixture verification; do not commit or deploy
   lowered thresholds.
+- Confirm the Schedule Trigger is Mondays at 02:45 `Asia/Manila`, 15 minutes
+  after the daily Analytics timeout deadline. Simulate a failed or overrun
+  same-day refresh and confirm the Recommender uses the latest complete report
+  and ignores partial detail.
 - Run the recommender and verify its 168-hour policy version, required analytics
   versions, all-time window, numerator, denominator, sample, comparison,
   coverage, caveat, and proposed operator action.
@@ -430,7 +439,10 @@ Only after dry-run evidence passes:
 8. Verify the production Slack/review environment variables without recording
    their values, including that `JOB_PIPELINE_REVIEW_URL` is the full
    `Review Queue` tab deep link, then activate in this order: reviewer, generator, alerter,
-   scraper, archiver, analytics, recommender.
+   scraper, archiver, analytics, recommender. After activation, re-open both
+   learning workflow triggers and verify Analytics remains daily at 02:00 and
+   Recommender remains Monday at 02:45 in `Asia/Manila`; activation time must
+   not define their relative phase.
 9. Wait for and verify one cycle at each cadence from sanitized runtime logs
    and the authoritative Sheet/report state before ending the window.
 

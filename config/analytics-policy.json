@@ -3,6 +3,12 @@
   "metric_definition_version": "2026-07-28/v1",
   "band_version": "2026-07-28/v1",
   "schedule_hours": 24,
+  "schedule": {
+    "field": "days",
+    "days_interval": 1,
+    "trigger_at_hour": 2,
+    "trigger_at_minute": 0
+  },
   "execution_timeout_seconds": 1800,
   "analysis_timezone": "Asia/Manila",
   "analysis_window": {
