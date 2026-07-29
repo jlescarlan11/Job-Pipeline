@@ -11,6 +11,17 @@ export function collectDeclaredVersionFields(...fieldCollections) {
   ].sort();
 }
 
+export const LEGACY_MESSAGE_QUARANTINE_IDS = Object.freeze([
+  "onlinejobs.ph:1696828",
+  "onlinejobs.ph:1696881",
+  "onlinejobs.ph:1585711",
+  "onlinejobs.ph:1697174",
+  "onlinejobs.ph:1697248",
+  "onlinejobs.ph:1697386",
+  "onlinejobs.ph:1697330",
+  "onlinejobs.ph:1697526"
+]);
+
 export function classifyVersionCell({
   field,
   value,
@@ -127,16 +138,7 @@ export function classifyOrphanedProcessingClaim({
 }
 
 export function classifyLegacyMessageQuarantine(record, current) {
-  const confirmedIdentities = new Set([
-    "onlinejobs.ph:1696828",
-    "onlinejobs.ph:1696881",
-    "onlinejobs.ph:1585711",
-    "onlinejobs.ph:1697174",
-    "onlinejobs.ph:1697248",
-    "onlinejobs.ph:1697386",
-    "onlinejobs.ph:1697330",
-    "onlinejobs.ph:1697526"
-  ]);
+  const confirmedIdentities = new Set(LEGACY_MESSAGE_QUARANTINE_IDS);
   const identity = String(record?.canonical_job_id || "").trim();
   if (!confirmedIdentities.has(identity)) {
     return { status: "skipped", reason: "unconfirmed_identity" };

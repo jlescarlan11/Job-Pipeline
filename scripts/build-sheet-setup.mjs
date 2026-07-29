@@ -6,7 +6,8 @@ import {
   classifyLegacyMessageQuarantine,
   classifyOrphanedProcessingClaim,
   classifyVersionCell,
-  collectDeclaredVersionFields
+  collectDeclaredVersionFields,
+  LEGACY_MESSAGE_QUARANTINE_IDS
 } from "../src/sheet-migrations.mjs";
 import { validateReviewQueueConfig } from "../src/review.mjs";
 
@@ -105,6 +106,12 @@ const JOB_PIPELINE_SETUP = ${JSON.stringify(
   2
 )};
 
+const LEGACY_MESSAGE_QUARANTINE_IDS = ${JSON.stringify(
+  LEGACY_MESSAGE_QUARANTINE_IDS,
+  null,
+  2
+)};
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Job Pipeline')
@@ -173,18 +180,46 @@ function setupJobPipelineSheets() {
     );
   }
   const legacyMessageMigration = quarantineLegacyMessages_(active);
+  const archivedLegacyMessageMigration =
+    inspectArchivedLegacyMessageTargets_(archive);
+  const activeLegacyMessageIds = [
+    ...legacyMessageMigration.records.quarantined,
+    ...legacyMessageMigration.records.already_quarantined,
+    ...legacyMessageMigration.records.current_safe
+  ].map((record) => record.canonical_job_id);
+  const archivedLegacyMessageIds =
+    archivedLegacyMessageMigration.records.archived.map(
+      (record) => record.canonical_job_id
+    );
+  const activeLegacyMessageIdSet = new Set(activeLegacyMessageIds);
+  const archivedLegacyMessageIdSet = new Set(archivedLegacyMessageIds);
+  const overlappingLegacyMessageIds = activeLegacyMessageIds.filter(
+    (identity) => archivedLegacyMessageIdSet.has(identity)
+  );
+  const coveredLegacyMessageIds = new Set([
+    ...activeLegacyMessageIds,
+    ...archivedLegacyMessageIds
+  ]);
+  const missingLegacyMessageIds =
+    LEGACY_MESSAGE_QUARANTINE_IDS.filter(
+      (identity) => !coveredLegacyMessageIds.has(identity)
+    );
   if (
     legacyMessageMigration.counts.conflicting > 0 ||
-    legacyMessageMigration.counts.quarantined +
-      legacyMessageMigration.counts.already_quarantined +
-      legacyMessageMigration.counts.current_safe !==
-      8
+    archivedLegacyMessageMigration.records.conflicting.length > 0 ||
+    overlappingLegacyMessageIds.length > 0 ||
+    missingLegacyMessageIds.length > 0 ||
+    activeLegacyMessageIdSet.size !== activeLegacyMessageIds.length ||
+    archivedLegacyMessageIdSet.size !== archivedLegacyMessageIds.length
   ) {
     throw new Error(
       'Confirmed legacy-message targets changed and require manual review before workflow activation. ' +
       JSON.stringify({
         counts: legacyMessageMigration.counts,
-        conflicts: legacyMessageMigration.records.conflicting
+        conflicts: legacyMessageMigration.records.conflicting,
+        archived: archivedLegacyMessageMigration,
+        overlapping: overlappingLegacyMessageIds,
+        missing: missingLegacyMessageIds
       })
     );
   }
@@ -224,7 +259,8 @@ function setupJobPipelineSheets() {
     reviewQueueColumns: reviewQueue.getLastColumn(),
     versionMigration,
     processingClaimMigration,
-    legacyMessageMigration
+    legacyMessageMigration,
+    archivedLegacyMessageMigration
   };
 }
 
@@ -233,6 +269,74 @@ ${classifyVersionCell.toString()}
 ${classifyOrphanedProcessingClaim.toString()}
 
 ${classifyLegacyMessageQuarantine.toString()}
+
+function inspectArchivedLegacyMessageTargets_(sheet) {
+  const summary = {
+    sheet: sheet.getName(),
+    records: {
+      archived: [],
+      missing: [],
+      conflicting: []
+    }
+  };
+  const headers = sheet
+    .getRange(1, 1, 1, sheet.getLastColumn())
+    .getDisplayValues()[0];
+  const idColumn = headers.indexOf('canonical_job_id');
+  const statusColumn = headers.indexOf('pipeline_status');
+  if (idColumn < 0 || statusColumn < 0) {
+    summary.records.conflicting.push({
+      row_number: 1,
+      canonical_job_id: '',
+      reason: 'required_header_missing'
+    });
+    return summary;
+  }
+
+  const rowCount = Math.max(sheet.getLastRow() - 1, 0);
+  const rows =
+    rowCount > 0
+      ? sheet.getRange(2, 1, rowCount, sheet.getLastColumn()).getValues()
+      : [];
+  LEGACY_MESSAGE_QUARANTINE_IDS.forEach((identity) => {
+    const matches = [];
+    rows.forEach((row, index) => {
+      if (String(row[idColumn] || '').trim() === identity) {
+        matches.push({
+          row_number: index + 2,
+          pipeline_status: String(row[statusColumn] || '').trim()
+        });
+      }
+    });
+    if (matches.length === 0) {
+      summary.records.missing.push({
+        canonical_job_id: identity
+      });
+      return;
+    }
+    if (matches.length > 1) {
+      summary.records.conflicting.push({
+        row_number: matches[0].row_number,
+        canonical_job_id: identity,
+        reason: 'duplicate_archive_records'
+      });
+      return;
+    }
+    if (matches[0].pipeline_status !== 'archived') {
+      summary.records.conflicting.push({
+        row_number: matches[0].row_number,
+        canonical_job_id: identity,
+        reason: 'unexpected_archive_status'
+      });
+      return;
+    }
+    summary.records.archived.push({
+      row_number: matches[0].row_number,
+      canonical_job_id: identity
+    });
+  });
+  return summary;
+}
 
 function repairAndFormatVersionColumns_(sheet) {
   const summary = {

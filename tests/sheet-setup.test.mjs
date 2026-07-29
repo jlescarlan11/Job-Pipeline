@@ -6,7 +6,8 @@ import {
   classifyLegacyMessageQuarantine,
   classifyOrphanedProcessingClaim,
   classifyVersionCell,
-  collectDeclaredVersionFields
+  collectDeclaredVersionFields,
+  LEGACY_MESSAGE_QUARANTINE_IDS
 } from "../src/sheet-migrations.mjs";
 
 const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
@@ -22,7 +23,7 @@ const recommendations = await loadJson(
 );
 
 const embeddedConfigMatch = script.match(
-  /const JOB_PIPELINE_SETUP = (\{[\s\S]*?\n\});\n\nfunction onOpen/
+  /const JOB_PIPELINE_SETUP = (\{[\s\S]*?\n\});\n\nconst LEGACY_MESSAGE_QUARANTINE_IDS/
 );
 assert.ok(embeddedConfigMatch, "generated Sheet setup configuration is missing");
 const embedded = JSON.parse(embeddedConfigMatch[1]);
@@ -477,7 +478,131 @@ globalThis.quarantineLegacyMessagesForTest =
   });
 });
 
+test("generated setup accepts confirmed legacy-message targets after archiving", () => {
+  const context = vm.createContext({});
+  new vm.Script(
+    `${script}
+globalThis.inspectArchivedLegacyMessageTargetsForTest =
+  inspectArchivedLegacyMessageTargets_;`
+  ).runInContext(context);
+  const headers = ["canonical_job_id", "pipeline_status"];
+  const rows = [
+    ["onlinejobs.ph:1697174", "archived"],
+    ["onlinejobs.ph:1697386", "archived"],
+    ["onlinejobs.ph:1697526", "archived"],
+    ["onlinejobs.ph:control", "archived"]
+  ];
+  const sheet = {
+    getName: () => "Archive",
+    getLastColumn: () => headers.length,
+    getLastRow: () => rows.length + 1,
+    getRange(row, column, rowCount = 1, columnCount = 1) {
+      return {
+        getDisplayValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        },
+        getValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        }
+      };
+    }
+  };
+
+  const result = JSON.parse(
+    JSON.stringify(
+      context.inspectArchivedLegacyMessageTargetsForTest(sheet)
+    )
+  );
+  assert.deepEqual(
+    result.records.archived.map((record) => record.canonical_job_id),
+    [
+      "onlinejobs.ph:1697174",
+      "onlinejobs.ph:1697386",
+      "onlinejobs.ph:1697526"
+    ]
+  );
+  assert.deepEqual(result.records.conflicting, []);
+  assert.equal(result.records.missing.length, 5);
+});
+
+test("generated setup rejects duplicate or non-archived legacy targets", () => {
+  const context = vm.createContext({});
+  new vm.Script(
+    `${script}
+globalThis.inspectArchivedLegacyMessageTargetsForTest =
+  inspectArchivedLegacyMessageTargets_;`
+  ).runInContext(context);
+  const headers = ["canonical_job_id", "pipeline_status"];
+  const rows = [
+    ["onlinejobs.ph:1697174", "archived"],
+    ["onlinejobs.ph:1697174", "archived"],
+    ["onlinejobs.ph:1697386", "ready"]
+  ];
+  const sheet = {
+    getName: () => "Archive",
+    getLastColumn: () => headers.length,
+    getLastRow: () => rows.length + 1,
+    getRange(row, column, rowCount = 1, columnCount = 1) {
+      return {
+        getDisplayValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        },
+        getValues() {
+          if (row === 1) {
+            return [
+              headers.slice(column - 1, column - 1 + columnCount)
+            ];
+          }
+          return rows
+            .slice(row - 2, row - 2 + rowCount)
+            .map((values) =>
+              values.slice(column - 1, column - 1 + columnCount)
+            );
+        }
+      };
+    }
+  };
+
+  const result = JSON.parse(
+    JSON.stringify(
+      context.inspectArchivedLegacyMessageTargetsForTest(sheet)
+    )
+  );
+  assert.deepEqual(
+    result.records.conflicting.map((record) => record.reason),
+    ["duplicate_archive_records", "unexpected_archive_status"]
+  );
+});
+
 test("Sheet setup artifact embeds the canonical schema and review controls", () => {
+  assert.equal(LEGACY_MESSAGE_QUARANTINE_IDS.length, 8);
   assert.deepEqual(embedded.recordFields, schema.fields);
   assert.deepEqual(embedded.reviewColumns, review.review_columns);
   assert.deepEqual(embedded.reviewQueue, review.review_queue);
