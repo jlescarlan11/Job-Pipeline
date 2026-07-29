@@ -362,11 +362,30 @@ archived applied records without replacing the message, profile/policy
 versions, ranking/application snapshot, pack/alert data, notes, identity, or
 decision.
 
-The Dashboard upserts one deduplicated current summary from the authoritative
-active/archive reread after guarded Reviewer actions finish. A decision or
-outcome committed by the current execution is therefore included in the same
-execution's summary. The summary never infers a reply, interview, offer, or
-rejection from `applied`.
+Before entering its guarded mutation/reconciliation path, the Reviewer reads
+the six durable surfaces it needs: `Sheet1`, `Archive`, `Review Queue`,
+`Applied Jobs`, `Dashboard`, and `ProcessingClaims`. It exits with zero writes
+only when both projections and the funnel metrics match exactly, there are no
+valid or invalid actions, all identities are unambiguous, and claim retention
+has no deletion work. A formula, duplicate, missing row, changed cell, pending
+action, source update, invalid projection, or retention batch fails the gate
+closed. An edit after the snapshot is never cleared and is handled by the next
+five-minute poll.
+
+The exact stable path therefore falls from at least 14 Sheet/Sheets API
+requests to six reads, avoids one `applied_jobs_projection` claim, and avoids a
+Dashboard mutation. At 288 polls per day, the stable-case upper bound is 2,304
+avoided requests and 288 avoided claim rows per day (840,960 requests and
+105,120 rows per 365-day year); actual savings are proportional to stable
+polls.
+
+When work is required, the Dashboard upserts one deduplicated current summary
+from the authoritative active/archive reread after guarded Reviewer actions
+finish. A decision or outcome committed by the current execution is therefore
+included in the same execution's summary. Content-identical metrics skip the
+write, so `generated_at` records the last material summary publication rather
+than acting as a workflow-health heartbeat. The summary never infers a reply,
+interview, offer, or rejection from `applied`.
 
 ## Analytics workflow
 

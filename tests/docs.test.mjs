@@ -93,6 +93,23 @@ test("runtime documentation preserves failure evidence without successful execut
   assert.match(operations, /instance-level pruning/i);
 });
 
+test("Reviewer idle-path documentation preserves the fail-closed operation bound", () => {
+  for (const document of [readme, architecture]) {
+    assert.match(document, /six (?:Sheet )?reads/i);
+    assert.match(document, /at least 14 Sheet\/Sheets API\s+requests/i);
+    assert.match(document, /one[\s\S]{0,40}claim/i);
+    assert.match(document, /Dashboard mutation/i);
+  }
+  assert.match(architecture, /2,304\s+avoided\s+requests/i);
+  assert.match(architecture, /105,120\s+rows/i);
+  assert.match(operations, /review_snapshot_unchanged/i);
+  assert.match(operations, /exactly\s+six Sheet reads/i);
+  assert.match(
+    operations,
+    /generated_at[\s\S]{0,80}last\s+material summary publication/i
+  );
+});
+
 test("learning schedule documentation preserves fixed ordering and safe fallback", () => {
   for (const document of [readme, architecture, operations]) {
     assert.match(document, /02:00/i);

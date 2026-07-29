@@ -246,10 +246,18 @@ Slack HTTP node must remain an explicit JSON `POST`.
   run safely reconciles both. Edit a second Action after the Reviewer initial
   queue read and confirm that concurrent input survives the current rebuild.
 - Run the Reviewer twice with an unchanged, correctly ordered Review Queue and
-  no pending Action. Confirm the second reconciliation reports the unchanged
-  row count and performs no queue deletes or appends. In the workbook copy,
+  no pending Action. Also ensure Applied Jobs and Dashboard exactly match the
+  current sources and ProcessingClaims has no eligible retention batch.
+  Confirm the second run reports `review_snapshot_unchanged`, performs exactly
+  six Sheet reads, performs no write, appends no projection claim, and does not
+  enter the post-review reread or maintenance nodes. In the workbook copy,
   replace one owned queue cell with an equivalent-display formula and confirm
   the next run detects the formula text and rebuilds the projection.
+- Separately change only one Dashboard count, add a duplicate current Dashboard
+  row, and replace a Dashboard count with a formula. Confirm each case fails
+  the idle gate closed. Restore one valid current row, run without metric
+  changes, and confirm no Dashboard upsert occurs; `generated_at` is the last
+  material summary publication, not a five-minute health signal.
 - Repeat those interruption and concurrent-edit checks for Applied Jobs,
   including an archived source commit and an active-to-Archive race. Confirm an
   unconfirmed write retains Action, a confirmed write survives cleanup retry,
@@ -272,7 +280,9 @@ Slack HTTP node must remain an explicit JSON `POST`.
   are removed, descending ranges target the expected rows, and the committed
   log reconciles the selected count. Interrupt the batch request once; do not
   retry that execution. Rerun from a fresh Sheet read and confirm arbitration
-  still selects the same active winner.
+  still selects the same active winner. Confirm eligible cleanup work fails the
+  idle gate closed and still runs only after the Reviewer wins the existing
+  `applied_jobs_projection` lease.
 - Confirm the application snapshot remains unchanged after a permitted
   regeneration/correction path, and that a legacy applied row with blank
   points remains valid.

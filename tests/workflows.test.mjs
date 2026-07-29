@@ -1225,10 +1225,18 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     workflow,
     "Plan Processing Claims Cleanup"
   ).parameters.jsCode;
-  assert.match(claimCleanupPlan, /planProcessingClaimRetention/);
+  assert.match(claimCleanupPlan, /claim_retention_plan/);
   assert.match(claimCleanupPlan, /processing_claim_cleanup_plan/);
+  const initialPlan = nodeByName(
+    workflow,
+    "Prepare Review Plan"
+  ).parameters.jsCode;
+  assert.match(initialPlan, /planProcessingClaimRetention/);
+  assert.match(initialPlan, /reviewSnapshotStatus/);
+  assert.match(initialPlan, /buildReviewQueueProjection/);
+  assert.match(initialPlan, /buildAppliedJobsProjection/);
   assert.match(
-    claimCleanupPlan,
+    initialPlan,
     new RegExp(claimRetentionPolicy.policy_version.replace("/", "\\/"))
   );
   const prepareClaimCleanup = nodeByName(
@@ -1281,6 +1289,36 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.equal(
     batchUpdate.parameters.nodeCredentialType,
     "googleSheetsOAuth2Api"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Applied Jobs Rows",
+    "Get Dashboard Rows"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Dashboard Rows",
+    "Aggregate Dashboard Rows"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Dashboard Rows",
+    "Get Processing Claims for Retention"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Processing Claims for Retention",
+    "Prepare Review Plan"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Review Plan",
+    "Has Review Snapshot Changes"
+  );
+  assertDirectConnection(
+    workflow,
+    "Has Review Snapshot Changes",
+    "Log Unchanged Review Snapshot"
   );
   assertDirectConnection(
     workflow,
@@ -1420,6 +1458,20 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   );
 
   const dashboard = nodeByName(workflow, "Update Dashboard Summary");
+  const dashboardRead = nodeByName(workflow, "Get Dashboard Rows");
+  assert.equal(
+    dashboardRead.parameters.sheetName.value,
+    review.dashboard_sheet
+  );
+  assert.equal(
+    dashboardRead.parameters.options.outputFormatting.values.general,
+    "FORMULA"
+  );
+  const retentionRead = nodeByName(
+    workflow,
+    "Get Processing Claims for Retention"
+  );
+  assert.equal(retentionRead.parameters.sheetName.value, review.claims_sheet);
   const funnelSummary = nodeByName(
     workflow,
     "Prepare Funnel Summary"
@@ -1428,6 +1480,23 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.match(funnelSummary, /\$\('Aggregate Archive After Review'\)/);
   assert.doesNotMatch(funnelSummary, /\$\('Aggregate Active Rows'\)/);
   assert.doesNotMatch(funnelSummary, /\$\('Aggregate Archive Rows'\)/);
+  assert.match(funnelSummary, /reusableFunnelSummary/);
+  assertDirectConnection(
+    workflow,
+    "Prepare Funnel Summary",
+    "Has Dashboard Changes"
+  );
+  assertDirectConnection(
+    workflow,
+    "Has Dashboard Changes",
+    "Update Dashboard Summary"
+  );
+  assert.equal(
+    connectionTargets(workflow, "Prepare Funnel Summary").includes(
+      "Update Dashboard Summary"
+    ),
+    false
+  );
   assert.equal(dashboard.parameters.operation, "appendOrUpdate");
   assert.deepEqual(dashboard.parameters.columns.matchingColumns, ["metric_key"]);
   assert.equal(dashboard.parameters.sheetName.value, review.dashboard_sheet);

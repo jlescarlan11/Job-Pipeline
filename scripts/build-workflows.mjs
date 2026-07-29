@@ -2160,6 +2160,7 @@ async function buildReviewer() {
   const reviewCore = await bundledCore(
     "src/contracts.mjs",
     "src/claim-retention.mjs",
+    "src/review-efficiency.mjs",
     "src/profile.mjs",
     "src/evaluation.mjs",
     "src/message-safety.mjs",
@@ -2223,10 +2224,32 @@ async function buildReviewer() {
   };
   appliedJobsRead.alwaysOutputData = true;
 
+  const dashboardRead = structuredClone(activeRead);
+  dashboardRead.id = "88af9ce3-b45f-4aa8-a980-000000000097";
+  dashboardRead.name = "Get Dashboard Rows";
+  dashboardRead.position = [80, 240];
+  dashboardRead.parameters.sheetName = {
+    __rl: true,
+    value: reviewConfig.dashboard_sheet,
+    mode: "name",
+    cachedResultName: reviewConfig.dashboard_sheet
+  };
+  dashboardRead.parameters.options = {
+    ...dashboardRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  dashboardRead.alwaysOutputData = true;
+
   const planCode = `${reviewCore}
 
 const SCHEMA = ${JSON.stringify(schema)};
 const REVIEW_CONFIG = ${JSON.stringify(reviewConfig)};
+const CLAIM_RETENTION_POLICY = ${JSON.stringify(claimRetentionPolicy)};
 const MESSAGE_SAFETY = {
   profile: ${JSON.stringify(profile)},
   applicationPolicy: ${JSON.stringify(applicationPolicy)},
@@ -2239,6 +2262,11 @@ const archiveRows = ($('Aggregate Archive Rows').first().json.archive_rows || []
 const queueRows = ($('Aggregate Review Queue Rows').first().json.queue_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 const appliedJobsRows = ($('Aggregate Applied Jobs Rows').first().json.applied_jobs_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const dashboardRows = ($('Aggregate Dashboard Rows').first().json.dashboard_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const claimRows = $('Get Processing Claims for Retention').all()
+  .map((item) => item.json)
   .filter((row) => row && Object.keys(row).length > 0);
 const now = new Date().toISOString();
 const processed = processReviewActions(
@@ -2254,7 +2282,60 @@ const processed = processReviewActions(
     executionId: String($execution.id)
   }
 );
-return [{ json: processed }];`;
+const queueProjection = buildReviewQueueProjection(
+  activeRows,
+  SCHEMA,
+  REVIEW_CONFIG,
+  now
+);
+const appliedProjection = buildAppliedJobsProjection(
+  activeRows,
+  archiveRows,
+  SCHEMA,
+  REVIEW_CONFIG,
+  now
+);
+const dashboardSummary = buildFunnelSummary(
+  activeRows,
+  archiveRows,
+  SCHEMA,
+  now
+);
+const claimRetentionPlan = planProcessingClaimRetention(
+  claimRows,
+  CLAIM_RETENTION_POLICY,
+  now
+);
+const snapshotStatus = reviewSnapshotStatus({
+  processed,
+  currentQueueRows: queueRows,
+  desiredQueueRows: queueProjection.rows,
+  queueFields: REVIEW_CONFIG.review_queue.fields,
+  currentAppliedRows: appliedJobsRows,
+  desiredAppliedRows: appliedProjection.rows,
+  appliedFields: REVIEW_CONFIG.applied_jobs.fields,
+  currentDashboardRows: dashboardRows,
+  dashboardSummary,
+  dashboardFields: REVIEW_CONFIG.dashboard_fields,
+  projectionInvalidCount:
+    queueProjection.invalid_records.length +
+    appliedProjection.invalid_records.length,
+  claimRetentionPlan
+});
+console.log(JSON.stringify({
+  event: 'review_snapshot_plan',
+  ...snapshotStatus,
+  processing_claim_rows: claimRetentionPlan.counts.rows_seen,
+  processing_claim_threshold_reached:
+    claimRetentionPlan.threshold_reached
+}));
+return [{
+  json: {
+    ...processed,
+    snapshot_status: snapshotStatus,
+    claim_retention_plan: claimRetentionPlan
+  }
+}];`;
 
   const updateFields = [
     "state_guard",
@@ -2330,6 +2411,10 @@ return [{ json: processed }];`;
     cachedResultName: reviewConfig.claims_sheet
   };
   projectionClaimsRead.alwaysOutputData = true;
+  const retentionClaimsRead = structuredClone(projectionClaimsRead);
+  retentionClaimsRead.id = "88af9ce3-b45f-4aa8-a980-000000000099";
+  retentionClaimsRead.name = "Get Processing Claims for Retention";
+  retentionClaimsRead.position = [500, 240];
   const projectionClaimsAppend = appendSheetNode({
     base: activeRead,
     id: "88af9ce3-b45f-4aa8-a980-000000000084",
@@ -2347,13 +2432,7 @@ return [{ json: processed }];`;
     projectionClaimsRead.parameters.sheetName
   );
 
-  const dashboardNodeBase = structuredClone(activeRead);
-  dashboardNodeBase.parameters.sheetName = {
-    __rl: true,
-    value: reviewConfig.dashboard_sheet,
-    mode: "name",
-    cachedResultName: reviewConfig.dashboard_sheet
-  };
+  const dashboardNodeBase = structuredClone(dashboardRead);
 
   const activeAfterReview = structuredClone(activeRead);
   activeAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000017";
@@ -2706,17 +2785,9 @@ return [{ json: {
     },
     credentials: googleSheetsCredentials
   };
-  const claimRetentionPlanCode = `${reviewCore}
-
-const POLICY = ${JSON.stringify(claimRetentionPolicy)};
-const claims = $('Get Applied Jobs Projection Claims').all()
-  .map((item) => item.json)
-  .filter((row) => row && Object.keys(row).length > 0);
-const plan = planProcessingClaimRetention(
-  claims,
-  POLICY,
-  new Date().toISOString()
-);
+  const claimRetentionPlanCode = `
+const plan =
+  $('Prepare Review Plan').first().json.claim_retention_plan;
 console.log(JSON.stringify({
   event: 'processing_claim_cleanup_plan',
   policy_version: plan.policy_version,
@@ -2840,11 +2911,40 @@ return [{ json: {
       position: [-130, 240],
       destinationFieldName: "applied_jobs_rows"
     }),
+    dashboardRead,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000098",
+      name: "Aggregate Dashboard Rows",
+      position: [290, 240],
+      destinationFieldName: "dashboard_rows"
+    }),
+    retentionClaimsRead,
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000030",
       name: "Prepare Review Plan",
-      position: [-340, 240],
+      position: [710, 240],
       jsCode: planCode
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000100",
+      name: "Has Review Snapshot Changes",
+      position: [930, 240],
+      leftValue: "={{ $json.snapshot_status.refresh_required === true }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000101",
+      name: "Log Unchanged Review Snapshot",
+      position: [1150, 360],
+      jsCode: `const status =
+  $('Prepare Review Plan').first().json.snapshot_status;
+console.log(JSON.stringify({
+  event: 'review_snapshot_unchanged',
+  ...status
+}));
+return [{ json: {
+  event: 'review_snapshot_unchanged',
+  ...status
+} }];`
     }),
     booleanIfNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000031",
@@ -3123,13 +3223,42 @@ const activeRows = ($('Aggregate Active After Review').first().json.active_rows 
   .filter((row) => row && Object.keys(row).length > 0);
 const archiveRows = ($('Aggregate Archive After Review').first().json.archive_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
-return [{ json: buildFunnelSummary(activeRows, archiveRows, SCHEMA, new Date().toISOString()) }];`
+const dashboardRows = ($('Aggregate Dashboard Rows').first().json.dashboard_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const summary = buildFunnelSummary(
+  activeRows,
+  archiveRows,
+  SCHEMA,
+  new Date().toISOString()
+);
+const reusable = reusableFunnelSummary(
+  dashboardRows,
+  summary,
+  ${JSON.stringify(reviewConfig.dashboard_fields)}
+);
+console.log(JSON.stringify({
+  event: 'dashboard_summary',
+  action: reusable ? 'unchanged' : 'publish',
+  metric_key: summary.metric_key
+}));
+return [{
+  json: {
+    ...summary,
+    publish_required: !reusable
+  }
+}];`
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000102",
+      name: "Has Dashboard Changes",
+      position: [100, 500],
+      leftValue: "={{ $json.publish_required === true }}"
     }),
     upsertSheetNode({
       base: dashboardNodeBase,
       id: "88af9ce3-b45f-4aa8-a980-000000000010",
       name: "Update Dashboard Summary",
-      position: [100, 500],
+      position: [320, 500],
       fields: reviewConfig.dashboard_fields,
       matchingField: "metric_key"
     }),
@@ -3377,13 +3506,24 @@ return [{ json: {
     "Get Review Queue Rows": { main: [[connection("Aggregate Review Queue Rows")]] },
     "Aggregate Review Queue Rows": { main: [[connection("Get Applied Jobs Rows")]] },
     "Get Applied Jobs Rows": { main: [[connection("Aggregate Applied Jobs Rows")]] },
-    "Aggregate Applied Jobs Rows": { main: [[connection("Prepare Review Plan")]] },
+    "Aggregate Applied Jobs Rows": { main: [[connection("Get Dashboard Rows")]] },
+    "Get Dashboard Rows": { main: [[connection("Aggregate Dashboard Rows")]] },
+    "Aggregate Dashboard Rows": {
+      main: [[connection("Get Processing Claims for Retention")]]
+    },
+    "Get Processing Claims for Retention": {
+      main: [[connection("Prepare Review Plan")]]
+    },
     "Prepare Review Plan": {
+      main: [[connection("Has Review Snapshot Changes")]]
+    },
+    "Has Review Snapshot Changes": {
       main: [
         [
           connection("Has Active Review Updates"),
           connection("Log Invalid Review Actions")
-        ]
+        ],
+        [connection("Log Unchanged Review Snapshot")]
       ]
     },
     "Has Active Review Updates": {
@@ -3501,7 +3641,10 @@ return [{ json: {
     "Aggregate Archive Direct Review Updates": {
       main: [[connection("Get Active After Review")]]
     },
-    "Prepare Funnel Summary": { main: [[connection("Update Dashboard Summary")]] },
+    "Prepare Funnel Summary": { main: [[connection("Has Dashboard Changes")]] },
+    "Has Dashboard Changes": {
+      main: [[connection("Update Dashboard Summary")], []]
+    },
     "Get Active After Review": {
       main: [[connection("Aggregate Active After Review")]]
     },

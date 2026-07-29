@@ -689,6 +689,13 @@ failures, fixes, and reconciliation are recorded in
   structure tests reject the former initial-snapshot branch, and the runbook
   verifies a committed decision or outcome appears in the same execution's
   summary.
+- **I24-AC24b — Exact idle snapshot:** A pure fail-closed comparator plus
+  generated-workflow structure tests require exact Review Queue, Applied Jobs,
+  and Dashboard content; no action, ambiguity, invalid projection, or eligible
+  claim cleanup; and formula-visible reads before the Reviewer may exit. The
+  stable path uses six reads and no writes instead of at least 14
+  Sheet/Sheets API requests, one projection claim, and one Dashboard mutation.
+  Retention work still enters the existing projection-lease arbitration path.
 - **I24-AC25 — Failure/concurrency matrix:** Review, workflow, setup, Archive,
   and E2E suites cover ordering, empty data, duplicates, stale/conflicting
   state, unconfirmed commit, cleanup retry, concurrent Action preservation,
