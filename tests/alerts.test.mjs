@@ -134,7 +134,7 @@ test("alert policy is versioned, bounded, and secret-free", () => {
   assert.match(errors, /channel is unsupported/);
   assert.match(errors, /ambiguous timeouts must be terminal/);
   assert.match(errors, /invalid alert environment reference/);
-  assert.match(errors, /preserve three actions/);
+  assert.match(errors, /preserve two required links/);
 });
 
 test("provider configuration allows only HTTPS Slack webhooks and HTTPS review surfaces", () => {
@@ -142,7 +142,8 @@ test("provider configuration allows only HTTPS Slack webhooks and HTTPS review s
     validateAlertProviderConfiguration(
       {
         webhookUrl: "https://hooks.slack.com/services/test/value",
-        reviewUrl: "https://docs.google.com/spreadsheets/d/example"
+        reviewUrl:
+          "https://docs.google.com/spreadsheets/d/example/edit#gid=123456"
       },
       policy
     ),
@@ -167,6 +168,17 @@ test("provider configuration allows only HTTPS Slack webhooks and HTTPS review s
       policy
     ).join("\n"),
     /bounded Slack/
+  );
+  assert.match(
+    validateAlertProviderConfiguration(
+      {
+        webhookUrl: "https://hooks.slack.com/services/test/value",
+        reviewUrl:
+          "https://docs.google.com/spreadsheets/d/example/edit#gid=1|Injected>"
+      },
+      policy
+    ).join("\n"),
+    /bounded credential-free HTTPS/
   );
 });
 
@@ -205,6 +217,13 @@ test("eligibility enforces every configured boundary", () => {
         canonical_url: `https://onlinejobs.ph/jobseekers/job/${"x".repeat(
           policy.maximum_action_url_characters
         )}`
+      }
+    ],
+    [
+      "source_url_invalid",
+      {
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/example-7001|Injected>"
       }
     ]
   ];
@@ -297,9 +316,9 @@ GitHub: ${profile.candidate.links.github}`;
     company: "",
     salary_text: ""
   });
-  const alert = renderAlert(record, policy, {
-    reviewUrl: "https://docs.google.com/spreadsheets/d/example"
-  });
+  const reviewUrl =
+    "https://docs.google.com/spreadsheets/d/example/edit#gid=123456";
+  const alert = renderAlert(record, policy, { reviewUrl });
   assert.match(alert.text, /Qualification 80\/100/);
   assert.match(alert.text, /Opportunity 78\/100/);
   assert.match(alert.text, /Confidence medium/);
@@ -307,15 +326,21 @@ GitHub: ${profile.candidate.links.github}`;
   assert.match(alert.text, /Salary: Unknown/);
   assert.match(alert.text, /Questions: None detected/);
   assert.match(alert.text, /Instructions: Use subject line CODE-TS/);
-  assert.match(alert.text, /Confirm skip in Sheet/);
+  assert.match(alert.text, /Open Review Queue/);
   assert.match(alert.text, /Open OnlineJobs\.ph/);
+  assert.equal(alert.text.split(reviewUrl).length - 1, 1);
+  assert.doesNotMatch(
+    alert.text,
+    /Review in Sheet|Review in authorized Sheet|Confirm skip in Sheet/
+  );
   assert.doesNotMatch(alert.text, /FULL DESCRIPTION/);
   assert.match(alert.text, /\*Application message — copy below:\*\n```/);
   assert.match(alert.text, /TypeScript &amp; React/);
   assert.match(alert.text, /evidence &lt; assumptions &gt; hype/);
   assert.equal(extractApplicationMessage(alert.text), generatedMessage);
   assert.equal(alert.review_action.mode, "authorized_review_surface");
-  assert.equal(alert.skip_action.mode, "review_confirmation");
+  assert.equal(alert.review_action.url, reviewUrl);
+  assert.equal("skip_action" in alert, false);
   assert.equal(alert.source_action.mode, "open_only");
   assert.equal(
     alert.source_action.url,
@@ -355,8 +380,11 @@ GitHub: ${profile.candidate.links.github}`;
   );
   assert.ok(bounded.text.length <= policy.maximum_message_characters);
   assert.match(bounded.text, /Warnings:/);
-  assert.match(bounded.text, /Review in authorized Sheet/);
-  assert.match(bounded.text, /Confirm skip in Sheet/);
+  assert.match(bounded.text, /Open Review Queue/);
+  assert.doesNotMatch(
+    bounded.text,
+    /Review in Sheet|Review in authorized Sheet|Confirm skip in Sheet/
+  );
   assert.match(bounded.text, /Open OnlineJobs\.ph/);
   assert.equal(
     extractApplicationMessage(bounded.text),
@@ -394,8 +422,7 @@ test("complete messages are accepted at the exact payload boundary and rejected 
   const reviewUrl = "https://docs.google.com/spreadsheets/d/example";
   const sourceUrl = ready().canonical_url;
   const links = [
-    `<${reviewUrl}|Review in authorized Sheet>`,
-    `<${reviewUrl}|Confirm skip in Sheet>`,
+    `<${reviewUrl}|Open Review Queue>`,
     `<${sourceUrl}|Open OnlineJobs.ph>`
   ].join(" · ");
   const requiredOverhead =
@@ -677,12 +704,12 @@ test("forwarded or tampered links have no state-changing capability and repeated
     { reviewUrl: "javascript:alert(1)" }
   );
   assert.equal(alert.review_action.url, "");
-  assert.equal(alert.skip_action.url, "");
   assert.ok(
-    [alert.review_action, alert.skip_action, alert.source_action].every(
+    [alert.review_action, alert.source_action].every(
       (action) => !("token" in action) && !("record" in action)
     )
   );
+  assert.equal("skip_action" in alert, false);
 
   const firstSkip = applyManualAction(
     ready({ manual_action: "mark_skipped" }),

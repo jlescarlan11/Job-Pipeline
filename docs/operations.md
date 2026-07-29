@@ -49,8 +49,9 @@ Do not continue if either the Sheet or workflow export backup cannot be opened.
 2. In Extensions → Apps Script, replace the project code with `google-apps-script/SheetSetup.gs`.
 3. Run `setupJobPipelineSheets` and approve only the workbook-scoped authorization required by the script.
 4. Reopen the Sheet to load the **Job Pipeline** menu.
-5. Verify `Sheet1`, `Archive`, `ProcessingClaims`, `Dashboard`, `Analytics`,
-   `AnalyticsReports`, `Recommendations`, and `RecommendationReports` exist.
+5. Verify `Sheet1`, `Review Queue`, `Archive`, `ProcessingClaims`, `Dashboard`,
+   `Analytics`, `AnalyticsReports`, `Recommendations`, and
+   `RecommendationReports` exist.
 6. Verify legacy columns and rows still exist.
 7. Compare pre/post counts and representative messages/decisions.
 
@@ -73,8 +74,14 @@ The script must:
 - copy `created_at ` into blank `created_at`;
 - populate normalized identity, canonical state, legacy versions, and state guards;
 - classify legacy Archive rows as archived while preserving their previous status;
+- create or reconcile the exact versioned `Review Queue` headers without
+  changing `Sheet1`/`Archive` rows, and stop if the existing queue contains
+  unsupported or duplicate headers;
 - put review columns first and retain generated fields after them;
 - install a strict `manual_action` list and warning-only protection elsewhere;
+- expose only the eight friendly queue columns, hide `canonical_job_id` and
+  `source_state_guard`, validate the three friendly Action values, and protect
+  every derived queue column;
 - preserve unrelated conditional-formatting rules.
 
 Stop and restore the workbook copy if row counts change, a ready message/decision disappears, or canonical IDs collide.
@@ -112,9 +119,9 @@ run must quarantine zero additional rows.
 2. Rebind every Google Sheets node to the non-production workbook and test OAuth credential.
 3. Rebind the Groq model node to a test credential.
 4. Set `JOB_PIPELINE_SLACK_WEBHOOK_URL` to a test Slack incoming webhook and
-   `JOB_PIPELINE_REVIEW_URL` to the authorized non-production Sheet URL in the
-   n8n runtime. Never paste either value into workflow JSON, the Sheet, logs, or
-   test evidence.
+   `JOB_PIPELINE_REVIEW_URL` to the authorized non-production Sheet's full
+   `Review Queue` tab deep link in the n8n runtime. Never paste either value
+   into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
 6. Confirm the configured schedules are 4 hours, 15 minutes, 1 minute,
    5 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5.
@@ -141,7 +148,17 @@ Slack HTTP node must remain an explicit JSON `POST`.
 ### Sheet/reviewer
 
 - Confirm header/control behavior on desktop Google Sheets.
-- Verify title, company, URL, date, salary, tier, evidence, gaps, status, message, and action are readable in the ordered review region.
+- Verify `Review Queue` visibly contains exactly Status, Job title, Company,
+  Score, Reason for review, Generated message, Job link, and Action in that
+  order. Confirm its two helper columns are hidden, only Action is intended for
+  editing, long reasons/messages wrap, and an empty eligible source retains
+  headers and controls without a placeholder row.
+- Verify queue membership contains only `ready`, `recommended`, and
+  `review_required` source records, current rows use `opportunity_score`,
+  legacy rows fall back to `match_score`, and every `review_required` row has a
+  bounded explanation.
+- Verify title, company, URL, date, salary, tier, evidence, gaps, status,
+  message, and action remain readable in the detailed `Sheet1` review region.
 - Use **Job Pipeline → Sort priority queue** and confirm ready/recommended rows order by score, then posting date.
 - Enter an unsupported action, a fractional/out-of-range Apply Points value, and
   a malformed strategy identifier; confirm Sheet validation or reviewer
@@ -150,6 +167,21 @@ Slack HTTP node must remain an explicit JSON `POST`.
   ready-to-applied with valid and blank optional inputs, duplicate apply/skip,
   ready-to-skipped, progressive reply/interview/rejection, outcome correction,
   an archived applied outcome, and empty first-use tabs.
+- On disposable queue rows, exercise `Generate Application`, `I Applied`, and
+  `Skip`; verify each maps to the expected current `Sheet1` record after source
+  row insertion/sorting, consumes the action only after a successful source
+  commit, removes applied/skipped rows, and refreshes a promoted row as
+  recommended. Confirm the applied row later reaches `Archive` with identity,
+  message, decision, timestamps, and application snapshot intact.
+- Simulate a stale guard, missing identity, duplicate source identity,
+  conflicting duplicate queue actions, and a conflict with a direct `Sheet1`
+  action. Confirm no ambiguous source update occurs and the execution log
+  contains only sanitized diagnostics.
+- Interrupt once before the guarded source commit and once after source commit
+  but before queue cleanup. Confirm the first case preserves the pending input,
+  the second leaves authoritative `Sheet1` state intact, and the next Reviewer
+  run safely reconciles both. Edit a second Action after the Reviewer initial
+  queue read and confirm that concurrent input survives the current rebuild.
 - Confirm the application snapshot remains unchanged after a permitted
   regeneration/correction path, and that a legacy applied row with blank
   points remains valid.
@@ -181,10 +213,16 @@ Slack HTTP node must remain an explicit JSON `POST`.
   boundary and confirm the committed ready pack immediately becomes `pending`.
 - Confirm one Slack alert includes the complete validated application message
   in a dedicated code block, uses `Unknown`/`None detected` labels for absent
-  optional data, and exposes only review-Sheet, skip-confirmation, and
-  open-source links outside the code block. Copy the code-block content into a
+  optional data, and exposes only one `Open Review Queue` link plus the
+  open-source link outside the code block. Assert the legacy review and
+  skip-confirmation labels are absent. Copy the code-block content into a
   plain-text comparison surface and verify the paragraphs, spacing,
   punctuation, Unicode characters, and approved URLs match the stored message.
+- In Slack desktop or web, click `Open Review Queue` and confirm the configured
+  non-production `JOB_PIPELINE_REVIEW_URL` opens the copied workbook with
+  `Review Queue` selected. Forward and reopen the link, then verify
+  `pipeline_status`, `manual_action`, `application_decision`, and outcome state
+  are unchanged.
 - Exercise a near-limit message and confirm optional context is reduced before
   the message or required links. Exercise an over-limit message, an embedded
   code fence, and an unsupported invisible control; confirm each terminalizes
@@ -267,9 +305,12 @@ Only after dry-run evidence passes:
 3. Back up production again.
 4. Run the Sheet migration and repeat the count/message/decision checks.
 5. Import/rebind the seven new workflows while inactive.
-6. Manually execute and verify the reviewer on production data without setting actions.
+6. Manually execute and verify the reviewer on production data without setting
+   actions. Confirm the new queue projection and source/archive/dashboard
+   counts before enabling schedules.
 7. Verify the production Slack/review environment variables without recording
-   their values, then activate in this order: reviewer, generator, alerter,
+   their values, including that `JOB_PIPELINE_REVIEW_URL` is the full
+   `Review Queue` tab deep link, then activate in this order: reviewer, generator, alerter,
    scraper, archiver, analytics, recommender.
 8. Wait for and verify one cycle at each cadence before ending the window.
 
@@ -286,7 +327,9 @@ Do not invent hiring or conversion targets. Record observed counts and reconcile
   `sending`, attempts, provider categories, and time from ready commit to
   confirmed delivery.
 - Recovery: failures by stage/category, next retries, attempts at cap, expired claims, non-empty processing stages older than the lease.
-- Review: actions applied, invalid actions, applied/skipped decisions, explicit outcomes.
+- Review: projected queue rows, protected concurrent actions, queue actions
+  applied, invalid/stale/conflicting actions, applied/skipped decisions,
+  explicit outcomes, and queue cleanup/appends.
 - Archive: new upserts, already archived/reconciled, retained-for-retry, confirmation rejections by reason, confirmed deletes.
 - Analytics: latest complete report ID, detail count match, deduplicated
   applications, overlap/conflict counts, unknown/coverage rates, partial
@@ -307,7 +350,9 @@ If verification fails:
    recommender, and analytics, and wait for running executions to stop. Treat every remaining
    `sending` alert as potentially delivered; do not reset it to `pending`.
 2. Export the current migrated Sheet before changing anything; it contains new identities and any decisions/outcomes created after activation.
-3. Do not delete new columns or Archive rows.
+3. Do not delete new columns, `Review Queue`, or Archive rows. The queue is
+   derived and may be left stale while the Reviewer is disabled; never copy it
+   back over `Sheet1`.
 4. Restore the timestamped workbook copy only if no post-activation records exist. Otherwise reconcile new/changed records by canonical identity into the backup before restoration.
 5. Restore the previous n8n exports inactive first.
 6. Do not reactivate old writers against the migrated workbook until you verify their legacy `status`/URL mappings cannot overwrite canonical state or reintroduce duplicates/obsolete prompt facts.

@@ -19,6 +19,10 @@ const ALERT_RENDER_ERROR_SUMMARIES = Object.freeze({
   render_failure: "The Slack alert could not be rendered safely."
 });
 
+function slackLinkUrlSafe(value) {
+  return !/[<>|]/u.test(String(value || ""));
+}
+
 function cleanText(value, maximum = 500) {
   return String(value || "")
     .normalize("NFKC")
@@ -80,10 +84,10 @@ export function validateAlertPolicy(policy) {
     Number.isInteger(policy.maximum_message_characters) &&
     Number.isInteger(policy.maximum_action_url_characters) &&
     policy.maximum_message_characters <
-      policy.maximum_action_url_characters * 3 + 1000
+      policy.maximum_action_url_characters * 2 + 1000
   ) {
     errors.push(
-      "maximum_message_characters must preserve three actions and required context"
+      "maximum_message_characters must preserve two required links and context"
     );
   }
   for (const field of [
@@ -159,6 +163,7 @@ export function validateAlertProviderConfiguration(
     (review.protocol !== "https:" ||
       review.username ||
       review.password ||
+      !slackLinkUrlSafe(reviewUrl) ||
       reviewUrl.length > policy.maximum_action_url_characters)
   ) {
     errors.push("review URL must use bounded credential-free HTTPS");
@@ -182,6 +187,7 @@ export function evaluateAlertEligibility(
   const sourceUrl = normalizeCanonicalUrl(record?.canonical_url);
   if (
     !sourceUrl ||
+    !slackLinkUrlSafe(sourceUrl) ||
     sourceUrl.length > policy.maximum_action_url_characters
   ) {
     reasons.push("source_url_invalid");
@@ -524,12 +530,14 @@ export function renderAlert(
   }
   const normalizedSourceUrl = normalizeCanonicalUrl(record.canonical_url);
   const sourceUrl =
+    slackLinkUrlSafe(normalizedSourceUrl) &&
     normalizedSourceUrl.length <= policy.maximum_action_url_characters
       ? normalizedSourceUrl
       : "";
   const parsedReviewUrl = parseHttpUrl(reviewUrl);
   const safeReviewUrl =
     parsedReviewUrl?.protocol === "https:" &&
+    slackLinkUrlSafe(parsedReviewUrl.href) &&
     parsedReviewUrl.href.length <= policy.maximum_action_url_characters
       ? parsedReviewUrl.href
       : "";
@@ -555,8 +563,7 @@ export function renderAlert(
   const warnings = summaryList(record.application_warnings, policy, "None");
   const gaps = summaryList(record.requirement_gap_details, policy, "None");
   const links = [
-    safeReviewUrl ? `<${safeReviewUrl}|Review in authorized Sheet>` : "Review: unavailable",
-    safeReviewUrl ? `<${safeReviewUrl}|Confirm skip in Sheet>` : "Skip: unavailable",
+    safeReviewUrl ? `<${safeReviewUrl}|Open Review Queue>` : "Review Queue: unavailable",
     sourceUrl ? `<${sourceUrl}|Open OnlineJobs.ph>` : "Source: unavailable"
   ].join(" · ");
   const applicationMessage = String(record.generated_message ?? "");
@@ -610,10 +617,6 @@ export function renderAlert(
     text,
     review_action: {
       mode: "authorized_review_surface",
-      url: safeReviewUrl
-    },
-    skip_action: {
-      mode: "review_confirmation",
       url: safeReviewUrl
     },
     source_action: {

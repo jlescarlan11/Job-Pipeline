@@ -140,15 +140,16 @@ The alerter claims at most the configured per-run cap through
 `ProcessingClaims`, marks a deliverable record `sending`, validates the
 environment-bound Slack webhook and authorized HTTPS review URL, and sends a
 length-bounded alert. The alert places the complete validated application
-message in one copyable Slack code block and keeps the required review, skip,
-and source links outside that block. Optional context uses explicit
+message in one copyable Slack code block and keeps one required `Open Review
+Queue` link plus the source link outside that block. Optional context uses explicit
 `Unknown`/`None detected` labels and includes scores, confidence, employer,
 salary, freshness, advisory Apply Points, major gaps, instructions, screening
 questions, selected proofs, and warnings when it fits. Context is trimmed or
-omitted before the application message or required links. Review and skip links
-open the authorized Sheet surface; they carry no state-changing token. The
-source link is open-only. Only the reviewer workflow can persist a skip or
-application decision.
+omitted before the application message or required links. The environment-bound
+review URL is the full credential-free Google Sheets deep link for `Review
+Queue`; it carries no job identifier, command, or state-changing token. The
+source link is open-only. Only the Reviewer can persist promotion, skip, or
+application decisions after an explicit in-sheet action.
 
 `canonical_job_id + alert_policy_version` is the idempotency scope. Confirmed
 success stores `sent`, timestamp, attempt count, and any non-sensitive provider
@@ -166,9 +167,43 @@ category and summary, and is never treated as ambiguous delivery.
 
 ## Review workflow
 
-The Sheet is the human interface. Only the temporary Apply Points/strategy
-inputs, `manual_action`, and `notes` are intended for direct editing. Supported
-actions are:
+`Sheet1` remains the active source of truth. `Review Queue` is a derived,
+automatically reconciled review surface containing only Status, Job title,
+Company, Score, Reason for review, Generated message, Job link, and Action.
+Hidden `canonical_job_id` and `source_state_guard` cells bind each displayed
+row to an authoritative source state; row position, title, and visible link
+text are never used as update identity. Only Action is intended for editing in
+this simplified surface.
+
+The queue contains the configured `ready`, `recommended`, and
+`review_required` states in the established priority order. Current
+`opportunity_score` is displayed as Score, with the existing `match_score`
+fallback for legacy records. Review reasons are bounded and derived from
+persisted warnings, requirement gaps, match evidence, or safe recovery
+context. A `review_required` row with no evidence explicitly says that no
+reason was recorded.
+
+Friendly queue actions map `Generate Application` to `promote`, `I Applied` to
+`mark_applied`, and `Skip` to `mark_skipped`. The Reviewer rereads `Sheet1`,
+rejects missing, duplicate, stale, unsupported, or conflicting inputs, and
+reuses the same `applyManualAction` transition and message-safety boundary as
+the detailed review path. A compare-and-commit sequence first matches
+`state_guard`, writes an execution-unique `processing_commit_guard`, and then
+commits only the row that still owns that guard. Direct `Sheet1` input wins if
+it conflicts with a queue input.
+
+After the source commit, the Reviewer rereads both source and queue. Applied
+and skipped rows disappear; a promoted record returns as a fresh recommended
+projection while still eligible. If source commit fails, its pending queue
+input remains available for retry. If cleanup fails after a source commit,
+the next run treats the stale action safely and rebuilds the projection.
+Concurrent Action edits made after the initial read are protected from that
+run's rebuild. Duplicate delivery cannot create another application snapshot
+or decision timestamp.
+
+The detailed `Sheet1` and `Archive` interfaces remain available. Only the
+temporary Apply Points/strategy inputs, `manual_action`, and `notes` are
+intended for direct editing there. Supported internal actions are:
 
 - `mark_reviewed`
 - `promote`, `regenerate`, `retry`
@@ -183,8 +218,9 @@ recommendation, pack, strategy, and posting-age context. Missing points remain
 unknown. Duplicate apply/skip commands preserve the first decision timestamp
 and application snapshot.
 
-Unsupported actions, invalid inputs, or conflicting transitions are logged in
-sanitized form and leave the previous durable record intact. Application
+Unsupported actions, invalid inputs, stale queue rows, or conflicting
+transitions are logged in sanitized form and leave the previous durable record
+intact. Application
 decision and employer outcome are separate from processing/error state.
 Distinct outcome milestones and corrections append to `outcome_events`, while
 the latest `outcome` remains for backward compatibility. Duplicate current
@@ -273,7 +309,16 @@ An interrupted run may temporarily leave one copy in both tabs; retry reconcilia
 
 Arrays such as query provenance, role families, reasons, and gaps are serialized as JSON strings in Sheets and normalized on read. Blank company, salary, outcome, or profile metadata means unknown, not “Not Given.”
 
-`google-apps-script/SheetSetup.gs` is additive: it creates missing tabs/headers, copies legacy `created_at ` values into `created_at`, populates canonical identity/state guards and legacy versions, orders human review columns, applies manual-action validation, and uses warning-only protection for generated fields. Existing legacy headers remain for rollback compatibility.
+`google-apps-script/SheetSetup.gs` is additive: it creates missing tabs/headers,
+including the exact versioned `Review Queue` contract, copies legacy
+`created_at ` values into `created_at`, populates canonical
+identity/state guards and legacy versions, orders human review columns,
+applies action validation, and uses warning-only protection for generated
+fields. The queue's two helper fields are hidden; its eight review fields are
+visible and Action is the only unprotected input. Existing legacy headers
+remain for rollback compatibility. An existing Review Queue with unsupported
+or duplicate headers fails setup before it is rewritten and requires manual
+reconciliation.
 
 ## Operational visibility
 

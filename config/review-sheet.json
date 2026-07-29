@@ -1,11 +1,52 @@
 {
   "schema_version": 1,
-  "view_version": "2026-07-28",
+  "view_version": "2026-07-29",
   "schedule_minutes": 5,
   "active_sheet": "Sheet1",
   "archive_sheet": "Archive",
   "claims_sheet": "ProcessingClaims",
   "dashboard_sheet": "Dashboard",
+  "review_queue": {
+    "version": "2026-07-29/v1",
+    "sheet": "Review Queue",
+    "visible_columns": [
+      "Status",
+      "Job title",
+      "Company",
+      "Score",
+      "Reason for review",
+      "Generated message",
+      "Job link",
+      "Action"
+    ],
+    "hidden_columns": [
+      "canonical_job_id",
+      "source_state_guard"
+    ],
+    "fields": [
+      "Status",
+      "Job title",
+      "Company",
+      "Score",
+      "Reason for review",
+      "Generated message",
+      "Job link",
+      "Action",
+      "canonical_job_id",
+      "source_state_guard"
+    ],
+    "statuses": [
+      "ready",
+      "recommended",
+      "review_required"
+    ],
+    "actions": {
+      "Generate Application": "promote",
+      "I Applied": "mark_applied",
+      "Skip": "mark_skipped"
+    },
+    "reason_maximum_length": 500
+  },
   "review_columns": [
     "job_title",
     "company",

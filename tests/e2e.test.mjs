@@ -22,7 +22,10 @@ import {
 } from "../src/evaluation.mjs";
 import {
   applyManualAction,
-  buildFunnelSummary
+  buildFunnelSummary,
+  buildReviewQueueProjection,
+  processReviewActions,
+  reconcileReviewQueue
 } from "../src/review.mjs";
 
 const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
@@ -33,6 +36,7 @@ const policy = await loadJson("../config/application-policy.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
 const schema = await loadJson("../config/pipeline-schema.json");
+const review = await loadJson("../config/review-sheet.json");
 const plan = await loadJson("../config/search-plan.json");
 const searchHtml = await loadText("./fixtures/search-page-1.html");
 const detailHtml = await loadText("./fixtures/job-direct.html");
@@ -120,31 +124,62 @@ test("one job traverses discovery through archived outcome with one canonical id
   assert.ok(ready.selected_proof_refs.length >= 2);
   assert.equal(ready.canonical_job_id, discovered.canonical_job_id);
 
-  const appliedResult = applyManualAction(
-    {
-      ...ready,
-      apply_points_input: 10,
-      application_message_strategy_input: "instruction-aware/v1",
-      manual_action: "mark_applied"
-    },
+  const activeReady = {
+    ...ready,
+    row_number: 2,
+    apply_points_input: 10,
+    application_message_strategy_input: "instruction-aware/v1"
+  };
+  const queue = buildReviewQueueProjection(
+    [activeReady],
+    schema,
+    review,
+    appliedAt
+  );
+  assert.equal(queue.rows.length, 1);
+  assert.equal(queue.rows[0].Status, "ready");
+  const queueAction = {
+    ...queue.rows[0],
+    row_number: 2,
+    Action: "I Applied"
+  };
+  const reviewPlan = processReviewActions(
+    [activeReady],
+    [],
     schema,
     appliedAt,
     {
       profile,
       applicationPolicy: policy,
       packPolicy
+    },
+    {
+      queueRows: [queueAction],
+      reviewConfig: review,
+      executionId: "e2e-review"
     }
   );
-  assert.equal(appliedResult.valid, true);
-  assert.equal(appliedResult.record.application_decision, "applied");
-  assert.equal(appliedResult.record.apply_points_used, 10);
-  assert.equal(appliedResult.record.application_snapshot_at, appliedAt);
+  assert.equal(reviewPlan.invalid_actions.length, 0);
+  assert.equal(reviewPlan.active_updates.length, 1);
+  const activeApplied = reviewPlan.active_updates[0];
+  assert.equal(activeApplied.application_decision, "applied");
+  assert.equal(activeApplied.apply_points_used, 10);
+  assert.equal(activeApplied.application_snapshot_at, appliedAt);
   assert.equal(
-    appliedResult.record.application_qualification_score,
+    activeApplied.application_qualification_score,
     ready.qualification_score
   );
+  const reconciledQueue = reconcileReviewQueue(
+    [activeApplied],
+    [queueAction],
+    [queueAction],
+    schema,
+    review,
+    appliedAt
+  );
+  assert.deepEqual(reconciledQueue.queue_rows, []);
+  assert.deepEqual(reconciledQueue.delete_rows, [{ row_number: 2 }]);
 
-  const activeApplied = { ...appliedResult.record, row_number: 2 };
   const archivePlan = prepareArchiveCandidates([activeApplied], [], schema, { now: archivedAt });
   assert.equal(archivePlan.candidates.length, 1);
   const archiveRecord = archivePlan.candidates[0].archive_record;

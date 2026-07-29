@@ -105,6 +105,49 @@ Active source of truth for discovery, evaluation, generation, review, and retrya
 
 `state_guard` and `processing_commit_guard` are placed inside the first 26 physical columns for n8n match-key compatibility. Those fields and `processing_token` are hidden from the normal reviewer view and remain available to operators by unhiding columns.
 
+### `Review Queue`
+
+A simplified, derived projection of the current `Sheet1` Priority Queue.
+`Sheet1` remains authoritative; values in this tab never become a second job
+record. The visible columns are exactly:
+
+1. `Status`
+2. `Job title`
+3. `Company`
+4. `Score`
+5. `Reason for review`
+6. `Generated message`
+7. `Job link`
+8. `Action`
+
+The generated fields use warning-only protection and only `Action` is intended
+for editing. `canonical_job_id` and `source_state_guard` follow the visible
+fields as hidden workflow helpers. Internal commands, processing tokens,
+source row numbers, and reconciliation metadata are not exposed in the normal
+review experience.
+
+Queue membership is versioned in `config/review-sheet.json` and initially
+matches the existing Priority Queue states: `ready`, `recommended`, and
+`review_required`. Score is current `opportunity_score`, or the established
+legacy `match_score` fallback when opportunity score is missing. Reason for
+review is bounded persisted evidence; `review_required` never renders a blank
+reason. An empty queue retains its headers, validation, formatting, and
+protections without placeholder records.
+
+| Friendly Action | Internal action | Source behavior |
+| --- | --- | --- |
+| `Generate Application` | `promote` | Uses the existing valid-state promotion contract. |
+| `I Applied` | `mark_applied` | Revalidates the current safe ready message and records the application snapshot. |
+| `Skip` | `mark_skipped` | Records an explicit skip from an allowed current state. |
+
+The Reviewer resolves each action by hidden canonical identity, checks the
+hidden source guard against a fresh `Sheet1` read, and commits through an
+execution-specific guard. Missing, duplicate, stale, invalid, or conflicting
+inputs do not mutate source state. Applied/skipped rows disappear after
+reconciliation; promoted rows refresh as `recommended` while eligible. A
+failed cleanup can leave a stale projection temporarily, but cannot roll back
+or duplicate the authoritative decision.
+
 ### `Archive`
 
 One row per canonical job after idempotent reconciliation. It retains all supported active fields plus `archived_at` and `archived_from_status`. Applied rows remain editable through `manual_action` for outcome follow-up. Archive upserts match `canonical_job_id`, but source deletion also requires a fresh active snapshot and complete archive-field comparison.
