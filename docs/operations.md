@@ -225,6 +225,11 @@ Slack HTTP node must remain an explicit JSON `POST`.
   the second leaves authoritative `Sheet1` state intact, and the next Reviewer
   run safely reconciles both. Edit a second Action after the Reviewer initial
   queue read and confirm that concurrent input survives the current rebuild.
+- Run the Reviewer twice with an unchanged, correctly ordered Review Queue and
+  no pending Action. Confirm the second reconciliation reports the unchanged
+  row count and performs no queue deletes or appends. In the workbook copy,
+  replace one owned queue cell with an equivalent-display formula and confirm
+  the next run detects the formula text and rebuilds the projection.
 - Repeat those interruption and concurrent-edit checks for Applied Jobs,
   including an archived source commit and an active-to-Archive race. Confirm an
   unconfirmed write retains Action, a confirmed write survives cleanup retry,

@@ -241,6 +241,12 @@ Concurrent Action edits made after the initial read are protected from that
 run's rebuild. Duplicate delivery cannot create another application snapshot
 or decision timestamp.
 
+When every configured Review Queue cell and row order already matches the
+canonical projection, reconciliation performs no deletes or appends. Both
+queue reads request formula rendering from Google Sheets, so a formula in any
+owned cell is compared as formula text rather than as its displayed result and
+therefore forces the normal cleanup/rebuild path.
+
 `Applied Jobs` is a second derived operator surface, not a new source of truth.
 It projects every authoritative `application_decision=applied` record from
 `Sheet1` and `Archive`, preferring the active record during recoverable

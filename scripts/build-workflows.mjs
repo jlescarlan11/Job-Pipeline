@@ -2041,6 +2041,15 @@ async function buildReviewer() {
     mode: "name",
     cachedResultName: reviewConfig.review_queue.sheet
   };
+  queueRead.parameters.options = {
+    ...queueRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
   queueRead.alwaysOutputData = true;
 
   const appliedJobsRead = structuredClone(activeRead);
@@ -2298,6 +2307,7 @@ console.log(JSON.stringify({
   review_queue_projected: reviewQueue.queue_rows.length,
   review_queue_deleted: reviewQueue.delete_rows.length,
   review_queue_protected_actions: reviewQueue.protected_action_count,
+  review_queue_unchanged: reviewQueue.unchanged_row_count,
   applied_jobs_projected: appliedJobs.applied_rows.length,
   applied_jobs_cleared: appliedJobs.clear_rows.length,
   applied_jobs_protected_actions: appliedJobs.protected_action_count,
@@ -2310,6 +2320,7 @@ return [{ json: {
   queue_rows: reviewQueue.queue_rows,
   queue_delete_rows: reviewQueue.delete_rows,
   queue_protected_action_count: reviewQueue.protected_action_count,
+  queue_unchanged_row_count: reviewQueue.unchanged_row_count,
   applied_rows: appliedJobs.applied_rows,
   applied_clear_rows: appliedJobs.clear_rows,
   applied_protected_action_count: appliedJobs.protected_action_count,

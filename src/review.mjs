@@ -1784,6 +1784,25 @@ function projectionActionChanged(previousSnapshot, currentSnapshot, identity) {
   );
 }
 
+function reviewQueueProjectionMatches(currentRows, desiredRows, fields) {
+  if (
+    !Array.isArray(currentRows) ||
+    !Array.isArray(desiredRows) ||
+    !Array.isArray(fields) ||
+    fields.length === 0 ||
+    currentRows.length !== desiredRows.length
+  ) {
+    return false;
+  }
+  return desiredRows.every((desiredRow, index) =>
+    fields.every(
+      (field) =>
+        String(currentRows[index]?.[field] ?? "") ===
+        String(desiredRow?.[field] ?? "")
+    )
+  );
+}
+
 export function reconcileReviewQueue(
   activeRows,
   currentQueueRows,
@@ -1798,6 +1817,22 @@ export function reconcileReviewQueue(
     reviewConfig,
     now
   );
+  const queueConfig = reviewQueueConfiguration(reviewConfig);
+  if (
+    reviewQueueProjectionMatches(
+      currentQueueRows,
+      projection.rows,
+      queueConfig.fields
+    )
+  ) {
+    return {
+      queue_rows: [],
+      delete_rows: [],
+      protected_action_count: 0,
+      unchanged_row_count: projection.rows.length,
+      invalid_records: projection.invalid_records
+    };
+  }
   const initialActions = new Set(
     initialQueueRows
       .filter((row) => String(row?.Action || "").trim())
@@ -1847,6 +1882,7 @@ export function reconcileReviewQueue(
     ),
     delete_rows: deleteRows,
     protected_action_count: protectedRows.size,
+    unchanged_row_count: 0,
     invalid_records: projection.invalid_records
   };
 }

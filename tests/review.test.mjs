@@ -2103,6 +2103,96 @@ test("queue reconciliation removes completed rows, refreshes promotion, and prot
   assert.equal(refreshed.queue_rows[0].Action, "");
 });
 
+test("queue reconciliation skips an exact ordered projection and refreshes any changed cell", () => {
+  const ready = job({
+    source_job_id: "6163",
+    canonical_job_id: "onlinejobs.ph:6163",
+    pipeline_status: "ready",
+    generated_message: "Exact reviewed message"
+  });
+  ready.state_guard = stateGuard(ready);
+  const recommended = job({
+    source_job_id: "6164",
+    canonical_job_id: "onlinejobs.ph:6164",
+    pipeline_status: "recommended"
+  });
+  recommended.state_guard = stateGuard(recommended);
+  const desired = buildReviewQueueProjection(
+    [recommended, ready],
+    schema,
+    view,
+    now
+  ).rows;
+  const current = desired.map((row, index) => ({
+    ...row,
+    row_number: index + 2
+  }));
+
+  const unchanged = reconcileReviewQueue(
+    [recommended, ready],
+    current,
+    current,
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(unchanged.delete_rows, []);
+  assert.deepEqual(unchanged.queue_rows, []);
+  assert.equal(unchanged.protected_action_count, 0);
+  assert.equal(unchanged.unchanged_row_count, 2);
+
+  const changed = [
+    { ...current[0], Score: Number(current[0].Score) + 1 },
+    current[1]
+  ];
+  const refreshed = reconcileReviewQueue(
+    [recommended, ready],
+    changed,
+    changed,
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(refreshed.delete_rows, [
+    { row_number: 3 },
+    { row_number: 2 }
+  ]);
+  assert.deepEqual(refreshed.queue_rows, desired);
+  assert.equal(refreshed.unchanged_row_count, 0);
+
+  const formula = [{ ...current[0], Score: "=40+60" }, current[1]];
+  const formulaCleanup = reconcileReviewQueue(
+    [recommended, ready],
+    formula,
+    formula,
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(formulaCleanup.delete_rows, [
+    { row_number: 3 },
+    { row_number: 2 }
+  ]);
+  assert.deepEqual(formulaCleanup.queue_rows, desired);
+  assert.equal(formulaCleanup.unchanged_row_count, 0);
+
+  const reordered = [current[1], current[0]];
+  const orderCleanup = reconcileReviewQueue(
+    [recommended, ready],
+    reordered,
+    reordered,
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(orderCleanup.delete_rows, [
+    { row_number: 3 },
+    { row_number: 2 }
+  ]);
+  assert.deepEqual(orderCleanup.queue_rows, desired);
+  assert.equal(orderCleanup.unchanged_row_count, 0);
+});
+
 test("queue reconciliation retains an action until its guarded source write is confirmed", () => {
   const ready = job({
     source_job_id: "6171",

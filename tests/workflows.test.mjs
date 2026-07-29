@@ -721,6 +721,20 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
 
   const queueRead = nodeByName(workflow, "Get Review Queue Rows");
   assert.equal(queueRead.parameters.sheetName.value, review.review_queue.sheet);
+  assert.deepEqual(queueRead.parameters.options.outputFormatting, {
+    values: {
+      general: "FORMULA",
+      date: "FORMATTED_STRING"
+    }
+  });
+  const queueAfterReview = nodeByName(
+    workflow,
+    "Get Review Queue After Review"
+  );
+  assert.deepEqual(
+    queueAfterReview.parameters.options.outputFormatting,
+    queueRead.parameters.options.outputFormatting
+  );
   const appliedJobsRead = nodeByName(workflow, "Get Applied Jobs Rows");
   assert.equal(
     appliedJobsRead.parameters.sheetName.value,
@@ -934,6 +948,8 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.doesNotMatch(reconciliation, /confirmedCommitGuards/);
   assert.match(reconciliation, /sourceWriteConfirmed/);
   assert.match(reconciliation, /protected_action_count/);
+  assert.match(reconciliation, /unchanged_row_count/);
+  assert.match(reconciliation, /review_queue_unchanged/);
   assert.match(reconciliation, /invalid_records/);
   const finalCleanup = nodeByName(
     workflow,
