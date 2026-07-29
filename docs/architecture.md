@@ -19,7 +19,7 @@ Generator (15m, cap 5) -- evaluation/generation claims --> ProcessingClaims
         v
 Sheet1: recommended / review_required / ready / recovery
         |
-        +--> Alerter (1m) -- alert claims --> ProcessingClaims
+        +--> Alerter (3m, cap 5) -- alert claims --> ProcessingClaims
         |         |
         |         v
         |      Slack: review / confirm skip in Sheet / open source
@@ -49,7 +49,9 @@ Archive: terminal history and employer outcomes
                              +--> RecommendationReports: run history
 ```
 
-Configured schedules are scraper every 4 hours, generator every 15 minutes, alerter every minute, reviewer every 5 minutes, archiver every 45 minutes, analytics every 24 hours, and recommender every 168 hours.
+Configured schedules are scraper every 4 hours, generator every 15 minutes,
+alerter every 3 minutes, reviewer every 5 minutes, archiver every 45 minutes,
+analytics every 24 hours, and recommender every 168 hours.
 
 ## Shared contracts
 
@@ -177,17 +179,24 @@ application decisions after an explicit in-sheet action.
 
 `canonical_job_id + alert_policy_version` is the idempotency scope. Confirmed
 success stores `sent`, timestamp, attempt count, and any non-sensitive provider
-reference. A known transient rejection uses bounded exponential retry. Provider
-timeouts are terminal because Slack cannot reconcile an ambiguous delivery. If
-a `sending` record outlives its claim lease—covering delivery followed by a
-failed acknowledgement commit—it is terminalized as `ambiguous_delivery`
-without automatic resend. Missing configuration, invalid URLs, permanent
-provider rejection, and source unavailability fail or suppress visibly without
-discarding the ready application pack. A message that would break the Slack
-code-block boundary, contains unsupported invisible controls, or cannot fit
-completely with the required links is terminalized before any provider request.
-That deterministic preflight path releases the claim, records only a sanitized
-category and summary, and is never treated as ambiguous delivery.
+reference. The workflow is capped at 90 seconds, below its 2-minute claim
+lease. A known transient rejection uses bounded exponential retry beginning at
+2 minutes, never before the prior append-only claim expires. The next 3-minute
+poll is also after expiry. This prevents polls from appending a rolling chain
+of losing claims that can starve the due retry. The cap of 5 matches the
+Generator’s maximum output per run and keeps the capped serial
+provider-timeout budget inside the workflow timeout. Provider timeouts are
+terminal because Slack cannot reconcile an ambiguous delivery. If a `sending`
+record outlives its claim lease—covering
+delivery followed by a failed acknowledgement commit—it is terminalized as
+`ambiguous_delivery` without automatic resend. Missing configuration, invalid
+URLs, permanent provider rejection, and source unavailability fail or suppress
+visibly without discarding the ready application pack. A message that would
+break the Slack code-block boundary, contains unsupported invisible controls,
+or cannot fit completely with the required links is terminalized before any
+provider request. That deterministic preflight path releases the claim, records
+only a sanitized category and summary, and is never treated as ambiguous
+delivery.
 
 ## Review workflow
 

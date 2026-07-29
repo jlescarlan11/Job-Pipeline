@@ -12,6 +12,7 @@ const operations = await loadText("../docs/operations.md");
 const recommendationsDoc = await loadText("../docs/recommendations.md");
 const prompt = await loadText("../docs/master-prompt.md");
 const groqProviderDoc = await loadText("../docs/groq-provider-policy.md");
+const alertsDoc = await loadText("../docs/alerts.md");
 const schema = await loadJson("../config/pipeline-schema.json");
 const searchPlan = await loadJson("../config/search-plan.json");
 const runtime = await loadJson("../config/runtime.json");
@@ -21,12 +22,17 @@ const recommendations = await loadJson(
   "../config/recommendation-policy.json"
 );
 const groqProvider = await loadJson("../config/groq-provider-policy.json");
+const alertPolicy = await loadJson("../config/alert-policy.json");
 const claimRetention = await loadJson("../config/claim-retention.json");
 
 test("README and architecture document the checked-in schedules, bounds, and manual boundary", () => {
   for (const document of [readme, architecture]) {
     assert.match(document, new RegExp(`${searchPlan.schedule_hours}\\s*hours?`, "i"));
     assert.match(document, new RegExp(`${runtime.generator.schedule_minutes}\\s*minutes?`, "i"));
+    assert.match(
+      document,
+      new RegExp(`${alertPolicy.schedule_minutes}\\s*minutes?`, "i")
+    );
     assert.match(document, new RegExp(`${review.schedule_minutes}\\s*minutes?`, "i"));
     assert.match(document, new RegExp(`${runtime.archiver.schedule_minutes}\\s*minutes?`, "i"));
     assert.match(document, new RegExp(`${analytics.schedule_hours}\\s*hours?`, "i"));
@@ -142,4 +148,25 @@ test("claim-retention documentation preserves cleanup bounds and rollback safety
   assert.match(architecture, /fail-closed retention/i);
   assert.match(sheetSchema, /no automatic retry/i);
   assert.match(operations, /recoverable only from the\s+timestamped workbook backup/i);
+});
+
+test("alert documentation keeps retries behind claim expiry and execution timeout", () => {
+  for (const document of [alertsDoc, architecture, operations]) {
+    assert.match(
+      document,
+      new RegExp(`${alertPolicy.execution_timeout_seconds}[- ]second`, "i")
+    );
+    assert.match(
+      document,
+      new RegExp(`${alertPolicy.claim_lease_ms / 60000}[- ]minute`, "i")
+    );
+  }
+  assert.match(alertsDoc, /backoff\s+to be no\s+shorter than the lease/i);
+  assert.match(
+    alertsDoc,
+    new RegExp(`cap of ${alertPolicy.per_run_cap}\\b`, "i")
+  );
+  assert.match(alertsDoc, /1,440 to 480 per day/i);
+  assert.match(architecture, /starve\s+the\s+due retry/i);
+  assert.match(operations, /appends no retry\s+claim/i);
 });

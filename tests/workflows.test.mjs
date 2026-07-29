@@ -203,6 +203,25 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   assert.equal(alerter.meta.alertChannel, alertPolicy.channel);
   assert.equal(alerter.meta.alertPerRunCap, alertPolicy.per_run_cap);
   assert.equal(
+    alerter.settings.executionTimeout,
+    alertPolicy.execution_timeout_seconds
+  );
+  assert.ok(
+    alertPolicy.execution_timeout_seconds * 1000 <
+      alertPolicy.claim_lease_ms
+  );
+  assert.ok(
+    alertPolicy.retry.backoff_ms >= alertPolicy.claim_lease_ms
+  );
+  assert.ok(
+    alertPolicy.claim_lease_ms <
+      alertPolicy.schedule_minutes * 60 * 1000
+  );
+  assert.ok(
+    alertPolicy.provider_timeout_ms * alertPolicy.per_run_cap <
+      alertPolicy.execution_timeout_seconds * 1000
+  );
+  assert.equal(
     nodeByName(analytics, "Schedule Trigger").parameters.rule.interval[0]
       .hoursInterval,
     analyticsPolicy.schedule_hours

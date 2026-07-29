@@ -14,6 +14,10 @@ import {
   validateAlertPolicy,
   validateAlertProviderConfiguration
 } from "../src/alerts.mjs";
+import {
+  chooseWinningClaims,
+  createProcessingClaim
+} from "../src/contracts.mjs";
 import { applyManualAction } from "../src/review.mjs";
 
 const loadJson = async (path) =>
@@ -135,6 +139,22 @@ test("alert policy is versioned, bounded, and secret-free", () => {
   assert.match(errors, /ambiguous timeouts must be terminal/);
   assert.match(errors, /invalid alert environment reference/);
   assert.match(errors, /preserve two required links/);
+
+  const unsafeTiming = structuredClone(policy);
+  unsafeTiming.execution_timeout_seconds =
+    unsafeTiming.claim_lease_ms / 1000;
+  unsafeTiming.schedule_minutes =
+    unsafeTiming.claim_lease_ms / 60000;
+  unsafeTiming.provider_timeout_ms =
+    unsafeTiming.execution_timeout_seconds * 1000;
+  unsafeTiming.per_run_cap = 2;
+  unsafeTiming.retry.backoff_ms = unsafeTiming.claim_lease_ms - 1;
+  const timingErrors = validateAlertPolicy(unsafeTiming).join("\n");
+  assert.match(timingErrors, /claim lease must outlast/);
+  assert.match(timingErrors, /claim lease must expire before/);
+  assert.match(timingErrors, /provider timeout must be shorter/);
+  assert.match(timingErrors, /execution timeout must exceed capped/);
+  assert.match(timingErrors, /retry backoff must not precede/);
 });
 
 test("provider configuration allows only HTTPS Slack webhooks and HTTPS review surfaces", () => {
@@ -601,7 +621,7 @@ test("transient provider failures retry with bounded backoff and preserve the pa
   assert.equal(retry.alert_attempt_count, 1);
   assert.equal(
     retry.alert_next_retry_at,
-    "2026-07-28T12:01:00.000Z"
+    "2026-07-28T12:02:00.000Z"
   );
   assert.doesNotMatch(retry.alert_error_summary, /must-redact/);
   assert.equal(retry.application_pack_status, "ready");
@@ -612,7 +632,7 @@ test("transient provider failures retry with bounded backoff and preserve the pa
       [retry],
       schema,
       policy,
-      "2026-07-28T12:00:59.000Z"
+      "2026-07-28T12:01:59.000Z"
     ).candidates.length,
     0
   );
@@ -621,9 +641,46 @@ test("transient provider failures retry with bounded backoff and preserve the pa
       [retry],
       schema,
       policy,
-      "2026-07-28T12:01:00.000Z"
+      "2026-07-28T12:02:00.000Z"
     ).candidates.length,
     1
+  );
+
+  const originalClaim = createProcessingClaim(
+    {
+      canonical_job_id: retry.canonical_job_id,
+      work_stage: "alert"
+    },
+    "initial",
+    now,
+    policy.claim_lease_ms
+  );
+  const retryCandidate = selectAlertCandidates(
+    [retry],
+    schema,
+    policy,
+    "2026-07-28T12:02:00.000Z"
+  ).candidates[0];
+  const nextClaim = createProcessingClaim(
+    retryCandidate,
+    "retry",
+    "2026-07-28T12:02:00.000Z",
+    policy.claim_lease_ms
+  );
+  const proposedRetry = {
+    ...retryCandidate,
+    ...nextClaim
+  };
+  assert.deepEqual(
+    chooseWinningClaims(
+      [proposedRetry],
+      [
+        { ...originalClaim, row_number: 2 },
+        { ...nextClaim, row_number: 3 }
+      ],
+      "2026-07-28T12:02:00.000Z"
+    ).map((candidate) => candidate.processing_token),
+    [nextClaim.processing_token]
   );
 
   const terminal = applyAlertProviderResult(

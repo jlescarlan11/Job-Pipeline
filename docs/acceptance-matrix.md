@@ -209,7 +209,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   score/confidence/freshness/gap/pack eligibility only after atomic pack commit
   and stores `pending` immediately, independent of the reviewer cadence.
 - **Configured provider and complete payload:** `config/alert-policy.json` and
-  the one-minute Slack workflow use environment-bound webhook/review values and
+  the 3-minute Slack workflow use environment-bound webhook/review values and
   render all required score, employer/salary/freshness, gap, Apply Points,
   instruction/question/proof/warning, and safe action context with explicit
   unknown labels.
@@ -219,7 +219,11 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **Delivery state/idempotency:** Canonical identity plus alert-policy version
   scopes one initial alert. Confirmed delivery persists channel/version/time
   and bounded provider reference; known transient rejection retries with
-  bounded backoff; configuration/permanent/unavailable paths remain visible.
+  bounded backoff. The 90-second workflow timeout is shorter than the
+  2-minute lease, the lease expires before the next 3-minute poll, and retry
+  backoff never precedes lease expiry, so polls cannot create a starvation
+  chain of losing claims. The cap of 5 matches Generator throughput.
+  Configuration/permanent/unavailable paths remain visible.
 - **Ambiguous delivery safety:** Records move through `sending`; timeout or a
   lost acknowledgement is terminal/ambiguous and never blindly resent.
   Ready pack and manual state remain intact.

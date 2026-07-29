@@ -130,7 +130,7 @@ run must clear zero additional inputs.
    deregistering schedules already cached by a long-running n8n process. If the
    workflow existed in that process, deactivate it through the supported
    runtime surface or restart n8n, then inspect execution history through at
-   least the one-minute alert cadence before treating it as inactive.
+   least the 3-minute alert cadence before treating it as inactive.
 2. Rebind every Google Sheets node to the non-production workbook and test OAuth credential.
 3. Rebind the Groq model node to a test credential. Confirm the project permits
    `config/groq-provider-policy.json`'s selected model; a credential alone does
@@ -140,7 +140,7 @@ run must clear zero additional inputs.
    `Review Queue` tab deep link in the n8n runtime. Never paste either value
    into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
-6. Confirm the configured schedules are 4 hours, 15 minutes, 1 minute,
+6. Confirm the configured schedules are 4 hours, 15 minutes, 3 minutes,
    5 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5.
 7. Keep the old workflows enabled only in production. They must not write to the non-production copy.
 
@@ -312,7 +312,11 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - Re-run the alerter and confirm the same canonical job/policy version does not
   receive a second initial alert.
 - Force a rate limit or provider `5xx` response and verify bounded backoff,
-  sanitized error evidence, and preservation of the application pack.
+  sanitized error evidence, and preservation of the application pack. Confirm
+  a check at one minute is not yet due and appends no retry claim, the scheduled
+  3-minute poll occurs after the 2-minute lease expires, the due retry wins, and
+  no rolling chain of losing alert claims remains. Confirm the 90-second
+  workflow timeout is shorter than the lease and the cap remains 5.
 - Test an invalid/missing webhook, an unavailable source, and a stale `sending`
   row. Confirm no provider request for the first two suppression/configuration
   paths and no blind resend for the ambiguous stale delivery.

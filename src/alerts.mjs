@@ -59,6 +59,7 @@ export function validateAlertPolicy(policy) {
   for (const field of [
     "schedule_minutes",
     "per_run_cap",
+    "execution_timeout_seconds",
     "claim_lease_ms",
     "provider_timeout_ms",
     "maximum_message_characters",
@@ -76,6 +77,53 @@ export function validateAlertPolicy(policy) {
     policy.retry.backoff_ms < 1
   ) {
     errors.push("alert retry bounds are invalid");
+  }
+  if (
+    Number.isInteger(policy.execution_timeout_seconds) &&
+    Number.isInteger(policy.claim_lease_ms) &&
+    policy.execution_timeout_seconds * 1000 >= policy.claim_lease_ms
+  ) {
+    errors.push(
+      "alert claim lease must outlast the workflow execution timeout"
+    );
+  }
+  if (
+    Number.isInteger(policy.claim_lease_ms) &&
+    Number.isInteger(policy.schedule_minutes) &&
+    policy.claim_lease_ms >= policy.schedule_minutes * 60 * 1000
+  ) {
+    errors.push(
+      "alert claim lease must expire before the next scheduled poll"
+    );
+  }
+  if (
+    Number.isInteger(policy.provider_timeout_ms) &&
+    Number.isInteger(policy.execution_timeout_seconds) &&
+    policy.provider_timeout_ms >= policy.execution_timeout_seconds * 1000
+  ) {
+    errors.push(
+      "alert provider timeout must be shorter than the workflow execution timeout"
+    );
+  }
+  if (
+    Number.isInteger(policy.provider_timeout_ms) &&
+    Number.isInteger(policy.per_run_cap) &&
+    Number.isInteger(policy.execution_timeout_seconds) &&
+    policy.provider_timeout_ms * policy.per_run_cap >=
+      policy.execution_timeout_seconds * 1000
+  ) {
+    errors.push(
+      "alert execution timeout must exceed capped serial provider timeouts"
+    );
+  }
+  if (
+    Number.isInteger(policy.retry?.backoff_ms) &&
+    Number.isInteger(policy.claim_lease_ms) &&
+    policy.retry.backoff_ms < policy.claim_lease_ms
+  ) {
+    errors.push(
+      "alert retry backoff must not precede ProcessingClaims lease expiry"
+    );
   }
   if (policy.retry?.ambiguous_timeout_terminal !== true) {
     errors.push("Slack ambiguous timeouts must be terminal to prevent blind duplicates");

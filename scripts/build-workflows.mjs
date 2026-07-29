@@ -3914,7 +3914,8 @@ return {
       connections,
       active: false,
       settings: {
-        executionOrder: "v1"
+        executionOrder: "v1",
+        executionTimeout: policy.execution_timeout_seconds
       },
       versionId: "a11e7e00-0000-4000-8000-000000000014",
       meta: {

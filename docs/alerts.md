@@ -3,13 +3,14 @@
 ## Scope and safety boundary
 
 `config/alert-policy.json` is the versioned source of truth for Slack alert
-eligibility, cadence, caps, leases, retry limits, content limits, and
-environment-variable names. The repository stores no webhook credential. Alert
-actions never apply to a job or mutate a decision: one `Open Review Queue`
-link opens the authorized simplified Google Sheet tab, while the OnlineJobs.ph
-link is open-only. An eligible alert includes the complete current validated application
-message in a copyable Slack code block; it does not add clipboard authority or
-change the candidate's responsibility to review and submit manually.
+eligibility, cadence, caps, execution timeout, leases, retry limits, content
+limits, and environment-variable names. The repository stores no webhook
+credential. Alert actions never apply to a job or mutate a decision: one `Open
+Review Queue` link opens the authorized simplified Google Sheet tab, while the
+OnlineJobs.ph link is open-only. An eligible alert includes the complete
+current validated application message in a copyable Slack code block; it does
+not add clipboard authority or change the candidate's responsibility to review
+and submit manually.
 
 ## Eligibility and queueing
 
@@ -62,19 +63,31 @@ must be credential-free HTTPS URLs.
 
 ## Delivery and failure semantics
 
-The minute schedule selects only due `pending` or `retryable_failure` records,
-orders them by opportunity, freshness, and canonical identity, and applies the
-configured per-run cap. A winning claim is persisted as `sending` before the
-Slack request. Confirmed `2xx`/`ok` delivery becomes `sent` with a timestamp,
-attempt count, and optional non-sensitive provider reference.
+The 3-minute schedule selects only due `pending` or `retryable_failure`
+records, orders them by opportunity, freshness, and canonical identity, and
+applies a cap of 5. That matches the Generator’s maximum new ready records per
+15-minute run while reducing idle Sheet reads from 1,440 to 480 per day. A
+winning claim is persisted as `sending` before the Slack request. Confirmed
+`2xx`/`ok` delivery becomes `sent` with a timestamp, attempt count, and optional
+non-sensitive provider reference.
 
 Known transient failures such as rate limiting or provider `5xx` responses use
-bounded exponential backoff. Permanent rejection, exhausted attempts, missing
-configuration, and ambiguous timeout become `terminal_failure`. If the request
-may have succeeded but its final Sheet acknowledgement was not persisted, the
-stale `sending` state becomes terminal `ambiguous_delivery`; the workflow does
-not resend automatically. An operator may inspect Slack and the Sheet before
-choosing a future policy-version change or manual recovery.
+bounded exponential backoff. The workflow has a 90-second execution timeout,
+the claim lease is 2 minutes, and the first retry waits at least those 2
+minutes. This ordering is a correctness requirement: a completed claim row
+remains eligible for arbitration until expiry. Retrying or polling sooner would
+append losing claims; those newer rows could continuously become the next
+winner and starve the actual current retry. Policy validation therefore
+requires the workflow timeout to be shorter than the lease, the lease to
+expire before the next scheduled poll, the capped serial provider-timeout
+budget to fit within the workflow timeout, and the base backoff to be no
+shorter than the lease. Permanent rejection, exhausted attempts, missing
+configuration, and ambiguous timeout become
+`terminal_failure`. If the request may have succeeded but its final Sheet
+acknowledgement was not persisted, the stale `sending` state becomes terminal
+`ambiguous_delivery`; the workflow does not resend automatically. An operator
+may inspect Slack and the Sheet before choosing a future policy-version change
+or manual recovery.
 
 Alert errors and execution summaries exclude credentials, raw provider
 responses, full descriptions, resumes, and generated application messages. A
