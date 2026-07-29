@@ -145,6 +145,15 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   Recommender to 02:45 Monday in `Asia/Manila`. The 45-minute separation
   covers Analytics' 30-minute outer timeout plus a required 15-minute
   completion buffer without relying on activation-relative interval phases.
+- **I6-AC20 — Bounded self-hosted runtime:** A credential-free deployment
+  policy and validator pin regular-mode production concurrency to 3,
+  timeout-weighted demand to at most 1.5 slots, execution pruning to 336 hours
+  or 10,000 rows, and internal readiness/workflow-labeled metrics. At 3,970
+  scheduled runs per week, a 14-day all-failure case is 7,940 rows. Tests
+  reject disabled pruning, insufficient retention, exhausted concurrency
+  headroom, public metrics, or a fabricated portable error-workflow binding.
+  The runbook requires validation inside production and separately gates Cloud
+  or queue-mode deployment.
 
 ## Issue #8 — Extended learning contract
 

@@ -79,6 +79,22 @@ authoritative result. Failed runs remain inspectable, and saved manual runs
 retain rollout evidence. Instance-level age/count pruning remains a deployment
 control and must still be verified independently.
 
+For a self-hosted regular-mode deployment,
+`config/n8n-deployment-policy.json` pins a production concurrency limit of 3,
+execution pruning at 336 hours or 10,000 records, and internal readiness and
+workflow-labeled metrics. The maximum-timeout schedule model consumes 1.485
+slots, or 49.5% of the limit. Even if all 3,970 scheduled weekly executions
+fail, 14 days produces 7,940 saved executions and remains below the count cap.
+The template is validated but not claimed active until
+`npm run validate:deployment` succeeds inside the production runtime.
+
+Unexpected failures use saved execution evidence plus externally scraped
+metrics. A central error-workflow ID is not embedded: it is assigned by the
+target n8n instance, four portable exports have no top-level instance ID, and
+error executions bypass the production concurrency limit. This avoids turning
+a failure storm into an unbounded notification side effect. Any later central
+handler must be bound and smoke-tested after import.
+
 ## Shared contracts
 
 `config/candidate-profile.json` is the only factual resume source. `config/application-policy.json` is separate so writing preferences cannot become candidate facts. Every evaluation and generated message records the profile version used.

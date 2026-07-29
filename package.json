@@ -11,6 +11,7 @@
     "check:artifacts": "npm run check:workflows && node scripts/build-sheet-setup.mjs --check",
     "check:workflows": "node scripts/build-workflows.mjs --check",
     "test": "node --test",
+    "validate:deployment": "node scripts/validate-n8n-deployment.mjs",
     "validate": "npm run check:artifacts && npm test"
   },
   "engines": {

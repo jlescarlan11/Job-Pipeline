@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-30/v1",
+  "deployment_scope": "self_hosted_regular",
+  "verified_on": "2026-07-30",
+  "official_sources": [
+    "https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/executions",
+    "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
+    "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
+    "https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/monitor-n8n",
+    "https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/enable-prometheus-metrics",
+    "https://docs.n8n.io/build/flow-logic/handle-errors-gracefully"
+  ],
+  "environment": {
+    "GENERIC_TIMEZONE": "Asia/Manila",
+    "EXECUTIONS_TIMEOUT": "1800",
+    "EXECUTIONS_TIMEOUT_MAX": "1800",
+    "EXECUTIONS_DATA_SAVE_ON_ERROR": "all",
+    "EXECUTIONS_DATA_SAVE_ON_SUCCESS": "none",
+    "EXECUTIONS_DATA_SAVE_ON_PROGRESS": "false",
+    "EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS": "true",
+    "EXECUTIONS_DATA_PRUNE": "true",
+    "EXECUTIONS_DATA_MAX_AGE": "336",
+    "EXECUTIONS_DATA_PRUNE_MAX_COUNT": "10000",
+    "EXECUTIONS_DATA_HARD_DELETE_BUFFER": "1",
+    "N8N_CONCURRENCY_PRODUCTION_LIMIT": "3",
+    "N8N_METRICS": "true",
+    "N8N_METRICS_INCLUDE_DEFAULT_METRICS": "true",
+    "N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL": "true",
+    "N8N_METRICS_INCLUDE_QUEUE_METRICS": "false"
+  },
+  "capacity": {
+    "production_concurrency_limit": 3,
+    "maximum_timeout_weighted_concurrency": 1.5,
+    "maximum_utilization_ratio": 0.5,
+    "queue_wait_alert_seconds": 300
+  },
+  "execution_retention": {
+    "maximum_age_hours": 336,
+    "maximum_count": 10000,
+    "hard_delete_buffer_hours": 1,
+    "scheduled_failure_count_at_maximum_age": 7940
+  },
+  "monitoring": {
+    "metrics_internal_only": true,
+    "readiness_path": "/healthz/readiness",
+    "metrics_path": "/metrics",
+    "poll_seconds": 60,
+    "thresholds": {
+      "readiness_consecutive_failures": 2,
+      "failed_executions_in_15_minutes": 1,
+      "production_queue_wait_seconds": 300,
+      "oldest_due_generation_minutes": 30,
+      "oldest_pending_alert_minutes": 15,
+      "oldest_manual_action_minutes": 30,
+      "active_claim_past_lease_count": 1,
+      "provider_rate_limit_events_in_15_minutes": 3
+    }
+  },
+  "failure_detection": {
+    "mode": "external_metrics_and_saved_failures",
+    "central_error_workflow_bound": false,
+    "reason": "Error-workflow selection stores an instance-assigned workflow binding and error executions bypass the production concurrency limit. Portable exports instead retain failed executions and require external metrics and durable-state alerts."
+  }
+}

@@ -11,6 +11,7 @@ const analyticsDoc = await loadText("../docs/analytics.md");
 const sheetSchema = await loadText("../docs/sheet-schema.md");
 const operations = await loadText("../docs/operations.md");
 const recommendationsDoc = await loadText("../docs/recommendations.md");
+const deploymentDoc = await loadText("../docs/n8n-deployment.md");
 const prompt = await loadText("../docs/master-prompt.md");
 const groqProviderDoc = await loadText("../docs/groq-provider-policy.md");
 const alertsDoc = await loadText("../docs/alerts.md");
@@ -94,6 +95,23 @@ test("runtime documentation preserves failure evidence without successful execut
     assert.match(document, /3,970 (?:normally successful )?scheduled executions per week/i);
   }
   assert.match(operations, /instance-level pruning/i);
+});
+
+test("deployment documentation pins bounded self-hosted controls without claiming activation", () => {
+  for (const document of [readme, architecture, operations, deploymentDoc]) {
+    assert.match(document, /production concurrency[\s\S]{0,100}\b3\b/i);
+    assert.match(document, /336 hours/i);
+    assert.match(document, /10,000/i);
+    assert.match(document, /validate:deployment/i);
+  }
+  assert.match(deploymentDoc, /1\.485 execution slots/i);
+  assert.match(deploymentDoc, /7,940 records/i);
+  assert.match(deploymentDoc, /metrics endpoint[\s\S]{0,100}internal/i);
+  assert.match(deploymentDoc, /instance-assigned workflow/i);
+  assert.match(deploymentDoc, /error executions[\s\S]{0,100}bypass/i);
+  assert.match(operations, /oldest due generation exceeds 30 minutes/i);
+  assert.match(operations, /pending alert exceeds 15 minutes/i);
+  assert.match(operations, /manual action exceeds 30 minutes/i);
 });
 
 test("Reviewer idle-path documentation preserves the fail-closed operation bound", () => {

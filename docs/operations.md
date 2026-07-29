@@ -156,10 +156,17 @@ run must clear zero additional inputs.
    executions. Confirm it does not save successful production executions or
    per-node execution progress. Manual smoke executions therefore retain IDs and data;
    scheduled success must be verified from sanitized runtime logs and
-   authoritative Sheet state. On self-hosted n8n, separately confirm execution
-   pruning is enabled and record its age/count bounds; the workflow exports do
-   not activate instance-level pruning.
-9. Keep the old workflows enabled only in production. They must not write to the non-production copy.
+   authoritative Sheet state.
+9. For self-hosted regular mode, apply
+   `config/n8n-deployment-policy.json`, restart n8n, and run
+   `npm run validate:deployment` inside that configured runtime. Confirm
+   production concurrency is 3; pruning is 336 hours/10,000 executions with a
+   1-hour hard-delete buffer; readiness and metrics are internally reachable;
+   and workflow ID labels are present. The exports do not activate
+   instance-level pruning or concurrency controls. For Cloud or queue mode,
+   record the plan/worker controls and create a separately reviewed profile
+   rather than claiming this one.
+10. Keep the old workflows enabled only in production. They must not write to the non-production copy.
 
 Credential IDs and cached Sheet references in the exports are environment hints inherited from the existing workflows, not portable authorization.
 
@@ -478,6 +485,23 @@ Record workflow execution IDs and before/after Sheet counts. Raw provider respon
 ## 7. Production activation
 
 Only after dry-run evidence passes:
+
+Before activation, poll `/healthz/readiness` and internally scrape `/metrics`.
+Alert after two missed one-minute readiness checks, any unexpected failed
+execution in 15 minutes, or a production execution waiting five minutes.
+Reconcile those signals with sanitized logs and Sheet state. Alert when the
+oldest due generation exceeds 30 minutes, a pending alert exceeds 15 minutes,
+a manual action exceeds 30 minutes, any active processing marker exceeds its
+stage lease, or three provider rate-limit events occur within 15 minutes.
+These checks are observational and must not clear state or retry ambiguous
+delivery.
+
+Do not add an instance-specific error-workflow ID to portable exports. If a
+central Error Trigger workflow is introduced later, import it first, select it
+in all seven workflow settings, sanitize its payload, and smoke-test one
+failure per source workflow without provider retries. Saved failed executions
+and internal metrics remain authoritative if that notification path also
+fails.
 
 1. Schedule a low-activity window.
 2. Disable every old scraper/generator/archiver writer and verify no execution remains running.

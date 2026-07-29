@@ -60,6 +60,14 @@ reports per batch. Recommendations keeps 365 days, starts at 80 report rows,
 preserves the newest 12 complete reports, and deletes at most 12 expired runs.
 Every cleanup fails closed on ambiguous identity, count, or row evidence.
 
+For self-hosted regular-mode n8n, the checked-in deployment template caps
+production concurrency at 3, retains a full 14-day all-scheduled-failure
+window (336 hours) within 10,000 execution rows, enables internal
+health/metrics, and pins
+the same execution-data defaults used by every workflow. Run
+`npm run validate:deployment` inside the configured runtime before activation;
+repository JSON does not claim those instance-level controls are already live.
+
 The workflows share ten Google Sheet tabs:
 
 - `Sheet1`: active discovery, evaluation, generation, and review records.
@@ -85,6 +93,7 @@ The workflows share ten Google Sheet tabs:
 - `config/analytics-policy.json`: versioned cohorts, bands, attribution, timezone, cadence, and report fields.
 - `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
 - `config/report-retention.json`: guarded Analytics and Recommender history bounds, cleanup batches, and store leases.
+- `config/n8n-deployment-policy.json`: validated self-hosted regular-mode concurrency, pruning, monitoring, and failure-detection template.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
 - `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
 - `config/runtime.json`: workflow timezone and execution-data policy plus generator and archiver schedules, timeouts, caps, leases, and retries.
@@ -129,6 +138,7 @@ remain unknown.
 - `docs/alerts.md`: eligibility, provider setup, idempotency, safe actions, failure handling, and rollback.
 - `docs/analytics.md`: cohort definitions, dimensions, attribution, metrics, coverage, and complete-report publishing.
 - `docs/recommendations.md`: weekly eligibility, evidence, abstention, versioning, failure, and no-mutation rules.
+- `docs/n8n-deployment.md`: instance-level concurrency, pruning, metrics, alert thresholds, rollout, and rollback.
 - `docs/sheet-schema.md`: complete tab, field, action, and view reference.
 - `docs/master-prompt.md`: how the generated Groq prompt is assembled and validated.
 - `docs/groq-provider-policy.md`: model lifecycle, prompt/request bounds, live benchmark, cost evidence, and rollback.
