@@ -284,8 +284,12 @@ lease. A known transient rejection uses bounded exponential retry beginning at
 rolling chain of losing claims that can starve the due retry. Six capped
 sweeps per Generator interval can handle 30 alerts, versus the Generator’s
 maximum 1-record output, and the cap keeps the serial provider-timeout budget
-inside the workflow timeout. New, retryable, and stale ambiguous states are
-observed within one 15-minute sweep. Provider timeouts are
+inside the workflow timeout. The generated Slack HTTP node processes one item
+per batch and waits the policy-owned 1.1 seconds between requests, matching
+Slack's documented one-message-per-second incoming-webhook limit. The
+provider-timeout plus pacing budget remains below the workflow timeout. New,
+retryable, and stale ambiguous states are observed within one 15-minute sweep.
+Provider timeouts are
 terminal because Slack cannot reconcile an ambiguous delivery. If a `sending`
 record outlives its claim lease—covering
 delivery followed by a failed acknowledgement commit—it is terminalized as

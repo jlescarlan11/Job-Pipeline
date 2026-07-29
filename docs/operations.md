@@ -399,9 +399,11 @@ compatible and reconcile on the next run.
   no rolling chain of losing alert claims remains. Confirm the 90-second
   workflow timeout is shorter than the lease and the cap remains 5.
 - Queue 5 new ready alerts immediately after an Alerter run. Confirm the next
-  sweep processes all 5 within 15 minutes. Over one 90-minute Generator
-  interval, confirm the six Alerter sweeps expose capacity for 30 alerts
-  without making generation wait for Slack.
+  sweep processes all 5 within 15 minutes and that consecutive Slack request
+  starts are at least 1.1 seconds apart. Confirm the capped five-request
+  timeout-plus-pacing budget remains below 90 seconds. Over one 90-minute
+  Generator interval, confirm the six Alerter sweeps expose capacity for 30
+  alerts without making generation wait for Slack.
 - Test an invalid/missing webhook, an unavailable source, and a stale `sending`
   row. Confirm no provider request for the first two suppression/configuration
   paths and no blind resend for the ambiguous stale delivery.

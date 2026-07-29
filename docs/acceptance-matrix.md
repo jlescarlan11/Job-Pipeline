@@ -927,6 +927,11 @@ failures, fixes, and reconciliation are recorded in
   unchanged. Ordered claim-safe selection drains at the lower cap, while six
   independent Alerter sweeps retain capacity for 30 deliveries per Generator
   interval.
+- **RATE-AC7 — Slack webhook pacing:** The alert policy owns a 1.1-second
+  request interval, the generated HTTP node sends one item per batch, and
+  validation includes all four inter-item waits in the five-request
+  provider-timeout budget. Alert capacity, claims, and retry semantics are
+  unchanged.
 
 ## Production audit — Backlog and rate-limit observability
 

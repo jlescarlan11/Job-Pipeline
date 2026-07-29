@@ -64,7 +64,10 @@ or other mutation capability.
 The Slack HTTP node references the webhook environment variable directly. The
 credential is never copied into an n8n item, alert payload, Sheet field, or
 execution log. Both the review and OnlineJobs.ph URLs are bounded by policy and
-must be credential-free HTTPS URLs.
+must be credential-free HTTPS URLs. [Slack documents an incoming-webhook
+limit](https://api.slack.com/apis/rate-limits) of one message per second, so
+the policy spaces individual requests 1.1 seconds apart and the generated HTTP
+node processes one item per batch.
 
 ## Delivery and failure semantics
 
@@ -88,10 +91,10 @@ append losing claims; those newer rows could continuously become the next
 winner and starve the actual current retry. Policy validation therefore
 requires the workflow timeout to be shorter than the lease, the lease to
 expire before the next scheduled poll, the capped serial provider-timeout
-budget to fit within the workflow timeout, and the base backoff to be no
-shorter than the lease. A ready record, due retry, or stale `sending` record is
-observed within one 15-minute sweep. Permanent rejection, exhausted attempts,
-missing configuration, and ambiguous timeout become
+and 1.1-second pacing budget to fit within the workflow timeout, and the base
+backoff to be no shorter than the lease. A ready record, due retry, or stale
+`sending` record is observed within one 15-minute sweep. Permanent rejection,
+exhausted attempts, missing configuration, and ambiguous timeout become
 `terminal_failure`. If the request may have succeeded but its final Sheet
 acknowledgement was not persisted, the stale `sending` state becomes terminal
 `ambiguous_delivery`; the workflow does not resend automatically. An operator

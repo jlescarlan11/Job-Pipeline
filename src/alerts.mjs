@@ -63,6 +63,7 @@ export function validateAlertPolicy(policy) {
     "execution_timeout_seconds",
     "claim_lease_ms",
     "provider_timeout_ms",
+    "provider_request_interval_ms",
     "maximum_message_characters",
     "maximum_action_url_characters",
     "summary_item_characters"
@@ -99,6 +100,14 @@ export function validateAlertPolicy(policy) {
     );
   }
   if (
+    Number.isInteger(policy.provider_request_interval_ms) &&
+    policy.provider_request_interval_ms < 1000
+  ) {
+    errors.push(
+      "Slack provider requests must be paced at least one second apart"
+    );
+  }
+  if (
     Number.isInteger(policy.provider_timeout_ms) &&
     Number.isInteger(policy.execution_timeout_seconds) &&
     policy.provider_timeout_ms >= policy.execution_timeout_seconds * 1000
@@ -109,13 +118,18 @@ export function validateAlertPolicy(policy) {
   }
   if (
     Number.isInteger(policy.provider_timeout_ms) &&
+    Number.isInteger(policy.provider_request_interval_ms) &&
     Number.isInteger(policy.per_run_cap) &&
     Number.isInteger(policy.execution_timeout_seconds) &&
-    policy.provider_timeout_ms * policy.per_run_cap >=
+    (
+      policy.provider_timeout_ms * policy.per_run_cap +
+      policy.provider_request_interval_ms *
+        Math.max(0, policy.per_run_cap - 1)
+    ) >=
       policy.execution_timeout_seconds * 1000
   ) {
     errors.push(
-      "alert execution timeout must exceed capped serial provider timeouts"
+      "alert execution timeout must exceed capped serial provider timeouts and pacing"
     );
   }
   if (

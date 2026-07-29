@@ -57,9 +57,11 @@ The Alerter's 15-minute recovery sweep runs 96 times per day instead of the
 original 480, avoiding 140,160 scheduled executions and idle `Sheet1` reads per
 year. This cadence alone saves 70,080 per year relative to the prior
 five-minute baseline. Its cap of 5 provides capacity for 30 alerts during each
-90-minute Generator interval, versus at most one new Generator output. A new
-ready alert, due retry, or stale ambiguous delivery is observed within 15
-minutes without binding successful generation to Slack availability.
+90-minute Generator interval, versus at most one new Generator output. Within
+each sweep, Slack requests are spaced 1.1 seconds apart to stay below the
+documented one-message-per-second webhook limit. A new ready alert, due retry,
+or stale ambiguous delivery is observed within 15 minutes without binding
+successful generation to Slack availability.
 
 An exact idle Reviewer snapshot performs six Sheet reads and no writes. Before
 the snapshot gate, that same path made at least 14 Sheet/Sheets API requests,

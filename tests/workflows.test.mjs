@@ -412,6 +412,10 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   assert.equal(alerter.meta.alertChannel, alertPolicy.channel);
   assert.equal(alerter.meta.alertPerRunCap, alertPolicy.per_run_cap);
   assert.equal(
+    alerter.meta.alertProviderRequestIntervalMs,
+    alertPolicy.provider_request_interval_ms
+  );
+  assert.equal(
     alerter.meta.scheduleOffsetMinutes,
     alertPolicy.schedule_offset_minutes
   );
@@ -431,7 +435,9 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
       alertPolicy.schedule_minutes * 60 * 1000
   );
   assert.ok(
-    alertPolicy.provider_timeout_ms * alertPolicy.per_run_cap <
+    alertPolicy.provider_timeout_ms * alertPolicy.per_run_cap +
+      alertPolicy.provider_request_interval_ms *
+        (alertPolicy.per_run_cap - 1) <
       alertPolicy.execution_timeout_seconds * 1000
   );
   assert.deepEqual(
@@ -919,6 +925,14 @@ test("alerter export claims, validates, sends, and commits without state-changin
   assert.equal(send.parameters.contentType, "json");
   assert.equal(send.parameters.specifyBody, "json");
   assert.equal(send.parameters.options.timeout, alertPolicy.provider_timeout_ms);
+  assert.equal(
+    send.parameters.options.batching.batch.batchSize,
+    1
+  );
+  assert.equal(
+    send.parameters.options.batching.batch.batchInterval,
+    alertPolicy.provider_request_interval_ms
+  );
   assert.equal(send.retryOnFail, false);
   assert.match(send.parameters.jsonBody, /alert_payload\.text/);
   assert.doesNotMatch(JSON.stringify(send), /hooks\.slack\.com\/services\//);

@@ -414,6 +414,14 @@ test("alert documentation keeps retries behind claim expiry and execution timeou
   assert.match(alertsDoc, /480 to 96 per day/i);
   assert.match(alertsDoc, /140,160\s+scheduled\s+executions/i);
   assert.match(alertsDoc, /capacity for 30\s+alerts/i);
+  for (const document of [readme, alertsDoc, architecture, operations]) {
+    assert.match(document, /1\.1\s+seconds?/i);
+  }
+  assert.match(alertsDoc, /one message per second/i);
+  assert.match(
+    operations,
+    /request\s+starts are at least 1\.1\s+seconds apart/i
+  );
   assert.match(
     alertsDoc,
     /retain their attempt\s+count, due time, and original delivery key/i

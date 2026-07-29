@@ -4207,6 +4207,12 @@ return {
       specifyBody: "json",
       jsonBody: "={{ { text: $json.alert_payload.text } }}",
       options: {
+        batching: {
+          batch: {
+            batchSize: 1,
+            batchInterval: policy.provider_request_interval_ms
+          }
+        },
         response: {
           response: {
             fullResponse: true,
@@ -4329,6 +4335,8 @@ return {
         alertPolicyVersion: policy.policy_version,
         alertChannel: policy.channel,
         alertPerRunCap: policy.per_run_cap,
+        alertProviderRequestIntervalMs:
+          policy.provider_request_interval_ms,
         scheduleMinutes: policy.schedule_minutes,
         scheduleOffsetMinutes: policy.schedule_offset_minutes,
         executionTimeoutSeconds: policy.execution_timeout_seconds

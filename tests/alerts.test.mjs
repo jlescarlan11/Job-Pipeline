@@ -125,6 +125,7 @@ const ready = (overrides = {}) => ({
 test("alert policy is versioned, bounded, and secret-free", () => {
   assert.deepEqual(validateAlertPolicy(policy), []);
   assert.equal(policy.schedule_minutes, 15);
+  assert.equal(policy.provider_request_interval_ms, 1100);
   assert.equal(
     (90 / policy.schedule_minutes) * policy.per_run_cap,
     30,
@@ -154,6 +155,7 @@ test("alert policy is versioned, bounded, and secret-free", () => {
   unsafeTiming.schedule_offset_minutes = unsafeTiming.schedule_minutes;
   unsafeTiming.provider_timeout_ms =
     unsafeTiming.execution_timeout_seconds * 1000;
+  unsafeTiming.provider_request_interval_ms = 999;
   unsafeTiming.per_run_cap = 2;
   unsafeTiming.retry.backoff_ms = unsafeTiming.claim_lease_ms - 1;
   const timingErrors = validateAlertPolicy(unsafeTiming).join("\n");
@@ -161,6 +163,7 @@ test("alert policy is versioned, bounded, and secret-free", () => {
   assert.match(timingErrors, /alert schedule_offset_minutes/);
   assert.match(timingErrors, /claim lease must expire before/);
   assert.match(timingErrors, /provider timeout must be shorter/);
+  assert.match(timingErrors, /paced at least one second apart/);
   assert.match(timingErrors, /execution timeout must exceed capped/);
   assert.match(timingErrors, /retry backoff must not precede/);
 });

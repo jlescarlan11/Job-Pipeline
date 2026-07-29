@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v5",
+  "policy_version": "2026-07-30/v6",
   "channel": "slack",
   "schedule_minutes": 15,
   "schedule_offset_minutes": 2,
@@ -8,6 +8,7 @@
   "execution_timeout_seconds": 90,
   "claim_lease_ms": 120000,
   "provider_timeout_ms": 10000,
+  "provider_request_interval_ms": 1100,
   "retry": {
     "max_attempts": 3,
     "backoff_ms": 120000,
