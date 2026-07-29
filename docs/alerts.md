@@ -19,8 +19,9 @@ current and ready. The shared safety gate revalidates profile/policy/pack
 versions, validation state, approved URLs, banned phrases, and pack structure.
 The record must also meet every configured qualification, opportunity,
 confidence, freshness, and major-gap rule, remain active, and have no
-application decision. Queuing is part of the same successful record commit and
-stores:
+application decision. The current minimum qualification score is 70 and the
+current minimum opportunity score is 50. Queuing is part of the same successful
+record commit and stores:
 
 - `alert_status=pending`
 - the configured channel and policy version
@@ -33,6 +34,8 @@ sending record is terminalized through a state-only alert claim with the stable
 unavailable is changed to `suppressed` under an alert claim and is not sent.
 Changing the versioned policy creates a new idempotency scope; it is therefore
 an operator-visible product change, not an invisible configuration edit.
+Policy changes apply to newly committed packs and unsent pending or retryable
+alerts. Records already marked `sent` are not replayed automatically.
 
 ## Provider configuration
 

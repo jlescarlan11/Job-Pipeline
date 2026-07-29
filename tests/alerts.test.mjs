@@ -120,6 +120,7 @@ const ready = (overrides = {}) => ({
 
 test("alert policy is versioned, bounded, and secret-free", () => {
   assert.deepEqual(validateAlertPolicy(policy), []);
+  assert.equal(policy.eligibility.minimum_opportunity_score, 50);
   assert.match(policy.environment.provider_webhook_url, /^[A-Z0-9_]+$/);
   assert.doesNotMatch(JSON.stringify(policy), /hooks\.slack\.com|Bearer|https:\/\//i);
 
@@ -179,7 +180,13 @@ test("eligibility enforces every configured boundary", () => {
 
   const cases = [
     ["qualification_below_threshold", { qualification_score: 69 }],
-    ["opportunity_below_threshold", { opportunity_score: 69 }],
+    [
+      "opportunity_below_threshold",
+      {
+        opportunity_score:
+          policy.eligibility.minimum_opportunity_score - 1
+      }
+    ],
     ["confidence_not_allowed", { ranking_confidence: "low" }],
     ["pack_not_ready", { application_pack_status: "review_required" }],
     ["posting_timestamp_missing", { posted_at: "" }],
@@ -278,7 +285,7 @@ GitHub: ${profile.candidate.links.github}`;
   const record = ready({
     alert_status: "pending",
     alert_policy_version: policy.policy_version,
-    alert_idempotency_key: "onlinejobs.ph:7001|2026-07-28/v1",
+    alert_idempotency_key: `onlinejobs.ph:7001|${policy.policy_version}`,
     alert_last_attempt_at: now,
     job_description: "FULL DESCRIPTION MUST NOT APPEAR",
     generated_message: generatedMessage,
@@ -499,6 +506,21 @@ test("confirmed success persists delivery evidence and suppresses duplicate init
 
   assert.deepEqual(queueAlertState(sent, policy, now), sent);
   assert.deepEqual(selectAlertCandidates([sent], schema, policy, now).candidates, []);
+
+  const sentUnderPreviousPolicy = {
+    ...sent,
+    alert_policy_version: "2026-07-28/v1",
+    alert_idempotency_key: "onlinejobs.ph:7001|2026-07-28/v1"
+  };
+  assert.deepEqual(
+    selectAlertCandidates(
+      [sentUnderPreviousPolicy],
+      schema,
+      policy,
+      now
+    ).candidates,
+    []
+  );
 });
 
 test("a stale in-flight delivery is terminalized without a blind resend", () => {

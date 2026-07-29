@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-28/v1",
+  "policy_version": "2026-07-29/v1",
   "channel": "slack",
   "schedule_minutes": 1,
   "per_run_cap": 10,
@@ -14,7 +14,7 @@
   "eligibility": {
     "maximum_age_days": 3,
     "minimum_qualification_score": 70,
-    "minimum_opportunity_score": 70,
+    "minimum_opportunity_score": 50,
     "allowed_confidence": [
       "high",
       "medium"
