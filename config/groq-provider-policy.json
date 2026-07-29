@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-30/v1",
+  "provider": "groq",
+  "last_verified_on": "2026-07-30",
+  "selected_model": "openai/gpt-oss-120b",
+  "generation": {
+    "temperature": 0.2,
+    "maximum_output_tokens": 384,
+    "maximum_combined_input_characters": 18000,
+    "repair_reserve_characters": 6000,
+    "character_estimate_divisor": 3
+  },
+  "activation_gate": {
+    "live_benchmark_required": true,
+    "minimum_cases_per_model": 3,
+    "required_valid_rate": 1,
+    "candidate_models": [
+      "openai/gpt-oss-120b",
+      "qwen/qwen3.6-27b"
+    ]
+  },
+  "models": [
+    {
+      "id": "openai/gpt-oss-120b",
+      "lifecycle": "production",
+      "artifact_approved": true,
+      "production_activation": "benchmark_required",
+      "shutdown_on": null,
+      "context_window_tokens": 131072,
+      "provider_maximum_output_tokens": 65536,
+      "developer_base_limits": {
+        "requests_per_minute": 30,
+        "requests_per_day": 1000,
+        "tokens_per_minute": 8000,
+        "tokens_per_day": 200000
+      },
+      "pricing_usd_per_million_tokens": {
+        "input": 0.15,
+        "cached_input": 0.075,
+        "output": 0.6
+      },
+      "official_sources": [
+        "https://console.groq.com/docs/model/openai/gpt-oss-120b",
+        "https://console.groq.com/docs/rate-limits",
+        "https://console.groq.com/docs/deprecations"
+      ]
+    },
+    {
+      "id": "qwen/qwen3.6-27b",
+      "lifecycle": "preview",
+      "artifact_approved": false,
+      "production_activation": "benchmark_required",
+      "shutdown_on": null,
+      "context_window_tokens": 131072,
+      "provider_maximum_output_tokens": 16384,
+      "developer_base_limits": {
+        "requests_per_minute": 30,
+        "requests_per_day": 1000,
+        "tokens_per_minute": 8000,
+        "tokens_per_day": 200000
+      },
+      "pricing_usd_per_million_tokens": {
+        "input": 0.6,
+        "cached_input": null,
+        "output": 3
+      },
+      "official_sources": [
+        "https://console.groq.com/docs/model/qwen/qwen3.6-27b",
+        "https://console.groq.com/docs/rate-limits",
+        "https://console.groq.com/docs/deprecations"
+      ]
+    },
+    {
+      "id": "llama-3.3-70b-versatile",
+      "lifecycle": "deprecated",
+      "artifact_approved": false,
+      "production_activation": "forbidden",
+      "shutdown_on": "2026-08-16",
+      "context_window_tokens": 131072,
+      "provider_maximum_output_tokens": 32768,
+      "developer_base_limits": {
+        "requests_per_minute": 30,
+        "requests_per_day": 1000,
+        "tokens_per_minute": 12000,
+        "tokens_per_day": 100000
+      },
+      "pricing_usd_per_million_tokens": {
+        "input": 0.59,
+        "cached_input": null,
+        "output": 0.79
+      },
+      "official_sources": [
+        "https://console.groq.com/docs/model/llama-3.3-70b-versatile",
+        "https://console.groq.com/docs/rate-limits",
+        "https://console.groq.com/docs/deprecations"
+      ]
+    }
+  ]
+}

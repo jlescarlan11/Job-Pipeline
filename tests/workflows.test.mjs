@@ -8,6 +8,7 @@ const policy = await loadJson("../config/application-policy.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
 const alertPolicy = await loadJson("../config/alert-policy.json");
+const groqPolicy = await loadJson("../config/groq-provider-policy.json");
 const analyticsPolicy = await loadJson("../config/analytics-policy.json");
 const recommendationPolicy = await loadJson(
   "../config/recommendation-policy.json"
@@ -158,6 +159,21 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     packPolicy.policy_version
   );
   assert.equal(generator.meta.applicationPackVersion, packPolicy.pack_version);
+  assert.equal(
+    generator.meta.groqProviderPolicyVersion,
+    groqPolicy.policy_version
+  );
+  assert.equal(generator.meta.groqModel, groqPolicy.selected_model);
+  const groq = nodeByName(generator, "Groq Chat Model");
+  assert.equal(groq.parameters.model, groqPolicy.selected_model);
+  assert.equal(
+    groq.parameters.options.maxTokensToSample,
+    groqPolicy.generation.maximum_output_tokens
+  );
+  assert.equal(
+    groq.parameters.options.temperature,
+    groqPolicy.generation.temperature
+  );
   const detailFetch = nodeByName(generator, "Fetch Job Detail");
   assert.equal(detailFetch.maxTries, runtime.generator.retry.max_attempts);
   assert.equal(detailFetch.waitBetweenTries, runtime.generator.request_retry_backoff_ms);
@@ -342,9 +358,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   );
 
   const systemMessage = nodeByName(workflow, "AI Agent").parameters.options.systemMessage;
-  assert.match(systemMessage, /Pharmacy & Acute Care University/);
   assert.match(systemMessage, /johnlesterescarlan\.pro/);
   assert.match(systemMessage, /manual review/i);
+  assert.match(systemMessage, /selected approved proofs are the only candidate facts/i);
+  assert.doesNotMatch(systemMessage, /Pharmacy & Acute Care University/);
   assert.doesNotMatch(systemMessage, /netlify|FireCheck|PriceCraft|HEALTH/);
   assert.equal(policy.manual_submission_required, true);
   const evaluationCode = nodeByName(workflow, "Evaluate Job").parameters.jsCode;
@@ -398,7 +415,9 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.match(packCode, /buildApplicationPack/);
   assert.match(packCode, /validateApplicationPack/);
   assert.match(packCode, /application_pack_ready/);
-  assert.match(packCode, /buildApplicationUserMessage\(record, pack\)/);
+  assert.match(packCode, /buildApplicationUserMessage\(record, pack,\s*\{/);
+  assert.match(packCode, /provider_prompt_budget/);
+  assert.match(packCode, /validateGroqPromptBudget/);
   const generationCode = nodeByName(
     workflow,
     "Validate Initial Draft"
@@ -418,7 +437,8 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.match(generationCode, /applicationPolicy:\s*POLICY/);
   assert.match(generationCode, /recordStageFailure\(originalRecord/);
   assert.match(generationCode, /buildApplicationRepairMessage/);
-  assert.match(generationCode, /buildApplicationUserMessage\(record, record\)/);
+  assert.match(generationCode, /record\.application_prompt/);
+  assert.match(generationCode, /repair prompt exceeds provider input budget/);
   assert.match(generationCode, /should_repair:\s*true/);
   const repairCode = nodeByName(
     workflow,

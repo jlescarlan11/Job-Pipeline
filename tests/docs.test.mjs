@@ -11,6 +11,7 @@ const sheetSchema = await loadText("../docs/sheet-schema.md");
 const operations = await loadText("../docs/operations.md");
 const recommendationsDoc = await loadText("../docs/recommendations.md");
 const prompt = await loadText("../docs/master-prompt.md");
+const groqProviderDoc = await loadText("../docs/groq-provider-policy.md");
 const schema = await loadJson("../config/pipeline-schema.json");
 const searchPlan = await loadJson("../config/search-plan.json");
 const runtime = await loadJson("../config/runtime.json");
@@ -19,6 +20,7 @@ const analytics = await loadJson("../config/analytics-policy.json");
 const recommendations = await loadJson(
   "../config/recommendation-policy.json"
 );
+const groqProvider = await loadJson("../config/groq-provider-policy.json");
 
 test("README and architecture document the checked-in schedules, bounds, and manual boundary", () => {
   for (const document of [readme, architecture]) {
@@ -77,6 +79,8 @@ test("runbook contains every release and rollback safety gate", () => {
   assert.match(operations, /all seven exports/i);
   assert.match(operations, /weekly recommendations/i);
   assert.match(operations, /separately reviewed approval/i);
+  assert.match(operations, /Groq benchmark/i);
+  assert.match(operations, /model permission/i);
 });
 
 test("weekly recommendation documentation preserves evidence and no-mutation boundaries", () => {
@@ -101,4 +105,14 @@ test("prompt documentation points to generated canonical inputs without embeddin
   assert.match(prompt, /config\/application-policy\.json/);
   assert.match(prompt, /deterministic validation/i);
   assert.doesNotMatch(prompt, /netlify|FireCheck|PriceCraft|HEALTH/);
+});
+
+test("Groq documentation preserves the model lifecycle, measurement, and activation gates", () => {
+  assert.match(groqProviderDoc, /2026-08-16/);
+  assert.match(groqProviderDoc, new RegExp(groqProvider.selected_model));
+  assert.match(groqProviderDoc, /character-based estimate/i);
+  assert.match(groqProviderDoc, /exact provider input/i);
+  assert.match(groqProviderDoc, /--live/);
+  assert.match(groqProviderDoc, /never prints prompts/i);
+  assert.match(groqProviderDoc, /rollback/i);
 });

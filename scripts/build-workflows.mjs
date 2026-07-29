@@ -636,12 +636,14 @@ async function buildGenerator() {
   const rankingPolicy = await readJson("config/ranking-policy.json");
   const packPolicy = await readJson("config/application-pack-policy.json");
   const alertPolicy = await readJson("config/alert-policy.json");
+  const groqPolicy = await readJson("config/groq-provider-policy.json");
   const schema = await readJson("config/pipeline-schema.json");
   const runtime = await readJson("config/runtime.json");
   const evaluationCore = await bundledCore(
     "src/contracts.mjs",
     "src/profile.mjs",
     "src/evaluation.mjs",
+    "src/groq-provider.mjs",
     "src/message-safety.mjs",
     "src/alerts.mjs"
   );
@@ -656,6 +658,10 @@ async function buildGenerator() {
   const { validateAlertPolicy } = await import(
     new URL("../src/alerts.mjs", import.meta.url)
   );
+  const {
+    groqInitialUserCharacterBudget,
+    resolveGroqGenerationModel
+  } = await import(new URL("../src/groq-provider.mjs", import.meta.url));
   assertValidProfileConfiguration(profile, policy);
   const rankingPolicyErrors = validateRankingPolicy(rankingPolicy, profile);
   if (rankingPolicyErrors.length > 0) {
@@ -673,6 +679,15 @@ async function buildGenerator() {
   if (alertPolicyErrors.length > 0) {
     throw new Error(`Invalid alert policy:\n- ${alertPolicyErrors.join("\n- ")}`);
   }
+  const groqModel = resolveGroqGenerationModel(groqPolicy);
+  const applicationSystemMessage = buildApplicationSystemMessage(
+    profile,
+    policy
+  );
+  const initialUserCharacterBudget = groqInitialUserCharacterBudget(
+    groqPolicy,
+    applicationSystemMessage
+  );
   if (
     runtime.schema_version !== 1 ||
     !Number.isInteger(runtime.generator?.schedule_minutes) ||
@@ -782,7 +797,7 @@ async function buildGenerator() {
     promptType: "define",
     text: "={{ $json.application_prompt }}",
     options: {
-      systemMessage: buildApplicationSystemMessage(profile, policy),
+      systemMessage: applicationSystemMessage,
       batching: {
         batchSize: 1,
         delayBetweenBatches: 20000
@@ -793,6 +808,13 @@ async function buildGenerator() {
 
   const groq = nodeByName(current, "Groq Chat Model");
   groq.position = [1140, 760];
+  groq.parameters = {
+    model: groqModel.id,
+    options: {
+      maxTokensToSample: groqPolicy.generation.maximum_output_tokens,
+      temperature: groqPolicy.generation.temperature
+    }
+  };
 
   const repairAgent = structuredClone(agent);
   repairAgent.id = "ee12f5d9-c0d5-4586-bf62-000000000020";
@@ -905,6 +927,8 @@ return {
 const PROFILE = ${JSON.stringify(profile)};
 const POLICY = ${JSON.stringify(policy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const GROQ_POLICY = ${JSON.stringify(groqPolicy)};
+const APPLICATION_SYSTEM_MESSAGE = ${JSON.stringify(applicationSystemMessage)};
 const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
 const MESSAGE_SAFETY = {
   profile: PROFILE,
@@ -943,15 +967,45 @@ const validation = validateGeneratedMessage(message, {
   pack: record
 });
 if (!validation.valid) {
+  const repairInstructions = buildApplicationRepairMessage(
+    message,
+    validation.errors
+  );
+  const repairPrompt = record.application_prompt + '\\n\\n' + repairInstructions;
+  const repairBudget = validateGroqPromptBudget(
+    GROQ_POLICY,
+    APPLICATION_SYSTEM_MESSAGE,
+    repairPrompt
+  );
+  if (!repairBudget.valid) {
+    const failed = recordStageFailure(
+      originalRecord,
+      new Error(
+        'message_validation: repair prompt exceeds provider input budget'
+      ),
+      {
+        stage: 'generation',
+        now,
+        maxAttempts: ${runtime.generator.retry.max_attempts},
+        backoffMs: ${runtime.generator.retry.backoff_ms},
+        forceRetryable: true
+      }
+    );
+    return {
+      json: {
+        ...failed,
+        processing_commit_guard: commitGuard,
+        commit_token: commitToken,
+        should_repair: false
+      }
+    };
+  }
   return {
     json: {
       ...record,
       rejected_message: message,
       validation_errors: validation.errors,
-      repair_prompt:
-        buildApplicationUserMessage(record, record) +
-        '\\n\\n' +
-        buildApplicationRepairMessage(message, validation.errors),
+      repair_prompt: repairPrompt,
       processing_commit_guard: commitGuard,
       commit_token: commitToken,
       should_repair: true
@@ -1109,19 +1163,58 @@ return {
 const PROFILE = ${JSON.stringify(profile)};
 const POLICY = ${JSON.stringify(policy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const GROQ_POLICY = ${JSON.stringify(groqPolicy)};
+const APPLICATION_SYSTEM_MESSAGE = ${JSON.stringify(applicationSystemMessage)};
 const record = $('Keep Winning Claims').item.json;
 const now = new Date().toISOString();
-const pack = buildApplicationPack(record, PROFILE, POLICY, PACK_POLICY, now);
+let pack = buildApplicationPack(record, PROFILE, POLICY, PACK_POLICY, now);
+let applicationPrompt = '';
+let promptBudget = {
+  valid: true,
+  combined_characters: 0,
+  character_based_token_estimate: 0
+};
+if (pack.application_pack_status === 'ready') {
+  try {
+    applicationPrompt = buildApplicationUserMessage(record, pack, {
+      maximumCharacters: ${initialUserCharacterBudget}
+    });
+    promptBudget = validateGroqPromptBudget(
+      GROQ_POLICY,
+      APPLICATION_SYSTEM_MESSAGE,
+      applicationPrompt
+    );
+    if (!promptBudget.valid) throw new Error('provider input budget exceeded');
+  } catch {
+    pack = {
+      ...pack,
+      application_pack_status: 'review_required',
+      application_warnings: [
+        ...(pack.application_warnings || []),
+        {
+          code: 'provider_prompt_budget',
+          severity: 'review',
+          summary: 'The application context exceeds the configured provider budget.'
+        }
+      ]
+    };
+    applicationPrompt = '';
+  }
+}
 const packErrors = validateApplicationPack(pack, PROFILE, PACK_POLICY);
 return {
   json: {
     ...record,
     ...pack,
-    application_prompt: buildApplicationUserMessage(record, pack),
+    application_prompt: applicationPrompt,
     application_pack_ready:
       pack.application_pack_status === 'ready' &&
-      packErrors.length === 0,
-    application_pack_gate_errors: packErrors
+      packErrors.length === 0 &&
+      promptBudget.valid,
+    application_pack_gate_errors: packErrors,
+    application_prompt_characters: promptBudget.combined_characters,
+    application_prompt_character_token_estimate:
+      promptBudget.character_based_token_estimate
   }
 };`;
 
@@ -1558,6 +1651,9 @@ return {
         applicationPackPolicyVersion: packPolicy.policy_version,
         applicationPackVersion: packPolicy.pack_version,
         alertPolicyVersion: alertPolicy.policy_version,
+        groqProviderPolicyVersion: groqPolicy.policy_version,
+        groqModel: groqModel.id,
+        groqProductionActivation: groqModel.production_activation,
         pipelineSchemaVersion: schema.storage_version,
         generatorPerRunCap: runtime.generator.per_run_cap
       }

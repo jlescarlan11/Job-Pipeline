@@ -108,8 +108,12 @@ from both the structured pack and model prompt. Only a `ready` pack reaches
 Groq. A `review_required` or `blocked` pack releases the claim, persists its
 bounded warnings, and returns to `review_required` without a provider call.
 
-The generated system message is built from the canonical profile plus
-application policy and targets at most 260 words below the configured 300-word
+The generated system message is built from a compact canonical identity and
+approved-URL block plus application policy. Per-job prompts provide only
+selected canonical proofs and non-empty bounded role context; they omit the job
+URL. `config/groq-provider-policy.json` selects an artifact-approved,
+non-expired model and bounds temperature, output, initial input, and repair
+reserve. The message targets at most 260 words below the configured 300-word
 hard limit. Post-generation validation rejects empty output, excess length,
 unapproved URLs, obsolete projects, unsupported technologies, transformed or
 unsupported numeric claims, unapproved schedule/availability/salary/start-date
@@ -118,7 +122,9 @@ labels, banned phrases, and a missing required subject value. An invalid first
 draft receives one repair call containing the complete rejected draft and all
 deterministic errors. The repair is revalidated under the same profile, policy,
 pack, processing claim, and commit guard; it is not a separate pipeline
-attempt. A successful finalization matches the durable
+attempt. The repair reuses the exact original evidence packet and is skipped
+with bounded failure evidence when the complete input would exceed the provider
+budget. A successful finalization matches the durable
 `processing_commit_guard` written at claim acquisition and writes the message,
 complete pack, and cleared active-claim fields together. Provider or validation
 failure starts from the pre-generation record, preserving the previous valid

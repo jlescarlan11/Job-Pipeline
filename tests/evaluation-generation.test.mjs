@@ -820,14 +820,14 @@ test("temporary errors retry with sanitized evidence and terminalize at the cap"
 
 test("application prompt uses only the canonical profile and separate policy", () => {
   const prompt = buildApplicationSystemMessage(profile, policy);
-  assert.match(prompt, /Pharmacy & Acute Care University/);
   assert.match(prompt, /johnlesterescarlan\.pro/);
+  assert.doesNotMatch(prompt, /Pharmacy & Acute Care University/);
   assert.doesNotMatch(prompt, /netlify|FireCheck|PriceCraft/);
   assert.match(prompt, /manual review/i);
   assert.match(prompt, /untrusted role context/i);
   assert.match(prompt, /at or below 260 words/i);
-  assert.match(prompt, /Never mention a technology absent from the profile/i);
-  assert.match(prompt, /Never accept employer hours/i);
+  assert.match(prompt, /Never mention a technology absent from the selected proofs/i);
+  assert.match(prompt, /Never accept employer\s+hours/i);
 });
 
 test("application-pack policy is profile-bound and deterministic", () => {
@@ -870,9 +870,10 @@ test("instruction-aware pack extracts distinct instructions and approved proofs"
   const prompt = buildApplicationUserMessage(job, pack);
   assert.match(prompt, /CODE-TS/);
   assert.match(prompt, /SELECTED APPROVED PROOFS/);
-  assert.match(prompt, /UNSUPPORTED REQUIREMENTS — EXCLUDE FROM THE MESSAGE/);
   assert.doesNotMatch(prompt, /Match tier:|Resume evidence:/);
   assert.doesNotMatch(prompt, /must-not-persist/);
+  assert.doesNotMatch(prompt, /Job URL:/);
+  assert.doesNotMatch(prompt, /\[\]\n/);
 });
 
 test("repair prompt contains the complete rejected draft and every deterministic error only", () => {

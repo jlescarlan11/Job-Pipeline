@@ -130,7 +130,9 @@ run must clear zero additional inputs.
    runtime surface or restart n8n, then inspect execution history through at
    least the one-minute alert cadence before treating it as inactive.
 2. Rebind every Google Sheets node to the non-production workbook and test OAuth credential.
-3. Rebind the Groq model node to a test credential.
+3. Rebind the Groq model node to a test credential. Confirm the project permits
+   `config/groq-provider-policy.json`'s selected model; a credential alone does
+   not prove model permission.
 4. Set `JOB_PIPELINE_SLACK_WEBHOOK_URL` to a test Slack incoming webhook and
    `JOB_PIPELINE_REVIEW_URL` to the authorized non-production Sheet's full
    `Review Queue` tab deep link in the n8n runtime. Never paste either value
@@ -247,6 +249,10 @@ Slack HTTP node must remain an explicit JSON `POST`.
 
 ### Evaluation/generation
 
+- Do not activate the Generator until the opt-in live benchmark in
+  `docs/groq-provider-policy.md` passes both official replacement candidates
+  and the selected model also passes this disabled n8n smoke. Repository
+  validation is offline and is not a substitute for that gate.
 - Exercise one direct, adjacent, unscorable, unavailable, and unsupported job.
 - Confirm a ready pack makes one initial Groq call and a valid draft becomes
   `ready`.
@@ -374,11 +380,15 @@ Only after dry-run evidence passes:
 6. Manually execute and verify the reviewer on production data without setting
    actions. Confirm the new queue projection and source/archive/dashboard
    counts before enabling schedules.
-7. Verify the production Slack/review environment variables without recording
+7. Verify the sanitized Groq benchmark evidence, current model permission, and
+   selected model ID still match `config/groq-provider-policy.json`. A
+   `benchmark_required`, forbidden, deprecated, or shutdown selection blocks
+   Generator activation.
+8. Verify the production Slack/review environment variables without recording
    their values, including that `JOB_PIPELINE_REVIEW_URL` is the full
    `Review Queue` tab deep link, then activate in this order: reviewer, generator, alerter,
    scraper, archiver, analytics, recommender.
-8. Wait for and verify one cycle at each cadence before ending the window.
+9. Wait for and verify one cycle at each cadence before ending the window.
 
 Never run old and new writers against the same workbook.
 

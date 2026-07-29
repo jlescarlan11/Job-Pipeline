@@ -36,6 +36,7 @@ The workflows share ten Google Sheet tabs:
 - `config/ranking-policy.json`: versioned dual-score factors, confidence rules, and advisory Apply Points thresholds.
 - `config/application-pack-policy.json`: instruction extraction, proof selection, limits, and pack readiness rules.
 - `config/alert-policy.json`: versioned Slack eligibility, retry, message-size, and environment-reference rules.
+- `config/groq-provider-policy.json`: approved Groq model lifecycle, request bounds, pricing evidence, and live benchmark gate.
 - `config/analytics-policy.json`: versioned cohorts, bands, attribution, timezone, cadence, and report fields.
 - `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
@@ -84,6 +85,7 @@ remain unknown.
 - `docs/recommendations.md`: weekly eligibility, evidence, abstention, versioning, failure, and no-mutation rules.
 - `docs/sheet-schema.md`: complete tab, field, action, and view reference.
 - `docs/master-prompt.md`: how the generated Groq prompt is assembled and validated.
+- `docs/groq-provider-policy.md`: model lifecycle, prompt/request bounds, live benchmark, cost evidence, and rollback.
 - `docs/operations.md`: backup, migration, dry run, activation, production checks, and rollback.
 - `docs/acceptance-matrix.md`: issue-by-issue acceptance evidence.
 - `docs/review-report.md`: final security, data-integrity, and operational-readiness review.
