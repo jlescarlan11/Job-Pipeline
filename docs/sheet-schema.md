@@ -159,6 +159,64 @@ reconciliation; promoted rows refresh as `recommended` while eligible. A
 failed cleanup can leave a stale projection temporarily, but cannot roll back
 or duplicate the authoritative decision.
 
+### `Applied Jobs`
+
+A derived follow-up projection of every authoritative active or archived record
+whose `application_decision` is `applied`. During recoverable overlap, the
+single active record is authoritative. Non-applied records are excluded, and a
+missing identity or duplicate identity within either source fails closed with a
+sanitized Reviewer diagnostic.
+
+The visible columns are exactly:
+
+1. `Applied at`
+2. `Job title`
+3. `Company`
+4. `Generated message`
+5. `Job link`
+6. `Current outcome`
+7. `Outcome updated at`
+8. `Action`
+
+`canonical_job_id` and `source_state_guard` follow as hidden workflow helpers.
+Only Action is intended for editing; every other column uses warning-only
+generated-field protection. Long generated messages wrap. Blank legacy
+company, message, link, applied timestamp, outcome, or outcome timestamp values
+remain visibly blank. Rows sort by `application_decided_at` descending, with
+canonical identity as the deterministic fallback. An empty projection retains
+headers, validation, formatting, and protections without placeholder rows.
+
+| Friendly Action | Internal action |
+| --- | --- |
+| `No Response` | `outcome_no_response` |
+| `Replied` | `outcome_replied` |
+| `Interview` | `outcome_interview` |
+| `Offer` | `outcome_offer` |
+| `Rejected` | `outcome_rejected` |
+| `Clear Outcome` | `clear_outcome` |
+
+The Reviewer revalidates hidden identity and source guard against fresh
+`Sheet1` and `Archive` reads. It commits active and archived outcomes through
+the same guarded transition logic, preserving application history, generated
+message, snapshots, notes, and version metadata. Direct source actions win
+conflicts. A repeated current outcome adds no event; Clear Outcome appends a
+correction only when a nonblank outcome exists; No Response is never inferred.
+Projection maintenance never writes `Action`, so failed commits, cleanup
+retries, sorting, overlapping Reviewer runs, and concurrent Action edits cannot
+erase a selection. A confirmed selection may remain visible; repeating it is
+idempotent, and the user may choose a later outcome or blank the cell. Desired
+rows are upserted by canonical identity under one append-only projection lease.
+Stale rows first have generated fields and source guards cleared without
+mapping Action. One atomic Sheets batch inserts identity-matched blank
+templates, compares every current cell through server-side duplicate removal,
+and retires only rows that remain unchanged and blank at batch application
+time. A concurrent Action makes the row non-duplicate and keeps it visible.
+Case-fold uniqueness prevents Sheets' case-insensitive duplicate comparison
+from merging identity templates. The batch removes only its own inserted
+templates, then restores valid-Applied-at order with canonical identity as the
+tie-break. Invalid application timestamps display blank, and empty projection
+data returns to headers only.
+
 ### `Archive`
 
 One row per canonical job after idempotent reconciliation. It retains all supported active fields plus `archived_at` and `archived_from_status`. Applied rows remain editable through `manual_action` for outcome follow-up. Archive upserts match `canonical_job_id`, but source deletion also requires a fresh active snapshot and complete archive-field comparison.
@@ -168,7 +226,7 @@ One row per canonical job after idempotent reconciliation. It retains all suppor
 | Field | Meaning |
 | --- | --- |
 | `canonical_job_id` | Claimed job. |
-| `processing_stage` | `discovery`, `evaluation`, `generation`, `alert`, or `archival`. |
+| `processing_stage` | `discovery`, `evaluation`, `generation`, `alert`, `archival`, or `applied_jobs_projection`. |
 | `processing_token` | Execution/job/stage token. |
 | `created_at` | Claim creation time. |
 | `expires_at` | End of the 10-minute lease. |

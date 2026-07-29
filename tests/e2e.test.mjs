@@ -22,10 +22,11 @@ import {
   validateGeneratedMessage
 } from "../src/evaluation.mjs";
 import {
-  applyManualAction,
+  buildAppliedJobsProjection,
   buildFunnelSummary,
   buildReviewQueueProjection,
   processReviewActions,
+  reconcileAppliedJobs,
   reconcileReviewQueue
 } from "../src/review.mjs";
 
@@ -196,24 +197,67 @@ test("one job traverses discovery through archived outcome with one canonical id
     { row_number: 2, canonical_job_id: discovered.canonical_job_id }
   ]);
 
-  const outcomeResult = applyManualAction(
-    { ...archiveRecord, row_number: 2, manual_action: "outcome_offer" },
+  const appliedJobs = buildAppliedJobsProjection(
+    [],
+    [{ ...archiveRecord, row_number: 2 }],
     schema,
+    review,
     outcomeAt
   );
-  assert.equal(outcomeResult.valid, true);
-  assert.equal(outcomeResult.record.outcome, "offer");
-  assert.equal(outcomeResult.record.application_decision, "applied");
-  assert.equal(outcomeResult.record.generated_message, validMessage);
+  assert.equal(appliedJobs.rows.length, 1);
+  const appliedAction = {
+    ...appliedJobs.rows[0],
+    row_number: 2,
+    Action: "Offer"
+  };
+  const outcomePlan = processReviewActions(
+    [],
+    [{ ...archiveRecord, row_number: 2 }],
+    schema,
+    outcomeAt,
+    {
+      profile,
+      applicationPolicy: policy,
+      packPolicy
+    },
+    {
+      appliedJobsRows: [appliedAction],
+      reviewConfig: review,
+      executionId: "e2e-outcome"
+    }
+  );
+  assert.equal(outcomePlan.invalid_actions.length, 0);
+  assert.equal(outcomePlan.archive_updates.length, 1);
+  const outcomeRecord = outcomePlan.archive_updates[0];
+  assert.equal(outcomeRecord.outcome, "offer");
+  assert.equal(outcomeRecord.application_decision, "applied");
+  assert.equal(outcomeRecord.generated_message, validMessage);
   assert.deepEqual(
-    outcomeResult.record.outcome_events.map((event) => event.type),
+    outcomeRecord.outcome_events.map((event) => event.type),
     ["offer"]
   );
+  const appliedReconciliation = reconcileAppliedJobs(
+    [],
+    [outcomeRecord],
+    [appliedAction],
+    [appliedAction],
+    schema,
+    review,
+    outcomeAt,
+    {
+      processedActions: outcomePlan.processed_applied_actions,
+      confirmedCommitGuards: [
+        outcomePlan.archive_updates[0].processing_commit_guard
+      ]
+    }
+  );
+  assert.deepEqual(appliedReconciliation.clear_rows, []);
+  assert.equal(appliedReconciliation.applied_rows[0]["Current outcome"], "offer");
 
   const rediscovered = reconcileDiscovery(
     [page],
     [],
-    [outcomeResult.record],
+    [outcomeRecord],
     schema,
     outcomeAt
   );
@@ -221,7 +265,7 @@ test("one job traverses discovery through archived outcome with one canonical id
   assert.equal(rediscovered.existing_updates.length, 1);
   assert.equal(rediscovered.existing_updates[0].record.outcome, "offer");
 
-  const funnel = buildFunnelSummary([], [outcomeResult.record], schema, outcomeAt);
+  const funnel = buildFunnelSummary([], [outcomeRecord], schema, outcomeAt);
   assert.equal(funnel.total_unique_jobs, 1);
   assert.equal(funnel.recommended, 1);
   assert.equal(funnel.ready, 1);

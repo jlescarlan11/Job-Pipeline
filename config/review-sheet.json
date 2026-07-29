@@ -54,6 +54,55 @@
     },
     "reason_maximum_length": 500
   },
+  "applied_jobs": {
+    "version": "2026-07-29/v1",
+    "sheet": "Applied Jobs",
+    "visible_columns": [
+      "Applied at",
+      "Job title",
+      "Company",
+      "Generated message",
+      "Job link",
+      "Current outcome",
+      "Outcome updated at",
+      "Action"
+    ],
+    "hidden_columns": [
+      "canonical_job_id",
+      "source_state_guard"
+    ],
+    "fields": [
+      "Applied at",
+      "Job title",
+      "Company",
+      "Generated message",
+      "Job link",
+      "Current outcome",
+      "Outcome updated at",
+      "Action",
+      "canonical_job_id",
+      "source_state_guard"
+    ],
+    "application_decision": "applied",
+    "actions": {
+      "No Response": "outcome_no_response",
+      "Replied": "outcome_replied",
+      "Interview": "outcome_interview",
+      "Offer": "outcome_offer",
+      "Rejected": "outcome_rejected",
+      "Clear Outcome": "clear_outcome"
+    },
+    "sort": [
+      {
+        "field": "application_decided_at",
+        "direction": "desc"
+      },
+      {
+        "field": "canonical_job_id",
+        "direction": "asc"
+      }
+    ]
+  },
   "review_columns": [
     "job_title",
     "company",

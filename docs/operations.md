@@ -49,7 +49,7 @@ Do not continue if either the Sheet or workflow export backup cannot be opened.
 2. In Extensions → Apps Script, replace the project code with `google-apps-script/SheetSetup.gs`.
 3. Run `setupJobPipelineSheets` and approve only the workbook-scoped authorization required by the script.
 4. Reopen the Sheet to load the **Job Pipeline** menu.
-5. Verify `Sheet1`, `Review Queue`, `Archive`, `ProcessingClaims`, `Dashboard`,
+5. Verify `Sheet1`, `Review Queue`, `Applied Jobs`, `Archive`, `ProcessingClaims`, `Dashboard`,
    `Analytics`, `AnalyticsReports`, `Recommendations`, and
    `RecommendationReports` exist.
 6. Verify legacy columns and rows still exist.
@@ -77,11 +77,18 @@ The script must:
 - create or reconcile the exact versioned `Review Queue` headers without
   changing `Sheet1`/`Archive` rows, and stop if the existing queue contains
   unsupported or duplicate headers;
+- create or reconcile the exact versioned `Applied Jobs` headers without
+  changing existing rows or pending Actions, and stop before rewriting if the
+  existing sheet contains unsupported or duplicate headers;
 - put review columns first and retain generated fields after them;
 - install a strict `manual_action` list and warning-only protection elsewhere;
 - expose only the eight friendly queue columns, hide `canonical_job_id` and
   `source_state_guard`, validate the three friendly Action values, and protect
   every derived queue column;
+- expose only the eight friendly Applied Jobs columns, hide
+  `canonical_job_id` and `source_state_guard`, validate the six friendly
+  outcome labels, wrap generated messages, and protect every column except
+  Action;
 - preserve unrelated conditional-formatting rules.
 
 Stop and restore the workbook copy if row counts change, a ready message/decision disappears, or canonical IDs collide.
@@ -159,6 +166,20 @@ Slack HTTP node must remain an explicit JSON `POST`.
   order. Confirm its two helper columns are hidden, only Action is intended for
   editing, long reasons/messages wrap, and an empty eligible source retains
   headers and controls without a placeholder row.
+- Verify `Applied Jobs` visibly contains exactly Applied at, Job title,
+  Company, Generated message, Job link, Current outcome, Outcome updated at,
+  and Action in that order. Confirm its two helper columns are hidden, only
+  Action is intended for editing, generated messages wrap, and an empty
+  applied cohort retains controls without placeholder rows.
+- With disposable active and archived applied records, confirm each canonical
+  job appears once, active wins during overlap, non-applied records stay out,
+  missing optional legacy values remain blank, and ordering is newest
+  application first with deterministic identity fallback.
+- Exercise No Response, Replied, Interview, Offer, Rejected, and Clear Outcome
+  from Applied Jobs. Confirm the matching authoritative source changes, the
+  application decision/message/snapshot/notes/version metadata remain intact,
+  duplicate current outcomes add no event, blank Clear Outcome adds no event,
+  and no-response is recorded only when explicitly chosen.
 - Verify queue membership contains `ready`, `recommended`, and
   `review_required`, plus only retryable/terminal records with
   `failed_stage=generation`. Confirm terminal failures from evaluation and
@@ -200,6 +221,19 @@ Slack HTTP node must remain an explicit JSON `POST`.
   the second leaves authoritative `Sheet1` state intact, and the next Reviewer
   run safely reconciles both. Edit a second Action after the Reviewer initial
   queue read and confirm that concurrent input survives the current rebuild.
+- Repeat those interruption and concurrent-edit checks for Applied Jobs,
+  including an archived source commit and an active-to-Archive race. Confirm an
+  unconfirmed write retains Action, a confirmed write survives cleanup retry,
+  direct Sheet1/Archive input wins conflicts, and Archiver never loses the
+  outcome. Confirm Applied Jobs maintenance uses canonical-identity upserts and
+  an append-only projection lease, never maps `Action` in a generated cell
+  update, and retires a blank stale row only when it still matches its
+  identity-specific blank template inside the final atomic batch. Enter an
+  Action after the final reread but before that batch and verify the row remains
+  visible and is not retired. Sort or move a row during reconciliation and
+  verify the selected Action remains attached to its canonical identity. Run two
+  overlapping Reviewer copies and verify only the earliest unexpired
+  `applied_jobs_projection` claim reaches maintenance.
 - Confirm the application snapshot remains unchanged after a permitted
   regeneration/correction path, and that a legacy applied row with blank
   points remains valid.

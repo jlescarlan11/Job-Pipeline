@@ -703,6 +703,73 @@ failures, fixes, and reconciliation are recorded in
   to only Generate Application/Skip on open or Action selection; Reviewer and
   Archiver exports embed the versioned configuration and remain inactive.
 
+## Issue #31 — Guarded Applied Jobs outcome follow-up
+
+- **I31-AC1–3 — Additive, idempotent, fail-closed setup:** Generated setup and
+  VM tests create the tab, preserve pending Action data on rerun, and reject
+  unsupported or duplicate headers before mutation.
+- **I31-AC4–6 — Exact operator contract:** Versioned config and setup tests
+  require the exact eight visible columns, only two hidden identity/state
+  helpers, a wrapped generated message, six controlled labels, and protection
+  of every field except Action.
+- **I31-AC7–9 — Complete deduplicated membership:** Projection tests cover
+  active and archived applications, explicit offer/rejected outcomes,
+  non-applied exclusions, and active-source precedence during recoverable
+  overlap.
+- **I31-AC10 — Legacy blanks:** Projection fixtures prove missing optional
+  application, message, company, URL, and outcome values remain blank.
+- **I31-AC11 — Identity ambiguity:** Missing or duplicate eligible identities
+  are omitted and returned as sanitized invalid-record diagnostics.
+- **I31-AC12 — Deterministic order:** Tests require descending application time
+  with canonical identity fallback for invalid or tied timestamps.
+- **I31-AC13 — Empty state:** Projection and setup artifacts retain headers,
+  validation, formatting, and protections with no placeholder records.
+- **I31-AC14–15 — Friendly existing actions:** Config validation requires No
+  Response, Replied, Interview, Offer, Rejected, and Clear Outcome to map
+  exactly to established manual outcome commands.
+- **I31-AC16 — Guarded authoritative routing:** Reviewer tests reread and route
+  each action to one unique active or archived source using canonical identity
+  plus source guard.
+- **I31-AC17 — Durable history preservation:** Action tests assert updated
+  outcome/timestamp/events/updated state and guard while retaining decision,
+  generated message, application snapshot, notes, and version metadata.
+- **I31-AC18–20 — Explicit idempotent semantics:** Tests cover repeated current
+  outcomes without duplicate events, nonblank/blank Clear Outcome behavior,
+  and no-response only through explicit Action.
+- **I31-AC21 — Fail-closed inputs:** Stale, missing, non-applied, forged,
+  malformed-history, and duplicate source/action cases produce sanitized
+  diagnostics and no source update.
+- **I31-AC22 — Direct-source precedence:** Active and Archive direct
+  `manual_action` values win conflicting projection inputs.
+- **I31-AC23–24 — Confirmed cleanup:** Reconciliation retains Action through
+  unconfirmed writes and cleanup retries. Canonical-key updates omit Action;
+  one append-only lease winner retires a blank stale row only when a
+  server-atomic, identity-matched template comparison confirms every current
+  cell is still blank. A late Action makes the row non-duplicate, so confirmed
+  refreshes are idempotent without concurrent-input loss.
+- **I31-AC25 — Concurrent sheet edits:** Reconciliation snapshot tests preserve
+  an Action entered or changed after the Reviewer initial read, and
+  row-movement/guard-only changes cannot authorize stale-action rebasing.
+- **I31-AC26 — Archiver race safety:** Guarded archive commits and the existing
+  fresh-snapshot/full-copy Archiver confirmation prevent outcome loss during
+  active-to-Archive movement.
+- **I31-AC27 — Adjacent workflow compatibility:** Review Queue, Dashboard,
+  analytics, direct review actions, and Archiver regression tests continue to
+  exercise their established contracts.
+- **I31-AC28 — Automated matrix:** Review, setup, workflow-structure, Archive,
+  and E2E suites cover projection, controls, routing, outcome semantics,
+  failures, concurrency, cleanup, and full archived follow-up.
+- **I31-AC29 — Generated artifacts:** `npm run build` owns
+  `google-apps-script/SheetSetup.gs` and `workflows/reviewer.json`; `npm run
+  validate` enforces artifact drift, syntax, inactive exports, and the complete
+  automated suite.
+- **I31-AC30 — Non-production smoke gate:** The copied-workbook, inactive
+  Reviewer evidence in `docs/smoke-test-2026-07-29-applied-jobs.md` verifies
+  setup and idempotency, exact controls, membership and overlap, all six
+  actions, preserved state, partial-failure replay, stale/direct conflicts,
+  concurrent input, empty state, and preserved Review Queue behavior. Archive
+  race safety is covered by the deterministic archive-concurrency regression.
+
 ## Issue #25 — Slack Review Queue navigation
 
 - **I25-AC1 — One review link:** `alerts.test.mjs` requires one configured

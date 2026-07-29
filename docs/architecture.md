@@ -217,6 +217,55 @@ Concurrent Action edits made after the initial read are protected from that
 run's rebuild. Duplicate delivery cannot create another application snapshot
 or decision timestamp.
 
+`Applied Jobs` is a second derived operator surface, not a new source of truth.
+It projects every authoritative `application_decision=applied` record from
+`Sheet1` and `Archive`, preferring the active record during recoverable
+active/archive overlap. Its eight visible columns are Applied at, Job title,
+Company, Generated message, Job link, Current outcome, Outcome updated at, and
+Action. Hidden canonical identity and source-state guards bind the projection
+to the source. Missing or duplicate identity fails closed and is logged instead
+of showing an ambiguous row.
+
+Friendly follow-up actions map to the existing explicit outcome transitions.
+The Reviewer rereads both sources, gives direct `Sheet1`/`Archive`
+`manual_action` input precedence, claims the authoritative row by
+`state_guard`, and commits by an execution-specific
+identity-embedded `processing_commit_guard`. It rereads the claimed source,
+requires that guard to occur globally exactly once on the expected identity
+with no direct action, and commits by the guard rather than by row position.
+It writes only processing/outcome fields for Applied Jobs actions, so blank
+optional application fields and immutable decision/snapshot data are not
+round-tripped through Google Sheets. Persisted source guards are recomputed;
+stale guard data taints the whole identity instead of allowing Archive
+fallback. Archive actions use the same
+compare-and-commit sequence as active actions. The Reviewer then rereads both
+sources and both operator surfaces before reconciling them. Applied Jobs
+maintenance never deletes or updates by `row_number`: desired records are
+upserted by `canonical_job_id`, and every cell update omits `Action`, so a user
+selection made during any workflow step cannot be erased. An append-only
+`applied_jobs_projection` claim in `ProcessingClaims` selects one maintenance
+winner; the workflow's three-minute timeout is shorter than the four-minute
+lease. The winner clears stale generated cells and guards, rereads the sheet,
+then submits one Google Sheets `batchUpdate`. For each uniquely identified
+blank stale row, the batch inserts an identity-matched blank template,
+server-side duplicate removal compares every current cell, and only an
+unchanged stale row matches its template. An Action entered after the reread
+therefore makes the row non-duplicate and prevents retirement. The templates
+remain the first rows in the atomic request, are removed by their known inserted
+range, and the survivors are sorted by valid Applied at plus canonical
+identity. Case-folded identity uniqueness prevents Sheets' case-insensitive
+duplicate comparison from collapsing two templates. This avoids an unguarded
+positional delete, keeps late actions visible, and restores a genuinely
+header-only empty state. Invalid application
+timestamps display blank so the physical Sheets sort matches the deterministic
+projection order. Confirmed selections may remain visible and are
+idempotent; the user can select a later outcome or blank the cell. A late
+changed Action is rebased onto the fresh source guard, while an unchanged stale
+Action is never rebased across a direct source update. Missing or duplicate
+projection identity fails closed before action processing. The Archiver's own
+fresh-snapshot comparison prevents an outcome written during an
+active-to-Archive race from being overwritten or deleted.
+
 The detailed `Sheet1` and `Archive` interfaces remain available. Only the
 temporary Apply Points/strategy inputs, `manual_action`, and `notes` are
 intended for direct editing there. Supported internal actions are:
@@ -330,15 +379,15 @@ An interrupted run may temporarily leave one copy in both tabs; retry reconcilia
 Arrays such as query provenance, role families, reasons, and gaps are serialized as JSON strings in Sheets and normalized on read. Blank company, salary, outcome, or profile metadata means unknown, not “Not Given.”
 
 `google-apps-script/SheetSetup.gs` is additive: it creates missing tabs/headers,
-including the exact versioned `Review Queue` contract, copies legacy
+including the exact versioned `Review Queue` and `Applied Jobs` contracts, copies legacy
 `created_at ` values into `created_at`, populates canonical
 identity/state guards and legacy versions, orders human review columns,
 applies action validation, and uses warning-only protection for generated
-fields. The queue's two helper fields are hidden; its eight review fields are
-visible and Action is the only unprotected input. Existing legacy headers
-remain for rollback compatibility. An existing Review Queue with unsupported
-or duplicate headers fails setup before it is rewritten and requires manual
-reconciliation.
+fields. Each derived surface hides its two helper fields, exposes exactly eight
+operator fields, and leaves Action as the only unprotected input. Existing
+legacy headers remain for rollback compatibility. An existing Review Queue or
+Applied Jobs sheet with unsupported or duplicate headers fails setup before it
+is rewritten and requires manual reconciliation.
 
 ## Operational visibility
 

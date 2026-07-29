@@ -2,7 +2,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { validateReviewQueueConfig } from "../src/review.mjs";
+import {
+  validateAppliedJobsConfig,
+  validateReviewQueueConfig
+} from "../src/review.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const checkOnly = process.argv.includes("--check");
@@ -1874,6 +1877,12 @@ async function buildReviewer() {
       `Invalid review queue configuration:\n- ${reviewQueueErrors.join("\n- ")}`
     );
   }
+  const appliedJobsErrors = validateAppliedJobsConfig(reviewConfig, schema);
+  if (appliedJobsErrors.length > 0) {
+    throw new Error(
+      `Invalid Applied Jobs configuration:\n- ${appliedJobsErrors.join("\n- ")}`
+    );
+  }
   const profile = await readJson("config/candidate-profile.json");
   const applicationPolicy = await readJson(
     "config/application-policy.json"
@@ -1925,6 +1934,18 @@ async function buildReviewer() {
   };
   queueRead.alwaysOutputData = true;
 
+  const appliedJobsRead = structuredClone(activeRead);
+  appliedJobsRead.id = "88af9ce3-b45f-4aa8-a980-000000000037";
+  appliedJobsRead.name = "Get Applied Jobs Rows";
+  appliedJobsRead.position = [-340, 240];
+  appliedJobsRead.parameters.sheetName = {
+    __rl: true,
+    value: reviewConfig.applied_jobs.sheet,
+    mode: "name",
+    cachedResultName: reviewConfig.applied_jobs.sheet
+  };
+  appliedJobsRead.alwaysOutputData = true;
+
   const planCode = `${reviewCore}
 
 const SCHEMA = ${JSON.stringify(schema)};
@@ -1940,6 +1961,8 @@ const archiveRows = ($('Aggregate Archive Rows').first().json.archive_rows || []
   .filter((row) => row && Object.keys(row).length > 0);
 const queueRows = ($('Aggregate Review Queue Rows').first().json.queue_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
+const appliedJobsRows = ($('Aggregate Applied Jobs Rows').first().json.applied_jobs_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
 const now = new Date().toISOString();
 const processed = processReviewActions(
   activeRows,
@@ -1949,6 +1972,7 @@ const processed = processReviewActions(
   MESSAGE_SAFETY,
   {
     queueRows,
+    appliedJobsRows,
     reviewConfig: REVIEW_CONFIG,
     executionId: String($execution.id)
   }
@@ -1990,11 +2014,60 @@ return [{ json: processed }];`;
     "outcome_events",
     "updated_at"
   ];
+  const appliedOutcomeUpdateFields = [
+    "state_guard",
+    "processing_commit_guard",
+    "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "outcome",
+    "outcome_at",
+    "outcome_events",
+    "updated_at"
+  ];
+  const appliedProjectionRefreshFields =
+    reviewConfig.applied_jobs.fields.filter((field) => field !== "Action");
+  const appliedProjectionClearFields =
+    reviewConfig.applied_jobs.fields.filter(
+      (field) =>
+        !["Action", "canonical_job_id"].includes(field)
+    );
 
   const activeUpdateBase = structuredClone(activeRead);
   const queueAppendBase = structuredClone(activeRead);
   queueAppendBase.parameters.sheetName = structuredClone(
     queueRead.parameters.sheetName
+  );
+  const appliedJobsAppendBase = structuredClone(activeRead);
+  appliedJobsAppendBase.parameters.sheetName = structuredClone(
+    appliedJobsRead.parameters.sheetName
+  );
+  const projectionClaimsRead = structuredClone(activeRead);
+  projectionClaimsRead.id = "88af9ce3-b45f-4aa8-a980-000000000083";
+  projectionClaimsRead.name = "Get Applied Jobs Projection Claims";
+  projectionClaimsRead.position = [1760, 700];
+  projectionClaimsRead.parameters.sheetName = {
+    __rl: true,
+    value: reviewConfig.claims_sheet,
+    mode: "name",
+    cachedResultName: reviewConfig.claims_sheet
+  };
+  projectionClaimsRead.alwaysOutputData = true;
+  const projectionClaimsAppend = appendSheetNode({
+    base: activeRead,
+    id: "88af9ce3-b45f-4aa8-a980-000000000084",
+    name: "Append Applied Jobs Projection Claim",
+    position: [1540, 700],
+    fields: [
+      "canonical_job_id",
+      "processing_stage",
+      "processing_token",
+      "created_at",
+      "expires_at"
+    ]
+  });
+  projectionClaimsAppend.parameters.sheetName = structuredClone(
+    projectionClaimsRead.parameters.sheetName
   );
 
   const dashboardNodeBase = structuredClone(activeRead);
@@ -2011,10 +2084,49 @@ return [{ json: processed }];`;
   activeAfterReview.position = [500, 20];
   activeAfterReview.alwaysOutputData = true;
 
+  const activeAfterAppliedClaim = structuredClone(activeRead);
+  activeAfterAppliedClaim.id =
+    "88af9ce3-b45f-4aa8-a980-000000000069";
+  activeAfterAppliedClaim.name = "Get Active After Applied Jobs Claims";
+  activeAfterAppliedClaim.position = [1340, -320];
+  activeAfterAppliedClaim.alwaysOutputData = true;
+
+  const archiveAfterReview = structuredClone(archiveRead);
+  archiveAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000038";
+  archiveAfterReview.name = "Get Archive After Review";
+  archiveAfterReview.position = [900, 20];
+  archiveAfterReview.alwaysOutputData = true;
+
+  const archiveAfterAppliedClaim = structuredClone(archiveRead);
+  archiveAfterAppliedClaim.id =
+    "88af9ce3-b45f-4aa8-a980-000000000070";
+  archiveAfterAppliedClaim.name = "Get Archive After Applied Jobs Claims";
+  archiveAfterAppliedClaim.position = [3760, -320];
+  archiveAfterAppliedClaim.alwaysOutputData = true;
+
   const queueAfterReview = structuredClone(queueRead);
   queueAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000019";
   queueAfterReview.name = "Get Review Queue After Review";
   queueAfterReview.position = [900, 20];
+
+  const appliedJobsAfterReview = structuredClone(appliedJobsRead);
+  appliedJobsAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000039";
+  appliedJobsAfterReview.name = "Get Applied Jobs After Review";
+  appliedJobsAfterReview.position = [1320, 20];
+  appliedJobsAfterReview.alwaysOutputData = true;
+
+  const appliedJobsBeforeCleanup = structuredClone(appliedJobsRead);
+  appliedJobsBeforeCleanup.id = "88af9ce3-b45f-4aa8-a980-000000000066";
+  appliedJobsBeforeCleanup.name = "Get Applied Jobs Before Cleanup";
+  appliedJobsBeforeCleanup.position = [1540, 500];
+  appliedJobsBeforeCleanup.alwaysOutputData = true;
+
+  const appliedJobsAfterMaintenance = structuredClone(appliedJobsRead);
+  appliedJobsAfterMaintenance.id =
+    "88af9ce3-b45f-4aa8-a980-000000000088";
+  appliedJobsAfterMaintenance.name = "Get Applied Jobs After Maintenance";
+  appliedJobsAfterMaintenance.position = [3300, 500];
+  appliedJobsAfterMaintenance.alwaysOutputData = true;
 
   const deleteQueueRows = nodeByAnyName(archiver, [
     "Delete Confirmed Active Rows",
@@ -2030,17 +2142,32 @@ return [{ json: processed }];`;
     startIndex: "={{ $json.row_number }}"
   };
 
+  const clearAppliedJobsRows = updateSheetByFieldNode({
+    base: appliedJobsAppendBase,
+    id: "88af9ce3-b45f-4aa8-a980-000000000040",
+    name: "Clear Stale Applied Jobs Rows",
+    position: [2860, 420],
+    fields: appliedProjectionClearFields,
+    matchingField: "canonical_job_id"
+  });
+
   const reconciliationCode = `${reviewCore}
 
 const SCHEMA = ${JSON.stringify(schema)};
 const REVIEW_CONFIG = ${JSON.stringify(reviewConfig)};
 const activeRows = ($('Aggregate Active After Review').first().json.active_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
+const archiveRows = ($('Aggregate Archive After Review').first().json.archive_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
 const currentQueueRows = ($('Aggregate Current Review Queue').first().json.queue_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 const initialQueueRows = ($('Aggregate Review Queue Rows').first().json.queue_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
-const reconciliation = reconcileReviewQueue(
+const currentAppliedJobsRows = ($('Aggregate Current Applied Jobs').first().json.applied_jobs_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const initialAppliedJobsRows = ($('Aggregate Applied Jobs Rows').first().json.applied_jobs_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const reviewQueue = reconcileReviewQueue(
   activeRows,
   currentQueueRows,
   initialQueueRows,
@@ -2048,14 +2175,258 @@ const reconciliation = reconcileReviewQueue(
   REVIEW_CONFIG,
   new Date().toISOString()
 );
+const appliedJobs = reconcileAppliedJobs(
+  activeRows,
+  archiveRows,
+  currentAppliedJobsRows,
+  initialAppliedJobsRows,
+  SCHEMA,
+  REVIEW_CONFIG,
+  new Date().toISOString()
+);
 console.log(JSON.stringify({
-  event: 'review_queue_reconciliation',
-  projected: reconciliation.queue_rows.length,
-  deleted: reconciliation.delete_rows.length,
-  protected_actions: reconciliation.protected_action_count,
-  invalid_records: reconciliation.invalid_records
+  event: 'review_projection_reconciliation',
+  review_queue_projected: reviewQueue.queue_rows.length,
+  review_queue_deleted: reviewQueue.delete_rows.length,
+  review_queue_protected_actions: reviewQueue.protected_action_count,
+  applied_jobs_projected: appliedJobs.applied_rows.length,
+  applied_jobs_cleared: appliedJobs.clear_rows.length,
+  applied_jobs_protected_actions: appliedJobs.protected_action_count,
+  invalid_records: [
+    ...reviewQueue.invalid_records,
+    ...appliedJobs.invalid_records
+  ]
 }));
-return [{ json: reconciliation }];`;
+return [{ json: {
+  queue_rows: reviewQueue.queue_rows,
+  queue_delete_rows: reviewQueue.delete_rows,
+  queue_protected_action_count: reviewQueue.protected_action_count,
+  applied_rows: appliedJobs.applied_rows,
+  applied_clear_rows: appliedJobs.clear_rows,
+  applied_protected_action_count: appliedJobs.protected_action_count,
+  applied_desired_rows: appliedJobs.desired_rows,
+  applied_rebase_rows: appliedJobs.rebase_rows,
+  invalid_records: [
+    ...reviewQueue.invalid_records,
+    ...appliedJobs.invalid_records
+  ]
+} }];`;
+
+  const finalAppliedJobsCleanupCode = `${reviewCore}
+
+const planned = $('Prepare Review Queue Reconciliation').first().json;
+const previousRows =
+  $('Aggregate Current Applied Jobs').first().json.applied_jobs_rows || [];
+const latestRows =
+  $('Aggregate Applied Jobs Before Cleanup').first().json.applied_jobs_rows || [];
+return [{
+  json: finalizeAppliedJobsCleanup(planned, previousRows, latestRows)
+}];`;
+
+  const projectionClaimCode = `${reviewCore}
+
+const now = new Date().toISOString();
+const record = {
+  canonical_job_id: 'system:applied-jobs-projection',
+  work_stage: 'applied_jobs_projection'
+};
+const claim = createProcessingClaim(
+  record,
+  String($execution.id),
+  now,
+  240000
+);
+return [{ json: { ...record, ...claim } }];`;
+
+  const projectionWinnerCode = `${reviewCore}
+
+const proposed = $('Prepare Applied Jobs Projection Claim').all()
+  .map((item) => item.json);
+const claims = $input.all()
+  .map((item) => item.json)
+  .filter((claim) => claim && claim.canonical_job_id);
+const winners = chooseWinningClaims(
+  proposed,
+  claims,
+  new Date().toISOString()
+);
+console.log(JSON.stringify({
+  event: 'applied_jobs_projection_claim',
+  proposed: proposed.length,
+  won: winners.length,
+  lost: proposed.length - winners.length
+}));
+return winners.map((record) => ({ json: record }));`;
+
+  const appliedJobsDocumentId = activeRead.parameters.documentId.value;
+  const appliedJobsMetadataUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${appliedJobsDocumentId}` +
+    "?fields=sheets.properties";
+  const appliedJobsBatchUpdateUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${appliedJobsDocumentId}` +
+    ":batchUpdate";
+  const appliedAtColumn = reviewConfig.applied_jobs.fields.indexOf("Applied at");
+  const identityColumn =
+    reviewConfig.applied_jobs.fields.indexOf("canonical_job_id");
+  const appliedJobsMaintenanceCode = `
+const CONFIG = ${JSON.stringify(reviewConfig.applied_jobs)};
+const rows =
+  $('Aggregate Applied Jobs After Maintenance').first().json.applied_jobs_rows ||
+  [];
+const metadata = $input.first().json;
+const sheet = (metadata.sheets || []).find(
+  (entry) => entry?.properties?.title === CONFIG.sheet
+);
+if (!sheet || !Number.isInteger(Number(sheet.properties.sheetId))) {
+  throw new Error('Applied Jobs sheet metadata is missing');
+}
+const dataRows = rows.filter(
+  (row) => row && Object.keys(row).length > 0
+);
+if (dataRows.length === 0) return [];
+const visibleFields = CONFIG.visible_columns || [];
+const identityFoldCounts = new Map();
+for (const row of dataRows) {
+  const identity = String(row.canonical_job_id || '').trim();
+  const foldedIdentity = identity.normalize('NFKC').toLocaleLowerCase('en-US');
+  identityFoldCounts.set(
+    foldedIdentity,
+    (identityFoldCounts.get(foldedIdentity) || 0) + 1
+  );
+}
+const tombstoneIdentities = dataRows
+  .filter((row) => {
+    const identity = String(row.canonical_job_id || '').trim();
+    const foldedIdentity = identity
+      .normalize('NFKC')
+      .toLocaleLowerCase('en-US');
+    return (
+      identity &&
+      identityFoldCounts.get(foldedIdentity) === 1 &&
+      !String(row.Action || '').trim() &&
+      !String(row.source_state_guard || '').trim() &&
+      visibleFields.every((field) => !String(row[field] || '').trim())
+    );
+  })
+  .map((row) => String(row.canonical_job_id).trim());
+const sheetId = Number(sheet.properties.sheetId);
+const columnCount = CONFIG.fields.length;
+const dataRange = (rowCount) => ({
+  sheetId,
+  startRowIndex: 1,
+  endRowIndex: 1 + rowCount,
+  startColumnIndex: 0,
+  endColumnIndex: columnCount
+});
+const sortRequest = (sortSpecs) => ({
+  sortRange: {
+    range: {
+      sheetId,
+      startRowIndex: 1,
+      startColumnIndex: 0,
+      endColumnIndex: columnCount
+    },
+    sortSpecs
+  }
+});
+const requests = [];
+if (tombstoneIdentities.length > 0) {
+  const templateCount = tombstoneIdentities.length;
+  requests.push({
+    insertDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS',
+        startIndex: 1,
+        endIndex: 1 + templateCount
+      },
+      inheritFromBefore: false
+    }
+  });
+  requests.push({
+    updateCells: {
+      rows: tombstoneIdentities.map((identity) => ({
+        values: [{ userEnteredValue: { stringValue: identity } }]
+      })),
+      fields: 'userEnteredValue',
+      range: {
+        sheetId,
+        startRowIndex: 1,
+        endRowIndex: 1 + templateCount,
+        startColumnIndex: ${identityColumn},
+        endColumnIndex: ${identityColumn + 1}
+      }
+    }
+  });
+  requests.push({
+    deleteDuplicates: {
+      range: dataRange(dataRows.length + templateCount),
+      comparisonColumns: Array.from({ length: columnCount }, (_, index) => ({
+        sheetId,
+        dimension: 'COLUMNS',
+        startIndex: index,
+        endIndex: index + 1
+      }))
+    }
+  });
+  requests.push({
+    deleteDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS',
+        startIndex: 1,
+        endIndex: 1 + templateCount
+      }
+    }
+  });
+}
+if (dataRows.length > 1 || tombstoneIdentities.length > 0) {
+  requests.push(sortRequest([
+    { dimensionIndex: ${appliedAtColumn}, sortOrder: 'DESCENDING' },
+    { dimensionIndex: ${identityColumn}, sortOrder: 'ASCENDING' }
+  ]));
+}
+if (requests.length === 0) return [];
+return [{ json: {
+  batch_update: { requests },
+  applied_jobs_rows: dataRows.length,
+  applied_jobs_retirement_candidates: tombstoneIdentities.length
+} }];`;
+
+  const googleSheetsCredentials = structuredClone(activeRead.credentials);
+  const appliedJobsMetadata = {
+    id: "88af9ce3-b45f-4aa8-a980-000000000090",
+    name: "Get Applied Jobs Sheet Metadata",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [3740, 500],
+    parameters: {
+      url: appliedJobsMetadataUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      options: {}
+    },
+    credentials: googleSheetsCredentials
+  };
+  const appliedJobsBatchUpdate = {
+    id: "88af9ce3-b45f-4aa8-a980-000000000092",
+    name: "Sort and Retire Applied Jobs Rows",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [4180, 500],
+    parameters: {
+      method: "POST",
+      url: appliedJobsBatchUpdateUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      sendBody: true,
+      contentType: "raw",
+      rawContentType: "application/json",
+      body: "={{ JSON.stringify($json.batch_update) }}",
+      options: {}
+    },
+    credentials: googleSheetsCredentials
+  };
 
   const nodes = [
     schedule,
@@ -2080,6 +2451,13 @@ return [{ json: reconciliation }];`;
       position: [-550, 240],
       destinationFieldName: "queue_rows"
     }),
+    appliedJobsRead,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000041",
+      name: "Aggregate Applied Jobs Rows",
+      position: [-130, 240],
+      destinationFieldName: "applied_jobs_rows"
+    }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000030",
       name: "Prepare Review Plan",
@@ -2090,14 +2468,14 @@ return [{ json: reconciliation }];`;
       id: "88af9ce3-b45f-4aa8-a980-000000000031",
       name: "Has Active Review Updates",
       position: [-120, 20],
-      leftValue: "={{ $json.active_updates.length > 0 }}"
+      leftValue: "={{ $json.active_queue_updates.length > 0 }}"
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000032",
       name: "Prepare Active Review Claims",
       position: [100, -80],
       jsCode:
-        "return $('Prepare Review Plan').first().json.active_claims.map((record) => ({ json: record }));"
+        "return $('Prepare Review Plan').first().json.active_queue_claims.map((record) => ({ json: record }));"
     }),
     updateSheetByFieldNode({
       base: activeUpdateBase,
@@ -2116,7 +2494,7 @@ return [{ json: reconciliation }];`;
     .map((item) => String(item.json.processing_commit_guard || ''))
     .filter(Boolean)
 );
-return $('Prepare Review Plan').first().json.active_updates
+return $('Prepare Review Plan').first().json.active_queue_updates
   .filter((record) => marked.has(String(record.processing_commit_guard || '')))
   .map((record) => ({ json: record }));`
     }),
@@ -2128,20 +2506,229 @@ return $('Prepare Review Plan').first().json.active_updates
       matchingField: "processing_commit_guard",
       fields: updateFields
     }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000071",
+      name: "Has Active Applied Jobs Updates",
+      position: [900, -240],
+      leftValue:
+        "={{ $('Prepare Review Plan').first().json.active_applied_updates.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000072",
+      name: "Prepare Active Applied Jobs Claims",
+      position: [1120, -320],
+      jsCode:
+        "return $('Prepare Review Plan').first().json.active_applied_claims.map((record) => ({ json: record }));"
+    }),
+    updateSheetByFieldNode({
+      base: activeUpdateBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000073",
+      name: "Mark Active Applied Jobs Claims",
+      position: [1340, -320],
+      matchingField: "state_guard",
+      fields: ["processing_commit_guard"]
+    }),
+    activeAfterAppliedClaim,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000074",
+      name: "Aggregate Active After Applied Jobs Claims",
+      position: [1780, -320],
+      destinationFieldName: "active_rows"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000075",
+      name: "Prepare Claimed Active Applied Jobs Updates",
+      position: [2000, -320],
+      jsCode: `const fresh = $input.first().json.active_rows || [];
+return $('Prepare Review Plan').first().json.active_applied_updates
+  .flatMap((record) => {
+    const identity = String(record.canonical_job_id || '').trim();
+    const guard = String(record.processing_commit_guard || '').trim();
+    const matches = fresh.filter((candidate) =>
+      String(candidate.processing_commit_guard || '').trim() === guard
+    );
+    if (matches.length !== 1) return [];
+    if (
+      String(matches[0].canonical_job_id || '').trim() !== identity ||
+      String(matches[0].manual_action || '').trim()
+    ) return [];
+    return [{ json: record }];
+  });`
+    }),
+    updateSheetByFieldNode({
+      base: activeUpdateBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000076",
+      name: "Update Active Applied Jobs Actions",
+      position: [2220, -320],
+      matchingField: "processing_commit_guard",
+      fields: appliedOutcomeUpdateFields
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000077",
+      name: "Aggregate Active Applied Jobs Updates",
+      position: [2440, -320],
+      destinationFieldName: "updated_rows"
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000054",
+      name: "Has Active Direct Review Updates",
+      position: [1120, -80],
+      leftValue:
+        "={{ $('Prepare Review Plan').first().json.active_direct_updates.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000055",
+      name: "Prepare Active Direct Review Claims",
+      position: [1340, -180],
+      jsCode:
+        "return $('Prepare Review Plan').first().json.active_direct_claims.map((record) => ({ json: record }));"
+    }),
+    updateSheetByFieldNode({
+      base: activeUpdateBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000056",
+      name: "Mark Active Direct Review Claims",
+      position: [1560, -180],
+      matchingField: "state_guard",
+      fields: ["processing_commit_guard"]
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000057",
+      name: "Prepare Claimed Active Direct Review Updates",
+      position: [1780, -180],
+      jsCode: `const marked = new Set(
+  $input.all()
+    .map((item) => String(item.json.processing_commit_guard || ''))
+    .filter(Boolean)
+);
+return $('Prepare Review Plan').first().json.active_direct_updates
+  .filter((record) => marked.has(String(record.processing_commit_guard || '')))
+  .map((record) => ({ json: record }));`
+    }),
+    updateSheetByFieldNode({
+      base: activeUpdateBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000058",
+      name: "Update Active Direct Review Actions",
+      position: [2000, -180],
+      matchingField: "processing_commit_guard",
+      fields: updateFields
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000059",
+      name: "Aggregate Active Direct Review Updates",
+      position: [2220, -180],
+      destinationFieldName: "updated_rows"
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000042",
+      name: "Has Archive Review Updates",
+      position: [2440, -80],
+      leftValue:
+        "={{ $('Prepare Review Plan').first().json.archive_projection_updates.length > 0 }}"
+    }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000007",
-      name: "Prepare Archive Review Updates",
-      position: [-120, 340],
+      name: "Prepare Archive Review Claims",
+      position: [2660, -180],
       jsCode:
-        "return $('Prepare Review Plan').first().json.archive_updates.map((record) => ({ json: record }));"
+        "return $('Prepare Review Plan').first().json.archive_projection_claims.map((record) => ({ json: record }));"
     }),
     updateSheetByFieldNode({
       base: archiveRead,
       id: "88af9ce3-b45f-4aa8-a980-000000000008",
+      name: "Mark Archive Review Claims",
+      position: [2880, -180],
+      matchingField: "state_guard",
+      fields: ["processing_commit_guard"]
+    }),
+    archiveAfterAppliedClaim,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000078",
+      name: "Aggregate Archive After Applied Jobs Claims",
+      position: [3980, -320],
+      destinationFieldName: "archive_rows"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000043",
+      name: "Prepare Claimed Archive Review Updates",
+      position: [3100, -180],
+      jsCode: `const fresh = $input.first().json.archive_rows || [];
+return $('Prepare Review Plan').first().json.archive_projection_updates
+  .flatMap((record) => {
+    const identity = String(record.canonical_job_id || '').trim();
+    const guard = String(record.processing_commit_guard || '').trim();
+    const matches = fresh.filter((candidate) =>
+      String(candidate.processing_commit_guard || '').trim() === guard
+    );
+    if (matches.length !== 1) return [];
+    if (
+      String(matches[0].canonical_job_id || '').trim() !== identity ||
+      String(matches[0].manual_action || '').trim()
+    ) return [];
+    return [{ json: record }];
+  });`
+    }),
+    updateSheetByFieldNode({
+      base: archiveRead,
+      id: "88af9ce3-b45f-4aa8-a980-000000000044",
       name: "Update Archive Review Actions",
-      position: [100, 340],
-      matchingField: "canonical_job_id",
+      position: [3320, -180],
+      matchingField: "processing_commit_guard",
+      fields: appliedOutcomeUpdateFields
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000045",
+      name: "Aggregate Archive Review Updates",
+      position: [3540, -180],
+      destinationFieldName: "updated_rows"
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000060",
+      name: "Has Archive Direct Review Updates",
+      position: [3760, -80],
+      leftValue:
+        "={{ $('Prepare Review Plan').first().json.archive_direct_updates.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000061",
+      name: "Prepare Archive Direct Review Claims",
+      position: [3980, -180],
+      jsCode:
+        "return $('Prepare Review Plan').first().json.archive_direct_claims.map((record) => ({ json: record }));"
+    }),
+    updateSheetByFieldNode({
+      base: archiveRead,
+      id: "88af9ce3-b45f-4aa8-a980-000000000062",
+      name: "Mark Archive Direct Review Claims",
+      position: [4200, -180],
+      matchingField: "state_guard",
+      fields: ["processing_commit_guard"]
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000063",
+      name: "Prepare Claimed Archive Direct Review Updates",
+      position: [4420, -180],
+      jsCode: `const marked = new Set(
+  $input.all()
+    .map((item) => String(item.json.processing_commit_guard || ''))
+    .filter(Boolean)
+);
+return $('Prepare Review Plan').first().json.archive_direct_updates
+  .filter((record) => marked.has(String(record.processing_commit_guard || '')))
+  .map((record) => ({ json: record }));`
+    }),
+    updateSheetByFieldNode({
+      base: archiveRead,
+      id: "88af9ce3-b45f-4aa8-a980-000000000064",
+      name: "Update Archive Direct Review Actions",
+      position: [4640, -180],
+      matchingField: "processing_commit_guard",
       fields: updateFields
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000065",
+      name: "Aggregate Archive Direct Review Updates",
+      position: [4860, -180],
+      destinationFieldName: "updated_rows"
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000009",
@@ -2179,7 +2766,8 @@ if (processed.invalid_actions.length > 0) {
 return [{ json: {
   event: 'review_run',
   invalid_actions: processed.invalid_actions.length,
-  processed_queue_actions: processed.processed_queue_actions.length
+  processed_queue_actions: processed.processed_queue_actions.length,
+  processed_applied_actions: processed.processed_applied_actions.length
 } }];`
     }),
     aggregateNode({
@@ -2195,6 +2783,13 @@ return [{ json: {
       position: [700, 20],
       destinationFieldName: "active_rows"
     }),
+    archiveAfterReview,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000046",
+      name: "Aggregate Archive After Review",
+      position: [1110, 20],
+      destinationFieldName: "archive_rows"
+    }),
     queueAfterReview,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000020",
@@ -2202,24 +2797,58 @@ return [{ json: {
       position: [1110, 20],
       destinationFieldName: "queue_rows"
     }),
+    appliedJobsAfterReview,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000047",
+      name: "Aggregate Current Applied Jobs",
+      position: [1530, 20],
+      destinationFieldName: "applied_jobs_rows"
+    }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000021",
       name: "Prepare Review Queue Reconciliation",
       position: [1320, 20],
       jsCode: reconciliationCode
     }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000085",
+      name: "Prepare Applied Jobs Projection Claim",
+      position: [1320, 700],
+      jsCode: projectionClaimCode
+    }),
+    projectionClaimsAppend,
+    projectionClaimsRead,
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000086",
+      name: "Keep Winning Applied Jobs Projection Claim",
+      position: [1980, 700],
+      jsCode: projectionWinnerCode
+    }),
+    appliedJobsBeforeCleanup,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000067",
+      name: "Aggregate Applied Jobs Before Cleanup",
+      position: [1760, 500],
+      destinationFieldName: "applied_jobs_rows"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000068",
+      name: "Finalize Applied Jobs Cleanup",
+      position: [1980, 500],
+      jsCode: finalAppliedJobsCleanupCode
+    }),
     booleanIfNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000022",
       name: "Has Review Queue Deletions",
       position: [1540, 20],
-      leftValue: "={{ $json.delete_rows.length > 0 }}"
+      leftValue: "={{ $json.queue_delete_rows.length > 0 }}"
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000023",
       name: "Prepare Review Queue Deletions",
       position: [1760, -60],
       jsCode:
-        "return $('Prepare Review Queue Reconciliation').first().json.delete_rows.map((record) => ({ json: record }));"
+        "return $('Prepare Review Queue Reconciliation').first().json.queue_delete_rows.map((record) => ({ json: record }));"
     }),
     deleteQueueRows,
     aggregateNode({
@@ -2248,7 +2877,93 @@ return [{ json: {
       name: "Append Review Queue Rows",
       position: [2940, -60],
       fields: reviewConfig.review_queue.fields
-    })
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000079",
+      name: "Has Applied Jobs Rebases",
+      position: [1980, 620],
+      leftValue: "={{ $json.applied_rebase_rows.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000080",
+      name: "Prepare Applied Jobs Rebases",
+      position: [2200, 620],
+      jsCode:
+        "return $('Finalize Applied Jobs Cleanup').first().json.applied_rebase_rows.map((record) => ({ json: record }));"
+    }),
+    updateSheetByFieldNode({
+      base: appliedJobsAppendBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000081",
+      name: "Refresh Protected Applied Jobs Rows",
+      position: [2420, 620],
+      fields: appliedProjectionRefreshFields.filter(
+        (field) => field !== "canonical_job_id"
+      ),
+      matchingField: "canonical_job_id"
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000082",
+      name: "Aggregate Applied Jobs Rebases",
+      position: [2640, 620],
+      destinationFieldName: "updated_rows"
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000048",
+      name: "Has Applied Jobs Clears",
+      position: [2200, 500],
+      leftValue: "={{ $json.applied_clear_rows.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000049",
+      name: "Prepare Applied Jobs Clears",
+      position: [2420, 420],
+      jsCode:
+        "return $('Finalize Applied Jobs Cleanup').first().json.applied_clear_rows.map((record) => ({ json: record }));"
+    }),
+    clearAppliedJobsRows,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000050",
+      name: "Aggregate Applied Jobs Clears",
+      position: [3080, 420],
+      destinationFieldName: "cleared_rows"
+    }),
+    booleanIfNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000051",
+      name: "Has Applied Jobs Upserts",
+      position: [2500, 500],
+      leftValue:
+        "={{ $('Finalize Applied Jobs Cleanup').first().json.applied_rows.length > 0 }}"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000052",
+      name: "Prepare Applied Jobs Upserts",
+      position: [2720, 420],
+      jsCode:
+        "return $('Finalize Applied Jobs Cleanup').first().json.applied_rows.map((record) => ({ json: record }));"
+    }),
+    upsertSheetNode({
+      base: appliedJobsAppendBase,
+      id: "88af9ce3-b45f-4aa8-a980-000000000053",
+      name: "Upsert Applied Jobs Rows",
+      position: [2940, 420],
+      fields: appliedProjectionRefreshFields,
+      matchingField: "canonical_job_id"
+    }),
+    appliedJobsAfterMaintenance,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000089",
+      name: "Aggregate Applied Jobs After Maintenance",
+      position: [3520, 500],
+      destinationFieldName: "applied_jobs_rows"
+    }),
+    appliedJobsMetadata,
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000091",
+      name: "Prepare Applied Jobs Atomic Cleanup",
+      position: [3960, 500],
+      jsCode: appliedJobsMaintenanceCode
+    }),
+    appliedJobsBatchUpdate
   ];
 
   const connections = {
@@ -2258,12 +2973,13 @@ return [{ json: {
     "Get Archive Rows": { main: [[connection("Aggregate Archive Rows")]] },
     "Aggregate Archive Rows": { main: [[connection("Get Review Queue Rows")]] },
     "Get Review Queue Rows": { main: [[connection("Aggregate Review Queue Rows")]] },
-    "Aggregate Review Queue Rows": { main: [[connection("Prepare Review Plan")]] },
+    "Aggregate Review Queue Rows": { main: [[connection("Get Applied Jobs Rows")]] },
+    "Get Applied Jobs Rows": { main: [[connection("Aggregate Applied Jobs Rows")]] },
+    "Aggregate Applied Jobs Rows": { main: [[connection("Prepare Review Plan")]] },
     "Prepare Review Plan": {
       main: [
         [
           connection("Has Active Review Updates"),
-          connection("Prepare Archive Review Updates"),
           connection("Prepare Funnel Summary"),
           connection("Log Invalid Review Actions")
         ]
@@ -2272,7 +2988,7 @@ return [{ json: {
     "Has Active Review Updates": {
       main: [
         [connection("Prepare Active Review Claims")],
-        [connection("Get Active After Review")]
+        [connection("Has Active Applied Jobs Updates")]
       ]
     },
     "Prepare Active Review Claims": { main: [[connection("Mark Active Review Claims")]] },
@@ -2286,24 +3002,170 @@ return [{ json: {
       main: [[connection("Aggregate Active Review Updates")]]
     },
     "Aggregate Active Review Updates": {
+      main: [[connection("Has Active Applied Jobs Updates")]]
+    },
+    "Has Active Applied Jobs Updates": {
+      main: [
+        [connection("Prepare Active Applied Jobs Claims")],
+        [connection("Has Active Direct Review Updates")]
+      ]
+    },
+    "Prepare Active Applied Jobs Claims": {
+      main: [[connection("Mark Active Applied Jobs Claims")]]
+    },
+    "Mark Active Applied Jobs Claims": {
+      main: [[connection("Get Active After Applied Jobs Claims")]]
+    },
+    "Get Active After Applied Jobs Claims": {
+      main: [[connection("Aggregate Active After Applied Jobs Claims")]]
+    },
+    "Aggregate Active After Applied Jobs Claims": {
+      main: [[connection("Prepare Claimed Active Applied Jobs Updates")]]
+    },
+    "Prepare Claimed Active Applied Jobs Updates": {
+      main: [[connection("Update Active Applied Jobs Actions")]]
+    },
+    "Update Active Applied Jobs Actions": {
+      main: [[connection("Aggregate Active Applied Jobs Updates")]]
+    },
+    "Aggregate Active Applied Jobs Updates": {
+      main: [[connection("Has Active Direct Review Updates")]]
+    },
+    "Has Active Direct Review Updates": {
+      main: [
+        [connection("Prepare Active Direct Review Claims")],
+        [connection("Has Archive Review Updates")]
+      ]
+    },
+    "Prepare Active Direct Review Claims": {
+      main: [[connection("Mark Active Direct Review Claims")]]
+    },
+    "Mark Active Direct Review Claims": {
+      main: [[connection("Prepare Claimed Active Direct Review Updates")]]
+    },
+    "Prepare Claimed Active Direct Review Updates": {
+      main: [[connection("Update Active Direct Review Actions")]]
+    },
+    "Update Active Direct Review Actions": {
+      main: [[connection("Aggregate Active Direct Review Updates")]]
+    },
+    "Aggregate Active Direct Review Updates": {
+      main: [[connection("Has Archive Review Updates")]]
+    },
+    "Has Archive Review Updates": {
+      main: [
+        [connection("Prepare Archive Review Claims")],
+        [connection("Has Archive Direct Review Updates")]
+      ]
+    },
+    "Prepare Archive Review Claims": {
+      main: [[connection("Mark Archive Review Claims")]]
+    },
+    "Mark Archive Review Claims": {
+      main: [[connection("Get Archive After Applied Jobs Claims")]]
+    },
+    "Get Archive After Applied Jobs Claims": {
+      main: [[connection("Aggregate Archive After Applied Jobs Claims")]]
+    },
+    "Aggregate Archive After Applied Jobs Claims": {
+      main: [[connection("Prepare Claimed Archive Review Updates")]]
+    },
+    "Prepare Claimed Archive Review Updates": {
+      main: [[connection("Update Archive Review Actions")]]
+    },
+    "Update Archive Review Actions": {
+      main: [[connection("Aggregate Archive Review Updates")]]
+    },
+    "Aggregate Archive Review Updates": {
+      main: [[connection("Has Archive Direct Review Updates")]]
+    },
+    "Has Archive Direct Review Updates": {
+      main: [
+        [connection("Prepare Archive Direct Review Claims")],
+        [connection("Get Active After Review")]
+      ]
+    },
+    "Prepare Archive Direct Review Claims": {
+      main: [[connection("Mark Archive Direct Review Claims")]]
+    },
+    "Mark Archive Direct Review Claims": {
+      main: [[connection("Prepare Claimed Archive Direct Review Updates")]]
+    },
+    "Prepare Claimed Archive Direct Review Updates": {
+      main: [[connection("Update Archive Direct Review Actions")]]
+    },
+    "Update Archive Direct Review Actions": {
+      main: [[connection("Aggregate Archive Direct Review Updates")]]
+    },
+    "Aggregate Archive Direct Review Updates": {
       main: [[connection("Get Active After Review")]]
     },
-    "Prepare Archive Review Updates": { main: [[connection("Update Archive Review Actions")]] },
     "Prepare Funnel Summary": { main: [[connection("Update Dashboard Summary")]] },
     "Get Active After Review": {
       main: [[connection("Aggregate Active After Review")]]
     },
     "Aggregate Active After Review": {
+      main: [[connection("Get Archive After Review")]]
+    },
+    "Get Archive After Review": {
+      main: [[connection("Aggregate Archive After Review")]]
+    },
+    "Aggregate Archive After Review": {
       main: [[connection("Get Review Queue After Review")]]
     },
     "Get Review Queue After Review": {
       main: [[connection("Aggregate Current Review Queue")]]
     },
     "Aggregate Current Review Queue": {
+      main: [[connection("Get Applied Jobs After Review")]]
+    },
+    "Get Applied Jobs After Review": {
+      main: [[connection("Aggregate Current Applied Jobs")]]
+    },
+    "Aggregate Current Applied Jobs": {
       main: [[connection("Prepare Review Queue Reconciliation")]]
     },
     "Prepare Review Queue Reconciliation": {
-      main: [[connection("Has Review Queue Deletions")]]
+      main: [[
+        connection("Has Review Queue Deletions"),
+        connection("Prepare Applied Jobs Projection Claim")
+      ]]
+    },
+    "Prepare Applied Jobs Projection Claim": {
+      main: [[connection("Append Applied Jobs Projection Claim")]]
+    },
+    "Append Applied Jobs Projection Claim": {
+      main: [[connection("Get Applied Jobs Projection Claims")]]
+    },
+    "Get Applied Jobs Projection Claims": {
+      main: [[connection("Keep Winning Applied Jobs Projection Claim")]]
+    },
+    "Keep Winning Applied Jobs Projection Claim": {
+      main: [[connection("Get Applied Jobs Before Cleanup")]]
+    },
+    "Get Applied Jobs Before Cleanup": {
+      main: [[connection("Aggregate Applied Jobs Before Cleanup")]]
+    },
+    "Aggregate Applied Jobs Before Cleanup": {
+      main: [[connection("Finalize Applied Jobs Cleanup")]]
+    },
+    "Finalize Applied Jobs Cleanup": {
+      main: [[connection("Has Applied Jobs Rebases")]]
+    },
+    "Has Applied Jobs Rebases": {
+      main: [
+        [connection("Prepare Applied Jobs Rebases")],
+        [connection("Has Applied Jobs Clears")]
+      ]
+    },
+    "Prepare Applied Jobs Rebases": {
+      main: [[connection("Refresh Protected Applied Jobs Rows")]]
+    },
+    "Refresh Protected Applied Jobs Rows": {
+      main: [[connection("Aggregate Applied Jobs Rebases")]]
+    },
+    "Aggregate Applied Jobs Rebases": {
+      main: [[connection("Has Applied Jobs Clears")]]
     },
     "Has Review Queue Deletions": {
       main: [
@@ -2325,6 +3187,45 @@ return [{ json: {
     },
     "Prepare Review Queue Appends": {
       main: [[connection("Append Review Queue Rows")]]
+    },
+    "Has Applied Jobs Clears": {
+      main: [
+        [connection("Prepare Applied Jobs Clears")],
+        [connection("Has Applied Jobs Upserts")]
+      ]
+    },
+    "Prepare Applied Jobs Clears": {
+      main: [[connection("Clear Stale Applied Jobs Rows")]]
+    },
+    "Clear Stale Applied Jobs Rows": {
+      main: [[connection("Aggregate Applied Jobs Clears")]]
+    },
+    "Aggregate Applied Jobs Clears": {
+      main: [[connection("Has Applied Jobs Upserts")]]
+    },
+    "Has Applied Jobs Upserts": {
+      main: [
+        [connection("Prepare Applied Jobs Upserts")],
+        [connection("Get Applied Jobs After Maintenance")]
+      ]
+    },
+    "Prepare Applied Jobs Upserts": {
+      main: [[connection("Upsert Applied Jobs Rows")]]
+    },
+    "Upsert Applied Jobs Rows": {
+      main: [[connection("Get Applied Jobs After Maintenance")]]
+    },
+    "Get Applied Jobs After Maintenance": {
+      main: [[connection("Aggregate Applied Jobs After Maintenance")]]
+    },
+    "Aggregate Applied Jobs After Maintenance": {
+      main: [[connection("Get Applied Jobs Sheet Metadata")]]
+    },
+    "Get Applied Jobs Sheet Metadata": {
+      main: [[connection("Prepare Applied Jobs Atomic Cleanup")]]
+    },
+    "Prepare Applied Jobs Atomic Cleanup": {
+      main: [[connection("Sort and Retire Applied Jobs Rows")]]
     }
   };
 
@@ -2337,13 +3238,15 @@ return [{ json: {
       active: false,
       settings: {
         executionOrder: "v1",
-        binaryMode: "separate"
+        binaryMode: "separate",
+        executionTimeout: 180
       },
       versionId: "88af9ce3-b45f-4aa8-a980-000000000012",
       meta: {
         pipelineSchemaVersion: schema.storage_version,
         reviewViewVersion: reviewConfig.view_version,
-        reviewQueueVersion: reviewConfig.review_queue.version
+        reviewQueueVersion: reviewConfig.review_queue.version,
+        appliedJobsVersion: reviewConfig.applied_jobs.version
       },
       tags: []
     }

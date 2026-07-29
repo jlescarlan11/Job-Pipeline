@@ -32,6 +32,31 @@ const REVIEW_QUEUE_HIDDEN_COLUMNS = [
   "source_state_guard"
 ];
 
+const APPLIED_JOBS_VISIBLE_COLUMNS = [
+  "Applied at",
+  "Job title",
+  "Company",
+  "Generated message",
+  "Job link",
+  "Current outcome",
+  "Outcome updated at",
+  "Action"
+];
+
+const APPLIED_JOBS_HIDDEN_COLUMNS = [
+  "canonical_job_id",
+  "source_state_guard"
+];
+
+const APPLIED_JOBS_ACTIONS = {
+  "No Response": "outcome_no_response",
+  Replied: "outcome_replied",
+  Interview: "outcome_interview",
+  Offer: "outcome_offer",
+  Rejected: "outcome_rejected",
+  "Clear Outcome": "clear_outcome"
+};
+
 function safeReviewText(value, maximum = 500) {
   const text = String(value || "")
     .normalize("NFKC")
@@ -50,11 +75,38 @@ function safeReviewText(value, maximum = 500) {
 
 function formulaSafeReviewCell(value) {
   const text = String(value ?? "");
-  return /^[=+\-@]/.test(text) ? `'${text}` : text;
+  const formulaProbe = text
+    .normalize("NFKC")
+    .replace(/^[\s\u0000-\u001f\u007f-\u009f\u200b-\u200d\u2060\ufeff]*/u, "");
+  return /^[=+\-@]/.test(formulaProbe) ? `'${text}` : text;
 }
 
 function reviewQueueConfiguration(reviewConfig) {
   return reviewConfig?.review_queue || reviewConfig || {};
+}
+
+function appliedJobsConfiguration(reviewConfig) {
+  return reviewConfig?.applied_jobs || {};
+}
+
+function validCanonicalIdentity(value) {
+  const identity = String(value || "").trim();
+  return (
+    identity.length > 0 &&
+    identity.length <= 128 &&
+    /^[a-z0-9.-]+:(?:[a-z0-9._-]+|url:[0-9a-f]{8})$/i.test(identity)
+  );
+}
+
+function verifiedStateGuard(record) {
+  const computed = stateGuard(record);
+  const persisted = String(record?.state_guard || "").trim();
+  return {
+    computed,
+    valid:
+      Boolean(computed) &&
+      (!persisted || persisted === computed)
+  };
 }
 
 export function validateReviewQueueConfig(reviewConfig, schema) {
@@ -134,6 +186,65 @@ export function validateReviewQueueConfig(reviewConfig, schema) {
     queue.reason_maximum_length > 2000
   ) {
     errors.push("review_queue.reason_maximum_length must be from 1 to 2000");
+  }
+  return errors;
+}
+
+export function validateAppliedJobsConfig(reviewConfig, schema) {
+  const appliedJobs = appliedJobsConfiguration(reviewConfig);
+  const errors = [];
+  if (
+    !appliedJobs ||
+    typeof appliedJobs !== "object" ||
+    Array.isArray(appliedJobs)
+  ) {
+    return ["applied_jobs must be an object"];
+  }
+  if (!/^\d{4}-\d{2}-\d{2}\/v\d+$/.test(appliedJobs.version || "")) {
+    errors.push("applied_jobs.version must use YYYY-MM-DD/vN");
+  }
+  if (appliedJobs.sheet !== "Applied Jobs") {
+    errors.push("applied_jobs.sheet must be Applied Jobs");
+  }
+  if (
+    JSON.stringify(appliedJobs.visible_columns) !==
+    JSON.stringify(APPLIED_JOBS_VISIBLE_COLUMNS)
+  ) {
+    errors.push("applied_jobs.visible_columns must match the applied contract");
+  }
+  if (
+    JSON.stringify(appliedJobs.hidden_columns) !==
+    JSON.stringify(APPLIED_JOBS_HIDDEN_COLUMNS)
+  ) {
+    errors.push("applied_jobs.hidden_columns must match the helper contract");
+  }
+  const expectedFields = [
+    ...APPLIED_JOBS_VISIBLE_COLUMNS,
+    ...APPLIED_JOBS_HIDDEN_COLUMNS
+  ];
+  if (JSON.stringify(appliedJobs.fields) !== JSON.stringify(expectedFields)) {
+    errors.push("applied_jobs.fields must contain visible then hidden columns");
+  }
+  if (appliedJobs.application_decision !== "applied") {
+    errors.push("applied_jobs.application_decision must be applied");
+  }
+  if (
+    JSON.stringify(appliedJobs.actions) !==
+    JSON.stringify(APPLIED_JOBS_ACTIONS)
+  ) {
+    errors.push("applied_jobs.actions must match the friendly outcome contract");
+  }
+  for (const command of Object.values(appliedJobs.actions || {})) {
+    if (!schema?.manual_actions?.includes(command)) {
+      errors.push(`applied_jobs action is unsupported: ${command}`);
+    }
+  }
+  const expectedSort = [
+    { field: "application_decided_at", direction: "desc" },
+    { field: "canonical_job_id", direction: "asc" }
+  ];
+  if (JSON.stringify(appliedJobs.sort) !== JSON.stringify(expectedSort)) {
+    errors.push("applied_jobs.sort must use applied time then canonical identity");
   }
   return errors;
 }
@@ -344,6 +455,193 @@ export function buildReviewQueueProjection(
   };
 }
 
+function groupSourceRecords(rows, schema, now, location) {
+  const groups = new Map();
+  const invalid = [];
+  const tainted = new Set();
+  for (const raw of rows) {
+    const record = normalizeLegacyRecord(raw, schema, now);
+    const identity = String(record.canonical_job_id || "").trim();
+    const entry = { raw, record, location };
+    if (!validCanonicalIdentity(identity)) {
+      if (record.application_decision === "applied") {
+        invalid.push({
+          ...entry,
+          error: identity
+            ? "eligible applied record has invalid canonical identity"
+            : "eligible applied record is missing canonical identity"
+        });
+      }
+      continue;
+    }
+    const guard = verifiedStateGuard(record);
+    if (!guard.valid) {
+      tainted.add(identity);
+      invalid.push({
+        ...entry,
+        error: "source record has stale state guard"
+      });
+      continue;
+    }
+    const entries = groups.get(identity) || [];
+    entries.push({
+      ...entry,
+      record: { ...record, state_guard: guard.computed }
+    });
+    groups.set(identity, entries);
+  }
+  return { groups, invalid, tainted };
+}
+
+function selectAppliedJobSources(
+  activeRows,
+  archiveRows,
+  schema,
+  reviewConfig,
+  now
+) {
+  const appliedJobs = appliedJobsConfiguration(reviewConfig);
+  const active = groupSourceRecords(activeRows, schema, now, "active");
+  const archive = groupSourceRecords(archiveRows, schema, now, "archive");
+  const allInvalid = [
+    ...active.invalid,
+    ...archive.invalid
+  ];
+  const invalidRecords = allInvalid
+    .filter(
+      (entry) =>
+        !validCanonicalIdentity(entry.record?.canonical_job_id || "")
+    )
+    .map((entry) => ({
+    location: entry.location,
+    canonical_job_id: safeReviewText(
+      entry.record?.canonical_job_id || "",
+      128
+    ),
+    error: entry.error
+    }));
+  const sources = [];
+  const identities = new Set([
+    ...active.groups.keys(),
+    ...archive.groups.keys(),
+    ...active.tainted,
+    ...archive.tainted
+  ]);
+
+  for (const identity of identities) {
+    const activeEntries = active.groups.get(identity) || [];
+    const archiveEntries = archive.groups.get(identity) || [];
+    const invalidEntries = allInvalid.filter(
+      (entry) =>
+        String(entry.record?.canonical_job_id || "").trim() === identity
+    );
+    const includesApplied = [
+      ...activeEntries,
+      ...archiveEntries,
+      ...invalidEntries
+    ].some(
+      (entry) =>
+        entry.record.application_decision === appliedJobs.application_decision
+    );
+    if (!includesApplied) continue;
+    if (active.tainted.has(identity) || archive.tainted.has(identity)) {
+      invalidRecords.push(
+        ...invalidEntries.map((entry) => ({
+          location: entry.location,
+          canonical_job_id: safeReviewText(identity, 128),
+          error: entry.error
+        }))
+      );
+      continue;
+    }
+    if (activeEntries.length > 1 || archiveEntries.length > 1) {
+      invalidRecords.push({
+        location: activeEntries.length > 1 ? "active" : "archive",
+        canonical_job_id: safeReviewText(identity, 128),
+        error: "eligible applied record has duplicate canonical identity"
+      });
+      continue;
+    }
+    const authoritative = activeEntries[0] || archiveEntries[0];
+    if (
+      authoritative?.record.application_decision !==
+      appliedJobs.application_decision
+    ) {
+      continue;
+    }
+    sources.push(authoritative);
+  }
+
+  return { sources, invalid_records: invalidRecords };
+}
+
+function appliedJobsTimestamp(value) {
+  const parsed = Date.parse(value || "");
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+function appliedJobsRow(record) {
+  const appliedAt = String(record.application_decided_at || "").trim();
+  return {
+    "Applied at": Number.isFinite(Date.parse(appliedAt))
+      ? formulaSafeReviewCell(appliedAt)
+      : "",
+    "Job title": formulaSafeReviewCell(record.job_title),
+    Company: formulaSafeReviewCell(record.company),
+    "Generated message": formulaSafeReviewCell(record.generated_message),
+    "Job link": formulaSafeReviewCell(record.canonical_url),
+    "Current outcome": formulaSafeReviewCell(record.outcome),
+    "Outcome updated at": formulaSafeReviewCell(record.outcome_at),
+    Action: "",
+    canonical_job_id: record.canonical_job_id,
+    source_state_guard: record.state_guard || stateGuard(record)
+  };
+}
+
+export function buildAppliedJobsProjection(
+  activeRows,
+  archiveRows,
+  schema,
+  reviewConfig,
+  now = new Date().toISOString()
+) {
+  const configErrors = validateAppliedJobsConfig(reviewConfig, schema);
+  if (configErrors.length > 0) {
+    throw new Error(
+      `Invalid applied jobs configuration: ${configErrors.join("; ")}`
+    );
+  }
+  const selected = selectAppliedJobSources(
+    activeRows,
+    archiveRows,
+    schema,
+    reviewConfig,
+    now
+  );
+  selected.sources.sort((left, right) => {
+    const rightApplied = appliedJobsTimestamp(
+      right.record.application_decided_at
+    );
+    const leftApplied = appliedJobsTimestamp(
+      left.record.application_decided_at
+    );
+    if (rightApplied !== leftApplied) {
+      return rightApplied > leftApplied ? 1 : -1;
+    }
+    const leftIdentity = String(left.record.canonical_job_id);
+    const rightIdentity = String(right.record.canonical_job_id);
+    return leftIdentity < rightIdentity
+      ? -1
+      : leftIdentity > rightIdentity
+        ? 1
+        : 0;
+  });
+  return {
+    rows: selected.sources.map(({ record }) => appliedJobsRow(record)),
+    invalid_records: selected.invalid_records
+  };
+}
+
 function reviewCommitGuard(record, action, executionId, now) {
   const source = [
     executionId,
@@ -352,15 +650,20 @@ function reviewCommitGuard(record, action, executionId, now) {
     action,
     now
   ].join("\u001f");
-  let hash = 2166136261;
-  for (let index = 0; index < source.length; index += 1) {
-    hash ^= source.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
+  const digest = [2166136261, 2246822519, 3266489917, 668265263]
+    .map((seed, seedIndex) => {
+      let hash = seed >>> 0;
+      for (let index = 0; index < source.length; index += 1) {
+        hash ^= source.charCodeAt(index) + seedIndex * 131;
+        hash = Math.imul(hash, 16777619 + seedIndex * 2);
+        hash ^= hash >>> 13;
+      }
+      return (hash >>> 0).toString(16).padStart(8, "0");
+    })
+    .join("");
   const execution = safeReviewText(executionId, 48).replace(/[^a-z0-9._-]/gi, "_");
-  return `commit:review:${execution || "manual"}:${(hash >>> 0)
-    .toString(16)
-    .padStart(8, "0")}`;
+  const identity = String(record.canonical_job_id || "");
+  return `commit:review:${identity}:${execution || "manual"}:${digest}`;
 }
 
 function clearProcessing(record) {
@@ -748,16 +1051,45 @@ export function processReviewActions(
 ) {
   const activeUpdates = [];
   const activeClaims = [];
+  const activeProjectionUpdates = [];
+  const activeProjectionClaims = [];
+  const activeQueueUpdates = [];
+  const activeQueueClaims = [];
+  const activeAppliedUpdates = [];
+  const activeAppliedClaims = [];
+  const activeDirectUpdates = [];
+  const activeDirectClaims = [];
+  const archiveClaims = [];
   const archiveUpdates = [];
+  const archiveProjectionUpdates = [];
+  const archiveProjectionClaims = [];
+  const archiveDirectUpdates = [];
+  const archiveDirectClaims = [];
   const invalidActions = [];
   const processedQueueActions = [];
+  const processedAppliedActions = [];
   const executionId = String(queueContext.executionId || "");
   const queueRows = Array.isArray(queueContext.queueRows)
     ? queueContext.queueRows
     : [];
+  const appliedJobsRows = Array.isArray(queueContext.appliedJobsRows)
+    ? queueContext.appliedJobsRows
+    : [];
   const queueConfig = reviewQueueConfiguration(queueContext.reviewConfig);
-  const configuredActions = queueConfig.actions || {};
+  const appliedJobsConfig = appliedJobsConfiguration(queueContext.reviewConfig);
+  const configuredQueueActions = queueConfig.actions || {};
+  const configuredAppliedActions = appliedJobsConfig.actions || {};
   const queueActionsById = new Map();
+  const appliedActionsById = new Map();
+  const appliedProjectionIdentityCounts = new Map();
+  for (const row of appliedJobsRows) {
+    const identity = String(row?.canonical_job_id || "").trim();
+    if (!identity) continue;
+    appliedProjectionIdentityCounts.set(
+      identity,
+      (appliedProjectionIdentityCounts.get(identity) || 0) + 1
+    );
+  }
 
   const invalidAction = ({
     location,
@@ -769,47 +1101,87 @@ export function processReviewActions(
     invalidActions.push({
       location,
       row_number: raw?.row_number,
-      canonical_job_id: canonicalJobId || "",
+      canonical_job_id: safeReviewText(canonicalJobId, 128),
       manual_action: manualAction || "[unsupported]",
       error
     });
   };
 
-  for (const raw of queueRows) {
-    const label = String(raw?.Action || "").trim();
-    if (!label) continue;
-    const canonicalJobId = String(raw?.canonical_job_id || "").trim();
-    const command = configuredActions[label];
-    if (!canonicalJobId) {
-      invalidAction({
-        location: "review_queue",
+  const projectionName = (location) =>
+    location === "review_queue" ? "review queue" : "Applied Jobs";
+
+  const collectProjectionActions = ({
+    rows,
+    configuredActions,
+    location,
+    destination
+  }) => {
+    for (const raw of rows) {
+      const label = String(raw?.Action || "").trim();
+      if (!label) continue;
+      const canonicalJobId = String(raw?.canonical_job_id || "").trim();
+      const command = configuredActions[label];
+      if (!canonicalJobId) {
+        invalidAction({
+          location,
+          raw,
+          manualAction: command,
+          error: `${projectionName(location)} action is missing canonical identity`
+        });
+        continue;
+      }
+      if (
+        location === "applied_jobs" &&
+        appliedProjectionIdentityCounts.get(canonicalJobId) !== 1
+      ) {
+        invalidAction({
+          location,
+          raw,
+          canonicalJobId,
+          manualAction: command,
+          error: "Applied Jobs action has duplicate projection identity"
+        });
+        continue;
+      }
+      if (!command) {
+        invalidAction({
+          location,
+          raw,
+          canonicalJobId,
+          error: `unsupported ${projectionName(location)} action`
+        });
+        continue;
+      }
+      const entries = destination.get(canonicalJobId) || [];
+      entries.push({
         raw,
-        manualAction: command,
-        error: "review queue action is missing canonical identity"
+        canonical_job_id: canonicalJobId,
+        source_state_guard: String(raw.source_state_guard || "").trim(),
+        label,
+        command
       });
-      continue;
+      destination.set(canonicalJobId, entries);
     }
-    if (!command) {
-      invalidAction({
-        location: "review_queue",
-        raw,
-        canonicalJobId,
-        error: "unsupported review queue action"
-      });
-      continue;
-    }
-    const entries = queueActionsById.get(canonicalJobId) || [];
-    entries.push({
-      raw,
-      canonical_job_id: canonicalJobId,
-      source_state_guard: String(raw.source_state_guard || "").trim(),
-      label,
-      command
-    });
-    queueActionsById.set(canonicalJobId, entries);
-  }
+  };
+
+  collectProjectionActions({
+    rows: queueRows,
+    configuredActions: configuredQueueActions,
+    location: "review_queue",
+    destination: queueActionsById
+  });
+  collectProjectionActions({
+    rows: appliedJobsRows,
+    configuredActions: configuredAppliedActions,
+    location: "applied_jobs",
+    destination: appliedActionsById
+  });
 
   const active = activeRows.map((raw) => ({
+    raw,
+    record: normalizeLegacyRecord(raw, schema, now)
+  }));
+  const archive = archiveRows.map((raw) => ({
     raw,
     record: normalizeLegacyRecord(raw, schema, now)
   }));
@@ -823,13 +1195,306 @@ export function processReviewActions(
       );
     }
   }
+  const archiveIdentityCounts = new Map();
+  for (const { record } of archive) {
+    const identity = String(record.canonical_job_id || "").trim();
+    if (identity) {
+      archiveIdentityCounts.set(
+        identity,
+        (archiveIdentityCounts.get(identity) || 0) + 1
+      );
+    }
+  }
+  const directActionsByIdentity = (entries) => {
+    const actions = new Map();
+    for (const entry of entries) {
+      const identity = String(entry.record.canonical_job_id || "").trim();
+      const action = String(entry.record.manual_action || "").trim();
+      if (!identity || !action) continue;
+      const matches = actions.get(identity) || [];
+      matches.push({ ...entry, action });
+      actions.set(identity, matches);
+    }
+    return actions;
+  };
+  const activeDirectActions = directActionsByIdentity(active);
+  const archiveDirectActions = directActionsByIdentity(archive);
   const consumedQueueIdentities = new Set();
+  const consumedAppliedIdentities = new Set();
+  const reportedActiveDuplicates = new Set();
+  const reportedArchiveDuplicates = new Set();
+  const suppressedArchiveDirectIdentities = new Set();
+
+  const rejectEntries = (entries, location, error) => {
+    for (const entry of entries) {
+      invalidAction({
+        location,
+        raw: entry.raw,
+        canonicalJobId: entry.canonical_job_id,
+        manualAction: entry.command,
+        error
+      });
+    }
+  };
+
+  const resolveGuardedAction = ({
+    entries,
+    record,
+    location,
+    contextualize
+  }) => {
+    if (entries.length === 0) return { action: "", entries: [] };
+    const sourceIdentity = String(record.canonical_job_id || "").trim();
+    if (!validCanonicalIdentity(sourceIdentity)) {
+      rejectEntries(
+        entries,
+        location,
+        `${projectionName(location)} source has invalid canonical identity`
+      );
+      return { action: "", entries: [] };
+    }
+    const sourceGuard = verifiedStateGuard(record);
+    if (!sourceGuard.valid) {
+      rejectEntries(
+        entries,
+        location,
+        `${projectionName(location)} source state guard integrity mismatch`
+      );
+      return { action: "", entries: [] };
+    }
+    const contextualEntries = entries.map((entry) => {
+      if (!contextualize) return entry;
+      return contextualize(entry);
+    });
+    const invalidEntries = contextualEntries.filter((entry) => !entry.command);
+    for (const entry of invalidEntries) {
+      invalidAction({
+        location,
+        raw: entry.raw,
+        canonicalJobId: entry.canonical_job_id,
+        error:
+          entry.context_error ||
+          `unsupported ${projectionName(location)} action`
+      });
+    }
+    const actionableEntries = contextualEntries.filter(
+      (entry) => entry.command
+    );
+    const commands = new Set(
+      actionableEntries.map((entry) => entry.command)
+    );
+    const guards = new Set(
+      actionableEntries.map((entry) => entry.source_state_guard)
+    );
+    if (
+      actionableEntries.length === 0 ||
+      actionableEntries.length !== entries.length ||
+      commands.size !== 1 ||
+      guards.size !== 1
+    ) {
+      rejectEntries(
+        actionableEntries,
+        location,
+        `conflicting ${projectionName(location)} actions`
+      );
+      return { action: "", entries: [] };
+    }
+    const projectedGuard = [...guards][0];
+    if (!projectedGuard || projectedGuard !== sourceGuard.computed) {
+      rejectEntries(
+        entries,
+        location,
+        `stale ${projectionName(location)} action`
+      );
+      return { action: "", entries: [] };
+    }
+    return {
+      action: [...commands][0],
+      entries: actionableEntries
+    };
+  };
+
+  const planRecordAction = ({
+    raw,
+    record,
+    sourceLocation,
+    directAction,
+    queueResolution = { action: "", entries: [] },
+    appliedResolution = { action: "", entries: [] }
+  }) => {
+    const identity = String(record.canonical_job_id || "").trim();
+    let queueAction = queueResolution.action;
+    let appliedAction = appliedResolution.action;
+
+    if (queueAction && appliedAction) {
+      rejectEntries(
+        queueResolution.entries,
+        "review_queue",
+        "review queue action conflicts with Applied Jobs action"
+      );
+      rejectEntries(
+        appliedResolution.entries,
+        "applied_jobs",
+        "Applied Jobs action conflicts with Review Queue action"
+      );
+      queueAction = "";
+      appliedAction = "";
+    }
+
+    const projectionAction = queueAction || appliedAction;
+    const projectionLocation = queueAction ? "review_queue" : "applied_jobs";
+    const projectionEntries = queueAction
+      ? queueResolution.entries
+      : appliedResolution.entries;
+    if (
+      directAction &&
+      projectionAction &&
+      directAction !== projectionAction
+    ) {
+      rejectEntries(
+        projectionEntries,
+        projectionLocation,
+        `${projectionLocation} action conflicts with ${
+          sourceLocation === "active" ? "Sheet1" : "Archive"
+        } action`
+      );
+      queueAction = "";
+      appliedAction = "";
+    }
+
+    const selectedProjectionAction = queueAction || appliedAction;
+    const selectedAction = directAction || selectedProjectionAction;
+    if (!selectedAction) return;
+    if (!identity) {
+      invalidAction({
+        location: sourceLocation,
+        raw,
+        manualAction: schema.manual_actions.includes(selectedAction)
+          ? selectedAction
+          : undefined,
+        error: `${sourceLocation} review action is missing canonical identity`
+      });
+      return;
+    }
+
+    const result = applyManualAction(
+      { ...record, manual_action: selectedAction },
+      schema,
+      now,
+      messageSafetyContext
+    );
+    if (!result.valid) {
+      const supportedAction = schema.manual_actions.includes(selectedAction);
+      const invalidLocation = directAction
+        ? sourceLocation
+        : queueAction
+          ? "review_queue"
+          : "applied_jobs";
+      const invalidEntries = queueAction
+        ? queueResolution.entries
+        : appliedAction
+          ? appliedResolution.entries
+          : [];
+      if (invalidEntries.length > 0) {
+        rejectEntries(
+          invalidEntries,
+          invalidLocation,
+          supportedAction ? result.error : "unsupported manual action"
+        );
+      } else {
+        invalidAction({
+          location: invalidLocation,
+          raw,
+          canonicalJobId: identity,
+          manualAction: supportedAction ? selectedAction : undefined,
+          error: supportedAction ? result.error : "unsupported manual action"
+        });
+      }
+      return;
+    }
+    if (!result.changed) return;
+
+    const sourceGuard = stateGuard(record);
+    const commitGuard = reviewCommitGuard(
+      record,
+      selectedAction,
+      executionId,
+      now
+    );
+    const update = {
+      ...result.record,
+      state_guard: stateGuard(result.record),
+      processing_commit_guard: commitGuard,
+      row_number: raw.row_number
+    };
+    const claim = {
+      canonical_job_id: identity,
+      state_guard: sourceGuard,
+      processing_commit_guard: commitGuard,
+      manual_action: directAction || ""
+    };
+    const projectionOwned = Boolean(selectedProjectionAction && !directAction);
+    if (sourceLocation === "active") {
+      activeClaims.push(claim);
+      activeUpdates.push(update);
+      if (projectionOwned) {
+        activeProjectionClaims.push(claim);
+        activeProjectionUpdates.push(update);
+        if (queueAction) {
+          activeQueueClaims.push(claim);
+          activeQueueUpdates.push(update);
+        } else {
+          activeAppliedClaims.push(claim);
+          activeAppliedUpdates.push(update);
+        }
+      } else {
+        activeDirectClaims.push(claim);
+        activeDirectUpdates.push(update);
+      }
+    } else {
+      archiveClaims.push(claim);
+      archiveUpdates.push(update);
+      if (projectionOwned) {
+        archiveProjectionClaims.push(claim);
+        archiveProjectionUpdates.push(update);
+      } else {
+        archiveDirectClaims.push(claim);
+        archiveDirectUpdates.push(update);
+      }
+    }
+    if (queueAction) {
+      processedQueueActions.push({
+        canonical_job_id: identity,
+        manual_action: queueAction,
+        source_state_guard: sourceGuard,
+        processing_commit_guard: commitGuard,
+        duplicate_count: queueResolution.entries.length
+      });
+    }
+    if (appliedAction) {
+      processedAppliedActions.push({
+        canonical_job_id: identity,
+        source_location: sourceLocation,
+        manual_action: appliedAction,
+        source_state_guard: sourceGuard,
+        processing_commit_guard: commitGuard,
+        duplicate_count: appliedResolution.entries.length
+      });
+    }
+  };
 
   for (const { raw, record } of active) {
     const identity = String(record.canonical_job_id || "").trim();
     const directAction = String(record.manual_action || "").trim();
-    const queueEntries = identity
+    let queueEntries = identity
       ? queueActionsById.get(identity) || []
+      : [];
+
+    let appliedEntries = identity
+      ? appliedActionsById.get(identity) || []
+      : [];
+    const archiveDirectEntries = identity
+      ? archiveDirectActions.get(identity) || []
       : [];
 
     if (identity && activeIdentityCounts.get(identity) > 1) {
@@ -844,176 +1509,111 @@ export function processReviewActions(
           error: "active review action has duplicate canonical identity"
         });
       }
-      if (queueEntries.length > 0 && !consumedQueueIdentities.has(identity)) {
-        for (const entry of queueEntries) {
-          invalidAction({
-            location: "review_queue",
-            raw: entry.raw,
-            canonicalJobId: identity,
-            manualAction: entry.command,
-            error: "review queue action has duplicate source identity"
-          });
-        }
+      if (!reportedActiveDuplicates.has(identity)) {
+        rejectEntries(
+          queueEntries,
+          "review_queue",
+          "review queue action has duplicate source identity"
+        );
+        rejectEntries(
+          appliedEntries,
+          "applied_jobs",
+          "Applied Jobs action has duplicate source identity"
+        );
         consumedQueueIdentities.add(identity);
+        consumedAppliedIdentities.add(identity);
+        reportedActiveDuplicates.add(identity);
       }
       continue;
     }
 
-    let queueAction = "";
+    if (archiveDirectEntries.length > 0) {
+      suppressedArchiveDirectIdentities.add(identity);
+      if (queueEntries.length > 0) {
+        rejectEntries(
+          queueEntries,
+          "review_queue",
+          "review queue action conflicts with direct Archive action"
+        );
+        consumedQueueIdentities.add(identity);
+        queueEntries = [];
+      }
+      if (appliedEntries.length > 0) {
+        rejectEntries(
+          appliedEntries,
+          "applied_jobs",
+          "Applied Jobs action conflicts with direct Archive action"
+        );
+        consumedAppliedIdentities.add(identity);
+        appliedEntries = [];
+      }
+      for (const entry of archiveDirectEntries) {
+        invalidAction({
+          location: "archive",
+          raw: entry.raw,
+          canonicalJobId: identity,
+          manualAction: schema.manual_actions.includes(entry.action)
+            ? entry.action
+            : undefined,
+          error:
+            "direct Archive action conflicts with active authoritative source"
+        });
+      }
+    }
+
+    let queueResolution = { action: "", entries: [] };
     if (queueEntries.length > 0) {
       consumedQueueIdentities.add(identity);
-      const contextualEntries = queueEntries.map((entry) => {
-        if (!isGenerationRecovery(record, queueContext.reviewConfig)) {
-          return entry;
-        }
-        if (entry.label === "Generate Application") {
-          return { ...entry, command: "retry" };
-        }
-        if (entry.label === "Skip") {
-          return { ...entry, command: "mark_skipped" };
-        }
-        return { ...entry, command: "" };
-      });
-      const invalidContextualEntries = contextualEntries.filter(
-        (entry) => !entry.command
-      );
-      for (const entry of invalidContextualEntries) {
-        invalidAction({
-          location: "review_queue",
-          raw: entry.raw,
-          canonicalJobId: identity,
-          error:
-            "I Applied is unavailable until a current validated message is ready"
-        });
-      }
-      const actionableEntries = contextualEntries.filter(
-        (entry) => entry.command
-      );
-      const commands = new Set(
-        actionableEntries.map((entry) => entry.command)
-      );
-      const guards = new Set(
-        actionableEntries.map((entry) => entry.source_state_guard)
-      );
-      if (actionableEntries.length === 0) {
-        queueAction = "";
-      } else if (
-        actionableEntries.length !== queueEntries.length ||
-        commands.size !== 1 ||
-        guards.size !== 1
-      ) {
-        for (const entry of actionableEntries) {
-          invalidAction({
-            location: "review_queue",
-            raw: entry.raw,
-            canonicalJobId: identity,
-            manualAction: entry.command,
-            error: "conflicting review queue actions"
-          });
-        }
-      } else {
-        const sourceGuard = [...guards][0];
-        const currentGuard = String(record.state_guard || stateGuard(record));
-        if (!sourceGuard || sourceGuard !== currentGuard) {
-          for (const entry of queueEntries) {
-            invalidAction({
-              location: "review_queue",
-              raw: entry.raw,
-              canonicalJobId: identity,
-              manualAction: entry.command,
-              error: "stale review queue action"
-            });
+      queueResolution = resolveGuardedAction({
+        entries: queueEntries,
+        record,
+        location: "review_queue",
+        contextualize: (entry) => {
+          if (!isGenerationRecovery(record, queueContext.reviewConfig)) {
+            return entry;
           }
-        } else {
-          queueAction = [...commands][0];
+          if (entry.label === "Generate Application") {
+            return { ...entry, command: "retry" };
+          }
+          if (entry.label === "Skip") {
+            return { ...entry, command: "mark_skipped" };
+          }
+          return {
+            ...entry,
+            command: "",
+            context_error:
+              "I Applied is unavailable until a current validated message is ready"
+          };
         }
-      }
+      });
     }
 
-    if (directAction && queueAction && directAction !== queueAction) {
-      for (const entry of queueEntries) {
-        invalidAction({
-          location: "review_queue",
-          raw: entry.raw,
-          canonicalJobId: identity,
-          manualAction: entry.command,
-          error: "review queue action conflicts with Sheet1 action"
+    let appliedResolution = { action: "", entries: [] };
+    if (appliedEntries.length > 0) {
+      consumedAppliedIdentities.add(identity);
+      if ((archiveIdentityCounts.get(identity) || 0) > 1) {
+        rejectEntries(
+          appliedEntries,
+          "applied_jobs",
+          "Applied Jobs action has duplicate source identity"
+        );
+      } else {
+        appliedResolution = resolveGuardedAction({
+          entries: appliedEntries,
+          record,
+          location: "applied_jobs"
         });
       }
-      queueAction = "";
     }
 
-    const selectedAction = directAction || queueAction;
-    if (!selectedAction) continue;
-    if (!identity) {
-      invalidAction({
-        location: "active",
-        raw,
-        manualAction: schema.manual_actions.includes(selectedAction)
-          ? selectedAction
-          : undefined,
-        error: "active review action is missing canonical identity"
-      });
-      continue;
-    }
-
-    const result = applyManualAction(
-      { ...record, manual_action: selectedAction },
-      schema,
-      now,
-      messageSafetyContext
-    );
-    if (!result.valid) {
-      const supportedAction = schema.manual_actions.includes(selectedAction);
-      invalidAction({
-        location: directAction ? "active" : "review_queue",
-        raw: directAction ? raw : queueEntries[0]?.raw,
-        canonicalJobId: identity,
-        manualAction: supportedAction ? selectedAction : undefined,
-        error: supportedAction ? result.error : "unsupported manual action"
-      });
-      if (directAction && queueAction) {
-        for (const entry of queueEntries) {
-          invalidAction({
-            location: "review_queue",
-            raw: entry.raw,
-            canonicalJobId: identity,
-            manualAction: entry.command,
-            error: result.error
-          });
-        }
-      }
-      continue;
-    }
-    if (!result.changed) continue;
-
-    const sourceGuard = String(record.state_guard || stateGuard(record));
-    const commitGuard = reviewCommitGuard(
+    planRecordAction({
+      raw,
       record,
-      selectedAction,
-      executionId,
-      now
-    );
-    activeClaims.push({
-      canonical_job_id: identity,
-      state_guard: sourceGuard,
-      processing_commit_guard: commitGuard
+      sourceLocation: "active",
+      directAction,
+      queueResolution,
+      appliedResolution
     });
-    activeUpdates.push({
-      ...result.record,
-      state_guard: stateGuard(result.record),
-      processing_commit_guard: commitGuard,
-      row_number: raw.row_number
-    });
-    if (queueAction) {
-      processedQueueActions.push({
-        canonical_job_id: identity,
-        manual_action: queueAction,
-        source_state_guard: sourceGuard,
-        processing_commit_guard: commitGuard,
-        duplicate_count: queueEntries.length
-      });
-    }
   }
 
   for (const [identity, entries] of queueActionsById) {
@@ -1029,40 +1629,89 @@ export function processReviewActions(
     }
   }
 
-  for (const raw of archiveRows) {
-    const record = normalizeLegacyRecord(raw, schema, now);
-    if (!record.manual_action) continue;
-    const result = applyManualAction(
-      record,
-      schema,
-      now,
-      messageSafetyContext
-    );
-    if (!result.valid) {
-      const supportedAction = schema.manual_actions.includes(record.manual_action);
-      invalidAction({
-        location: "archive",
-        raw,
-        canonicalJobId: record.canonical_job_id,
-        manualAction: supportedAction ? record.manual_action : undefined,
-        error: supportedAction ? result.error : "unsupported manual action"
-      });
+  for (const { raw, record } of archive) {
+    const identity = String(record.canonical_job_id || "").trim();
+    const directAction = String(record.manual_action || "").trim();
+    if (identity && suppressedArchiveDirectIdentities.has(identity)) continue;
+    const appliedEntries =
+      identity && !consumedAppliedIdentities.has(identity)
+        ? appliedActionsById.get(identity) || []
+        : [];
+
+    if (identity && archiveIdentityCounts.get(identity) > 1) {
+      if (directAction) {
+        invalidAction({
+          location: "archive",
+          raw,
+          canonicalJobId: identity,
+          manualAction: schema.manual_actions.includes(directAction)
+            ? directAction
+            : undefined,
+          error: "archive review action has duplicate canonical identity"
+        });
+      }
+      if (
+        appliedEntries.length > 0 &&
+        !reportedArchiveDuplicates.has(identity)
+      ) {
+        rejectEntries(
+          appliedEntries,
+          "applied_jobs",
+          "Applied Jobs action has duplicate source identity"
+        );
+        consumedAppliedIdentities.add(identity);
+        reportedArchiveDuplicates.add(identity);
+      }
       continue;
     }
-    if (!result.changed) continue;
-    archiveUpdates.push({
-      ...result.record,
-      state_guard: stateGuard(result.record),
-      row_number: raw.row_number
+
+    let appliedResolution = { action: "", entries: [] };
+    if (appliedEntries.length > 0) {
+      consumedAppliedIdentities.add(identity);
+      appliedResolution = resolveGuardedAction({
+        entries: appliedEntries,
+        record,
+        location: "applied_jobs"
+      });
+    }
+    planRecordAction({
+      raw,
+      record,
+      sourceLocation: "archive",
+      directAction,
+      appliedResolution
     });
+  }
+
+  for (const [identity, entries] of appliedActionsById) {
+    if (consumedAppliedIdentities.has(identity)) continue;
+    rejectEntries(
+      entries,
+      "applied_jobs",
+      "Applied Jobs source record is missing"
+    );
   }
 
   return {
     active_claims: activeClaims,
     active_updates: activeUpdates,
+    active_projection_claims: activeProjectionClaims,
+    active_projection_updates: activeProjectionUpdates,
+    active_queue_claims: activeQueueClaims,
+    active_queue_updates: activeQueueUpdates,
+    active_applied_claims: activeAppliedClaims,
+    active_applied_updates: activeAppliedUpdates,
+    active_direct_claims: activeDirectClaims,
+    active_direct_updates: activeDirectUpdates,
+    archive_claims: archiveClaims,
     archive_updates: archiveUpdates,
+    archive_projection_claims: archiveProjectionClaims,
+    archive_projection_updates: archiveProjectionUpdates,
+    archive_direct_claims: archiveDirectClaims,
+    archive_direct_updates: archiveDirectUpdates,
     invalid_actions: invalidActions,
-    processed_queue_actions: processedQueueActions
+    processed_queue_actions: processedQueueActions,
+    processed_applied_actions: processedAppliedActions
   };
 }
 
@@ -1073,6 +1722,66 @@ function queueSnapshotKey(row) {
     String(row?.source_state_guard || "").trim(),
     String(row?.Action || "").trim()
   ].join("\u001f");
+}
+
+function projectionActionSnapshot(rows, location = "applied_jobs") {
+  const grouped = new Map();
+  const invalidRecords = [];
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const identity = String(row?.canonical_job_id || "").trim();
+    const action = String(row?.Action || "").trim();
+    if (!validCanonicalIdentity(identity)) {
+      if (action) {
+        invalidRecords.push({
+          location,
+          canonical_job_id: safeReviewText(identity, 128),
+          error: identity
+            ? "projection action has invalid canonical identity"
+            : "projection action is missing canonical identity"
+        });
+      }
+      continue;
+    }
+    const entries = grouped.get(identity) || [];
+    entries.push({ row, action });
+    grouped.set(identity, entries);
+  }
+
+  const byIdentity = new Map();
+  const duplicates = new Set();
+  for (const [identity, entries] of grouped) {
+    if (entries.length !== 1) {
+      duplicates.add(identity);
+      if (entries.some((entry) => entry.action)) {
+        invalidRecords.push({
+          location,
+          canonical_job_id: safeReviewText(identity, 128),
+          error: "projection action has duplicate canonical identity"
+        });
+      }
+      continue;
+    }
+    byIdentity.set(identity, entries[0]);
+  }
+  return { byIdentity, duplicates, invalid_records: invalidRecords };
+}
+
+function projectionActionChanged(previousSnapshot, currentSnapshot, identity) {
+  if (
+    !validCanonicalIdentity(identity) ||
+    previousSnapshot.duplicates.has(identity) ||
+    currentSnapshot.duplicates.has(identity)
+  ) {
+    return false;
+  }
+  const previous = previousSnapshot.byIdentity.get(identity);
+  const current = currentSnapshot.byIdentity.get(identity);
+  return Boolean(
+    previous &&
+      current &&
+      current.action &&
+      previous.action !== current.action
+  );
 }
 
 export function reconcileReviewQueue(
@@ -1139,6 +1848,197 @@ export function reconcileReviewQueue(
     delete_rows: deleteRows,
     protected_action_count: protectedRows.size,
     invalid_records: projection.invalid_records
+  };
+}
+
+export function reconcileAppliedJobs(
+  activeRows,
+  archiveRows,
+  currentAppliedRows,
+  initialAppliedRows,
+  schema,
+  reviewConfig,
+  now = new Date().toISOString(),
+  _confirmation = {}
+) {
+  const projection = buildAppliedJobsProjection(
+    activeRows,
+    archiveRows,
+    schema,
+    reviewConfig,
+    now
+  );
+  const initialSnapshot = projectionActionSnapshot(initialAppliedRows);
+  const currentSnapshot = projectionActionSnapshot(currentAppliedRows);
+  const currentSources = new Map(
+    selectAppliedJobSources(
+      activeRows,
+      archiveRows,
+      schema,
+      reviewConfig,
+      now
+    ).sources.map(({ record }) => [
+      String(record.canonical_job_id || "").trim(),
+      record
+    ])
+  );
+  const projectedByIdentity = new Map(
+    projection.rows.map((row) => [
+      String(row.canonical_job_id || "").trim(),
+      row
+    ])
+  );
+  const protectedRows = new Set();
+  const protectedIdentities = new Set();
+  const rebaseRows = [];
+  for (const row of currentAppliedRows) {
+    const action = String(row?.Action || "").trim();
+    if (!action) continue;
+    const identity = String(row.canonical_job_id || "").trim();
+    const actionAppearedAfterRead = projectionActionChanged(
+      initialSnapshot,
+      currentSnapshot,
+      identity
+    );
+    const command = appliedJobsConfiguration(reviewConfig).actions?.[action];
+    const currentSource = currentSources.get(identity);
+    const sourceWriteConfirmed =
+      currentSource &&
+      Array.isArray(currentSource.outcome_events) &&
+      (command === "clear_outcome"
+        ? !currentSource.outcome
+        : OUTCOME_ACTIONS[command] === currentSource.outcome);
+    if (!actionAppearedAfterRead && sourceWriteConfirmed) continue;
+    const rowNumber = Number(row.row_number);
+    if (Number.isInteger(rowNumber) && rowNumber > 1) {
+      protectedRows.add(rowNumber);
+      const projected = projectedByIdentity.get(identity);
+      if (
+        actionAppearedAfterRead &&
+        projected &&
+        !currentSnapshot.duplicates.has(identity)
+      ) {
+        rebaseRows.push({
+          ...projected,
+          Action: action
+        });
+      }
+    }
+    if (identity) protectedIdentities.add(identity);
+  }
+  const appliedJobs = appliedJobsConfiguration(reviewConfig);
+  const clearFields = (appliedJobs.fields || []).filter(
+    (field) =>
+      !["Action", "canonical_job_id"].includes(field)
+  );
+  const clearRows = [];
+  for (const [identity, entry] of currentSnapshot.byIdentity) {
+    if (
+      projectedByIdentity.has(identity) ||
+      protectedIdentities.has(identity) ||
+      entry.action
+    ) {
+      continue;
+    }
+    clearRows.push({
+      canonical_job_id: identity,
+      ...Object.fromEntries(clearFields.map((field) => [field, ""]))
+    });
+  }
+  return {
+    applied_rows: projection.rows.filter(
+      (row) =>
+        !protectedIdentities.has(row.canonical_job_id) &&
+        !currentSnapshot.duplicates.has(row.canonical_job_id)
+    ),
+    desired_rows: projection.rows,
+    rebase_rows: rebaseRows,
+    clear_rows: clearRows,
+    protected_action_count: protectedRows.size,
+    invalid_records: [
+      ...projection.invalid_records,
+      ...initialSnapshot.invalid_records,
+      ...currentSnapshot.invalid_records
+    ]
+  };
+}
+
+export function finalizeAppliedJobsCleanup(
+  plannedReconciliation,
+  previousRows,
+  latestRows
+) {
+  const planned = plannedReconciliation || {};
+  const previous = Array.isArray(previousRows) ? previousRows : [];
+  const latest = Array.isArray(latestRows) ? latestRows : [];
+  const previousSnapshot = projectionActionSnapshot(previous);
+  const latestSnapshot = projectionActionSnapshot(latest);
+  const desiredByIdentity = new Map(
+    [
+      ...(planned.applied_rows || []),
+      ...(planned.applied_rebase_rows || []),
+      ...(planned.applied_desired_rows || [])
+    ].map((row) => [String(row?.canonical_job_id || "").trim(), row])
+  );
+  const protectedIdentities = new Set();
+  const ambiguousIdentities = latestSnapshot.duplicates;
+  const plannedRebaseByIdentity = new Map(
+    (planned.applied_rebase_rows || []).map((row) => [
+      String(row?.canonical_job_id || "").trim(),
+      row
+    ])
+  );
+  const rebaseRows = new Map();
+  for (const row of latest) {
+    const action = String(row?.Action || "").trim();
+    const identity = String(row?.canonical_job_id || "").trim();
+    if (action) {
+      if (
+        validCanonicalIdentity(identity) &&
+        !latestSnapshot.duplicates.has(identity)
+      ) {
+        protectedIdentities.add(identity);
+        const desired = desiredByIdentity.get(identity);
+        const plannedRebase = plannedRebaseByIdentity.get(identity);
+        const actionChangedSinceReconciliation = projectionActionChanged(
+          previousSnapshot,
+          latestSnapshot,
+          identity
+        );
+        if (desired && (plannedRebase || actionChangedSinceReconciliation)) {
+          rebaseRows.set(identity, {
+            ...(plannedRebase || desired),
+            Action: action
+          });
+        }
+      }
+      continue;
+    }
+  }
+  return {
+    ...planned,
+    applied_rows: (planned.applied_rows || []).filter(
+      (row) =>
+        !ambiguousIdentities.has(
+          String(row?.canonical_job_id || "").trim()
+        )
+    ),
+    applied_clear_rows: (planned.applied_clear_rows || []).filter(
+      (row) => {
+        const identity = String(row?.canonical_job_id || "").trim();
+        return (
+          !ambiguousIdentities.has(identity) &&
+          !protectedIdentities.has(identity)
+        );
+      }
+    ),
+    applied_rebase_rows: [...rebaseRows.values()],
+    applied_last_minute_protected_actions: protectedIdentities.size,
+    invalid_records: [
+      ...(planned.invalid_records || []),
+      ...previousSnapshot.invalid_records,
+      ...latestSnapshot.invalid_records
+    ]
   };
 }
 

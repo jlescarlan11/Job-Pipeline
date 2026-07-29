@@ -774,6 +774,7 @@ test("Sheet setup artifact embeds the canonical schema and review controls", () 
   assert.deepEqual(embedded.recordFields, schema.fields);
   assert.deepEqual(embedded.reviewColumns, review.review_columns);
   assert.deepEqual(embedded.reviewQueue, review.review_queue);
+  assert.deepEqual(embedded.appliedJobs, review.applied_jobs);
   assert.deepEqual(embedded.manualActions, schema.manual_actions);
   assert.deepEqual(embedded.editableColumns, [
     "apply_points_input",
@@ -843,6 +844,7 @@ globalThis.ensureReviewQueueSheetForTest = ensureReviewQueueSheet_;`
     const operations = [];
     const sheet = {
       getLastColumn: () => headers.length,
+      getLastRow: () => (headers.length > 0 ? 1 : 0),
       getMaxRows: () => 100,
       getRange(row, column, rowCount, columnCount) {
         return {
@@ -935,6 +937,161 @@ globalThis.ensureReviewQueueSheetForTest = ensureReviewQueueSheet_;`
     /duplicate headers and requires manual reconciliation/
   );
   assert.deepEqual(duplicate.headers, ["Status", "Status"]);
+});
+
+test("Applied Jobs creation preserves pending actions and fails closed on incompatible headers", () => {
+  const context = vm.createContext({});
+  new vm.Script(
+    `${script}
+globalThis.ensureAppliedJobsSheetForTest = ensureAppliedJobsSheet_;`
+  ).runInContext(context);
+
+  const createSheet = (initialHeaders, initialRow = []) => {
+    const headers = [...initialHeaders];
+    const row = [...initialRow];
+    const operations = [];
+    const sheet = {
+      getLastColumn: () => headers.length,
+      getLastRow: () =>
+        row.some((value) => String(value || "").trim()) ? 2 : 1,
+      getMaxRows: () => 100,
+      getRange(rowNumber, column, rowCount, columnCount) {
+        return {
+          column,
+          getDisplayValues: () => [
+            Array.from(
+              { length: columnCount },
+              (_, offset) =>
+                rowNumber === 1
+                  ? headers[column - 1 + offset] || ""
+                  : row[column - 1 + offset] || ""
+            )
+          ],
+          setValues(values) {
+            operations.push({ action: "write", values: values[0] });
+            values[0].forEach((value, offset) => {
+              headers[column - 1 + offset] = value;
+            });
+            return this;
+          }
+        };
+      },
+      moveColumns(range, destination) {
+        operations.push({
+          action: "move",
+          from: range.column,
+          destination
+        });
+        const [header] = headers.splice(range.column - 1, 1);
+        headers.splice(destination - 1, 0, header);
+        const [value] = row.splice(range.column - 1, 1);
+        row.splice(destination - 1, 0, value);
+      },
+      setFrozenRows(rows) {
+        operations.push({ action: "freeze", rows });
+      }
+    };
+    return { sheet, headers, row, operations };
+  };
+
+  const existing = createSheet(
+    ["Action", "Job title"],
+    ["Offer", "Staff Engineer"]
+  );
+  const spreadsheet = {
+    getSheetByName: () => existing.sheet,
+    insertSheet: () => existing.sheet
+  };
+  context.ensureAppliedJobsSheetForTest(
+    spreadsheet,
+    review.applied_jobs.sheet,
+    review.applied_jobs.fields
+  );
+  assert.deepEqual(existing.headers, review.applied_jobs.fields);
+  assert.equal(
+    existing.row[review.applied_jobs.fields.indexOf("Action")],
+    "Offer"
+  );
+  assert.equal(
+    existing.row[review.applied_jobs.fields.indexOf("Job title")],
+    "Staff Engineer"
+  );
+  const firstOperationCount = existing.operations.length;
+  context.ensureAppliedJobsSheetForTest(
+    spreadsheet,
+    review.applied_jobs.sheet,
+    review.applied_jobs.fields
+  );
+  assert.equal(
+    existing.operations
+      .slice(firstOperationCount)
+      .filter((operation) => operation.action === "move").length,
+    0
+  );
+
+  const incompatible = createSheet(["Action", "Operator notes"], ["Offer", "keep"]);
+  assert.throws(
+    () =>
+      context.ensureAppliedJobsSheetForTest(
+        {
+          getSheetByName: () => incompatible.sheet,
+          insertSheet: () => incompatible.sheet
+        },
+        review.applied_jobs.sheet,
+        review.applied_jobs.fields
+      ),
+    /Applied Jobs contains unsupported headers/
+  );
+  assert.deepEqual(incompatible.headers, ["Action", "Operator notes"]);
+  assert.deepEqual(incompatible.row, ["Offer", "keep"]);
+  assert.equal(incompatible.operations.length, 0);
+
+  const blankGap = createSheet(
+    ["Applied at", "", "Action"],
+    ["2026-07-28T10:00:00.000Z", "do not shift", "Offer"]
+  );
+  assert.throws(
+    () =>
+      context.ensureAppliedJobsSheetForTest(
+        {
+          getSheetByName: () => blankGap.sheet,
+          insertSheet: () => blankGap.sheet
+        },
+        review.applied_jobs.sheet,
+        review.applied_jobs.fields
+      ),
+    /data under blank headers and requires manual reconciliation at column\(s\): B/
+  );
+  assert.deepEqual(blankGap.headers, ["Applied at", "", "Action"]);
+  assert.deepEqual(blankGap.row, [
+    "2026-07-28T10:00:00.000Z",
+    "do not shift",
+    "Offer"
+  ]);
+  assert.equal(blankGap.operations.length, 0);
+
+  const trailingHeaderlessData = createSheet(
+    ["Action", ""],
+    ["Offer", "do not reclassify"]
+  );
+  assert.throws(
+    () =>
+      context.ensureAppliedJobsSheetForTest(
+        {
+          getSheetByName: () => trailingHeaderlessData.sheet,
+          insertSheet: () => trailingHeaderlessData.sheet
+        },
+        review.applied_jobs.sheet,
+        review.applied_jobs.fields
+      ),
+    /data under blank headers and requires manual reconciliation at column\(s\): B/
+  );
+  assert.deepEqual(trailingHeaderlessData.headers, ["Action", ""]);
+  assert.deepEqual(trailingHeaderlessData.row, [
+    "Offer",
+    "do not reclassify"
+  ]);
+  assert.equal(trailingHeaderlessData.operations.length, 0);
 });
 
 test("version fields are contract-derived, text-formatted before migration, and exclude timestamps", () => {
@@ -1115,6 +1272,33 @@ test("Review Queue layout exposes only the friendly contract and protects derive
     /Job Pipeline Review Queue generated field:/
   );
   assert.match(script, /protection\.setWarningOnly\(true\)/);
+});
+
+test("Applied Jobs layout exposes one controlled action and protects generated columns", () => {
+  assert.match(
+    script,
+    /ensureAppliedJobsSheet_\(\s*spreadsheet,\s*JOB_PIPELINE_SETUP\.appliedJobs\.sheet/
+  );
+  assert.match(script, /applyAppliedJobsLayout_\(appliedJobs\)/);
+  assert.match(script, /applyAppliedJobsActionValidation_\(sheet\)/);
+  assert.match(
+    script,
+    /\[''\]\.concat\(Object\.keys\(JOB_PIPELINE_SETUP\.appliedJobs\.actions\)\)/
+  );
+  assert.deepEqual(Object.keys(embedded.appliedJobs.actions), [
+    "No Response",
+    "Replied",
+    "Interview",
+    "Offer",
+    "Rejected",
+    "Clear Outcome"
+  ]);
+  assert.match(script, /appliedJobs\.visible_columns\.forEach/);
+  assert.match(script, /appliedJobs\.hidden_columns\.forEach/);
+  assert.match(script, /if \(header === 'Action'\) return/);
+  assert.match(script, /Job Pipeline Applied Jobs generated field:/);
+  assert.match(script, /header === 'Generated message'/);
+  assert.match(script, /\.setWrap\(true\)/);
 });
 
 test("Sheet setup preserves unrelated conditional formatting rules", () => {

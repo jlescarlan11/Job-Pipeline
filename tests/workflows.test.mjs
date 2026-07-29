@@ -648,7 +648,10 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     "notes"
   ]);
   const prepare = nodeByName(workflow, "Prepare Review Plan").parameters.jsCode;
-  assert.match(prepare, /if \(!record\.manual_action\) continue/);
+  assert.match(
+    prepare,
+    /const directAction = String\(record\.manual_action \|\| ""\)\.trim\(\)/
+  );
   assert.match(prepare, /unsupported manual action/);
   assert.match(prepare, /pipeline_status: "applied"/);
   assert.match(prepare, /pipeline_status: "skipped"/);
@@ -667,11 +670,20 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.match(prepare, /I Applied/);
   assert.match(prepare, /mark_applied/);
   assert.match(prepare, /mark_skipped/);
-  assert.match(prepare, /stale review queue action/);
-  assert.match(prepare, /conflicting review queue actions/);
+  assert.match(prepare, /const resolveGuardedAction/);
+  assert.match(prepare, /projectedGuard !== sourceGuard\.computed/);
+  assert.match(prepare, /source state guard integrity mismatch/);
+  assert.match(prepare, /conflicting \$\{projectionName\(location\)\} actions/);
+  assert.match(prepare, /processed_applied_actions/);
+  assert.match(prepare, /appliedJobsRows/);
 
   const queueRead = nodeByName(workflow, "Get Review Queue Rows");
   assert.equal(queueRead.parameters.sheetName.value, review.review_queue.sheet);
+  const appliedJobsRead = nodeByName(workflow, "Get Applied Jobs Rows");
+  assert.equal(
+    appliedJobsRead.parameters.sheetName.value,
+    review.applied_jobs.sheet
+  );
   const claim = nodeByName(workflow, "Mark Active Review Claims");
   assert.deepEqual(claim.parameters.columns.matchingColumns, ["state_guard"]);
   assert.deepEqual(Object.keys(claim.parameters.columns.value).sort(), [
@@ -697,6 +709,132 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     "Prepare Claimed Active Review Updates",
     "Update Active Review Actions"
   );
+  const archiveClaim = nodeByName(workflow, "Mark Archive Review Claims");
+  assert.deepEqual(archiveClaim.parameters.columns.matchingColumns, [
+    "state_guard"
+  ]);
+  const archiveCommit = nodeByName(
+    workflow,
+    "Update Archive Review Actions"
+  );
+  assert.deepEqual(archiveCommit.parameters.columns.matchingColumns, [
+    "processing_commit_guard"
+  ]);
+  const activeAppliedCommit = nodeByName(
+    workflow,
+    "Update Active Applied Jobs Actions"
+  );
+  assert.deepEqual(activeAppliedCommit.parameters.columns.matchingColumns, [
+    "processing_commit_guard"
+  ]);
+  for (const prepareName of [
+    "Prepare Claimed Active Applied Jobs Updates",
+    "Prepare Claimed Archive Review Updates"
+  ]) {
+    const code = nodeByName(workflow, prepareName).parameters.jsCode;
+    assert.match(code, /matches\[0\]\.canonical_job_id/);
+    assert.match(code, /candidate\.processing_commit_guard/);
+    assert.match(code, /matches\[0\]\.manual_action/);
+    assert.match(code, /matches\.length !== 1/);
+  }
+  assertDirectConnection(
+    workflow,
+    "Prepare Archive Review Claims",
+    "Mark Archive Review Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Mark Archive Review Claims",
+    "Get Archive After Applied Jobs Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Archive After Applied Jobs Claims",
+    "Aggregate Archive After Applied Jobs Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Archive After Applied Jobs Claims",
+    "Prepare Claimed Archive Review Updates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Claimed Archive Review Updates",
+    "Update Archive Review Actions"
+  );
+  const activeDirectClaim = nodeByName(
+    workflow,
+    "Mark Active Direct Review Claims"
+  );
+  assert.deepEqual(activeDirectClaim.parameters.columns.matchingColumns, [
+    "state_guard"
+  ]);
+  const activeDirectCommit = nodeByName(
+    workflow,
+    "Update Active Direct Review Actions"
+  );
+  assert.deepEqual(activeDirectCommit.parameters.columns.matchingColumns, [
+    "processing_commit_guard"
+  ]);
+  const archiveDirectClaim = nodeByName(
+    workflow,
+    "Mark Archive Direct Review Claims"
+  );
+  assert.deepEqual(archiveDirectClaim.parameters.columns.matchingColumns, [
+    "state_guard"
+  ]);
+  const archiveDirectCommit = nodeByName(
+    workflow,
+    "Update Archive Direct Review Actions"
+  );
+  assert.deepEqual(archiveDirectCommit.parameters.columns.matchingColumns, [
+    "processing_commit_guard"
+  ]);
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active Review Updates",
+    "Has Active Applied Jobs Updates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Mark Active Applied Jobs Claims",
+    "Get Active After Applied Jobs Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active After Applied Jobs Claims",
+    "Aggregate Active After Applied Jobs Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active After Applied Jobs Claims",
+    "Prepare Claimed Active Applied Jobs Updates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Claimed Active Applied Jobs Updates",
+    "Update Active Applied Jobs Actions"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active Applied Jobs Updates",
+    "Has Active Direct Review Updates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active Direct Review Updates",
+    "Has Archive Review Updates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Archive Review Updates",
+    "Has Archive Direct Review Updates"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Archive Direct Review Updates",
+    "Get Active After Review"
+  );
 
   for (const field of [
     "processing_commit_guard",
@@ -712,10 +850,37 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
       `active reviewer commit is missing ${field}`
     );
     assert.ok(
-      field in nodeByName(workflow, "Update Archive Review Actions")
+      field in nodeByName(workflow, "Update Archive Direct Review Actions")
         .parameters.columns.value,
-      `archive reviewer commit is missing ${field}`
+      `archive direct reviewer commit is missing ${field}`
     );
+  }
+  for (const nodeName of [
+    "Update Active Applied Jobs Actions",
+    "Update Archive Review Actions"
+  ]) {
+    const values = nodeByName(workflow, nodeName).parameters.columns.value;
+    for (const field of [
+      "state_guard",
+      "processing_commit_guard",
+      "processing_stage",
+      "processing_token",
+      "processing_started_at",
+      "outcome",
+      "outcome_at",
+      "outcome_events",
+      "updated_at"
+    ]) {
+      assert.ok(field in values, `${nodeName} is missing ${field}`);
+    }
+    for (const field of [
+      "manual_action",
+      "apply_points_input",
+      "apply_points_used",
+      "application_posting_age_days"
+    ]) {
+      assert.ok(!(field in values), `${nodeName} rewrites ${field}`);
+    }
   }
 
   const reconciliation = nodeByName(
@@ -723,8 +888,31 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     "Prepare Review Queue Reconciliation"
   ).parameters.jsCode;
   assert.match(reconciliation, /reconcileReviewQueue\(/);
+  assert.match(reconciliation, /reconcileAppliedJobs\(/);
+  assert.doesNotMatch(reconciliation, /confirmedCommitGuards/);
+  assert.match(reconciliation, /sourceWriteConfirmed/);
   assert.match(reconciliation, /protected_action_count/);
   assert.match(reconciliation, /invalid_records/);
+  const finalCleanup = nodeByName(
+    workflow,
+    "Finalize Applied Jobs Cleanup"
+  ).parameters.jsCode;
+  assert.match(finalCleanup, /finalizeAppliedJobsCleanup\(/);
+  assert.match(finalCleanup, /projectionActionSnapshot/);
+  const rebase = nodeByName(
+    workflow,
+    "Refresh Protected Applied Jobs Rows"
+  );
+  assert.equal(rebase.parameters.operation, "update");
+  assert.deepEqual(rebase.parameters.columns.matchingColumns, [
+    "canonical_job_id"
+  ]);
+  assert.ok(!("Action" in rebase.parameters.columns.value));
+  for (const field of review.applied_jobs.fields.filter(
+    (field) => field !== "Action"
+  )) {
+    assert.ok(field in rebase.parameters.columns.value);
+  }
   const deleteRows = nodeByName(
     workflow,
     "Delete Existing Review Queue Rows"
@@ -747,15 +935,161 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     appendRows.parameters.columns.value["Job title"],
     /\$json\.Job title/
   );
+  const clearAppliedRows = nodeByName(
+    workflow,
+    "Clear Stale Applied Jobs Rows"
+  );
+  assert.equal(clearAppliedRows.parameters.operation, "update");
+  assert.deepEqual(clearAppliedRows.parameters.columns.matchingColumns, [
+    "canonical_job_id"
+  ]);
+  assert.ok(!("Action" in clearAppliedRows.parameters.columns.value));
+  assert.ok("source_state_guard" in clearAppliedRows.parameters.columns.value);
+  assert.ok(!("row_number" in clearAppliedRows.parameters.columns.value));
+  assert.equal(
+    clearAppliedRows.parameters.sheetName.value,
+    review.applied_jobs.sheet
+  );
+  const upsertAppliedRows = nodeByName(workflow, "Upsert Applied Jobs Rows");
+  assert.equal(upsertAppliedRows.parameters.operation, "appendOrUpdate");
+  assert.deepEqual(upsertAppliedRows.parameters.columns.matchingColumns, [
+    "canonical_job_id"
+  ]);
+  assert.equal(
+    upsertAppliedRows.parameters.sheetName.value,
+    review.applied_jobs.sheet
+  );
+  assert.deepEqual(
+    Object.keys(upsertAppliedRows.parameters.columns.value),
+    review.applied_jobs.fields.filter((field) => field !== "Action")
+  );
+  assert.ok(!("row_number" in upsertAppliedRows.parameters.columns.value));
+  assert.equal(
+    workflow.nodes.some(
+      (node) =>
+        node.parameters?.operation === "delete" &&
+        node.parameters?.sheetName?.value === review.applied_jobs.sheet
+    ),
+    false
+  );
+  assert.equal(workflow.settings.executionTimeout, 180);
+  const projectionClaim = nodeByName(
+    workflow,
+    "Prepare Applied Jobs Projection Claim"
+  ).parameters.jsCode;
+  assert.match(projectionClaim, /applied_jobs_projection/);
+  assert.match(projectionClaim, /createProcessingClaim/);
+  assert.match(projectionClaim, /240000/);
+  const claimWinner = nodeByName(
+    workflow,
+    "Keep Winning Applied Jobs Projection Claim"
+  ).parameters.jsCode;
+  assert.match(claimWinner, /chooseWinningClaims/);
+  const claimAppend = nodeByName(
+    workflow,
+    "Append Applied Jobs Projection Claim"
+  );
+  assert.equal(claimAppend.parameters.operation, "append");
+  assert.equal(
+    claimAppend.parameters.sheetName.value,
+    review.claims_sheet
+  );
+  const atomicCleanup = nodeByName(
+    workflow,
+    "Prepare Applied Jobs Atomic Cleanup"
+  ).parameters.jsCode;
+  assert.match(atomicCleanup, /sortRange/);
+  assert.match(atomicCleanup, /insertDimension/);
+  assert.match(atomicCleanup, /deleteDuplicates/);
+  assert.match(atomicCleanup, /comparisonColumns/);
+  assert.match(atomicCleanup, /updateCells/);
+  assert.match(atomicCleanup, /deleteDimension/);
+  assert.match(atomicCleanup, /identityFoldCounts/);
+  assert.match(atomicCleanup, /toLocaleLowerCase\('en-US'\)/);
+  assert.ok(
+    atomicCleanup.indexOf("deleteDuplicates") <
+      atomicCleanup.indexOf("deleteDimension")
+  );
+  assert.match(
+    atomicCleanup,
+    /dimensionIndex: 0, sortOrder: 'DESCENDING'[\s\S]*dimensionIndex: 8, sortOrder: 'ASCENDING'/
+  );
+  assert.match(atomicCleanup, /source_state_guard/);
+  assert.match(atomicCleanup, /tombstoneIdentities/);
+  const batchUpdate = nodeByName(
+    workflow,
+    "Sort and Retire Applied Jobs Rows"
+  );
+  assert.equal(batchUpdate.parameters.method, "POST");
+  assert.match(batchUpdate.parameters.url, /:batchUpdate$/);
+  assert.equal(
+    batchUpdate.parameters.nodeCredentialType,
+    "googleSheetsOAuth2Api"
+  );
   assertDirectConnection(
     workflow,
     "Aggregate Active After Review",
+    "Get Archive After Review"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Archive After Review",
     "Get Review Queue After Review"
   );
   assertDirectConnection(
     workflow,
-    "Aggregate Current Review Queue",
+    "Aggregate Current Applied Jobs",
     "Prepare Review Queue Reconciliation"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Review Queue Reconciliation",
+    "Prepare Applied Jobs Projection Claim"
+  );
+  assertDirectConnection(
+    workflow,
+    "Append Applied Jobs Projection Claim",
+    "Get Applied Jobs Projection Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Applied Jobs Projection Claims",
+    "Keep Winning Applied Jobs Projection Claim"
+  );
+  assertDirectConnection(
+    workflow,
+    "Keep Winning Applied Jobs Projection Claim",
+    "Get Applied Jobs Before Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Applied Jobs Before Cleanup",
+    "Aggregate Applied Jobs Before Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Applied Jobs Before Cleanup",
+    "Finalize Applied Jobs Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Finalize Applied Jobs Cleanup",
+    "Has Applied Jobs Rebases"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Applied Jobs Rebases",
+    "Refresh Protected Applied Jobs Rows"
+  );
+  assertDirectConnection(
+    workflow,
+    "Refresh Protected Applied Jobs Rows",
+    "Aggregate Applied Jobs Rebases"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Applied Jobs Rebases",
+    "Has Applied Jobs Clears"
   );
   assertDirectConnection(
     workflow,
@@ -767,12 +1101,104 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     "Prepare Review Queue Appends",
     "Append Review Queue Rows"
   );
+  assertDirectConnection(
+    workflow,
+    "Clear Stale Applied Jobs Rows",
+    "Aggregate Applied Jobs Clears"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Applied Jobs Upserts",
+    "Upsert Applied Jobs Rows"
+  );
+  assertDirectConnection(
+    workflow,
+    "Upsert Applied Jobs Rows",
+    "Get Applied Jobs After Maintenance"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Applied Jobs After Maintenance",
+    "Get Applied Jobs Sheet Metadata"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Applied Jobs Atomic Cleanup",
+    "Sort and Retire Applied Jobs Rows"
+  );
 
   const dashboard = nodeByName(workflow, "Update Dashboard Summary");
   assert.equal(dashboard.parameters.operation, "appendOrUpdate");
   assert.deepEqual(dashboard.parameters.columns.matchingColumns, ["metric_key"]);
   assert.equal(dashboard.parameters.sheetName.value, review.dashboard_sheet);
   assert.equal(workflow.meta.reviewQueueVersion, review.review_queue.version);
+  assert.equal(workflow.meta.appliedJobsVersion, review.applied_jobs.version);
+});
+
+test("Applied Jobs atomic retirement templates are case-fold unique and delete only themselves", async () => {
+  const code = nodeByName(
+    workflows.reviewer,
+    "Prepare Applied Jobs Atomic Cleanup"
+  ).parameters.jsCode;
+  const execute = new Function(
+    "$input",
+    "$",
+    `"use strict"; return (async () => { ${code} })();`
+  );
+  const blankRow = (identity, action = "") => ({
+    "Applied at": "",
+    "Job title": "",
+    Company: "",
+    "Generated message": "",
+    "Job link": "",
+    "Current outcome": "",
+    "Outcome updated at": "",
+    Action: action,
+    canonical_job_id: identity,
+    source_state_guard: ""
+  });
+  const rows = [
+    blankRow("onlinejobs.ph:CaseVariant"),
+    blankRow("onlinejobs.ph:casevariant"),
+    blankRow("onlinejobs.ph:unique-retirement"),
+    blankRow("onlinejobs.ph:protected-action", "Offer")
+  ];
+  const result = await execute(
+    {
+      first: () => ({
+        json: {
+          sheets: [{ properties: { title: review.applied_jobs.sheet, sheetId: 31 } }]
+        }
+      })
+    },
+    (name) => {
+      assert.equal(name, "Aggregate Applied Jobs After Maintenance");
+      return { first: () => ({ json: { applied_jobs_rows: rows } }) };
+    }
+  );
+  assert.equal(result.length, 1);
+  assert.equal(result[0].json.applied_jobs_retirement_candidates, 1);
+  const requests = result[0].json.batch_update.requests;
+  assert.deepEqual(
+    requests[1].updateCells.rows.map(
+      (row) => row.values[0].userEnteredValue.stringValue
+    ),
+    ["onlinejobs.ph:unique-retirement"]
+  );
+  assert.deepEqual(requests[3], {
+    deleteDimension: {
+      range: {
+        sheetId: 31,
+        dimension: "ROWS",
+        startIndex: 1,
+        endIndex: 2
+      }
+    }
+  });
+  assert.deepEqual(requests.at(-1).sortRange.sortSpecs, [
+    { dimensionIndex: 0, sortOrder: "DESCENDING" },
+    { dimensionIndex: 8, sortOrder: "ASCENDING" }
+  ]);
 });
 
 test("analytics export publishes completion only after every idempotent detail write", () => {
