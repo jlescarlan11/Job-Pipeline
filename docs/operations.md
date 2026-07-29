@@ -258,12 +258,18 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - Simulate a stale guard, missing identity, duplicate source identity,
   conflicting duplicate queue actions, and a conflict with a direct `Sheet1`
   action. Confirm no ambiguous source update occurs and the execution log
-  contains only sanitized diagnostics.
+  contains only sanitized diagnostics. In a two-action batch, make one source
+  guard stale before marking and confirm only the individually persisted peer
+  can commit even if the Sheets node reports both inputs.
 - Interrupt once before the guarded source commit and once after source commit
   but before queue cleanup. Confirm the first case preserves the pending input,
   the second leaves authoritative `Sheet1` state intact, and the next Reviewer
   run safely reconciles both. Edit a second Action after the Reviewer initial
   queue read and confirm that concurrent input survives the current rebuild.
+  Change a direct `Sheet1` or `Archive` `manual_action` after the initial read
+  but before its mark confirmation; the older planned action must not commit
+  or clear the newer cell. Conversely, enter a direct source action while a
+  Review Queue action is being marked and confirm the direct action wins.
 - Run the Reviewer twice with an unchanged, correctly ordered Review Queue and
   no pending Action. Also ensure Applied Jobs and Dashboard exactly match the
   current sources and ProcessingClaims has no eligible retention batch.

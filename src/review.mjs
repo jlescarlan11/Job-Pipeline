@@ -1751,6 +1751,50 @@ export function processReviewActions(
   };
 }
 
+export function confirmClaimedReviewUpdates(
+  plannedUpdates,
+  claims,
+  freshRows
+) {
+  const updates = Array.isArray(plannedUpdates) ? plannedUpdates : [];
+  const proposedClaims = Array.isArray(claims) ? claims : [];
+  const current = (Array.isArray(freshRows) ? freshRows : []).filter(
+    (row) => row && typeof row === "object" && !Array.isArray(row)
+  );
+  return updates.flatMap((update) => {
+    const identity = String(update?.canonical_job_id || "").trim();
+    const commitGuard = String(
+      update?.processing_commit_guard || ""
+    ).trim();
+    if (!identity || !commitGuard) return [];
+    const matchingClaims = proposedClaims.filter(
+      (claim) =>
+        String(claim?.processing_commit_guard || "").trim() ===
+        commitGuard
+    );
+    const matchingRows = current.filter(
+      (row) =>
+        String(row?.processing_commit_guard || "").trim() === commitGuard
+    );
+    if (matchingClaims.length !== 1 || matchingRows.length !== 1) {
+      return [];
+    }
+    const claim = matchingClaims[0];
+    const row = matchingRows[0];
+    if (
+      String(claim.canonical_job_id || "").trim() !== identity ||
+      String(row.canonical_job_id || "").trim() !== identity ||
+      String(row.state_guard || "").trim() !==
+        String(claim.state_guard || "").trim() ||
+      String(row.manual_action || "").trim() !==
+        String(claim.manual_action || "").trim()
+    ) {
+      return [];
+    }
+    return [{ ...update, row_number: row.row_number }];
+  });
+}
+
 function queueSnapshotKey(row) {
   return [
     row?.row_number,

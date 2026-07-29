@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
+  confirmClaimedReviewUpdates,
   validateAppliedJobsConfig,
   validateReviewQueueConfig,
   validateReviewRuntimeConfig
@@ -2236,6 +2237,8 @@ async function buildReviewer() {
     "src/message-safety.mjs",
     "src/review.mjs"
   );
+  const reviewClaimConfirmationCore =
+    confirmClaimedReviewUpdates.toString();
 
   const schedule = nodeByName(generator, "Schedule Trigger");
   schedule.id = "88af9ce3-b45f-4aa8-a980-000000000001";
@@ -2540,6 +2543,20 @@ return [{
   activeAfterAppliedClaim.position = [1340, -320];
   activeAfterAppliedClaim.alwaysOutputData = true;
 
+  const activeAfterQueueClaim = structuredClone(activeRead);
+  activeAfterQueueClaim.id =
+    "88af9ce3-b45f-4aa8-a980-000000000103";
+  activeAfterQueueClaim.name = "Get Active After Review Queue Claims";
+  activeAfterQueueClaim.position = [500, -480];
+  activeAfterQueueClaim.alwaysOutputData = true;
+
+  const activeAfterDirectClaim = structuredClone(activeRead);
+  activeAfterDirectClaim.id =
+    "88af9ce3-b45f-4aa8-a980-000000000105";
+  activeAfterDirectClaim.name = "Get Active After Direct Review Claims";
+  activeAfterDirectClaim.position = [1780, -480];
+  activeAfterDirectClaim.alwaysOutputData = true;
+
   const archiveAfterReview = structuredClone(archiveRead);
   archiveAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000038";
   archiveAfterReview.name = "Get Archive After Review";
@@ -2552,6 +2569,13 @@ return [{
   archiveAfterAppliedClaim.name = "Get Archive After Applied Jobs Claims";
   archiveAfterAppliedClaim.position = [3760, -320];
   archiveAfterAppliedClaim.alwaysOutputData = true;
+
+  const archiveAfterDirectClaim = structuredClone(archiveRead);
+  archiveAfterDirectClaim.id =
+    "88af9ce3-b45f-4aa8-a980-000000000107";
+  archiveAfterDirectClaim.name = "Get Archive After Direct Review Claims";
+  archiveAfterDirectClaim.position = [4420, -480];
+  archiveAfterDirectClaim.alwaysOutputData = true;
 
   const queueAfterReview = structuredClone(queueRead);
   queueAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000019";
@@ -3060,18 +3084,26 @@ return [{ json: {
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
     }),
+    activeAfterQueueClaim,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000104",
+      name: "Aggregate Active After Review Queue Claims",
+      position: [700, -480],
+      destinationFieldName: "active_rows"
+    }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000034",
       name: "Prepare Claimed Active Review Updates",
       position: [500, -80],
-      jsCode: `const marked = new Set(
-  $input.all()
-    .map((item) => String(item.json.processing_commit_guard || ''))
-    .filter(Boolean)
-);
-return $('Prepare Review Plan').first().json.active_queue_updates
-  .filter((record) => marked.has(String(record.processing_commit_guard || '')))
-  .map((record) => ({ json: record }));`
+      jsCode: `${reviewClaimConfirmationCore}
+
+const plan = $('Prepare Review Plan').first().json;
+const fresh = $input.first().json.active_rows || [];
+return confirmClaimedReviewUpdates(
+  plan.active_queue_updates,
+  plan.active_queue_claims,
+  fresh
+).map((record) => ({ json: record }));`
     }),
     updateSheetByFieldNode({
       base: activeUpdateBase,
@@ -3114,21 +3146,15 @@ return $('Prepare Review Plan').first().json.active_queue_updates
       id: "88af9ce3-b45f-4aa8-a980-000000000075",
       name: "Prepare Claimed Active Applied Jobs Updates",
       position: [2000, -320],
-      jsCode: `const fresh = $input.first().json.active_rows || [];
-return $('Prepare Review Plan').first().json.active_applied_updates
-  .flatMap((record) => {
-    const identity = String(record.canonical_job_id || '').trim();
-    const guard = String(record.processing_commit_guard || '').trim();
-    const matches = fresh.filter((candidate) =>
-      String(candidate.processing_commit_guard || '').trim() === guard
-    );
-    if (matches.length !== 1) return [];
-    if (
-      String(matches[0].canonical_job_id || '').trim() !== identity ||
-      String(matches[0].manual_action || '').trim()
-    ) return [];
-    return [{ json: record }];
-  });`
+      jsCode: `${reviewClaimConfirmationCore}
+
+const plan = $('Prepare Review Plan').first().json;
+const fresh = $input.first().json.active_rows || [];
+return confirmClaimedReviewUpdates(
+  plan.active_applied_updates,
+  plan.active_applied_claims,
+  fresh
+).map((record) => ({ json: record }));`
     }),
     updateSheetByFieldNode({
       base: activeUpdateBase,
@@ -3166,18 +3192,26 @@ return $('Prepare Review Plan').first().json.active_applied_updates
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
     }),
+    activeAfterDirectClaim,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000106",
+      name: "Aggregate Active After Direct Review Claims",
+      position: [1980, -480],
+      destinationFieldName: "active_rows"
+    }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000057",
       name: "Prepare Claimed Active Direct Review Updates",
       position: [1780, -180],
-      jsCode: `const marked = new Set(
-  $input.all()
-    .map((item) => String(item.json.processing_commit_guard || ''))
-    .filter(Boolean)
-);
-return $('Prepare Review Plan').first().json.active_direct_updates
-  .filter((record) => marked.has(String(record.processing_commit_guard || '')))
-  .map((record) => ({ json: record }));`
+      jsCode: `${reviewClaimConfirmationCore}
+
+const plan = $('Prepare Review Plan').first().json;
+const fresh = $input.first().json.active_rows || [];
+return confirmClaimedReviewUpdates(
+  plan.active_direct_updates,
+  plan.active_direct_claims,
+  fresh
+).map((record) => ({ json: record }));`
     }),
     updateSheetByFieldNode({
       base: activeUpdateBase,
@@ -3226,21 +3260,15 @@ return $('Prepare Review Plan').first().json.active_direct_updates
       id: "88af9ce3-b45f-4aa8-a980-000000000043",
       name: "Prepare Claimed Archive Review Updates",
       position: [3100, -180],
-      jsCode: `const fresh = $input.first().json.archive_rows || [];
-return $('Prepare Review Plan').first().json.archive_projection_updates
-  .flatMap((record) => {
-    const identity = String(record.canonical_job_id || '').trim();
-    const guard = String(record.processing_commit_guard || '').trim();
-    const matches = fresh.filter((candidate) =>
-      String(candidate.processing_commit_guard || '').trim() === guard
-    );
-    if (matches.length !== 1) return [];
-    if (
-      String(matches[0].canonical_job_id || '').trim() !== identity ||
-      String(matches[0].manual_action || '').trim()
-    ) return [];
-    return [{ json: record }];
-  });`
+      jsCode: `${reviewClaimConfirmationCore}
+
+const plan = $('Prepare Review Plan').first().json;
+const fresh = $input.first().json.archive_rows || [];
+return confirmClaimedReviewUpdates(
+  plan.archive_projection_updates,
+  plan.archive_projection_claims,
+  fresh
+).map((record) => ({ json: record }));`
     }),
     updateSheetByFieldNode({
       base: archiveRead,
@@ -3278,18 +3306,26 @@ return $('Prepare Review Plan').first().json.archive_projection_updates
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
     }),
+    archiveAfterDirectClaim,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000108",
+      name: "Aggregate Archive After Direct Review Claims",
+      position: [4620, -480],
+      destinationFieldName: "archive_rows"
+    }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000063",
       name: "Prepare Claimed Archive Direct Review Updates",
       position: [4420, -180],
-      jsCode: `const marked = new Set(
-  $input.all()
-    .map((item) => String(item.json.processing_commit_guard || ''))
-    .filter(Boolean)
-);
-return $('Prepare Review Plan').first().json.archive_direct_updates
-  .filter((record) => marked.has(String(record.processing_commit_guard || '')))
-  .map((record) => ({ json: record }));`
+      jsCode: `${reviewClaimConfirmationCore}
+
+const plan = $('Prepare Review Plan').first().json;
+const fresh = $input.first().json.archive_rows || [];
+return confirmClaimedReviewUpdates(
+  plan.archive_direct_updates,
+  plan.archive_direct_claims,
+  fresh
+).map((record) => ({ json: record }));`
     }),
     updateSheetByFieldNode({
       base: archiveRead,
@@ -3627,6 +3663,12 @@ return [{ json: {
     },
     "Prepare Active Review Claims": { main: [[connection("Mark Active Review Claims")]] },
     "Mark Active Review Claims": {
+      main: [[connection("Get Active After Review Queue Claims")]]
+    },
+    "Get Active After Review Queue Claims": {
+      main: [[connection("Aggregate Active After Review Queue Claims")]]
+    },
+    "Aggregate Active After Review Queue Claims": {
       main: [[connection("Prepare Claimed Active Review Updates")]]
     },
     "Prepare Claimed Active Review Updates": {
@@ -3675,6 +3717,12 @@ return [{ json: {
       main: [[connection("Mark Active Direct Review Claims")]]
     },
     "Mark Active Direct Review Claims": {
+      main: [[connection("Get Active After Direct Review Claims")]]
+    },
+    "Get Active After Direct Review Claims": {
+      main: [[connection("Aggregate Active After Direct Review Claims")]]
+    },
+    "Aggregate Active After Direct Review Claims": {
       main: [[connection("Prepare Claimed Active Direct Review Updates")]]
     },
     "Prepare Claimed Active Direct Review Updates": {
@@ -3723,6 +3771,12 @@ return [{ json: {
       main: [[connection("Mark Archive Direct Review Claims")]]
     },
     "Mark Archive Direct Review Claims": {
+      main: [[connection("Get Archive After Direct Review Claims")]]
+    },
+    "Get Archive After Direct Review Claims": {
+      main: [[connection("Aggregate Archive After Direct Review Claims")]]
+    },
+    "Aggregate Archive After Direct Review Claims": {
       main: [[connection("Prepare Claimed Archive Direct Review Updates")]]
     },
     "Prepare Claimed Archive Direct Review Updates": {

@@ -8,6 +8,7 @@ import {
   buildFunnelSummary,
   buildReviewQueue,
   buildReviewQueueProjection,
+  confirmClaimedReviewUpdates,
   finalizeAppliedJobsCleanup,
   reasonForReview,
   reconcileAppliedJobs,
@@ -96,6 +97,79 @@ const job = (overrides = {}) => ({
   outcome: "",
   manual_action: "",
   ...overrides
+});
+
+test("review commits require individually persisted claims and unchanged actions", () => {
+  const claim = {
+    canonical_job_id: "onlinejobs.ph:6001",
+    state_guard: "onlinejobs.ph:6001|state-a",
+    processing_commit_guard: "commit:review:6001",
+    manual_action: "mark_applied"
+  };
+  const update = {
+    canonical_job_id: claim.canonical_job_id,
+    processing_commit_guard: claim.processing_commit_guard,
+    manual_action: "",
+    pipeline_status: "applied"
+  };
+  const peerClaim = {
+    canonical_job_id: "onlinejobs.ph:6002",
+    state_guard: "onlinejobs.ph:6002|state-b",
+    processing_commit_guard: "commit:review:6002",
+    manual_action: ""
+  };
+  const peerUpdate = {
+    canonical_job_id: peerClaim.canonical_job_id,
+    processing_commit_guard: peerClaim.processing_commit_guard,
+    manual_action: "",
+    pipeline_status: "skipped"
+  };
+  const fresh = {
+    row_number: 17,
+    ...claim
+  };
+
+  assert.deepEqual(
+    confirmClaimedReviewUpdates(
+      [update, peerUpdate],
+      [claim, peerClaim],
+      [fresh]
+    ),
+    [{ ...update, row_number: 17 }],
+    "a mixed mark result must not authorize an unmatched peer"
+  );
+  for (const mismatch of [
+    { manual_action: "mark_skipped" },
+    { state_guard: "onlinejobs.ph:6001|newer-state" },
+    { canonical_job_id: "onlinejobs.ph:other" }
+  ]) {
+    assert.deepEqual(
+      confirmClaimedReviewUpdates(
+        [update],
+        [claim],
+        [{ ...fresh, ...mismatch }]
+      ),
+      []
+    );
+  }
+  assert.deepEqual(
+    confirmClaimedReviewUpdates(
+      [update],
+      [claim],
+      [fresh, { ...fresh, row_number: 18 }]
+    ),
+    [],
+    "duplicate durable commit markers must fail closed"
+  );
+  assert.deepEqual(
+    confirmClaimedReviewUpdates(
+      [peerUpdate],
+      [peerClaim],
+      [{ row_number: 19, ...peerClaim }]
+    ),
+    [{ ...peerUpdate, row_number: 19 }],
+    "projection claims require the direct action cell to remain empty"
+  );
 });
 
 test("review configuration exposes required information and controlled actions", () => {

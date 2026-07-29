@@ -67,6 +67,15 @@ generation, and alert commits match the commit guard while writing blank
 same guarded update. Manual actions clear both processing keys and newer claims
 replace the guard, so a stale execution cannot overwrite newer state.
 
+Reviewer action marking also matches `state_guard`, but `manual_action` remains
+a separate user-input cell and is intentionally not part of that lifecycle
+guard. After every Review Queue, Applied Jobs, `Sheet1`, or `Archive` action
+mark, Reviewer therefore re-reads the authoritative source and requires
+exactly one matching commit guard, canonical identity, original state guard,
+and unchanged direct-action value before committing. A direct action entered
+or changed after the initial snapshot takes precedence; a mixed multi-item
+Sheets update cannot authorize a peer whose mark did not persist.
+
 ## Opportunity-learning dimensions
 
 - `qualification_score` and `opportunity_score` are distinct 0–100 values.

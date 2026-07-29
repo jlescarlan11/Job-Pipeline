@@ -1128,6 +1128,16 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Mark Active Review Claims",
+    "Get Active After Review Queue Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active After Review Queue Claims",
+    "Aggregate Active After Review Queue Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active After Review Queue Claims",
     "Prepare Claimed Active Review Updates"
   );
   assertDirectConnection(
@@ -1154,14 +1164,15 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     "processing_commit_guard"
   ]);
   for (const prepareName of [
+    "Prepare Claimed Active Review Updates",
     "Prepare Claimed Active Applied Jobs Updates",
-    "Prepare Claimed Archive Review Updates"
+    "Prepare Claimed Active Direct Review Updates",
+    "Prepare Claimed Archive Review Updates",
+    "Prepare Claimed Archive Direct Review Updates"
   ]) {
     const code = nodeByName(workflow, prepareName).parameters.jsCode;
-    assert.match(code, /matches\[0\]\.canonical_job_id/);
-    assert.match(code, /candidate\.processing_commit_guard/);
-    assert.match(code, /matches\[0\]\.manual_action/);
-    assert.match(code, /matches\.length !== 1/);
+    assert.match(code, /confirmClaimedReviewUpdates/);
+    assert.match(code, /function confirmClaimedReviewUpdates\s*\(/);
   }
   assertDirectConnection(
     workflow,
@@ -1202,6 +1213,21 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.deepEqual(activeDirectCommit.parameters.columns.matchingColumns, [
     "processing_commit_guard"
   ]);
+  assertDirectConnection(
+    workflow,
+    "Mark Active Direct Review Claims",
+    "Get Active After Direct Review Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active After Direct Review Claims",
+    "Aggregate Active After Direct Review Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active After Direct Review Claims",
+    "Prepare Claimed Active Direct Review Updates"
+  );
   const archiveDirectClaim = nodeByName(
     workflow,
     "Mark Archive Direct Review Claims"
@@ -1216,6 +1242,21 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.deepEqual(archiveDirectCommit.parameters.columns.matchingColumns, [
     "processing_commit_guard"
   ]);
+  assertDirectConnection(
+    workflow,
+    "Mark Archive Direct Review Claims",
+    "Get Archive After Direct Review Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Archive After Direct Review Claims",
+    "Aggregate Archive After Direct Review Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Archive After Direct Review Claims",
+    "Prepare Claimed Archive Direct Review Updates"
+  );
   assertDirectConnection(
     workflow,
     "Aggregate Active Review Updates",
