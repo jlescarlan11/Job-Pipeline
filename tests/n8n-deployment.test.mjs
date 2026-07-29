@@ -65,6 +65,15 @@ test("deployment policy bounds self-hosted concurrency and execution retention",
     policy.execution_retention.maximum_count >
       policy.execution_retention.scheduled_failure_count_at_maximum_age
   );
+  assert.equal(policy.monitoring.log_ingestion_required, true);
+  assert.deepEqual(
+    policy.monitoring.workflow_events.provider_result_events,
+    ["generator_result", "alert_delivery"]
+  );
+  assert.equal(
+    policy.monitoring.workflow_events.provider_result_commit_pending_field,
+    "state_commit_pending"
+  );
 });
 
 test("deployment environment validation is exact and never echoes values", () => {
@@ -100,6 +109,10 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
   invalid.environment.N8N_CONCURRENCY_PRODUCTION_LIMIT = "1";
   invalid.capacity.maximum_utilization_ratio = 0.5;
   invalid.monitoring.metrics_internal_only = false;
+  invalid.monitoring.workflow_events.provider_result_events = [
+    "alert_delivery",
+    "alert_delivery"
+  ];
   invalid.failure_detection.central_error_workflow_bound = true;
   const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
   assert.match(errors, /execution pruning must be enabled/);
@@ -110,6 +123,10 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
   );
   assert.match(errors, /timeout-weighted utilization exceeds policy/);
   assert.match(errors, /monitoring endpoints must be internal/);
+  assert.match(
+    errors,
+    /canonical backlog and provider-result workflow events/
+  );
   assert.match(errors, /without a fabricated error-workflow binding/);
 });
 

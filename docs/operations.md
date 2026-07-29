@@ -507,12 +507,20 @@ Only after dry-run evidence passes:
 Before activation, poll `/healthz/readiness` and internally scrape `/metrics`.
 Alert after two missed one-minute readiness checks, any unexpected failed
 execution in 15 minutes, or a production execution waiting five minutes.
-Reconcile those signals with sanitized logs and Sheet state. Alert when the
-oldest due generation exceeds 120 minutes, a pending alert exceeds 45 minutes,
-a manual action exceeds 30 minutes, any active processing marker exceeds its
-stage lease, or three provider rate-limit events occur within 15 minutes.
-These checks are observational and must not clear state or retry ambiguous
-delivery.
+Ingest the structured `operational_backlog`, `generator_result`, and
+`alert_delivery` log events and alert if the backlog event is absent for 20
+minutes. Reconcile those signals with Sheet state. Alert when the oldest due generation exceeds 120 minutes, a pending alert exceeds 45 minutes, or a
+manual action exceeds 30 minutes based on its continuously present
+fingerprint. Also alert when any canonical active processing marker exceeds
+its stage lease, or three provider events have
+`category=rate_limit` within 15 minutes of their structured timestamps. Reset
+a manual fingerprint's
+first-seen clock only after it disappears; alert immediately if the
+fingerprint list reports truncation. Do not treat normal expired
+`ProcessingClaims` history as an active marker. These checks are
+observational and must not clear state or retry ambiguous delivery.
+Provider-result events have `state_commit_pending=true`; use them to count
+attempts, never as proof that the following guarded Sheet update committed.
 
 Do not add an instance-specific error-workflow ID to portable exports. If a
 central Error Trigger workflow is introduced later, import it first, select it
@@ -561,6 +569,10 @@ Do not invent hiring or conversion targets. Record observed counts and reconcile
   `sending`, attempts, provider categories, and time from ready commit to
   confirmed delivery.
 - Recovery: failures by stage/category, next retries, attempts at cap, expired claims, non-empty processing stages older than the lease.
+- Operational backlog: event freshness, due-generation/pending-alert counts
+  and oldest ages, manual-action fingerprint first-seen age and truncation,
+  canonical active markers past their stage lease, and rate-limit events from
+  Generator/Alerter result logs.
 - Claim retention: policy version, rows seen, threshold state, eligible,
   selected, deferred, preserved-by-reason counts, delete ranges, committed
   deletions, and any failed or response-ambiguous batch.
@@ -581,7 +593,11 @@ Do not invent hiring or conversion targets. Record observed counts and reconcile
   response-ambiguous atomic batch.
 - Data invariants: one canonical identity across active/archive, no missing historical ready messages/decisions/outcomes, and no automatic applied/skipped transition.
 
-Investigate when a summary is missing, query coverage unexpectedly drops, a claim remains active beyond its lease, a retryable row archives, active/archive both contain the same identity beyond one recovery cycle, or counts cannot be reconciled.
+Investigate when a summary is missing, the operational backlog event is more
+than 20 minutes old, query coverage unexpectedly drops, a canonical claim
+marker remains active beyond its lease, a retryable row archives,
+active/archive both contain the same identity beyond one recovery cycle, or
+counts cannot be reconciled.
 
 ## 9. Rollback
 

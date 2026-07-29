@@ -28,6 +28,7 @@ const REQUIRED_MONITORING_THRESHOLDS = [
   "readiness_consecutive_failures",
   "failed_executions_in_15_minutes",
   "production_queue_wait_seconds",
+  "operational_backlog_event_stale_minutes",
   "oldest_due_generation_minutes",
   "oldest_pending_alert_minutes",
   "oldest_manual_action_minutes",
@@ -400,6 +401,26 @@ export function validateN8nDeploymentPolicy(policy, configs) {
   }
   if (!positiveInteger(policy.monitoring?.poll_seconds)) {
     errors.push("monitoring poll_seconds must be a positive integer");
+  }
+  const workflowEvents = policy.monitoring?.workflow_events || {};
+  if (
+    policy.monitoring?.log_ingestion_required !== true ||
+    workflowEvents.backlog_event !== "operational_backlog" ||
+    workflowEvents.event_timestamp_field !== "timestamp" ||
+    workflowEvents.provider_result_commit_pending_field !==
+      "state_commit_pending" ||
+    workflowEvents.manual_action_age_mode !==
+      "first_seen_fingerprint" ||
+    workflowEvents.manual_action_absence_resets_age !== true ||
+    !Array.isArray(workflowEvents.provider_result_events) ||
+    workflowEvents.provider_result_events.length !== 2 ||
+    new Set(workflowEvents.provider_result_events).size !== 2 ||
+    !workflowEvents.provider_result_events.includes("generator_result") ||
+    !workflowEvents.provider_result_events.includes("alert_delivery")
+  ) {
+    errors.push(
+      "monitoring must ingest the canonical backlog and provider-result workflow events"
+    );
   }
   const monitoringThresholds = policy.monitoring?.thresholds || {};
   for (const key of REQUIRED_MONITORING_THRESHOLDS) {

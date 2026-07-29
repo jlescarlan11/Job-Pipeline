@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v3",
+  "policy_version": "2026-07-30/v4",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -49,10 +49,23 @@
     "readiness_path": "/healthz/readiness",
     "metrics_path": "/metrics",
     "poll_seconds": 60,
+    "log_ingestion_required": true,
+    "workflow_events": {
+      "backlog_event": "operational_backlog",
+      "provider_result_events": [
+        "generator_result",
+        "alert_delivery"
+      ],
+      "event_timestamp_field": "timestamp",
+      "provider_result_commit_pending_field": "state_commit_pending",
+      "manual_action_age_mode": "first_seen_fingerprint",
+      "manual_action_absence_resets_age": true
+    },
     "thresholds": {
       "readiness_consecutive_failures": 2,
       "failed_executions_in_15_minutes": 1,
       "production_queue_wait_seconds": 300,
+      "operational_backlog_event_stale_minutes": 20,
       "oldest_due_generation_minutes": 120,
       "oldest_pending_alert_minutes": 45,
       "oldest_manual_action_minutes": 30,

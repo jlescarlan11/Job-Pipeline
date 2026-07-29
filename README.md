@@ -110,7 +110,9 @@ The workflows share ten Google Sheet tabs:
 - `config/analytics-policy.json`: versioned cohorts, bands, attribution, timezone, cadence, and report fields.
 - `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
 - `config/report-retention.json`: guarded Analytics and Recommender history bounds, cleanup batches, and store leases.
-- `config/n8n-deployment-policy.json`: validated self-hosted regular-mode concurrency, pruning, monitoring, and failure-detection template.
+- `config/n8n-deployment-policy.json`: validated self-hosted regular-mode
+  concurrency, pruning, monitoring thresholds, structured workflow-event
+  contract, and failure-detection template.
 - `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
 - `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
 - `config/runtime.json`: workflow timezone and execution-data policy plus generator and archiver schedules, timeouts, caps, leases, and retries.

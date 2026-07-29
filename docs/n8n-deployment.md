@@ -73,14 +73,38 @@ minute and alert after two consecutive failures.
 
 Alert on the first unexpected failed execution in 15 minutes or a production
 queue wait of five minutes. Reconcile n8n metrics and saved failures with
-sanitized workflow logs and durable Sheet state. The checked-in thresholds
-also flag:
+sanitized workflow logs and durable Sheet state. Ingest the structured
+`operational_backlog`, `generator_result`, and `alert_delivery` events into
+the external monitor; successful execution data is intentionally not retained
+by n8n. Alert if no `operational_backlog` event arrives for 20 minutes. The
+checked-in thresholds also flag:
 
 - a due generation record older than 120 minutes;
 - a pending alert older than 45 minutes;
 - a manual action older than 30 minutes;
 - any active processing marker beyond its stage lease; or
 - three provider rate-limit events within 15 minutes.
+
+The Reviewer emits `operational_backlog` from the Sheet snapshots it already
+reads. It reports the eligible generation count and oldest durable due time,
+pending-alert count and age, canonical active markers past their
+stage-specific lease, and up to 100 deterministic manual-action fingerprints.
+It does not count expired append-only `ProcessingClaims` rows as stuck active
+claims. Manual Action cells have no edit timestamp, so the external monitor
+must record when each fingerprint is first observed, remove it when absent,
+and alert at 30 minutes. A nonzero fingerprint truncation count is immediately
+actionable. This avoids logging canonical IDs, action text, job evidence, or
+generated messages.
+
+Count `category=rate_limit` only in `generator_result` and `alert_delivery`
+events, using their structured `timestamp`, for the 15-minute provider
+threshold. Generator events cover final
+evaluation/generation results, including failed source-detail and Groq calls;
+alert events cover confirmed Slack responses. Both events explicitly carry
+`state_commit_pending=true`: they prove the provider attempt/result, not the
+later guarded Sheet commit. Reconcile durable status from the next backlog
+snapshot or Sheet state. Do not infer event counts from the current Sheet
+error category because repeated attempts overwrite that state.
 
 These alerts observe existing state; they do not retry an ambiguous Slack
 delivery, clear a claim, rewrite a row, or authorize an application.

@@ -29,6 +29,9 @@ const claimRetention = await loadJson("../config/claim-retention.json");
 const reportRetention = await loadJson(
   "../config/report-retention.json"
 );
+const deploymentPolicy = await loadJson(
+  "../config/n8n-deployment-policy.json"
+);
 
 test("README and architecture document the checked-in schedules, bounds, and manual boundary", () => {
   for (const document of [readme, architecture]) {
@@ -362,4 +365,36 @@ test("alert documentation keeps retries behind claim expiry and execution timeou
   assert.match(alertsDoc, /deployment-stable n8n\s+workflow ID/i);
   assert.match(architecture, /starve\s+the\s+due retry/i);
   assert.match(operations, /appends no retry\s+claim/i);
+});
+
+test("operational monitoring documentation defines observable backlog clocks", () => {
+  const thresholds = deploymentPolicy.monitoring.thresholds;
+  for (const document of [architecture, operations, deploymentDoc]) {
+    assert.match(document, /operational_backlog/);
+    assert.match(document, /manual[\s-]+action[\s\S]{0,100}fingerprint/i);
+    assert.match(document, /generator_result/);
+    assert.match(document, /alert_delivery/);
+    assert.match(document, /category=rate_limit/);
+  }
+  assert.match(
+    deploymentDoc,
+    new RegExp(
+      `${thresholds.operational_backlog_event_stale_minutes}\\s+minutes`,
+      "i"
+    )
+  );
+  assert.match(
+    deploymentDoc,
+    new RegExp(`${thresholds.oldest_due_generation_minutes}\\s+minutes`, "i")
+  );
+  assert.match(
+    deploymentDoc,
+    new RegExp(`${thresholds.oldest_pending_alert_minutes}\\s+minutes`, "i")
+  );
+  assert.match(
+    deploymentDoc,
+    new RegExp(`${thresholds.oldest_manual_action_minutes}\\s+minutes`, "i")
+  );
+  assert.match(deploymentDoc, /does not count expired append-only/i);
+  assert.match(deploymentDoc, /remove it when absent/i);
 });

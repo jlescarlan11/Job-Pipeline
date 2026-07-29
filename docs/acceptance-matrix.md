@@ -922,3 +922,41 @@ failures, fixes, and reconciliation are recorded in
   unchanged. Ordered claim-safe selection drains at the lower cap, while six
   independent Alerter sweeps retain capacity for 30 deliveries per Generator
   interval.
+
+## Production audit — Backlog and rate-limit observability
+
+- **OBS-AC1 — Existing-input summary:** Reviewer lifecycle and generated
+  workflow tests require one `operational_backlog` event derived from the
+  active, Archive, Review Queue, and Applied Jobs snapshots already read.
+  There is no added provider call or Sheet operation.
+- **OBS-AC2 — Exact due-generation evidence:** Deterministic tests cover
+  recommended, stale-generating, due-retry, and manual-triggered candidates.
+  The summary reports candidate count, oldest durable due age, and the count
+  whose eligibility time is not stored instead of inventing a timestamp.
+- **OBS-AC3 — Pending-alert evidence:** Tests measure pending, sending, and
+  retryable alerts from the current generation/attempt state and separately
+  disclose missing age evidence.
+- **OBS-AC4 — Active-marker semantics:** Stage-specific lease tests count
+  expired or malformed canonical row markers and explicitly exclude normal
+  expired append-only `ProcessingClaims` history.
+- **OBS-AC5 — Manual-action clock:** The event emits at most 100 stable
+  64-bit fingerprints, never canonical identity or action text. Tests cover
+  reordering stability, truncation, and all four action surfaces. Policy and
+  runbook require the external monitor to retain first-seen time until a
+  fingerprint is absent.
+- **OBS-AC6 — Repeated provider events:** Every final Generator result and
+  Slack delivery result emits timestamp/stage/status/category plus an explicit
+  `state_commit_pending=true` boundary. The external monitor counts
+  `category=rate_limit` events over 15 minutes rather than undercounting
+  overwritten Sheet state, but never treats the event as a committed write.
+- **OBS-AC7 — Fail-closed monitoring contract:** The deployment policy
+  requires log ingestion, exact event names, fingerprint clock semantics, a
+  20-minute backlog-event freshness threshold, and all existing backlog/rate
+  thresholds. Mutation tests reject drift.
+- **OBS-AC8 — Sanitized and observational:** Event tests prove job identity,
+  error evidence, provider payloads, and manual action labels are absent.
+  Documentation prohibits claims, retries, or state writes by the monitor.
+- **OBS-AC9 — Generated artifact and full validation:** Workflow tests compile
+  all embedded Code, require the event emitters and configured lease values,
+  and retain inactive imports. Build, validation, and artifact-drift checks
+  cover the complete generated state.

@@ -586,6 +586,21 @@ is rewritten and requires manual reconciliation.
 
 ## Operational visibility
 
-Workflow execution logs emit structured summaries for discovery coverage, claim winners/losses, archive planning/reconciliation, and invalid review actions. Durable recovery data lives in `pipeline_status`, `processing_stage`, `attempt_count`, `failed_stage`, `next_retry_at`, `error_category`, and `error_summary`. Logs must remain sanitized: no API keys, authorization headers, raw provider responses, or full resume/job-description payloads.
+Workflow execution logs emit structured summaries for discovery coverage,
+claim winners/losses, archive planning/reconciliation, invalid review actions,
+and the `operational_backlog` event. The Reviewer derives due-generation,
+pending-alert, and canonical active-claim ages from snapshots it already
+reads. Since Sheet Action cells have no edit timestamp, it emits bounded,
+privacy-safe manual-action fingerprints for stateful first-seen monitoring.
+The `generator_result` and `alert_delivery` events expose only
+stage/status/category so repeated provider rate limits can be counted from
+`category=rate_limit` without relying on overwritten row state. Their
+`state_commit_pending=true` marker prevents a pre-commit provider result from
+being mistaken for durable Sheet success. Durable
+recovery data lives in `pipeline_status`, `processing_stage`,
+`attempt_count`, `failed_stage`, `next_retry_at`, `error_category`, and
+`error_summary`. Logs must remain sanitized: no API keys, authorization
+headers, raw provider responses, canonical identities, action text, or full
+resume/job-description payloads.
 
 Workflow JSON contains credential and Sheet references inherited from the existing exports but no secret material. Operators must rebind those references to the intended environment after import.

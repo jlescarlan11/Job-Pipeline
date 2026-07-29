@@ -810,6 +810,7 @@ async function buildGenerator() {
     "src/contracts.mjs",
     "src/profile.mjs",
     "src/evaluation.mjs",
+    "src/operational-observability.mjs",
     "src/groq-provider.mjs",
     "src/message-safety.mjs",
     "src/alerts.mjs"
@@ -1075,6 +1076,7 @@ if (record.work_error) {
     maxAttempts: ${runtime.generator.retry.max_attempts},
     backoffMs: ${runtime.generator.retry.backoff_ms}
   });
+  console.log(JSON.stringify(generatorResultEvent(failed, 'evaluation')));
   return {
     json: {
       ...failed,
@@ -1085,6 +1087,7 @@ if (record.work_error) {
 }
 const evaluation = evaluateJob(record, PROFILE, RANKING_POLICY, now);
 const evaluated = applyEvaluation(record, evaluation, now);
+console.log(JSON.stringify(generatorResultEvent(evaluated, 'evaluation')));
 return {
   json: {
     ...evaluated,
@@ -1121,6 +1124,7 @@ if (errorMessage && !payload.output) {
     maxAttempts: ${runtime.generator.retry.max_attempts},
     backoffMs: ${runtime.generator.retry.backoff_ms}
   });
+  console.log(JSON.stringify(generatorResultEvent(failed, 'generation')));
   return {
     json: {
       ...failed,
@@ -1162,6 +1166,7 @@ if (!validation.valid) {
         forceRetryable: true
       }
     );
+    console.log(JSON.stringify(generatorResultEvent(failed, 'generation')));
     return {
       json: {
         ...failed,
@@ -1208,6 +1213,7 @@ try {
     backoffMs: ${runtime.generator.retry.backoff_ms},
     forceRetryable: true
   });
+  console.log(JSON.stringify(generatorResultEvent(failed, 'generation')));
   return {
     json: {
       ...failed,
@@ -1216,6 +1222,7 @@ try {
     }
   };
 }
+console.log(JSON.stringify(generatorResultEvent(generated, 'generation')));
 return {
   json: {
     ...generated,
@@ -1252,6 +1259,7 @@ if (errorMessage && !payload.output) {
     maxAttempts: ${runtime.generator.retry.max_attempts},
     backoffMs: ${runtime.generator.retry.backoff_ms}
   });
+  console.log(JSON.stringify(generatorResultEvent(failed, 'generation')));
   return {
     json: {
       ...failed,
@@ -1279,6 +1287,7 @@ if (!validation.valid) {
       forceRetryable: true
     }
   );
+  console.log(JSON.stringify(generatorResultEvent(failed, 'generation')));
   return {
     json: {
       ...failed,
@@ -1312,6 +1321,7 @@ try {
     backoffMs: ${runtime.generator.retry.backoff_ms},
     forceRetryable: true
   });
+  console.log(JSON.stringify(generatorResultEvent(failed, 'generation')));
   return {
     json: {
       ...failed,
@@ -1320,6 +1330,7 @@ try {
     }
   };
 }
+console.log(JSON.stringify(generatorResultEvent(generated, 'generation')));
 return {
   json: {
     ...generated,
@@ -1418,6 +1429,7 @@ try {
     forceRetryable: false
   });
 }
+console.log(JSON.stringify(generatorResultEvent(reviewRecord, 'generation')));
 return {
   json: {
     ...reviewRecord,
@@ -2153,6 +2165,10 @@ async function buildReviewer() {
   const schema = await readJson("config/pipeline-schema.json");
   const reviewConfig = await readJson("config/review-sheet.json");
   const runtime = await readJson("config/runtime.json");
+  const alertPolicy = await readJson("config/alert-policy.json");
+  const deploymentPolicy = await readJson(
+    "config/n8n-deployment-policy.json"
+  );
   assertValidRuntime(runtime);
   const claimRetentionPolicy = await readJson(
     "config/claim-retention.json"
@@ -2196,6 +2212,7 @@ async function buildReviewer() {
     "src/review-efficiency.mjs",
     "src/profile.mjs",
     "src/evaluation.mjs",
+    "src/operational-observability.mjs",
     "src/message-safety.mjs",
     "src/review.mjs"
   );
@@ -2337,6 +2354,24 @@ const claimRetentionPlan = planProcessingClaimRetention(
   CLAIM_RETENTION_POLICY,
   now
 );
+const operationalBacklog = summarizeOperationalBacklog(
+  {
+    activeRows,
+    archiveRows,
+    queueRows,
+    appliedJobsRows
+  },
+  SCHEMA,
+  {
+    now,
+    generationLeaseMs: ${runtime.generator.claim_lease_ms},
+    processingLeaseMs: {
+      evaluation: ${runtime.generator.claim_lease_ms},
+      generation: ${runtime.generator.claim_lease_ms},
+      alert: ${alertPolicy.claim_lease_ms}
+    }
+  }
+);
 const snapshotStatus = reviewSnapshotStatus({
   processed,
   currentQueueRows: queueRows,
@@ -2360,11 +2395,18 @@ console.log(JSON.stringify({
   processing_claim_threshold_reached:
     claimRetentionPlan.threshold_reached
 }));
+console.log(JSON.stringify({
+  event: 'operational_backlog',
+  timestamp: now,
+  deployment_policy_version: ${JSON.stringify(deploymentPolicy.policy_version)},
+  ...operationalBacklog
+}));
 return [{
   json: {
     ...processed,
     snapshot_status: snapshotStatus,
-    claim_retention_plan: claimRetentionPlan
+    claim_retention_plan: claimRetentionPlan,
+    operational_backlog: operationalBacklog
   }
 }];`;
 
@@ -4086,7 +4128,8 @@ const providerResult = {
 const finalized = applyAlertProviderResult(record, providerResult, POLICY);
 console.log(JSON.stringify({
   event: 'alert_delivery',
-  canonical_job_id: finalized.canonical_job_id,
+  timestamp: finalized.alert_last_attempt_at || finalized.updated_at || now,
+  state_commit_pending: true,
   status: finalized.alert_status,
   category: finalized.alert_error_category || ''
 }));

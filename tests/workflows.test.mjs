@@ -730,6 +730,21 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   ).parameters.jsCode;
   assert.match(nonReadyCode, /applyNonReadyApplicationPack/);
   assert.doesNotMatch(nonReadyCode, /AI Agent|Groq Chat Model/);
+  for (const nodeName of [
+    "Evaluate Job",
+    "Persist Non-Ready Pack",
+    "Validate Initial Draft",
+    "Validate Repaired Message"
+  ]) {
+    assert.match(
+      nodeByName(workflow, nodeName).parameters.jsCode,
+      /generatorResultEvent/
+    );
+    assert.match(
+      nodeByName(workflow, nodeName).parameters.jsCode,
+      /state_commit_pending/
+    );
+  }
   assert.equal(
     workflow.nodes.filter((node) => node.name === "Repair AI Agent").length,
     1
@@ -886,6 +901,8 @@ test("alerter export claims, validates, sends, and commits without state-changin
   const finalizeRuntime = finalize.slice(finalize.lastIndexOf("const POLICY ="));
   assert.match(finalizeRuntime, /processing_commit_guard:\s*commitGuard/);
   assert.match(finalizeRuntime, /payload\.error\?\.status/);
+  assert.match(finalizeRuntime, /state_commit_pending:\s*true/);
+  assert.match(finalizeRuntime, /timestamp:/);
   assert.doesNotMatch(
     finalizeRuntime,
     /processing_token:\s*commitToken/
@@ -973,6 +990,17 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.match(prepare, /conflicting \$\{projectionName\(location\)\} actions/);
   assert.match(prepare, /processed_applied_actions/);
   assert.match(prepare, /appliedJobsRows/);
+  assert.match(prepare, /summarizeOperationalBacklog/);
+  assert.match(prepare, /event:\s*'operational_backlog'/);
+  assert.match(
+    prepare,
+    new RegExp(String(runtime.generator.claim_lease_ms))
+  );
+  assert.match(
+    prepare,
+    new RegExp(String(alertPolicy.claim_lease_ms))
+  );
+  assert.match(prepare, /manual_action_fingerprints/);
 
   const queueRead = nodeByName(workflow, "Get Review Queue Rows");
   assert.equal(queueRead.parameters.sheetName.value, review.review_queue.sheet);
