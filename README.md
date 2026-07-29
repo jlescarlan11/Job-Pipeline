@@ -42,6 +42,15 @@ daily allowance. Its character-based planning ceiling is 183,056 tokens and
 initial and repair calls are separated by 65 seconds. Exact account limits and
 provider token measurements must still pass the live activation gate.
 
+The five interval workflows use explicit six-field cron rules with fixed
+`Asia/Manila` phases, rather than relying on n8n's per-field
+`minutesInterval` step conversion. Generator therefore runs a true 90-minute
+sequence across hour boundaries, Archiver runs a true 45-minute sequence, and
+all five cadences remain exact across midnight. A full week of
+maximum-timeout windows peaks at two simultaneous scheduled executions, so
+the production concurrency limit of 3 retains one scheduled-burst headroom
+slot.
+
 The Alerter's 15-minute recovery sweep runs 96 times per day instead of the
 original 480, avoiding 140,160 scheduled executions and idle `Sheet1` reads per
 year. This cadence alone saves 70,080 per year relative to the prior
@@ -69,9 +78,9 @@ preserves the newest 12 complete reports, and deletes at most 12 expired runs.
 Every cleanup fails closed on ambiguous identity, count, or row evidence.
 
 For self-hosted regular-mode n8n, the checked-in deployment template caps
-production concurrency at 3, retains a full 14-day all-scheduled-failure
-window (336 hours) within 10,000 execution rows, enables internal
-health/metrics, and pins
+production concurrency at 3, rejects a scheduled burst above 2, retains a
+full 14-day all-scheduled-failure window (336 hours) within 10,000 execution
+rows, enables internal health/metrics, and pins
 the same execution-data defaults used by every workflow. Run
 `npm run validate:deployment` inside the configured runtime before activation;
 repository JSON does not claim those instance-level controls are already live.

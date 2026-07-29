@@ -48,6 +48,16 @@ test("deployment policy bounds self-hosted concurrency and execution retention",
   );
   assert.equal(capacity.maximum_workflow_timeout_seconds, 1800);
   assert.equal(
+    capacity.maximum_simultaneous_scheduled_executions,
+    2
+  );
+  assert.deepEqual(capacity.peak_workflows, ["alerter", "generator"]);
+  assert.equal(
+    policy.capacity.production_concurrency_limit -
+      capacity.maximum_simultaneous_scheduled_executions,
+    policy.capacity.minimum_scheduled_burst_headroom
+  );
+  assert.equal(
     policy.execution_retention.scheduled_failure_count_at_maximum_age,
     4132
   );
@@ -94,9 +104,33 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
   const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
   assert.match(errors, /execution pruning must be enabled/);
   assert.match(errors, /cannot retain the full age window/);
+  assert.match(
+    errors,
+    /scheduled burst policy and headroom exceed production concurrency/
+  );
   assert.match(errors, /timeout-weighted utilization exceeds policy/);
   assert.match(errors, /monitoring endpoints must be internal/);
   assert.match(errors, /without a fabricated error-workflow binding/);
+});
+
+test("deployment policy rejects phase-aligned scheduled bursts", () => {
+  const alignedConfigs = structuredClone(configs);
+  alignedConfigs.searchPlan.schedule_offset_minutes = 0;
+  alignedConfigs.runtime.generator.schedule_offset_minutes = 0;
+  alignedConfigs.alertPolicy.schedule_offset_minutes = 0;
+  alignedConfigs.review.schedule_offset_minutes = 0;
+  alignedConfigs.runtime.archiver.schedule_offset_minutes = 0;
+  const alignedCapacity = deploymentCapacity(alignedConfigs);
+  assert.equal(
+    alignedCapacity.maximum_simultaneous_scheduled_executions,
+    5
+  );
+  const errors = validateN8nDeploymentPolicy(
+    policy,
+    alignedConfigs
+  ).join("\n");
+  assert.match(errors, /scheduled execution burst exceeds policy/);
+  assert.match(errors, /lacks scheduled burst headroom/);
 });
 
 test("deployment policy fails closed on malformed timeouts and missing alerts", () => {

@@ -1,3 +1,5 @@
+import { validateMinuteIntervalSchedule } from "./schedules.mjs";
+
 const REQUIRED_TIMEZONE = "Asia/Manila";
 
 function positiveInteger(value) {
@@ -63,7 +65,9 @@ export function validateRuntimeConfig(runtime) {
   }
   errors.push(
     ...validateScheduledClaimWorkflow(runtime.generator, "generator"),
-    ...validateScheduledClaimWorkflow(runtime.archiver, "archiver")
+    ...validateMinuteIntervalSchedule(runtime.generator, "generator"),
+    ...validateScheduledClaimWorkflow(runtime.archiver, "archiver"),
+    ...validateMinuteIntervalSchedule(runtime.archiver, "archiver")
   );
   for (const field of [
     "per_run_cap",

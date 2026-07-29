@@ -1,4 +1,11 @@
+import {
+  validateAnalyticsSchedule,
+  validateMinuteIntervalSchedule,
+  validateRecommendationSchedule
+} from "./schedules.mjs";
+
 const OFFICIAL_SOURCE_PREFIX = "https://docs.n8n.io/";
+const WEEK_MINUTES = 7 * 24 * 60;
 const REQUIRED_ENVIRONMENT_KEYS = [
   "GENERIC_TIMEZONE",
   "EXECUTIONS_TIMEOUT",
@@ -73,6 +80,148 @@ function workflowBudgets(configs) {
   ];
 }
 
+function intervalSchedule(config, name, timeoutSeconds) {
+  const errors = validateMinuteIntervalSchedule(config, name);
+  if (errors.length > 0) {
+    throw new Error(errors.join("; "));
+  }
+  return {
+    name,
+    interval_minutes: config.schedule_minutes,
+    offset_minutes: config.schedule_offset_minutes,
+    timeout_seconds: timeoutSeconds
+  };
+}
+
+function workflowScheduleDefinitions(configs) {
+  const analyticsErrors = validateAnalyticsSchedule(configs.analytics);
+  const recommendationErrors = validateRecommendationSchedule(
+    configs.recommendations
+  );
+  if (analyticsErrors.length > 0 || recommendationErrors.length > 0) {
+    throw new Error(
+      [...analyticsErrors, ...recommendationErrors].join("; ")
+    );
+  }
+  return [
+    intervalSchedule(
+      {
+        schedule_minutes: configs.searchPlan.schedule_hours * 60,
+        schedule_offset_minutes:
+          configs.searchPlan.schedule_offset_minutes
+      },
+      "scraper",
+      configs.searchPlan.execution_timeout_seconds
+    ),
+    intervalSchedule(
+      configs.runtime.generator,
+      "generator",
+      configs.runtime.generator.execution_timeout_seconds
+    ),
+    intervalSchedule(
+      configs.alertPolicy,
+      "alerter",
+      configs.alertPolicy.execution_timeout_seconds
+    ),
+    intervalSchedule(
+      configs.review,
+      "reviewer",
+      configs.review.execution_timeout_seconds
+    ),
+    intervalSchedule(
+      configs.runtime.archiver,
+      "archiver",
+      configs.runtime.archiver.execution_timeout_seconds
+    ),
+    {
+      name: "analytics",
+      interval_minutes: 24 * 60,
+      offset_minutes:
+        configs.analytics.schedule.trigger_at_hour * 60 +
+        configs.analytics.schedule.trigger_at_minute,
+      timeout_seconds: configs.analytics.execution_timeout_seconds
+    },
+    {
+      name: "recommender",
+      interval_minutes: WEEK_MINUTES,
+      offset_minutes:
+        configs.recommendations.schedule.trigger_at_days[0] * 24 * 60 +
+        configs.recommendations.schedule.trigger_at_hour * 60 +
+        configs.recommendations.schedule.trigger_at_minute,
+      timeout_seconds: configs.recommendations.execution_timeout_seconds
+    }
+  ];
+}
+
+export function scheduledBurstCapacity(configs) {
+  const definitions = workflowScheduleDefinitions(configs);
+  const events = [];
+  let executionId = 0;
+  for (const definition of definitions) {
+    const intervalSeconds = definition.interval_minutes * 60;
+    const offsetSeconds = definition.offset_minutes * 60;
+    const lookbackIntervals = Math.max(
+      1,
+      Math.ceil(definition.timeout_seconds / intervalSeconds)
+    );
+    for (
+      let start =
+        offsetSeconds - lookbackIntervals * intervalSeconds;
+      start < WEEK_MINUTES * 60;
+      start += intervalSeconds
+    ) {
+      const end = start + definition.timeout_seconds;
+      if (end <= 0) continue;
+      const id = executionId;
+      executionId += 1;
+      events.push({
+        at: start,
+        delta: 1,
+        id,
+        name: definition.name
+      });
+      events.push({
+        at: end,
+        delta: -1,
+        id,
+        name: definition.name
+      });
+    }
+  }
+  events.sort(
+    (left, right) =>
+      left.at - right.at ||
+      left.delta - right.delta ||
+      left.id - right.id
+  );
+
+  const active = new Map();
+  let maximum = 0;
+  let peakAtSecond = 0;
+  let peakWorkflows = [];
+  for (const event of events) {
+    if (event.delta < 0) {
+      active.delete(event.id);
+    } else {
+      active.set(event.id, event.name);
+      if (
+        event.at >= 0 &&
+        event.at < WEEK_MINUTES * 60 &&
+        active.size > maximum
+      ) {
+        maximum = active.size;
+        peakAtSecond = event.at;
+        peakWorkflows = [...active.values()].sort();
+      }
+    }
+  }
+  return {
+    maximum_simultaneous_scheduled_executions: maximum,
+    peak_at_week_second: peakAtSecond,
+    peak_workflows: peakWorkflows
+  };
+}
+
 export function deploymentCapacity(configs) {
   const budgets = workflowBudgets(configs);
   if (
@@ -86,6 +235,7 @@ export function deploymentCapacity(configs) {
   ) {
     throw new Error("all workflow schedules and timeouts are required");
   }
+  const burst = scheduledBurstCapacity(configs);
   return {
     budgets,
     timeout_weighted_concurrency: budgets.reduce(
@@ -100,7 +250,8 @@ export function deploymentCapacity(configs) {
     ),
     maximum_workflow_timeout_seconds: Math.max(
       ...budgets.map((entry) => entry.timeout_seconds)
-    )
+    ),
+    ...burst
   };
 }
 
@@ -198,6 +349,23 @@ export function validateN8nDeploymentPolicy(policy, configs) {
   if (!queueWaitAlertSeconds) {
     errors.push("queue wait alert must be a positive number of seconds");
   }
+  const maximumScheduledBurst = positiveInteger(
+    policy.capacity?.maximum_simultaneous_scheduled_executions
+  );
+  const minimumScheduledBurstHeadroom = positiveInteger(
+    policy.capacity?.minimum_scheduled_burst_headroom
+  );
+  if (!maximumScheduledBurst || !minimumScheduledBurstHeadroom) {
+    errors.push("scheduled burst capacity bounds must be positive integers");
+  } else if (
+    concurrencyLimit &&
+    maximumScheduledBurst + minimumScheduledBurstHeadroom >
+      concurrencyLimit
+  ) {
+    errors.push(
+      "scheduled burst policy and headroom exceed production concurrency"
+    );
+  }
 
   const retentionAge = positiveInteger(
     policy.execution_retention?.maximum_age_hours
@@ -284,6 +452,24 @@ export function validateN8nDeploymentPolicy(policy, configs) {
           concurrencyLimit * utilizationRatio + Number.EPSILON
       ) {
         errors.push("workflow timeout-weighted utilization exceeds policy");
+      }
+      if (
+        maximumScheduledBurst &&
+        capacity.maximum_simultaneous_scheduled_executions >
+          maximumScheduledBurst
+      ) {
+        errors.push("simultaneous scheduled execution burst exceeds policy");
+      }
+      if (
+        concurrencyLimit &&
+        minimumScheduledBurstHeadroom &&
+        concurrencyLimit -
+          capacity.maximum_simultaneous_scheduled_executions <
+          minimumScheduledBurstHeadroom
+      ) {
+        errors.push(
+          "production concurrency limit lacks scheduled burst headroom"
+        );
       }
       if (
         !defaultTimeout ||

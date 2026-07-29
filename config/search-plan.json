@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
-  "plan_version": "2026-07-30/v2",
+  "plan_version": "2026-07-30/v3",
   "candidate_profile_version": "2026-07-29",
   "source": "onlinejobs.ph",
   "schedule_hours": 4,
+  "schedule_offset_minutes": 68,
   "execution_timeout_seconds": 900,
   "lookback_days": 7,
   "page_size": 30,

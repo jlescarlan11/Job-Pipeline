@@ -6,6 +6,7 @@ import {
   releaseClaim
 } from "./contracts.mjs";
 import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
+import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 
 const ALLOWED_CHANNELS = ["slack"];
 const ENVIRONMENT_NAME = /^[A-Z][A-Z0-9_]{2,63}$/;
@@ -70,6 +71,7 @@ export function validateAlertPolicy(policy) {
       errors.push(`${field} must be a positive integer`);
     }
   }
+  errors.push(...validateMinuteIntervalSchedule(policy, "alert"));
   if (
     !Number.isInteger(policy.retry?.max_attempts) ||
     policy.retry.max_attempts < 1 ||

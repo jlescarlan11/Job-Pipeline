@@ -57,6 +57,16 @@ in `Asia/Manila`. This places the weekly consumer after Analytics' 30-minute
 outer timeout plus a required 15-minute completion buffer instead of depending
 on the workflows' activation-relative interval phases.
 
+The other five schedules are also phase-fixed in `Asia/Manila`: Scraper starts
+at 01:08 and repeats every four hours; Generator starts at 00:01 and repeats
+every 90 minutes; Alerter runs at :02/:17/:32/:47; Reviewer runs at
+:04/:14/:24/:34/:44/:54; and Archiver starts at 00:19 and repeats every 45
+minutes. The builder emits explicit six-field cron rules. This is necessary
+because an n8n minute-step expression applies within the 0–59 minute field:
+90 is outside the Schedule Trigger v1.3 minute range, while 45 produces
+:00/:45 followed by a 15-minute hour-boundary gap rather than a steady
+45-minute cadence.
+
 All seven exports run in the explicit `Asia/Manila` workflow timezone. Their
 outer execution budgets are Scraper 900-second, Generator 540-second, Alerter
 90-second, Reviewer 180-second, Archiver 540-second, Analytics 1800-second,
@@ -83,9 +93,12 @@ For a self-hosted regular-mode deployment,
 `config/n8n-deployment-policy.json` pins a production concurrency limit of 3,
 execution pruning at 336 hours or 10,000 records, and internal readiness and
 workflow-labeled metrics. The maximum-timeout schedule model consumes 0.785
-slots, or 26.2% of the limit. Even if all 2,066 scheduled weekly executions
-fail, 14 days produces 4,132 saved executions and remains below the count cap.
-The template is validated but not claimed active until
+slots on average, or 26.2% of the limit. A second, phase-aware one-week model
+proves a maximum of two simultaneous scheduled executions and requires one
+remaining production slot; aligned phase drift that would create five
+simultaneous interval starts is rejected. Even if all 2,066 scheduled weekly
+executions fail, 14 days produces 4,132 saved executions and remains below the
+count cap. The template is validated but not claimed active until
 `npm run validate:deployment` succeeds inside the production runtime.
 
 Unexpected failures use saved execution evidence plus externally scraped

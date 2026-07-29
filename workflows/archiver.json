@@ -6,8 +6,16 @@
         "rule": {
           "interval": [
             {
-              "field": "minutes",
-              "minutesInterval": 45
+              "field": "cronExpression",
+              "expression": "0 19 0,3,6,9,12,15,18,21 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 4,49 1,4,7,10,13,16,19,22 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "0 34 2,5,8,11,14,17,20,23 * * *"
             }
           ]
         }
@@ -1594,7 +1602,8 @@
     "instanceId": "d3f0b2b15fe63f4812d040a20729fe3e69cc3b90b6911c8f4caeed8defddb44f",
     "pipelineSchemaVersion": "2026-07-29-generation-recovery",
     "archiveScheduleMinutes": 45,
-    "executionTimeoutSeconds": 540
+    "executionTimeoutSeconds": 540,
+    "scheduleOffsetMinutes": 19
   },
   "nodeGroups": [],
   "id": "cj6ty1mKwyjS65h2",

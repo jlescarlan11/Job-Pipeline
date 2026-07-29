@@ -6,6 +6,7 @@ import {
   stateGuard,
   validateRecordContract
 } from "./contracts.mjs";
+import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 
 const OUTCOME_ACTIONS = {
@@ -100,6 +101,9 @@ export function validateReviewRuntimeConfig(reviewConfig) {
       errors.push(`${field} must be a positive integer`);
     }
   }
+  errors.push(
+    ...validateMinuteIntervalSchedule(reviewConfig, "review")
+  );
   if (
     Number.isInteger(reviewConfig?.execution_timeout_seconds) &&
     Number.isInteger(reviewConfig?.schedule_minutes) &&

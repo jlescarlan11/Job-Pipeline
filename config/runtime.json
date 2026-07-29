@@ -9,6 +9,7 @@
   },
   "generator": {
     "schedule_minutes": 90,
+    "schedule_offset_minutes": 1,
     "execution_timeout_seconds": 540,
     "per_run_cap": 1,
     "claim_lease_ms": 600000,
@@ -21,6 +22,7 @@
   },
   "archiver": {
     "schedule_minutes": 45,
+    "schedule_offset_minutes": 19,
     "execution_timeout_seconds": 540,
     "claim_lease_ms": 600000,
     "eligible_statuses": [

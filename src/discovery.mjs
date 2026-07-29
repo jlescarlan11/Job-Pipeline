@@ -5,6 +5,7 @@ import {
   normalizeLegacyRecord,
   stateGuard
 } from "./contracts.mjs";
+import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 
 const SENIORITY_PATTERN =
   /\b(?:senior|sr\.?|lead|principal|staff|architect|head of|director|tech lead|engineering lead)\b|(?:5|6|7|8|9|10)\+?\s*(?:years?|yrs?)/i;
@@ -104,6 +105,17 @@ export function validateSearchPlan(plan, profile) {
   ) {
     errors.push("request timeout must be shorter than the execution timeout");
   }
+  errors.push(
+    ...validateMinuteIntervalSchedule(
+      {
+        schedule_minutes: Number.isInteger(plan?.schedule_hours)
+          ? plan.schedule_hours * 60
+          : undefined,
+        schedule_offset_minutes: plan?.schedule_offset_minutes
+      },
+      "discovery"
+    )
+  );
   if (!Array.isArray(plan?.queries) || plan.queries.length === 0) {
     errors.push("at least one search query is required");
     return errors;

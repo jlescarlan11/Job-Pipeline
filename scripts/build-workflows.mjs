@@ -15,6 +15,7 @@ import {
 } from "../src/runtime.mjs";
 import {
   analyticsScheduleRule,
+  minuteIntervalScheduleRules,
   recommendationScheduleRule,
   validateLearningSchedulePair
 } from "../src/schedules.mjs";
@@ -370,7 +371,13 @@ async function buildScraper() {
   const schedule = nodeByName(current, "Schedule Trigger");
   schedule.parameters = {
     rule: {
-      interval: [{ field: "hours", hoursInterval: plan.schedule_hours }]
+      interval: minuteIntervalScheduleRules(
+        {
+          schedule_minutes: plan.schedule_hours * 60,
+          schedule_offset_minutes: plan.schedule_offset_minutes
+        },
+        "discovery schedule"
+      )
     }
   };
   schedule.position = [-2600, 260];
@@ -779,6 +786,7 @@ return winners.map((record) => ({ json: record }));`
         ...current.meta,
         candidateProfileVersion: profile.profile_version,
         searchPlanVersion: plan.plan_version,
+        scheduleOffsetMinutes: plan.schedule_offset_minutes,
         pipelineSchemaVersion: schema.storage_version,
         executionTimeoutSeconds: plan.execution_timeout_seconds
       }
@@ -861,12 +869,10 @@ async function buildGenerator() {
   schedule.position = [-1540, 180];
   schedule.parameters = {
     rule: {
-      interval: [
-        {
-          field: "minutes",
-          minutesInterval: runtime.generator.schedule_minutes
-        }
-      ]
+      interval: minuteIntervalScheduleRules(
+        runtime.generator,
+        "generator schedule"
+      )
     }
   };
 
@@ -1831,6 +1837,9 @@ return {
           groqPolicy.generation.request_interval_ms,
         pipelineSchemaVersion: schema.storage_version,
         generatorPerRunCap: runtime.generator.per_run_cap,
+        scheduleMinutes: runtime.generator.schedule_minutes,
+        scheduleOffsetMinutes:
+          runtime.generator.schedule_offset_minutes,
         executionTimeoutSeconds:
           runtime.generator.execution_timeout_seconds
       }
@@ -1850,12 +1859,10 @@ async function buildArchiver() {
   schedule.position = [-1320, 220];
   schedule.parameters = {
     rule: {
-      interval: [
-        {
-          field: "minutes",
-          minutesInterval: runtime.archiver.schedule_minutes
-        }
-      ]
+      interval: minuteIntervalScheduleRules(
+        runtime.archiver,
+        "archiver schedule"
+      )
     }
   };
 
@@ -2130,6 +2137,8 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
         ...current.meta,
         pipelineSchemaVersion: schema.storage_version,
         archiveScheduleMinutes: runtime.archiver.schedule_minutes,
+        scheduleOffsetMinutes:
+          runtime.archiver.schedule_offset_minutes,
         executionTimeoutSeconds:
           runtime.archiver.execution_timeout_seconds
       }
@@ -2196,12 +2205,10 @@ async function buildReviewer() {
   schedule.position = [-1810, 240];
   schedule.parameters = {
     rule: {
-      interval: [
-        {
-          field: "minutes",
-          minutesInterval: reviewConfig.schedule_minutes
-        }
-      ]
+      interval: minuteIntervalScheduleRules(
+        reviewConfig,
+        "review schedule"
+      )
     }
   };
 
@@ -3835,6 +3842,9 @@ return [{ json: {
         reviewViewVersion: reviewConfig.view_version,
         reviewQueueVersion: reviewConfig.review_queue.version,
         appliedJobsVersion: reviewConfig.applied_jobs.version,
+        scheduleMinutes: reviewConfig.schedule_minutes,
+        scheduleOffsetMinutes:
+          reviewConfig.schedule_offset_minutes,
         executionTimeoutSeconds: reviewConfig.execution_timeout_seconds,
         claimRetentionPolicyVersion: claimRetentionPolicy.policy_version
       },
@@ -4091,16 +4101,14 @@ return {
   const schedule = {
     parameters: {
       rule: {
-        interval: [
-          {
-            field: "minutes",
-            minutesInterval: policy.schedule_minutes
-          }
-        ]
+        interval: minuteIntervalScheduleRules(
+          policy,
+          "alert schedule"
+        )
       }
     },
     type: "n8n-nodes-base.scheduleTrigger",
-    typeVersion: 1.2,
+    typeVersion: 1.3,
     position: [-1400, 180],
     id: "a11e7e00-0000-4000-8000-000000000001",
     name: "Schedule Trigger"
@@ -4269,6 +4277,8 @@ return {
         alertPolicyVersion: policy.policy_version,
         alertChannel: policy.channel,
         alertPerRunCap: policy.per_run_cap,
+        scheduleMinutes: policy.schedule_minutes,
+        scheduleOffsetMinutes: policy.schedule_offset_minutes,
         executionTimeoutSeconds: policy.execution_timeout_seconds
       },
       tags: []

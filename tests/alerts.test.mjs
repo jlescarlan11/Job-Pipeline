@@ -151,12 +151,14 @@ test("alert policy is versioned, bounded, and secret-free", () => {
     unsafeTiming.claim_lease_ms / 1000;
   unsafeTiming.schedule_minutes =
     unsafeTiming.claim_lease_ms / 60000;
+  unsafeTiming.schedule_offset_minutes = unsafeTiming.schedule_minutes;
   unsafeTiming.provider_timeout_ms =
     unsafeTiming.execution_timeout_seconds * 1000;
   unsafeTiming.per_run_cap = 2;
   unsafeTiming.retry.backoff_ms = unsafeTiming.claim_lease_ms - 1;
   const timingErrors = validateAlertPolicy(unsafeTiming).join("\n");
   assert.match(timingErrors, /claim lease must outlast/);
+  assert.match(timingErrors, /alert schedule_offset_minutes/);
   assert.match(timingErrors, /claim lease must expire before/);
   assert.match(timingErrors, /provider timeout must be shorter/);
   assert.match(timingErrors, /execution timeout must exceed capped/);

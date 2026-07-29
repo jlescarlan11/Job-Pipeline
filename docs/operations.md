@@ -144,7 +144,12 @@ run must clear zero additional inputs.
    10 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 1. Confirm
    Analytics is fixed at 02:00 daily and Recommender at 02:45 Mondays in
    `Asia/Manila`, leaving the configured 30-minute timeout plus 15-minute
-   completion buffer.
+   completion buffer. Confirm the five interval exports use custom cron rules:
+   Scraper 01:08 then every four hours; Generator 00:01 then every 90 minutes;
+   Alerter :02/:17/:32/:47; Reviewer :04/:14/:24/:34/:44/:54; and Archiver
+   00:19 then every 45 minutes. Inspect at least three next-fire timestamps for
+   Generator and Archiver across an hour boundary; do not replace them with a
+   `minutesInterval` value.
 7. Confirm every export uses `Asia/Manila` and the checked-in workflow timeout:
    Scraper 900-second, Generator 540-second, Alerter 90-second, Reviewer
    180-second, Archiver 540-second, Analytics 1800-second, and Recommender
@@ -162,7 +167,8 @@ run must clear zero additional inputs.
    `npm run validate:deployment` inside that configured runtime. Confirm
    production concurrency is 3; pruning is 336 hours/10,000 executions with a
    1-hour hard-delete buffer; readiness and metrics are internally reachable;
-   and workflow ID labels are present. The exports do not activate
+   workflow ID labels are present; and the validator reports a maximum
+   scheduled burst of 2 with one slot of headroom. The exports do not activate
    instance-level pruning or concurrency controls. For Cloud or queue mode,
    record the plan/worker controls and create a separately reviewed profile
    rather than claiming this one.

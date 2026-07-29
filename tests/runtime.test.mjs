@@ -49,6 +49,9 @@ test("runtime timeouts are positive, scheduled, lease-safe, and Manila-bound", (
 test("runtime validation rejects overlap, expired ownership, and wrong timezone", () => {
   const invalid = structuredClone(runtime);
   invalid.timezone = "UTC";
+  invalid.generator.schedule_offset_minutes =
+    invalid.generator.schedule_minutes;
+  invalid.archiver.schedule_offset_minutes = -1;
   invalid.generator.execution_timeout_seconds =
     invalid.generator.schedule_minutes * 60;
   invalid.archiver.execution_timeout_seconds =
@@ -59,6 +62,8 @@ test("runtime validation rejects overlap, expired ownership, and wrong timezone"
   invalid.execution_data.save_manual_executions = false;
   const errors = validateRuntimeConfig(invalid).join("\n");
   assert.match(errors, /timezone must be Asia\/Manila/);
+  assert.match(errors, /generator schedule_offset_minutes/);
+  assert.match(errors, /archiver schedule_offset_minutes/);
   assert.match(errors, /generator execution timeout must be shorter/);
   assert.match(errors, /archiver claim lease must outlast/);
   assert.match(errors, /save_successful_production_executions must be none/);
@@ -68,12 +73,13 @@ test("runtime validation rejects overlap, expired ownership, and wrong timezone"
 
   const invalidReview = {
     ...review,
+    schedule_offset_minutes: review.schedule_minutes,
     execution_timeout_seconds: review.schedule_minutes * 60,
     projection_claim_lease_ms: review.schedule_minutes * 60 * 1000
   };
   assert.match(
     validateReviewRuntimeConfig(invalidReview).join("\n"),
-    /review execution timeout must be shorter/
+    /review schedule_offset_minutes[\s\S]*review execution timeout must be shorter/
   );
   invalidReview.execution_timeout_seconds =
     invalidReview.projection_claim_lease_ms / 1000;

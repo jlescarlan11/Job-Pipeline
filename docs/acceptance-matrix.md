@@ -154,6 +154,13 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   headroom, public metrics, or a fabricated portable error-workflow binding.
   The runbook requires validation inside production and separately gates Cloud
   or queue-mode deployment.
+- **I6-AC21 — Exact staggered interval schedules:** Canonical offsets and
+  generated six-field cron rules preserve the 240-, 90-, 15-, 10-, and
+  45-minute gaps across hour and midnight boundaries. A phase-aware one-week
+  maximum-timeout simulation proves a peak scheduled burst of 2 beneath the
+  production limit of 3 and rejects an aligned five-workflow burst. This also
+  prevents Schedule Trigger v1.3 from rejecting Generator's former
+  out-of-range 90-minute field value.
 
 ## Issue #8 — Extended learning contract
 

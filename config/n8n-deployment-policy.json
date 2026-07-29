@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v2",
+  "policy_version": "2026-07-30/v3",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -9,7 +9,8 @@
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
     "https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/monitor-n8n",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/enable-prometheus-metrics",
-    "https://docs.n8n.io/build/flow-logic/handle-errors-gracefully"
+    "https://docs.n8n.io/build/flow-logic/handle-errors-gracefully",
+    "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/"
   ],
   "environment": {
     "GENERIC_TIMEZONE": "Asia/Manila",
@@ -33,6 +34,8 @@
     "production_concurrency_limit": 3,
     "maximum_timeout_weighted_concurrency": 1.5,
     "maximum_utilization_ratio": 0.5,
+    "maximum_simultaneous_scheduled_executions": 2,
+    "minimum_scheduled_burst_headroom": 1,
     "queue_wait_alert_seconds": 300
   },
   "execution_retention": {

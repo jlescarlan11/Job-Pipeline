@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   analyticsScheduleRule,
   learningScheduleTiming,
+  minuteIntervalScheduleRules,
   recommendationScheduleRule
 } from "../src/schedules.mjs";
 
@@ -187,10 +188,36 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     ).length,
     0
   );
+  for (const name of [
+    "scraper",
+    "generator",
+    "alerter",
+    "reviewer",
+    "archiver"
+  ]) {
+    const trigger = nodeByName(workflows[name], "Schedule Trigger");
+    assert.equal(trigger.typeVersion, 1.3, name);
+    assert.ok(
+      trigger.parameters.rule.interval.every(
+        (rule) =>
+          rule.field === "cronExpression" &&
+          /^0 (?:\d+(?:,\d+)*) (?:\*|\d+(?:,\d+)*) \* \* \*$/.test(
+            rule.expression
+          )
+      ),
+      `${name} must use explicit six-field cron rules`
+    );
+  }
 
-  assert.equal(
-    nodeByName(scraper, "Schedule Trigger").parameters.rule.interval[0].hoursInterval,
-    searchPlan.schedule_hours
+  assert.deepEqual(
+    nodeByName(scraper, "Schedule Trigger").parameters.rule.interval,
+    minuteIntervalScheduleRules(
+      {
+        schedule_minutes: searchPlan.schedule_hours * 60,
+        schedule_offset_minutes: searchPlan.schedule_offset_minutes
+      },
+      "scraper"
+    )
   );
   for (
     let pageNumber = 1;
@@ -224,6 +251,10 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   }
   assert.equal(scraper.meta.searchPlanVersion, searchPlan.plan_version);
   assert.equal(
+    scraper.meta.scheduleOffsetMinutes,
+    searchPlan.schedule_offset_minutes
+  );
+  assert.equal(
     scraper.settings.executionTimeout,
     searchPlan.execution_timeout_seconds
   );
@@ -232,11 +263,15 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
       searchPlan.schedule_hours * 60 * 60
   );
 
-  assert.equal(
-    nodeByName(generator, "Schedule Trigger").parameters.rule.interval[0].minutesInterval,
-    runtime.generator.schedule_minutes
+  assert.deepEqual(
+    nodeByName(generator, "Schedule Trigger").parameters.rule.interval,
+    minuteIntervalScheduleRules(runtime.generator, "generator")
   );
   assert.equal(generator.meta.generatorPerRunCap, runtime.generator.per_run_cap);
+  assert.equal(
+    generator.meta.scheduleOffsetMinutes,
+    runtime.generator.schedule_offset_minutes
+  );
   assert.equal(
     generator.settings.executionTimeout,
     runtime.generator.execution_timeout_seconds
@@ -303,25 +338,33 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     "in-node retry waits must remain shorter than the claim lease"
   );
 
-  assert.equal(
-    nodeByName(archiver, "Schedule Trigger").parameters.rule.interval[0].minutesInterval,
-    runtime.archiver.schedule_minutes
+  assert.deepEqual(
+    nodeByName(archiver, "Schedule Trigger").parameters.rule.interval,
+    minuteIntervalScheduleRules(runtime.archiver, "archiver")
   );
   assert.equal(
     archiver.settings.executionTimeout,
     runtime.archiver.execution_timeout_seconds
   );
+  assert.equal(
+    archiver.meta.scheduleOffsetMinutes,
+    runtime.archiver.schedule_offset_minutes
+  );
   assert.ok(
     runtime.archiver.execution_timeout_seconds * 1000 <
       runtime.archiver.claim_lease_ms
   );
-  assert.equal(
-    nodeByName(reviewer, "Schedule Trigger").parameters.rule.interval[0].minutesInterval,
-    review.schedule_minutes
+  assert.deepEqual(
+    nodeByName(reviewer, "Schedule Trigger").parameters.rule.interval,
+    minuteIntervalScheduleRules(review, "reviewer")
   );
   assert.equal(
     reviewer.settings.executionTimeout,
     review.execution_timeout_seconds
+  );
+  assert.equal(
+    reviewer.meta.scheduleOffsetMinutes,
+    review.schedule_offset_minutes
   );
   assert.ok(
     review.execution_timeout_seconds * 1000 <
@@ -332,14 +375,17 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
       review.schedule_minutes * 60 * 1000,
     "Reviewer projection lease must expire before the next scheduled poll"
   );
-  assert.equal(
-    nodeByName(alerter, "Schedule Trigger").parameters.rule.interval[0]
-      .minutesInterval,
-    alertPolicy.schedule_minutes
+  assert.deepEqual(
+    nodeByName(alerter, "Schedule Trigger").parameters.rule.interval,
+    minuteIntervalScheduleRules(alertPolicy, "alerter")
   );
   assert.equal(alerter.meta.alertPolicyVersion, alertPolicy.policy_version);
   assert.equal(alerter.meta.alertChannel, alertPolicy.channel);
   assert.equal(alerter.meta.alertPerRunCap, alertPolicy.per_run_cap);
+  assert.equal(
+    alerter.meta.scheduleOffsetMinutes,
+    alertPolicy.schedule_offset_minutes
+  );
   assert.equal(
     alerter.settings.executionTimeout,
     alertPolicy.execution_timeout_seconds

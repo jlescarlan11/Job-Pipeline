@@ -56,6 +56,18 @@ test("README and architecture document the checked-in schedules, bounds, and man
   assert.match(architecture, /multi-touch full-credit/i);
   assert.match(architecture, /latest identifiable\s+complete report/i);
   assert.match(architecture, /no branch changes search configuration/i);
+  for (const document of [readme, architecture]) {
+    assert.match(document, /six-field cron/i);
+    assert.match(
+      document,
+      /(?:peak|maximum)[\s\S]{0,40}(?:two|2) simultaneous scheduled executions/i
+    );
+  }
+  for (const document of [architecture, operations, deploymentDoc]) {
+    assert.match(document, /01:08/i);
+    assert.match(document, /00:01/i);
+    assert.match(document, /00:19/i);
+  }
 });
 
 test("runtime documentation matches every workflow timeout and Manila timezone", () => {
@@ -105,6 +117,10 @@ test("deployment documentation pins bounded self-hosted controls without claimin
     assert.match(document, /validate:deployment/i);
   }
   assert.match(deploymentDoc, /0\.785 execution slots/i);
+  assert.match(
+    deploymentDoc,
+    /at least one slot\s+of scheduled-burst headroom/i
+  );
   assert.match(deploymentDoc, /4,132 records/i);
   assert.match(deploymentDoc, /metrics endpoint[\s\S]{0,100}internal/i);
   assert.match(deploymentDoc, /instance-assigned workflow/i);

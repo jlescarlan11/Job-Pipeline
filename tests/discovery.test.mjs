@@ -323,11 +323,12 @@ test("duplicate query configuration and invalid dates fail deterministically", (
     validateSearchPlan(
       {
         ...plan,
+        schedule_offset_minutes: plan.schedule_hours * 60,
         execution_timeout_seconds: plan.schedule_hours * 60 * 60
       },
       profile
     ).join("\n"),
-    /execution timeout must be shorter than the discovery schedule/
+    /execution timeout must be shorter[\s\S]*discovery schedule_offset_minutes/
   );
   assert.match(
     validateSearchPlan(

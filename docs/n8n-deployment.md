@@ -21,11 +21,21 @@ regular-mode policy here sets the production concurrency limit to 3.
 n8n regular mode has no production concurrency limit by default. The template
 sets `N8N_CONCURRENCY_PRODUCTION_LIMIT=3`. Summing each workflow's outer
 timeout divided by its trigger interval gives a conservative
-timeout-weighted demand of 0.785 execution slots. Three slots therefore leave
-more than 3.8× headroom even if every scheduled workflow consumes its full
-outer timeout. Excess trigger executions queue in FIFO order; a five-minute
-queue wait remains an alert condition and consumes one-third of the Alerter
-recovery interval.
+timeout-weighted average demand of 0.785 execution slots. Average demand does
+not prove burst safety, so the validator also expands every fixed local phase
+and maximum timeout across a complete week. The checked-in phases peak at two
+simultaneous scheduled executions, and the policy requires at least one slot
+of scheduled-burst headroom under the limit of 3. Moving every interval phase
+to zero would produce five simultaneous starts and is rejected. Excess trigger
+executions queue in FIFO order; a five-minute queue wait remains an alert
+condition and consumes one-third of the Alerter recovery interval.
+
+Scraper starts at 01:08, Generator at 00:01, Alerter at minute 02 of its
+15-minute cycle, Reviewer at minute 04 of its 10-minute cycle, and Archiver at
+00:19, all in `Asia/Manila`. Their generated six-field cron rules preserve the
+declared 240-, 90-, 15-, 10-, and 45-minute gaps across hour and midnight
+boundaries. This avoids interpreting an elapsed interval as a cron step inside
+the minute field.
 
 The limit applies to production trigger executions, not manual, sub-workflow,
 CLI, or error executions. Do not treat it as provider request concurrency:
@@ -97,6 +107,8 @@ official documentation for [execution variables](https://docs.n8n.io/deploy/host
 [monitoring](https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/monitor-n8n),
 [Prometheus metrics](https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/enable-prometheus-metrics),
 and [error workflows](https://docs.n8n.io/build/flow-logic/handle-errors-gracefully).
+Schedule behavior is also checked against the official
+[Schedule Trigger documentation](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/).
 
 ## Rollout and rollback
 
@@ -105,6 +117,8 @@ validator inside the same runtime, and verify readiness plus internally
 scraped metrics. Create a controlled collision of disabled-copy executions and
 confirm FIFO release without a five-minute queue wait. Seed only synthetic
 failed executions and verify age/count pruning after the hard-delete buffer.
+Before activating the production exports, inspect each generated custom cron
+rule in n8n and compare its next three local fire times with the runbook.
 
 For rollback, preserve the previous environment configuration, stop new
 activations, wait for running and queued executions, restore the prior values,
