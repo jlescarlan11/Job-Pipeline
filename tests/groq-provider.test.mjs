@@ -15,9 +15,11 @@ import {
   evaluateGroqBenchmark,
   groqInitialUserCharacterBudget,
   groqModelById,
+  groqScheduledCapacity,
   resolveGroqGenerationModel,
   validateGroqPromptBudget,
-  validateGroqProviderPolicy
+  validateGroqProviderPolicy,
+  validateGroqRuntimeCapacity
 } from "../src/groq-provider.mjs";
 
 const loadJson = async (path) =>
@@ -30,6 +32,7 @@ const profile = await loadJson("../config/candidate-profile.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
+const runtime = await loadJson("../config/runtime.json");
 const directHtml = await loadText("./fixtures/job-direct.html");
 
 test("Groq policy selects an approved production replacement and rejects unsafe selections", () => {
@@ -86,6 +89,54 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
     ).join("\n"),
     /maximum_prompt_proofs must be a positive integer/
   );
+});
+
+test("Groq scheduled capacity stays within the conservative developer-base envelope", () => {
+  const capacity = groqScheduledCapacity(groqPolicy, runtime.generator);
+  assert.deepEqual(capacity, {
+    model_id: "openai/gpt-oss-120b",
+    initial_request_character_token_estimate: 4384,
+    repair_request_character_token_estimate: 6384,
+    per_item_character_token_estimate: 10768,
+    maximum_scheduled_executions_per_day: 17,
+    maximum_scheduled_requests_per_day: 34,
+    maximum_scheduled_character_token_estimate_per_day: 183056,
+    maximum_pacing_milliseconds: 65000
+  });
+  assert.deepEqual(
+    validateGroqRuntimeCapacity(groqPolicy, runtime.generator),
+    []
+  );
+
+  const unsafePolicy = structuredClone(groqPolicy);
+  unsafePolicy.generation.request_interval_ms = 20000;
+  const unsafeRuntime = {
+    ...runtime.generator,
+    schedule_minutes: 15,
+    per_run_cap: 5,
+    execution_timeout_seconds: 90
+  };
+  const errors = validateGroqRuntimeCapacity(
+    unsafePolicy,
+    unsafeRuntime
+  ).join("\n");
+  assert.match(errors, /one-minute rate window/);
+
+  unsafePolicy.generation.request_interval_ms = 65000;
+  const capacityErrors = validateGroqRuntimeCapacity(
+    unsafePolicy,
+    unsafeRuntime
+  ).join("\n");
+  assert.match(capacityErrors, /TPD limit/);
+  assert.match(capacityErrors, /exhausts the Generator execution timeout/);
+
+  const oversizedRequest = structuredClone(groqPolicy);
+  oversizedRequest.generation.maximum_combined_input_characters = 25000;
+  const requestErrors = validateGroqRuntimeCapacity(
+    oversizedRequest,
+    runtime.generator
+  ).join("\n");
+  assert.match(requestErrors, /repair-request character token estimate.*TPM/i);
 });
 
 test("Groq prompt budget compacts canonical evidence and bounds oversized descriptions", () => {

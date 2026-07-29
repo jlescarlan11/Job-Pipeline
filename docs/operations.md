@@ -130,7 +130,7 @@ run must clear zero additional inputs.
    deregistering schedules already cached by a long-running n8n process. If the
    workflow existed in that process, deactivate it through the supported
    runtime surface or restart n8n, then inspect execution history through at
-   least the 5-minute alert cadence before treating it as inactive.
+   least the 15-minute alert cadence before treating it as inactive.
 2. Rebind every Google Sheets node to the non-production workbook and test OAuth credential.
 3. Rebind the Groq model node to a test credential. Confirm the project permits
    `config/groq-provider-policy.json`'s selected model; a credential alone does
@@ -140,8 +140,8 @@ run must clear zero additional inputs.
    `Review Queue` tab deep link in the n8n runtime. Never paste either value
    into workflow JSON, the Sheet, logs, or test evidence.
 5. Confirm no HTTP node targets an application-submit URL.
-6. Confirm the configured schedules are 4 hours, 15 minutes, 5 minutes,
-   10 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 5. Confirm
+6. Confirm the configured schedules are 4 hours, 90 minutes, 15 minutes,
+   10 minutes, 45 minutes, 24 hours, and 168 hours; generator cap is 1. Confirm
    Analytics is fixed at 02:00 daily and Recommender at 02:45 Mondays in
    `Asia/Manila`, leaving the configured 30-minute timeout plus 15-minute
    completion buffer.
@@ -322,6 +322,13 @@ the next run.
 - Exercise one direct, adjacent, unscorable, unavailable, and unsupported job.
 - Confirm a ready pack makes one initial Groq call and a valid draft becomes
   `ready`.
+- With the scheduled Generator disabled, confirm the production project shows
+  current limits at least as large as the checked-in 8,000 TPM, 200,000 TPD,
+  30 RPM, and 1,000 RPD baseline. In the explicitly authorized smoke, force
+  one repair and verify its request starts at least 65 seconds after the
+  initial request completes. Reconcile exact provider token measurements
+  against the character-estimated planning envelope; do not activate on an
+  account with lower limits.
 - Confirm `review_required` and `blocked` packs make zero Groq calls, return to
   human review, and retain bounded pack warnings.
 - Force one first draft containing Expo, React Native, a banned phrase, more
@@ -368,12 +375,12 @@ the next run.
 - Force a rate limit or provider `5xx` response and verify bounded backoff,
   sanitized error evidence, and preservation of the application pack. Confirm
   a check at one minute is not yet due and appends no retry claim, the scheduled
-  5-minute poll occurs after the 2-minute lease expires, the due retry wins, and
+  15-minute poll occurs after the 2-minute lease expires, the due retry wins, and
   no rolling chain of losing alert claims remains. Confirm the 90-second
   workflow timeout is shorter than the lease and the cap remains 5.
 - Queue 5 new ready alerts immediately after an Alerter run. Confirm the next
-  sweep processes all 5 within five minutes. Over one 15-minute Generator
-  interval, confirm the three Alerter sweeps expose capacity for 15 alerts
+  sweep processes all 5 within 15 minutes. Over one 90-minute Generator
+  interval, confirm the six Alerter sweeps expose capacity for 30 alerts
   without making generation wait for Slack.
 - Test an invalid/missing webhook, an unavailable source, and a stale `sending`
   row. Confirm no provider request for the first two suppression/configuration
@@ -382,7 +389,7 @@ the next run.
   repeated skip still requires a valid, explicit reviewer action.
 
 To roll back only the cadence, disable the imported Alerter and wait for
-running executions, restore `schedule_minutes=3` in
+running executions, restore `schedule_minutes=5` in
 `config/alert-policy.json`, regenerate, import inactive, and rerun the retry
 claim-expiry smoke case. Do not clear pending/retryable timestamps or reset a
 `sending` row: existing rows remain compatible, and `sending` is potentially
@@ -490,7 +497,7 @@ Before activation, poll `/healthz/readiness` and internally scrape `/metrics`.
 Alert after two missed one-minute readiness checks, any unexpected failed
 execution in 15 minutes, or a production execution waiting five minutes.
 Reconcile those signals with sanitized logs and Sheet state. Alert when the
-oldest due generation exceeds 30 minutes, a pending alert exceeds 15 minutes,
+oldest due generation exceeds 120 minutes, a pending alert exceeds 45 minutes,
 a manual action exceeds 30 minutes, any active processing marker exceeds its
 stage lease, or three provider rate-limit events occur within 15 minutes.
 These checks are observational and must not clear state or retry ambiguous
@@ -511,8 +518,9 @@ fails.
 6. Manually execute and verify the reviewer on production data without setting
    actions. Confirm the new queue projection and source/archive/dashboard
    counts before enabling schedules.
-7. Verify the sanitized Groq benchmark evidence, current model permission, and
-   selected model ID still match `config/groq-provider-policy.json`. A
+7. Verify the sanitized Groq benchmark evidence, current model permission,
+   selected model ID, and account-specific rate limits still meet
+   `config/groq-provider-policy.json`. A
    `benchmark_required`, forbidden, deprecated, or shutdown selection blocks
    Generator activation.
 8. Verify the production Slack/review environment variables without recording

@@ -19,6 +19,8 @@ const review = JSON.parse(
 test("runtime timeouts are positive, scheduled, lease-safe, and Manila-bound", () => {
   assert.deepEqual(validateRuntimeConfig(runtime), []);
   assert.equal(workflowTimezone(runtime), "Asia/Manila");
+  assert.equal(runtime.generator.schedule_minutes, 90);
+  assert.equal(runtime.generator.per_run_cap, 1);
   assert.deepEqual(workflowExecutionDataSettings(runtime), {
     saveDataSuccessExecution: "none",
     saveDataErrorExecution: "all",

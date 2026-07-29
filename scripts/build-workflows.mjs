@@ -819,7 +819,8 @@ async function buildGenerator() {
   );
   const {
     groqInitialUserCharacterBudget,
-    resolveGroqGenerationModel
+    resolveGroqGenerationModel,
+    validateGroqRuntimeCapacity
   } = await import(new URL("../src/groq-provider.mjs", import.meta.url));
   assertValidProfileConfiguration(profile, policy);
   const rankingPolicyErrors = validateRankingPolicy(rankingPolicy, profile);
@@ -837,6 +838,15 @@ async function buildGenerator() {
   const alertPolicyErrors = validateAlertPolicy(alertPolicy);
   if (alertPolicyErrors.length > 0) {
     throw new Error(`Invalid alert policy:\n- ${alertPolicyErrors.join("\n- ")}`);
+  }
+  const groqRuntimeErrors = validateGroqRuntimeCapacity(
+    groqPolicy,
+    runtime.generator
+  );
+  if (groqRuntimeErrors.length > 0) {
+    throw new Error(
+      `Unsafe Groq runtime capacity:\n- ${groqRuntimeErrors.join("\n- ")}`
+    );
   }
   const groqModel = resolveGroqGenerationModel(groqPolicy);
   const applicationSystemMessage = buildApplicationSystemMessage(
@@ -949,7 +959,7 @@ async function buildGenerator() {
       systemMessage: applicationSystemMessage,
       batching: {
         batchSize: 1,
-        delayBetweenBatches: 20000
+        delayBetweenBatches: groqPolicy.generation.request_interval_ms
       }
     }
   };
@@ -968,11 +978,17 @@ async function buildGenerator() {
   const repairAgent = structuredClone(agent);
   repairAgent.id = "ee12f5d9-c0d5-4586-bf62-000000000020";
   repairAgent.name = "Repair AI Agent";
-  repairAgent.position = [1620, 560];
+  repairAgent.position = [1860, 560];
   repairAgent.parameters = {
     ...repairAgent.parameters,
     text: "={{ $json.repair_prompt }}"
   };
+  const repairWait = intervalWaitNode({
+    id: "ee12f5d9-c0d5-4586-bf62-000000000022",
+    name: "Wait Before Repair",
+    position: [1620, 560],
+    milliseconds: groqPolicy.generation.request_interval_ms
+  });
 
   const prepareCode = `${evaluationCore}
 
@@ -1688,11 +1704,12 @@ return {
       id: "ee12f5d9-c0d5-4586-bf62-000000000019",
       name: "Needs Repair"
     },
+    repairWait,
     repairAgent,
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000021",
       name: "Validate Repaired Message",
-      position: [1860, 560],
+      position: [2100, 560],
       mode: "runOnceForEachItem",
       jsCode: validateRepairedMessageCode
     }),
@@ -1700,7 +1717,7 @@ return {
       base: activeUpdateBase,
       id: "ee12f5d9-c0d5-4586-bf62-000000000015",
       name: "Commit Generation Result",
-      position: [2100, 440],
+      position: [2340, 440],
       matchingField: "processing_commit_guard",
       fields: commitFields
     })
@@ -1766,9 +1783,12 @@ return {
     },
     "Needs Repair": {
       main: [
-        [connection("Repair AI Agent")],
+        [connection("Wait Before Repair")],
         [connection("Commit Generation Result")]
       ]
+    },
+    "Wait Before Repair": {
+      main: [[connection("Repair AI Agent")]]
     },
     "Repair AI Agent": {
       main: [
@@ -1807,6 +1827,8 @@ return {
         groqProviderPolicyVersion: groqPolicy.policy_version,
         groqModel: groqModel.id,
         groqProductionActivation: groqModel.production_activation,
+        groqRequestIntervalMilliseconds:
+          groqPolicy.generation.request_interval_ms,
         pipelineSchemaVersion: schema.storage_version,
         generatorPerRunCap: runtime.generator.per_run_cap,
         executionTimeoutSeconds:

@@ -63,14 +63,16 @@ must be credential-free HTTPS URLs.
 
 ## Delivery and failure semantics
 
-The 5-minute recovery schedule selects only due `pending` or `retryable_failure`
+The 15-minute recovery schedule selects only due `pending` or `retryable_failure`
 records, orders them by opportunity, freshness, and canonical identity, and
-applies a cap of 5. Three sweeps per Generator interval provide capacity for 15
-alerts, three times the Generator’s maximum 5 new ready records, while reducing
-idle Sheet reads from 480 to 288 per day. This avoids 70,080 scheduled
-executions and idle reads per year. A winning claim is persisted as `sending`
-before the Slack request. Confirmed `2xx`/`ok` delivery becomes `sent` with a
-timestamp, attempt count, and optional non-sensitive provider reference.
+applies a cap of 5. Six sweeps per 90-minute Generator interval provide
+capacity for 30 alerts versus at most 1 new ready record. The cadence reduces
+idle Sheet reads from the original 480 to 96 per day, avoiding 140,160
+scheduled executions and idle reads per year; the change from the prior
+five-minute baseline alone avoids 70,080 per year. A winning claim is persisted
+as `sending` before the Slack request. Confirmed `2xx`/`ok` delivery becomes
+`sent` with a timestamp, attempt count, and optional non-sensitive provider
+reference.
 
 Known transient failures such as rate limiting or provider `5xx` responses use
 bounded exponential backoff. The workflow has a 90-second execution timeout,
@@ -83,7 +85,7 @@ requires the workflow timeout to be shorter than the lease, the lease to
 expire before the next scheduled poll, the capped serial provider-timeout
 budget to fit within the workflow timeout, and the base backoff to be no
 shorter than the lease. A ready record, due retry, or stale `sending` record is
-observed within one five-minute sweep. Permanent rejection, exhausted attempts,
+observed within one 15-minute sweep. Permanent rejection, exhausted attempts,
 missing configuration, and ambiguous timeout become
 `terminal_failure`. If the request may have succeeded but its final Sheet
 acknowledgement was not persisted, the stale `sending` state becomes terminal
@@ -133,7 +135,7 @@ alerter only after the generator and reviewer are verified.
 To roll back, disable the alerter first and wait for running executions. Preserve
 all alert fields and inspect any `sending` row as potentially delivered. Never
 reset it to `pending` or delete delivery evidence merely to make it retry.
-Restore the prior three-minute cadence only through
+Restore the immediately prior five-minute cadence only through
 `config/alert-policy.json`, regenerate the exports, import them inactive, and
 repeat the claim-expiry smoke test before activation. Existing pending and
 retryable rows need no migration; they remain due at their stored timestamps.

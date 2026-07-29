@@ -21,10 +21,10 @@ regular-mode policy here sets the production concurrency limit to 3.
 n8n regular mode has no production concurrency limit by default. The template
 sets `N8N_CONCURRENCY_PRODUCTION_LIMIT=3`. Summing each workflow's outer
 timeout divided by its trigger interval gives a conservative
-timeout-weighted demand of 1.485 execution slots. Three slots therefore leave
-approximately 2× headroom even if every scheduled workflow consumes its full
+timeout-weighted demand of 0.785 execution slots. Three slots therefore leave
+more than 3.8× headroom even if every scheduled workflow consumes its full
 outer timeout. Excess trigger executions queue in FIFO order; a five-minute
-queue wait is an alert condition because it consumes the complete Alerter
+queue wait remains an alert condition and consumes one-third of the Alerter
 recovery interval.
 
 The limit applies to production trigger executions, not manual, sub-workflow,
@@ -47,9 +47,9 @@ Pruning is explicit rather than inherited from an n8n default:
 - `EXECUTIONS_DATA_PRUNE_MAX_COUNT=10000`
 - `EXECUTIONS_DATA_HARD_DELETE_BUFFER=1` hour
 
-At 3,970 scheduled executions per week, an extreme case where every scheduled
-run fails and is retained creates 7,940 records in 14 days. The 10,000-record
-cap therefore preserves the complete age window plus 2,060 manual, retry, or
+At 2,066 scheduled executions per week, an extreme case where every scheduled
+run fails and is retained creates 4,132 records in 14 days. The 10,000-record
+cap therefore preserves the complete age window plus 5,868 manual, retry, or
 error executions while still bounding database growth. Running or waiting
 executions and annotated evidence are subject to n8n's documented pruning
 semantics and must be inspected separately.
@@ -66,8 +66,8 @@ queue wait of five minutes. Reconcile n8n metrics and saved failures with
 sanitized workflow logs and durable Sheet state. The checked-in thresholds
 also flag:
 
-- a due generation record older than 30 minutes;
-- a pending alert older than 15 minutes;
+- a due generation record older than 120 minutes;
+- a pending alert older than 45 minutes;
 - a manual action older than 30 minutes;
 - any active processing marker beyond its stage lease; or
 - three provider rate-limit events within 15 minutes.

@@ -137,7 +137,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC18 — Bounded execution-data writes:** Runtime/config and generated
   workflow tests require all seven exports to retain failures and manual smoke
   runs while skipping successful production payloads and per-node progress.
-  The checked-in cadences total 3,970 scheduled runs per week; authoritative
+  The checked-in cadences total 2,066 scheduled runs per week; authoritative
   success remains in Sheets, and the runbook separately gates instance-level
   age/count pruning.
 - **I6-AC19 — Ordered learning schedules:** Configuration, policy, generated
@@ -148,8 +148,8 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
 - **I6-AC20 — Bounded self-hosted runtime:** A credential-free deployment
   policy and validator pin regular-mode production concurrency to 3,
   timeout-weighted demand to at most 1.5 slots, execution pruning to 336 hours
-  or 10,000 rows, and internal readiness/workflow-labeled metrics. At 3,970
-  scheduled runs per week, a 14-day all-failure case is 7,940 rows. Tests
+  or 10,000 rows, and internal readiness/workflow-labeled metrics. At 2,066
+  scheduled runs per week, a 14-day all-failure case is 4,132 rows. Tests
   reject disabled pruning, insufficient retention, exhausted concurrency
   headroom, public metrics, or a fabricated portable error-workflow binding.
   The runbook requires validation inside production and separately gates Cloud
@@ -235,7 +235,7 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   score/confidence/freshness/gap/pack eligibility only after atomic pack commit
   and stores `pending` immediately, independent of the reviewer cadence.
 - **Configured provider and complete payload:** `config/alert-policy.json` and
-  the 5-minute Slack workflow use environment-bound webhook/review values and
+  the 15-minute Slack workflow use environment-bound webhook/review values and
   render all required score, employer/salary/freshness, gap, Apply Points,
   instruction/question/proof/warning, and safe action context with explicit
   unknown labels.
@@ -246,11 +246,11 @@ Concurrent discovery is additionally protected by append-only `discovery` claims
   scopes one initial alert. Confirmed delivery persists channel/version/time
   and bounded provider reference; known transient rejection retries with
   bounded backoff. The 90-second workflow timeout is shorter than the
-  2-minute lease, the lease expires before the next 5-minute poll, and retry
+  2-minute lease, the lease expires before the next 15-minute poll, and retry
   backoff never precedes lease expiry, so polls cannot create a starvation
-  chain of losing claims. Three capped sweeps per Generator interval can
-  process 15 alerts, three times its maximum 5-record output. New work and
-  recovery states are observed within five minutes.
+  chain of losing claims. Six capped sweeps per Generator interval can process
+  30 alerts versus its maximum 1-record output. New work and recovery states
+  are observed within 15 minutes.
   Configuration/permanent/unavailable paths remain visible.
 - **Ambiguous delivery safety:** Records move through `sending`; timeout or a
   lost acknowledgement is terminal/ambiguous and never blindly resent.
@@ -890,3 +890,26 @@ failures, fixes, and reconciliation are recorded in
 - **I25-AC18 — Adjacent regression:** Full alert, review, generation, Archive,
   workflow, and E2E suites retain eligibility, manual submission, and durable
   state behavior.
+
+## Production audit — Groq rate capacity
+
+- **RATE-AC1 — Versioned pacing:** The provider policy owns a 65-second request
+  interval. Both Agent batching settings and a dedicated pre-repair Wait node
+  are generated from it.
+- **RATE-AC2 — Per-minute bound:** Character-based worst-case initial and
+  repair estimates, including maximum output, are 4,384 and 6,384; each stays
+  below the selected model's documented 8,000 TPM developer-base limit.
+- **RATE-AC3 — Daily bound:** A 90-minute schedule, cap of 1, boundary-aware
+  17-run planning count, and one repair per record produce at most 34 requests
+  and 183,056 character-estimated tokens per day.
+- **RATE-AC4 — Build rejection:** Provider/runtime validation rejects a
+  one-minute pacing overlap, a request above TPM, scheduled RPD/TPD exhaustion,
+  or pacing that consumes the Generator's outer timeout.
+- **RATE-AC5 — Honest activation boundary:** Documentation identifies the
+  calculation as a no-cache planning estimate, excludes manual/benchmark
+  activity, and requires current account-specific limits plus exact live token
+  measurements before activation.
+- **RATE-AC6 — Backlog-safe handoff:** Existing jobs and due timestamps are
+  unchanged. Ordered claim-safe selection drains at the lower cap, while six
+  independent Alerter sweeps retain capacity for 30 deliveries per Generator
+  interval.

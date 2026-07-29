@@ -49,7 +49,7 @@ test("README and architecture document the checked-in schedules, bounds, and man
     assert.doesNotMatch(document, /three independent n8n workflows|cap(?:ped)? (?:at|of) 10/i);
   }
   assert.match(readme, /all checked-in n8n exports have `active: false`/i);
-  assert.match(architecture, /at most 5/i);
+  assert.match(architecture, /at most 1/i);
   assert.match(architecture, /3 times with 5-second/i);
   assert.match(architecture, /10-minute claim lease/i);
   assert.match(architecture, /partial refresh cannot replace/i);
@@ -92,7 +92,7 @@ test("runtime documentation preserves failure evidence without successful execut
     assert.match(document, /per-node\s+(?:execution\s+)?progress/i);
   }
   for (const document of [readme, architecture]) {
-    assert.match(document, /3,970 (?:normally successful )?scheduled executions per week/i);
+    assert.match(document, /2,066 (?:normally successful )?scheduled executions per week/i);
   }
   assert.match(operations, /instance-level pruning/i);
 });
@@ -104,13 +104,13 @@ test("deployment documentation pins bounded self-hosted controls without claimin
     assert.match(document, /10,000/i);
     assert.match(document, /validate:deployment/i);
   }
-  assert.match(deploymentDoc, /1\.485 execution slots/i);
-  assert.match(deploymentDoc, /7,940 records/i);
+  assert.match(deploymentDoc, /0\.785 execution slots/i);
+  assert.match(deploymentDoc, /4,132 records/i);
   assert.match(deploymentDoc, /metrics endpoint[\s\S]{0,100}internal/i);
   assert.match(deploymentDoc, /instance-assigned workflow/i);
   assert.match(deploymentDoc, /error executions[\s\S]{0,100}bypass/i);
-  assert.match(operations, /oldest due generation exceeds 30 minutes/i);
-  assert.match(operations, /pending alert exceeds 15 minutes/i);
+  assert.match(operations, /oldest due generation exceeds 120 minutes/i);
+  assert.match(operations, /pending alert exceeds 45 minutes/i);
   assert.match(operations, /manual action exceeds 30 minutes/i);
 });
 
@@ -212,6 +212,11 @@ test("Groq documentation preserves the model lifecycle, measurement, and activat
   assert.match(groqProviderDoc, /character-based estimate/i);
   assert.match(groqProviderDoc, /exact provider input/i);
   assert.match(groqProviderDoc, /two highest-ranked selected profile proofs/i);
+  assert.match(groqProviderDoc, /183,056 character-estimated tokens/i);
+  assert.match(groqProviderDoc, /34 requests/i);
+  assert.match(groqProviderDoc, /65 seconds/i);
+  assert.match(groqProviderDoc, /no cache hits/i);
+  assert.match(groqProviderDoc, /account-specific limits/i);
   assert.match(groqProviderDoc, /--live/);
   assert.match(groqProviderDoc, /never prints prompts/i);
   assert.match(groqProviderDoc, /rollback/i);
@@ -327,9 +332,9 @@ test("alert documentation keeps retries behind claim expiry and execution timeou
     alertsDoc,
     new RegExp(`cap of ${alertPolicy.per_run_cap}\\b`, "i")
   );
-  assert.match(alertsDoc, /480 to 288 per day/i);
-  assert.match(alertsDoc, /70,080 scheduled\s+executions/i);
-  assert.match(alertsDoc, /capacity for 15\s+alerts/i);
+  assert.match(alertsDoc, /480 to 96 per day/i);
+  assert.match(alertsDoc, /140,160\s+scheduled\s+executions/i);
+  assert.match(alertsDoc, /capacity for 30\s+alerts/i);
   assert.match(alertsDoc, /deployment-stable n8n\s+workflow ID/i);
   assert.match(architecture, /starve\s+the\s+due retry/i);
   assert.match(operations, /appends no retry\s+claim/i);

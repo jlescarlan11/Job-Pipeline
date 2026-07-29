@@ -178,7 +178,7 @@ async function benchmarkCase({
         cost_usd: estimateGroqCostUsd(model, initial.usage)
       };
     }
-    await wait(rateLimitDelayMilliseconds(model, initial.usage.input_tokens));
+    await wait(policy.generation.request_interval_ms);
     const repair = await requestCompletion({
       apiKey,
       model,
@@ -260,7 +260,10 @@ async function runLiveBenchmark(modelIds) {
       if (cases.length > 0) {
         const previous = cases.at(-1);
         await wait(
-          rateLimitDelayMilliseconds(model, previous.input_tokens || 1)
+          Math.max(
+            policy.generation.request_interval_ms,
+            rateLimitDelayMilliseconds(model, previous.input_tokens || 1)
+          )
         );
       }
       try {

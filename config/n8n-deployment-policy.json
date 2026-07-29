@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v1",
+  "policy_version": "2026-07-30/v2",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -39,7 +39,7 @@
     "maximum_age_hours": 336,
     "maximum_count": 10000,
     "hard_delete_buffer_hours": 1,
-    "scheduled_failure_count_at_maximum_age": 7940
+    "scheduled_failure_count_at_maximum_age": 4132
   },
   "monitoring": {
     "metrics_internal_only": true,
@@ -50,8 +50,8 @@
       "readiness_consecutive_failures": 2,
       "failed_executions_in_15_minutes": 1,
       "production_queue_wait_seconds": 300,
-      "oldest_due_generation_minutes": 30,
-      "oldest_pending_alert_minutes": 15,
+      "oldest_due_generation_minutes": 120,
+      "oldest_pending_alert_minutes": 45,
       "oldest_manual_action_minutes": 30,
       "active_claim_past_lease_count": 1,
       "provider_rate_limit_events_in_15_minutes": 3

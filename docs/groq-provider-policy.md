@@ -26,11 +26,46 @@ Official evidence, last verified 2026-07-30:
 - [Qwen 3.6 27B model](https://console.groq.com/docs/model/qwen/qwen3.6-27b)
 - [Llama 3.3 70B model](https://console.groq.com/docs/model/llama-3.3-70b-versatile)
 - [Groq rate limits](https://console.groq.com/docs/rate-limits)
+- [Groq prompt caching](https://console.groq.com/docs/prompt-caching)
 - [Groq model permissions](https://console.groq.com/docs/model-permissions)
 
 The checked-in developer limits are a planning baseline, not an account
 entitlement. The exact organization/project limits and model permissions in
 Groq Console remain authoritative.
+
+## Scheduled rate-capacity bound
+
+Groq applies rate limits at organization level, returns `429` when a limit is
+exceeded, and does not guarantee that prompt caching will remove input tokens
+from a request. The production calculation therefore assumes no cache hits and
+includes the maximum configured output on every request.
+
+For `openai/gpt-oss-120b`, the documented developer-base limits used by the
+policy are 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute, and
+200,000 tokens/day. With the character-estimate divisor of 3:
+
+- maximum initial request: `ceil((18,000 - 6,000) / 3) + 384 = 4,384`;
+- maximum repair request: `ceil(18,000 / 3) + 384 = 6,384`;
+- maximum per selected record: `10,768` character-estimated tokens;
+- conservative 90-minute trigger count: `ceil(1,440 / 90) + 1 = 17` per day;
+- maximum scheduled use: 34 requests and 183,056 character-estimated tokens
+  per day, leaving 16,944 tokens, or 8.5%, below the planning limit.
+
+Both single-request estimates are below 8,000. The workflow waits 65 seconds
+between an initial call and its possible repair, so two worst-case calls do not
+share the same one-minute planning window. The Generator cap is 1 and the
+maximum pacing delay is 65 seconds, inside its 540-second execution timeout.
+The build fails if policy or runtime edits exceed the selected model's
+per-minute, daily, or execution-time envelope.
+
+These values are deliberately labeled character-based estimates. They are not
+exact tokenizer counts, do not reserve capacity used by another project in the
+same Groq organization, and do not include manual executions or the opt-in
+benchmark. Before either of those activities, disable the scheduled Generator,
+verify the current account-specific limits in Groq Console, and retain the
+required live measurements. Higher verified limits may justify a separately
+versioned cadence/cap change; they do not make the checked-in base-limit proof
+less conservative.
 
 ## Request and prompt bounds
 

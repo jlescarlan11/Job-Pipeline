@@ -9,8 +9,8 @@ All checked-in n8n exports have `active: false`. Importing this repository does 
 | Export | Schedule | Responsibility |
 | --- | --- | --- |
 | `workflows/scraper.json` | Every 4 hours | Start 22 evidence-linked queries, follow source pagination only while a next page exists up to the 3-page cap, preserve result-card alignment, reconcile active/archive history, and append only the winning discovery claim. |
-| `workflows/generator.json` | Every 15 minutes | Select at most 5 eligible jobs, gate Groq on a ready application pack, validate the first draft, make at most one validation-aware repair call, and persist ready, review, retry, or terminal state. |
-| `workflows/alerter.json` | Every 5 minutes | Claim newly ready high-opportunity jobs, send one Slack alert with the complete copy-ready message and safe links through an environment-bound webhook, and persist delivery or bounded failure evidence. |
+| `workflows/generator.json` | Every 90 minutes | Select at most 1 eligible job, gate Groq on a ready application pack, validate the first draft, make at most one validation-aware repair call after a 65-second wait, and persist ready, review, retry, or terminal state. |
+| `workflows/alerter.json` | Every 15 minutes | Claim newly ready high-opportunity jobs, send one Slack alert with the complete copy-ready message and safe links through an environment-bound webhook, and persist delivery or bounded failure evidence. |
 | `workflows/reviewer.json` | Every 10 minutes | Exit after six reads when the complete review snapshot is unchanged, otherwise reconcile Review Queue and Applied Jobs, safely commit guarded decisions/outcomes, and publish a post-action funnel summary only when its metrics change. |
 | `workflows/analytics.json` | Every 24 hours | Read deduplicated active/archive state, skip a content-identical complete result, otherwise publish versioned conversion/calibration detail and mark it complete only after all detail rows persist. |
 | `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, skip an already-current equivalent successful result, otherwise publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
@@ -32,14 +32,22 @@ submission or unsafe retry.
 The same generated settings retain failed production executions and manual
 smoke tests, but do not retain successful production executions or per-node
 progress snapshots. At the configured cadences this avoids saving payloads for
-3,970 normally successful scheduled executions per week; the authoritative
+2,066 normally successful scheduled executions per week; the authoritative
 success state remains in Google Sheets.
 
-The Alerter's five-minute recovery sweep runs 288 times per day instead of 480,
-avoiding 70,080 scheduled executions and idle `Sheet1` reads per year. Its cap
-of 5 still provides capacity for 15 alerts during each 15-minute Generator
-interval, three times the Generator's maximum new output. A new ready alert,
-due retry, or stale ambiguous delivery is therefore observed within five
+The Generator's 90-minute cadence and cap of 1 are the checked-in conservative
+baseline for the selected model's documented 200,000-token developer-base
+daily allowance. Its character-based planning ceiling is 183,056 tokens and
+34 requests per day, including one repair for every selected record. The
+initial and repair calls are separated by 65 seconds. Exact account limits and
+provider token measurements must still pass the live activation gate.
+
+The Alerter's 15-minute recovery sweep runs 96 times per day instead of the
+original 480, avoiding 140,160 scheduled executions and idle `Sheet1` reads per
+year. This cadence alone saves 70,080 per year relative to the prior
+five-minute baseline. Its cap of 5 provides capacity for 30 alerts during each
+90-minute Generator interval, versus at most one new Generator output. A new
+ready alert, due retry, or stale ambiguous delivery is observed within 15
 minutes without binding successful generation to Slack availability.
 
 An exact idle Reviewer snapshot performs six Sheet reads and no writes. Before

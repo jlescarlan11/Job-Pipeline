@@ -171,8 +171,8 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     (7 * 24 * 60) / runtime.archiver.schedule_minutes +
     (7 * 24) / analyticsPolicy.schedule_hours +
     (7 * 24) / recommendationPolicy.schedule_hours;
-  assert.equal(scheduledRunsPerWeek, 3970);
-  assert.equal((7 * 24 * 60) / alertPolicy.schedule_minutes, 2016);
+  assert.equal(scheduledRunsPerWeek, 2066);
+  assert.equal((7 * 24 * 60) / alertPolicy.schedule_minutes, 672);
   assert.equal(review.schedule_minutes, 10);
   assert.equal((7 * 24 * 60) / review.schedule_minutes, 1008);
   assert.ok(
@@ -258,6 +258,32 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     groqPolicy.policy_version
   );
   assert.equal(generator.meta.groqModel, groqPolicy.selected_model);
+  assert.equal(
+    generator.meta.groqRequestIntervalMilliseconds,
+    groqPolicy.generation.request_interval_ms
+  );
+  for (const agentName of ["AI Agent", "Repair AI Agent"]) {
+    assert.equal(
+      nodeByName(generator, agentName).parameters.options.batching
+        .delayBetweenBatches,
+      groqPolicy.generation.request_interval_ms
+    );
+  }
+  const repairWait = nodeByName(generator, "Wait Before Repair");
+  assert.equal(repairWait.parameters.resume, "timeInterval");
+  assert.equal(repairWait.parameters.unit, "seconds");
+  assert.equal(
+    repairWait.parameters.amount * 1000,
+    groqPolicy.generation.request_interval_ms
+  );
+  assert.deepEqual(
+    generator.connections["Needs Repair"].main[0],
+    [{ node: "Wait Before Repair", type: "main", index: 0 }]
+  );
+  assert.deepEqual(
+    generator.connections["Wait Before Repair"].main[0],
+    [{ node: "Repair AI Agent", type: "main", index: 0 }]
+  );
   const groq = nodeByName(generator, "Groq Chat Model");
   assert.equal(groq.parameters.model, groqPolicy.selected_model);
   assert.equal(
@@ -534,7 +560,8 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   );
   assertDirectConnection(workflow, "AI Agent", "Validate Initial Draft");
   assertDirectConnection(workflow, "Validate Initial Draft", "Needs Repair");
-  assertDirectConnection(workflow, "Needs Repair", "Repair AI Agent");
+  assertDirectConnection(workflow, "Needs Repair", "Wait Before Repair");
+  assertDirectConnection(workflow, "Wait Before Repair", "Repair AI Agent");
   assertDirectConnection(
     workflow,
     "Needs Repair",

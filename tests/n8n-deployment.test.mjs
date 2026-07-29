@@ -41,15 +41,15 @@ const configs = {
 test("deployment policy bounds self-hosted concurrency and execution retention", () => {
   assert.deepEqual(validateN8nDeploymentPolicy(policy, configs), []);
   const capacity = deploymentCapacity(configs);
-  assert.equal(capacity.scheduled_executions_per_week, 3970);
+  assert.equal(capacity.scheduled_executions_per_week, 2066);
   assert.ok(
-    Math.abs(capacity.timeout_weighted_concurrency - 1.4848214285714285) <
+    Math.abs(capacity.timeout_weighted_concurrency - 0.7848214285714286) <
       1e-12
   );
   assert.equal(capacity.maximum_workflow_timeout_seconds, 1800);
   assert.equal(
     policy.execution_retention.scheduled_failure_count_at_maximum_age,
-    7940
+    4132
   );
   assert.ok(
     policy.execution_retention.maximum_count >
@@ -86,8 +86,8 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
   invalid.environment.EXECUTIONS_DATA_PRUNE = "false";
   invalid.environment.EXECUTIONS_DATA_PRUNE_MAX_COUNT = "100";
   invalid.execution_retention.maximum_count = 100;
-  invalid.capacity.production_concurrency_limit = 2;
-  invalid.environment.N8N_CONCURRENCY_PRODUCTION_LIMIT = "2";
+  invalid.capacity.production_concurrency_limit = 1;
+  invalid.environment.N8N_CONCURRENCY_PRODUCTION_LIMIT = "1";
   invalid.capacity.maximum_utilization_ratio = 0.5;
   invalid.monitoring.metrics_internal_only = false;
   invalid.failure_detection.central_error_workflow_bound = true;
