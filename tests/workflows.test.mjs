@@ -851,6 +851,8 @@ test("alerter export claims, validates, sends, and commits without state-changin
     "Get Processing Claims",
     "Keep Winning Alert Claims",
     "Mark Alert Attempts",
+    "Get Active After Alert Mark",
+    "Confirm Alert Attempt Markers",
     "Prepare Alert Delivery",
     "Should Send Provider Alert",
     "Send Slack Alert",
@@ -887,6 +889,27 @@ test("alerter export claims, validates, sends, and commits without state-changin
   const markAlert = nodeByName(workflow, "Mark Alert Attempts");
   assert.ok(markAlert.parameters.columns.value.processing_commit_guard);
   assert.ok(markAlert.parameters.columns.value.processing_token);
+  assertDirectConnection(
+    workflow,
+    "Mark Alert Attempts",
+    "Get Active After Alert Mark"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active After Alert Mark",
+    "Confirm Alert Attempt Markers"
+  );
+  assertDirectConnection(
+    workflow,
+    "Confirm Alert Attempt Markers",
+    "Prepare Alert Delivery"
+  );
+  const confirmAttempt = nodeByName(
+    workflow,
+    "Confirm Alert Attempt Markers"
+  ).parameters.jsCode;
+  assert.match(confirmAttempt, /confirmAlertAttemptMarkers/);
+  assert.match(confirmAttempt, /\$\('Keep Winning Alert Claims'\)\.all\(\)/);
   const prepare = nodeByName(
     workflow,
     "Prepare Alert Delivery"
@@ -919,7 +942,7 @@ test("alerter export claims, validates, sends, and commits without state-changin
     assert.match(code, /function validateGeneratedMessage\s*\(/);
     assert.match(code, /function validateApplicationPack\s*\(/);
   }
-  assert.match(prepare, /\$\('Keep Winning Alert Claims'\)\.item\.json/);
+  assert.match(prepare, /const record = \$json/);
   assert.doesNotMatch(prepare, /request_url/);
   const prepareRuntime = prepare.slice(prepare.lastIndexOf("const POLICY ="));
   assert.match(prepareRuntime, /processing_commit_guard:\s*commitGuard/);

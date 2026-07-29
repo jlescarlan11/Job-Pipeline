@@ -7,6 +7,7 @@ import {
   alertRenderErrorCategory,
   applyAlertProviderResult,
   classifyAlertProviderResult,
+  confirmAlertAttemptMarkers,
   evaluateAlertEligibility as evaluateAlertEligibilityCore,
   queueAlertState as queueAlertStateCore,
   renderAlert as renderAlertCore,
@@ -584,6 +585,64 @@ test("confirmed success persists delivery evidence and suppresses duplicate init
     sentUnderPreviousPolicy,
     "a policy rollout must not requeue a confirmed delivery"
   );
+});
+
+test("provider delivery requires an individually persisted alert-attempt marker", () => {
+  const marked = {
+    ...ready(),
+    state_guard: "onlinejobs.ph:7001|state-a",
+    alert_status: "sending",
+    processing_stage: "alert",
+    processing_token: "execution-a:onlinejobs.ph:7001:alert",
+    processing_commit_guard:
+      "commit:execution-a:onlinejobs.ph:7001:alert"
+  };
+  const stalePeer = {
+    ...marked,
+    row_number: 3,
+    source_job_id: "7002",
+    canonical_job_id: "onlinejobs.ph:7002",
+    state_guard: "onlinejobs.ph:7002|state-b",
+    processing_token: "execution-a:onlinejobs.ph:7002:alert",
+    processing_commit_guard:
+      "commit:execution-a:onlinejobs.ph:7002:alert"
+  };
+  const freshRows = [
+    { ...marked, row_number: 12 },
+    {
+      ...stalePeer,
+      processing_commit_guard: "commit:newer-owner"
+    }
+  ];
+
+  assert.deepEqual(
+    confirmAlertAttemptMarkers([marked, stalePeer], freshRows),
+    [{ ...marked, row_number: 12 }],
+    "a mixed Sheets update result must not carry an unmatched peer to Slack"
+  );
+  assert.deepEqual(
+    confirmAlertAttemptMarkers(
+      [marked],
+      [freshRows[0], { ...freshRows[0], row_number: 13 }]
+    ),
+    [],
+    "duplicate durable commit markers must fail closed"
+  );
+  for (const mismatch of [
+    { canonical_job_id: "onlinejobs.ph:other" },
+    { processing_token: "newer-token" },
+    { processing_stage: "generation" },
+    { state_guard: "onlinejobs.ph:7001|newer-state" },
+    { alert_status: "terminal_failure" }
+  ]) {
+    assert.deepEqual(
+      confirmAlertAttemptMarkers(
+        [marked],
+        [{ ...freshRows[0], ...mismatch }]
+      ),
+      []
+    );
+  }
 });
 
 test("policy rollout preserves pending retry ownership, due time, and attempt budget", () => {

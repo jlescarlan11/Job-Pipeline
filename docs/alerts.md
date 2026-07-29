@@ -78,9 +78,14 @@ capacity for 30 alerts versus at most 1 new ready record. The cadence reduces
 idle Sheet reads from the original 480 to 96 per day, avoiding 140,160
 scheduled executions and idle reads per year; the change from the prior
 five-minute baseline alone avoids 70,080 per year. A winning claim is persisted
-as `sending` before the Slack request. Confirmed `2xx`/`ok` delivery becomes
-`sent` with a timestamp, attempt count, and optional non-sensitive provider
-reference.
+as `sending` before the Slack request. The workflow then re-reads the active
+tab and requires exactly one row with the same canonical identity, state
+guard, processing token, commit guard, stage, and alert status before that
+item can reach Slack. This per-item confirmation is required because a mixed
+multi-item Google Sheets update can return an unmatched input whenever another
+item in the same node did update successfully. Confirmed `2xx`/`ok` delivery
+becomes `sent` with a timestamp, attempt count, and optional non-sensitive
+provider reference.
 
 Known transient failures such as rate limiting or provider `5xx` responses use
 bounded exponential backoff. The response classifier normalizes n8n's

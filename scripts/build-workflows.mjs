@@ -3962,6 +3962,11 @@ async function buildAlerter() {
   claimsRead.alwaysOutputData = true;
 
   const activeUpdateBase = structuredClone(activeRead);
+  const activeAfterAlertMark = structuredClone(activeRead);
+  activeAfterAlertMark.id = "a11e7e00-0000-4000-8000-000000000015";
+  activeAfterAlertMark.name = "Get Active After Alert Mark";
+  activeAfterAlertMark.position = [340, 180];
+  activeAfterAlertMark.alwaysOutputData = true;
   const alertFields = [
     "state_guard",
     "alert_status",
@@ -4037,6 +4042,22 @@ console.log(JSON.stringify({
 }));
 return winners.map((record) => ({ json: record }));`;
 
+  const confirmAttemptCode = `${alertCore}
+
+const planned = $('Keep Winning Alert Claims').all()
+  .map((item) => item.json);
+const freshRows = $input.all()
+  .map((item) => item.json)
+  .filter((row) => row && Object.keys(row).length > 0);
+const confirmed = confirmAlertAttemptMarkers(planned, freshRows);
+console.log(JSON.stringify({
+  event: 'alert_attempt_markers',
+  proposed: planned.length,
+  confirmed: confirmed.length,
+  rejected: planned.length - confirmed.length
+}));
+return confirmed.map((record) => ({ json: record }));`;
+
   const prepareDeliveryCode = `${alertCore}
 
 const POLICY = ${JSON.stringify(policy)};
@@ -4045,7 +4066,7 @@ const MESSAGE_SAFETY = {
   applicationPolicy: ${JSON.stringify(applicationPolicy)},
   packPolicy: ${JSON.stringify(packPolicy)}
 };
-const record = $('Keep Winning Alert Claims').item.json;
+const record = $json;
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
 const commitGuard =
@@ -4205,7 +4226,7 @@ return {
     },
     type: "n8n-nodes-base.if",
     typeVersion: 2.3,
-    position: [560, 180],
+    position: [1000, 180],
     id: "a11e7e00-0000-4000-8000-000000000010",
     name: "Should Send Provider Alert"
   };
@@ -4236,7 +4257,7 @@ return {
     },
     type: "n8n-nodes-base.httpRequest",
     typeVersion: 4.2,
-    position: [780, 80],
+    position: [1220, 80],
     id: "a11e7e00-0000-4000-8000-000000000011",
     name: "Send Slack Alert",
     retryOnFail: false,
@@ -4282,10 +4303,17 @@ return {
         "updated_at"
       ]
     }),
+    activeAfterAlertMark,
+    codeNode({
+      id: "a11e7e00-0000-4000-8000-000000000016",
+      name: "Confirm Alert Attempt Markers",
+      position: [560, 180],
+      jsCode: confirmAttemptCode
+    }),
     codeNode({
       id: "a11e7e00-0000-4000-8000-000000000009",
       name: "Prepare Alert Delivery",
-      position: [340, 180],
+      position: [780, 180],
       mode: "runOnceForEachItem",
       jsCode: prepareDeliveryCode
     }),
@@ -4294,7 +4322,7 @@ return {
     codeNode({
       id: "a11e7e00-0000-4000-8000-000000000012",
       name: "Finalize Alert Delivery",
-      position: [1000, 80],
+      position: [1440, 80],
       mode: "runOnceForEachItem",
       jsCode: finalizeCode
     }),
@@ -4302,7 +4330,7 @@ return {
       base: activeUpdateBase,
       id: "a11e7e00-0000-4000-8000-000000000013",
       name: "Commit Alert Result",
-      position: [1240, 180],
+      position: [1680, 180],
       matchingField: "processing_commit_guard",
       fields: alertFields
     })
@@ -4316,7 +4344,13 @@ return {
     "Aggregate Alert Claims": { main: [[connection("Get Processing Claims")]] },
     "Get Processing Claims": { main: [[connection("Keep Winning Alert Claims")]] },
     "Keep Winning Alert Claims": { main: [[connection("Mark Alert Attempts")]] },
-    "Mark Alert Attempts": { main: [[connection("Prepare Alert Delivery")]] },
+    "Mark Alert Attempts": { main: [[connection("Get Active After Alert Mark")]] },
+    "Get Active After Alert Mark": {
+      main: [[connection("Confirm Alert Attempt Markers")]]
+    },
+    "Confirm Alert Attempt Markers": {
+      main: [[connection("Prepare Alert Delivery")]]
+    },
     "Prepare Alert Delivery": { main: [[connection("Should Send Provider Alert")]] },
     "Should Send Provider Alert": {
       main: [

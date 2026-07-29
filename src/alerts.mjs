@@ -486,6 +486,48 @@ export function selectAlertCandidates(
   };
 }
 
+export function confirmAlertAttemptMarkers(plannedRecords, freshRows) {
+  const planned = Array.isArray(plannedRecords) ? plannedRecords : [];
+  const current = (Array.isArray(freshRows) ? freshRows : []).filter(
+    (row) => row && typeof row === "object" && !Array.isArray(row)
+  );
+  return planned.flatMap((record) => {
+    const identity = String(record?.canonical_job_id || "").trim();
+    const commitGuard = String(
+      record?.processing_commit_guard || ""
+    ).trim();
+    const processingToken = String(record?.processing_token || "").trim();
+    const stateGuard = String(record?.state_guard || "").trim();
+    const alertStatus = String(record?.alert_status || "").trim();
+    if (
+      !identity ||
+      !commitGuard ||
+      !processingToken ||
+      !stateGuard ||
+      !alertStatus
+    ) {
+      return [];
+    }
+    const matches = current.filter(
+      (candidate) =>
+        String(candidate?.processing_commit_guard || "").trim() ===
+        commitGuard
+    );
+    if (matches.length !== 1) return [];
+    const persisted = matches[0];
+    if (
+      String(persisted.canonical_job_id || "").trim() !== identity ||
+      String(persisted.processing_token || "").trim() !== processingToken ||
+      String(persisted.processing_stage || "").trim() !== "alert" ||
+      String(persisted.state_guard || "").trim() !== stateGuard ||
+      String(persisted.alert_status || "").trim() !== alertStatus
+    ) {
+      return [];
+    }
+    return [{ ...record, row_number: persisted.row_number }];
+  });
+}
+
 function summaryList(values, policy, fallback) {
   if (!Array.isArray(values) || values.length === 0) return fallback;
   return values

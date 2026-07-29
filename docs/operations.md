@@ -409,7 +409,11 @@ compatible and reconcile on the next run.
   the n8n error-output item may contain a string `error`, and verify it still
   classifies as `rate_limit` or `provider_failure` rather than
   `provider_malformed_response`. Force a string-shaped timeout separately and
-  verify terminal `ambiguous_timeout` with no blind resend. Confirm
+  verify terminal `ambiguous_timeout` with no blind resend. Exercise a
+  two-item attempt where one `state_guard` is stale: the fresh post-mark read
+  must pass only the durably marked item to Slack even if the Sheets update
+  node reports both inputs. Duplicate or mismatched commit markers must pass
+  neither item. Confirm
   a check at one minute is not yet due and appends no retry claim, the scheduled
   15-minute poll occurs after the 2-minute lease expires, the due retry wins, and
   no rolling chain of losing alert claims remains. Confirm the 90-second
