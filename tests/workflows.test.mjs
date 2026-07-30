@@ -947,6 +947,7 @@ test("alerter export claims, validates, sends, and commits without state-changin
     "Get Processing Claims",
     "Keep Winning Alert Claims",
     "Mark Alert Attempts",
+    "Aggregate Alert Attempt Marks",
     "Get Active After Alert Mark",
     "Confirm Alert Attempt Markers",
     "Prepare Alert Delivery",
@@ -985,9 +986,18 @@ test("alerter export claims, validates, sends, and commits without state-changin
   const markAlert = nodeByName(workflow, "Mark Alert Attempts");
   assert.ok(markAlert.parameters.columns.value.processing_commit_guard);
   assert.ok(markAlert.parameters.columns.value.processing_token);
+  assert.equal(
+    nodeByName(workflow, "Aggregate Alert Attempt Marks").parameters.aggregate,
+    "aggregateAllItemData"
+  );
   assertDirectConnection(
     workflow,
     "Mark Alert Attempts",
+    "Aggregate Alert Attempt Marks"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Alert Attempt Marks",
     "Get Active After Alert Mark"
   );
   assertDirectConnection(
@@ -1224,6 +1234,11 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Mark Active Review Claims",
+    "Aggregate Active Review Claim Marks"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active Review Claim Marks",
     "Get Active After Review Queue Claims"
   );
   assertDirectConnection(
@@ -1270,6 +1285,18 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     assert.match(code, /confirmClaimedReviewUpdates/);
     assert.match(code, /function confirmClaimedReviewUpdates\s*\(/);
   }
+  for (const fanInName of [
+    "Aggregate Active Review Claim Marks",
+    "Aggregate Active Applied Jobs Claim Marks",
+    "Aggregate Active Direct Review Claim Marks",
+    "Aggregate Archive Review Claim Marks",
+    "Aggregate Archive Direct Review Claim Marks"
+  ]) {
+    assert.equal(
+      nodeByName(workflow, fanInName).parameters.aggregate,
+      "aggregateAllItemData"
+    );
+  }
   assertDirectConnection(
     workflow,
     "Prepare Archive Review Claims",
@@ -1278,6 +1305,11 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Mark Archive Review Claims",
+    "Aggregate Archive Review Claim Marks"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Archive Review Claim Marks",
     "Get Archive After Applied Jobs Claims"
   );
   assertDirectConnection(
@@ -1312,6 +1344,11 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Mark Active Direct Review Claims",
+    "Aggregate Active Direct Review Claim Marks"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active Direct Review Claim Marks",
     "Get Active After Direct Review Claims"
   );
   assertDirectConnection(
@@ -1341,6 +1378,11 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Mark Archive Direct Review Claims",
+    "Aggregate Archive Direct Review Claim Marks"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Archive Direct Review Claim Marks",
     "Get Archive After Direct Review Claims"
   );
   assertDirectConnection(
@@ -1361,6 +1403,11 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Mark Active Applied Jobs Claims",
+    "Aggregate Active Applied Jobs Claim Marks"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Active Applied Jobs Claim Marks",
     "Get Active After Applied Jobs Claims"
   );
   assertDirectConnection(

@@ -3195,6 +3195,12 @@ return [{ json: {
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
     }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000109",
+      name: "Aggregate Active Review Claim Marks",
+      position: [500, -600],
+      destinationFieldName: "marks_written"
+    }),
     activeAfterQueueClaim,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000104",
@@ -3245,6 +3251,12 @@ return confirmClaimedReviewUpdates(
       position: [1340, -320],
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000110",
+      name: "Aggregate Active Applied Jobs Claim Marks",
+      position: [1560, -600],
+      destinationFieldName: "marks_written"
     }),
     activeAfterAppliedClaim,
     aggregateNode({
@@ -3303,6 +3315,12 @@ return confirmClaimedReviewUpdates(
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
     }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000111",
+      name: "Aggregate Active Direct Review Claim Marks",
+      position: [1780, -600],
+      destinationFieldName: "marks_written"
+    }),
     activeAfterDirectClaim,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000106",
@@ -3360,6 +3378,12 @@ return confirmClaimedReviewUpdates(
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
     }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000112",
+      name: "Aggregate Archive Review Claim Marks",
+      position: [3100, -600],
+      destinationFieldName: "marks_written"
+    }),
     archiveAfterAppliedClaim,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000078",
@@ -3416,6 +3440,12 @@ return confirmClaimedReviewUpdates(
       position: [4200, -180],
       matchingField: "state_guard",
       fields: ["processing_commit_guard"]
+    }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000113",
+      name: "Aggregate Archive Direct Review Claim Marks",
+      position: [4420, -600],
+      destinationFieldName: "marks_written"
     }),
     archiveAfterDirectClaim,
     aggregateNode({
@@ -3774,6 +3804,9 @@ return [{ json: {
     },
     "Prepare Active Review Claims": { main: [[connection("Mark Active Review Claims")]] },
     "Mark Active Review Claims": {
+      main: [[connection("Aggregate Active Review Claim Marks")]]
+    },
+    "Aggregate Active Review Claim Marks": {
       main: [[connection("Get Active After Review Queue Claims")]]
     },
     "Get Active After Review Queue Claims": {
@@ -3801,6 +3834,9 @@ return [{ json: {
       main: [[connection("Mark Active Applied Jobs Claims")]]
     },
     "Mark Active Applied Jobs Claims": {
+      main: [[connection("Aggregate Active Applied Jobs Claim Marks")]]
+    },
+    "Aggregate Active Applied Jobs Claim Marks": {
       main: [[connection("Get Active After Applied Jobs Claims")]]
     },
     "Get Active After Applied Jobs Claims": {
@@ -3828,6 +3864,9 @@ return [{ json: {
       main: [[connection("Mark Active Direct Review Claims")]]
     },
     "Mark Active Direct Review Claims": {
+      main: [[connection("Aggregate Active Direct Review Claim Marks")]]
+    },
+    "Aggregate Active Direct Review Claim Marks": {
       main: [[connection("Get Active After Direct Review Claims")]]
     },
     "Get Active After Direct Review Claims": {
@@ -3855,6 +3894,9 @@ return [{ json: {
       main: [[connection("Mark Archive Review Claims")]]
     },
     "Mark Archive Review Claims": {
+      main: [[connection("Aggregate Archive Review Claim Marks")]]
+    },
+    "Aggregate Archive Review Claim Marks": {
       main: [[connection("Get Archive After Applied Jobs Claims")]]
     },
     "Get Archive After Applied Jobs Claims": {
@@ -3882,6 +3924,9 @@ return [{ json: {
       main: [[connection("Mark Archive Direct Review Claims")]]
     },
     "Mark Archive Direct Review Claims": {
+      main: [[connection("Aggregate Archive Direct Review Claim Marks")]]
+    },
+    "Aggregate Archive Direct Review Claim Marks": {
       main: [[connection("Get Archive After Direct Review Claims")]]
     },
     "Get Archive After Direct Review Claims": {
@@ -4468,6 +4513,12 @@ return {
         "updated_at"
       ]
     }),
+    aggregateNode({
+      id: "a11e7e00-0000-4000-8000-000000000017",
+      name: "Aggregate Alert Attempt Marks",
+      position: [340, 320],
+      destinationFieldName: "marks_written"
+    }),
     activeAfterAlertMark,
     codeNode({
       id: "a11e7e00-0000-4000-8000-000000000016",
@@ -4509,7 +4560,12 @@ return {
     "Aggregate Alert Claims": { main: [[connection("Get Processing Claims")]] },
     "Get Processing Claims": { main: [[connection("Keep Winning Alert Claims")]] },
     "Keep Winning Alert Claims": { main: [[connection("Mark Alert Attempts")]] },
-    "Mark Alert Attempts": { main: [[connection("Get Active After Alert Mark")]] },
+    "Mark Alert Attempts": {
+      main: [[connection("Aggregate Alert Attempt Marks")]]
+    },
+    "Aggregate Alert Attempt Marks": {
+      main: [[connection("Get Active After Alert Mark")]]
+    },
     "Get Active After Alert Mark": {
       main: [[connection("Confirm Alert Attempt Markers")]]
     },

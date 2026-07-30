@@ -379,6 +379,21 @@
     },
     {
       "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "marks_written",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        340,
+        320
+      ],
+      "id": "a11e7e00-0000-4000-8000-000000000017",
+      "name": "Aggregate Alert Attempt Marks"
+    },
+    {
+      "parameters": {
         "documentId": {
           "__rl": true,
           "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
@@ -842,6 +857,17 @@
       ]
     },
     "Mark Alert Attempts": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Alert Attempt Marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Alert Attempt Marks": {
       "main": [
         [
           {

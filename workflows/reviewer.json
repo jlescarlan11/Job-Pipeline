@@ -506,6 +506,21 @@
     },
     {
       "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "marks_written",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        500,
+        -600
+      ],
+      "id": "88af9ce3-b45f-4aa8-a980-000000000109",
+      "name": "Aggregate Active Review Claim Marks"
+    },
+    {
+      "parameters": {
         "documentId": {
           "__rl": true,
           "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
@@ -1085,6 +1100,21 @@
     },
     {
       "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "marks_written",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        -600
+      ],
+      "id": "88af9ce3-b45f-4aa8-a980-000000000110",
+      "name": "Aggregate Active Applied Jobs Claim Marks"
+    },
+    {
+      "parameters": {
         "documentId": {
           "__rl": true,
           "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
@@ -1436,6 +1466,21 @@
         }
       },
       "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "marks_written",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        -600
+      ],
+      "id": "88af9ce3-b45f-4aa8-a980-000000000111",
+      "name": "Aggregate Active Direct Review Claim Marks"
     },
     {
       "parameters": {
@@ -2031,6 +2076,21 @@
     },
     {
       "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "marks_written",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        3100,
+        -600
+      ],
+      "id": "88af9ce3-b45f-4aa8-a980-000000000112",
+      "name": "Aggregate Archive Review Claim Marks"
+    },
+    {
+      "parameters": {
         "documentId": {
           "__rl": true,
           "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
@@ -2376,6 +2436,21 @@
         }
       },
       "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "marks_written",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        4420,
+        -600
+      ],
+      "id": "88af9ce3-b45f-4aa8-a980-000000000113",
+      "name": "Aggregate Archive Direct Review Claim Marks"
     },
     {
       "parameters": {
@@ -4904,6 +4979,17 @@
       "main": [
         [
           {
+            "node": "Aggregate Active Review Claim Marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Active Review Claim Marks": {
+      "main": [
+        [
+          {
             "node": "Get Active After Review Queue Claims",
             "type": "main",
             "index": 0
@@ -4996,6 +5082,17 @@
       ]
     },
     "Mark Active Applied Jobs Claims": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Active Applied Jobs Claim Marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Active Applied Jobs Claim Marks": {
       "main": [
         [
           {
@@ -5094,6 +5191,17 @@
       "main": [
         [
           {
+            "node": "Aggregate Active Direct Review Claim Marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Active Direct Review Claim Marks": {
+      "main": [
+        [
+          {
             "node": "Get Active After Direct Review Claims",
             "type": "main",
             "index": 0
@@ -5189,6 +5297,17 @@
       "main": [
         [
           {
+            "node": "Aggregate Archive Review Claim Marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Archive Review Claim Marks": {
+      "main": [
+        [
+          {
             "node": "Get Archive After Applied Jobs Claims",
             "type": "main",
             "index": 0
@@ -5281,6 +5400,17 @@
       ]
     },
     "Mark Archive Direct Review Claims": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Archive Direct Review Claim Marks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Archive Direct Review Claim Marks": {
       "main": [
         [
           {

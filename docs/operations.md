@@ -258,9 +258,11 @@ Slack HTTP node must remain an explicit JSON `POST`.
 - Simulate a stale guard, missing identity, duplicate source identity,
   conflicting duplicate queue actions, and a conflict with a direct `Sheet1`
   action. Confirm no ambiguous source update occurs and the execution log
-  contains only sanitized diagnostics. In a two-action batch, make one source
-  guard stale before marking and confirm only the individually persisted peer
-  can commit even if the Sheets node reports both inputs.
+  contains only sanitized diagnostics. First run a two-action batch with two
+  valid marks and confirm the fan-in barrier causes one authoritative reread
+  and both individually persisted actions commit. Then make one source guard
+  stale before marking and confirm only the individually persisted peer can
+  commit even if the Sheets node reports both inputs.
 - Interrupt once before the guarded source commit and once after source commit
   but before queue cleanup. Confirm the first case preserves the pending input,
   the second leaves authoritative `Sheet1` state intact, and the next Reviewer
@@ -424,8 +426,9 @@ compatible and reconcile on the next run.
   verify terminal `ambiguous_timeout` with no blind resend. Exercise a
   two-item attempt where one `state_guard` is stale: the fresh post-mark read
   must pass only the durably marked item to Slack even if the Sheets update
-  node reports both inputs. Duplicate or mismatched commit markers must pass
-  neither item. Confirm
+  node reports both inputs. First exercise two valid markers and confirm the
+  fan-in barrier makes one authoritative reread and both proceed. Duplicate or
+  mismatched commit markers must pass neither item. Confirm
   a check at one minute is not yet due and appends no retry claim, the scheduled
   15-minute poll occurs after the 2-minute lease expires, the due retry wins, and
   no rolling chain of losing alert claims remains. Confirm the 90-second

@@ -86,6 +86,12 @@ and unchanged direct-action value before committing. A direct action entered
 or changed after the initial snapshot takes precedence; a mixed multi-item
 Sheets update cannot authorize a peer whose mark did not persist.
 
+Every authoritative read that follows a multi-item Generator, Alerter, or
+Reviewer mark has a one-item aggregate barrier before the Google Sheets node.
+Google Sheets node version 4.7 evaluates reads once per incoming item; without
+that barrier, one full-tab result would be duplicated for every marked input
+and valid unique commit guards would fail the duplicate-marker check.
+
 ## Opportunity-learning dimensions
 
 - `qualification_score` and `opportunity_score` are distinct 0–100 values.
