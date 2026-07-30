@@ -1470,6 +1470,51 @@ export function selectWorkCandidates(
     .map((candidate) => candidate.record);
 }
 
+export function confirmGenerationClaimMarkers(plannedRecords, freshRows) {
+  const planned = Array.isArray(plannedRecords) ? plannedRecords : [];
+  const current = (Array.isArray(freshRows) ? freshRows : []).filter(
+    (row) => row && typeof row === "object" && !Array.isArray(row)
+  );
+  return planned.flatMap((record) => {
+    const identity = String(record?.canonical_job_id || "").trim();
+    const commitGuard = String(
+      record?.processing_commit_guard || ""
+    ).trim();
+    const processingToken = String(record?.processing_token || "").trim();
+    const stateGuard = String(record?.state_guard || "").trim();
+    const workStage = String(record?.work_stage || "").trim();
+    const manualAction = String(
+      record?.claimed_manual_action ?? record?.manual_action ?? ""
+    ).trim();
+    if (
+      !identity ||
+      !commitGuard ||
+      !processingToken ||
+      !stateGuard ||
+      !["evaluation", "generation"].includes(workStage)
+    ) {
+      return [];
+    }
+    const matches = current.filter(
+      (candidate) =>
+        String(candidate?.processing_commit_guard || "").trim() ===
+        commitGuard
+    );
+    if (matches.length !== 1) return [];
+    const persisted = matches[0];
+    if (
+      String(persisted.canonical_job_id || "").trim() !== identity ||
+      String(persisted.processing_token || "").trim() !== processingToken ||
+      String(persisted.processing_stage || "").trim() !== workStage ||
+      String(persisted.state_guard || "").trim() !== stateGuard ||
+      String(persisted.manual_action || "").trim() !== manualAction
+    ) {
+      return [];
+    }
+    return [{ ...record, row_number: persisted.row_number }];
+  });
+}
+
 function sanitizeError(value) {
   return normalizeText(value)
     .replace(/https?:\/\/\S+/gi, "[url]")

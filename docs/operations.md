@@ -367,6 +367,12 @@ compatible and reconcile on the next run.
 - Confirm a valid repair is committed once under the original processing claim.
   Confirm an invalid or failed repair increments `attempt_count` once, never
   stores the rejected draft, and cannot overwrite a newer manual decision.
+- Select one evaluation candidate and one generation candidate together, then
+  make only one `Mark Claimed Jobs` update persist. Confirm the fresh Sheet
+  read rejects the unmatched peer before any job-detail or Groq request. For a
+  separately confirmed generation claim, change `manual_action` while the
+  provider call is in flight and confirm the pre-commit read discards the stale
+  result without clearing the newer action.
 - Force the initial Agent to return an n8n error-output item and confirm the
   execution persists one categorized generation failure with no repair call.
   Separately force the Repair Agent error output and confirm the initial plus

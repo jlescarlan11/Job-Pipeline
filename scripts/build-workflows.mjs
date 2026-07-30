@@ -832,9 +832,12 @@ async function buildGenerator() {
   );
   const {
     buildApplicationSystemMessage,
+    confirmGenerationClaimMarkers,
     validateApplicationPackPolicy,
     validateRankingPolicy
   } = await import(new URL("../src/evaluation.mjs", import.meta.url));
+  const generationClaimConfirmationCore =
+    confirmGenerationClaimMarkers.toString();
   const { validateAlertPolicy } = await import(
     new URL("../src/alerts.mjs", import.meta.url)
   );
@@ -899,6 +902,26 @@ async function buildGenerator() {
     "Get Active Rows"
   ]);
   activeUpdateBase.parameters.sheetName = structuredClone(activeRead.parameters.sheetName);
+  const activeAfterGenerationMark = structuredClone(activeRead);
+  activeAfterGenerationMark.id =
+    "ee12f5d9-c0d5-4586-bf62-000000000023";
+  activeAfterGenerationMark.name = "Get Active After Generation Mark";
+  activeAfterGenerationMark.position = [300, 320];
+  activeAfterGenerationMark.alwaysOutputData = true;
+  const activeBeforeEvaluationCommit = structuredClone(activeRead);
+  activeBeforeEvaluationCommit.id =
+    "ee12f5d9-c0d5-4586-bf62-000000000025";
+  activeBeforeEvaluationCommit.name =
+    "Get Active Before Evaluation Commit";
+  activeBeforeEvaluationCommit.position = [1580, 20];
+  activeBeforeEvaluationCommit.alwaysOutputData = true;
+  const activeBeforeGenerationCommit = structuredClone(activeRead);
+  activeBeforeGenerationCommit.id =
+    "ee12f5d9-c0d5-4586-bf62-000000000028";
+  activeBeforeGenerationCommit.name =
+    "Get Active Before Generation Commit";
+  activeBeforeGenerationCommit.position = [3020, 440];
+  activeBeforeGenerationCommit.alwaysOutputData = true;
 
   const claimsRead = structuredClone(activeRead);
   claimsRead.id = "ee12f5d9-c0d5-4586-bf62-000000000005";
@@ -942,9 +965,9 @@ async function buildGenerator() {
 
   const fetchDetail = nodeByAnyName(current, ["HTTP Request", "Fetch Job Detail"]);
   fetchDetail.name = "Fetch Job Detail";
-  fetchDetail.position = [420, -120];
+  fetchDetail.position = [1100, -120];
   fetchDetail.parameters = {
-    url: "={{ $('Keep Winning Claims').item.json.canonical_url }}",
+    url: "={{ $json.canonical_url }}",
     sendHeaders: true,
     headerParameters: {
       parameters: [
@@ -970,7 +993,7 @@ async function buildGenerator() {
   fetchDetail.onError = "continueRegularOutput";
 
   const agent = nodeByName(current, "AI Agent");
-  agent.position = [900, 440];
+  agent.position = [1340, 440];
   agent.parameters = {
     promptType: "define",
     text: "={{ $json.application_prompt }}",
@@ -985,7 +1008,7 @@ async function buildGenerator() {
   agent.onError = "continueErrorOutput";
 
   const groq = nodeByName(current, "Groq Chat Model");
-  groq.position = [1140, 760];
+  groq.position = [1580, 760];
   groq.parameters = {
     model: groqModel.id,
     options: {
@@ -997,7 +1020,7 @@ async function buildGenerator() {
   const repairAgent = structuredClone(agent);
   repairAgent.id = "ee12f5d9-c0d5-4586-bf62-000000000020";
   repairAgent.name = "Repair AI Agent";
-  repairAgent.position = [1860, 560];
+  repairAgent.position = [2300, 560];
   repairAgent.parameters = {
     ...repairAgent.parameters,
     text: "={{ $json.repair_prompt }}"
@@ -1005,7 +1028,7 @@ async function buildGenerator() {
   const repairWait = intervalWaitNode({
     id: "ee12f5d9-c0d5-4586-bf62-000000000022",
     name: "Wait Before Repair",
-    position: [1620, 560],
+    position: [2060, 560],
     milliseconds: groqPolicy.generation.request_interval_ms
   });
 
@@ -1041,6 +1064,7 @@ return selected.map((record) => {
       processing_token: claim.processing_token,
       processing_commit_guard: processingCommitGuard(claim.processing_token),
       processing_started_at: now,
+      claimed_manual_action: record.manual_action,
       claim_created_at: claim.created_at,
       claim_expires_at: claim.expires_at,
       updated_at: now
@@ -1061,9 +1085,25 @@ console.log(JSON.stringify({
 }));
 return winners.map((record) => ({ json: record }));`;
 
+  const confirmClaimMarkersCode = (plannedNode, event) =>
+    `${generationClaimConfirmationCore}
+
+const planned = $('${plannedNode}').all().map((item) => item.json);
+const freshRows = $input.all()
+  .map((item) => item.json)
+  .filter((row) => row && Object.keys(row).length > 0);
+const confirmed = confirmGenerationClaimMarkers(planned, freshRows);
+console.log(JSON.stringify({
+  event: '${event}',
+  proposed: planned.length,
+  confirmed: confirmed.length,
+  rejected: planned.length - confirmed.length
+}));
+return confirmed.map((record) => ({ json: record }));`;
+
   const parseDetailCode = `${evaluationCore}
 
-const record = $('Keep Winning Claims').item.json;
+const record = $('Confirm Generation Claim Markers').item.json;
 const payload = $json || {};
 const errorMessage = externalResultErrorMessage(payload);
 if (errorMessage && !payload.data && !payload.body) {
@@ -1126,7 +1166,7 @@ const MESSAGE_SAFETY = {
   applicationPolicy: POLICY,
   packPolicy: PACK_POLICY
 };
-const originalRecord = $('Keep Winning Claims').item.json;
+const originalRecord = $('Confirm Generation Claim Markers').item.json;
 const record = $('Prepare Application Pack').item.json;
 const payload = $json || {};
 const now = new Date().toISOString();
@@ -1260,7 +1300,7 @@ const MESSAGE_SAFETY = {
   applicationPolicy: POLICY,
   packPolicy: PACK_POLICY
 };
-const originalRecord = $('Keep Winning Claims').item.json;
+const originalRecord = $('Confirm Generation Claim Markers').item.json;
 const record = $('Prepare Application Pack').item.json;
 const repairContext = $('Validate Initial Draft').item.json;
 const payload = $json || {};
@@ -1364,7 +1404,7 @@ const POLICY = ${JSON.stringify(policy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const GROQ_POLICY = ${JSON.stringify(groqPolicy)};
 const APPLICATION_SYSTEM_MESSAGE = ${JSON.stringify(applicationSystemMessage)};
-const record = $('Keep Winning Claims').item.json;
+const record = $('Confirm Generation Claim Markers').item.json;
 const now = new Date().toISOString();
 let pack = buildApplicationPack(record, PROFILE, POLICY, PACK_POLICY, now);
 let applicationPrompt = '';
@@ -1422,7 +1462,7 @@ return {
 
 const PROFILE = ${JSON.stringify(profile)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
-const originalRecord = $('Keep Winning Claims').item.json;
+const originalRecord = $('Confirm Generation Claim Markers').item.json;
 const record = $('Prepare Application Pack').item.json;
 const now = new Date().toISOString();
 const commitToken = record.processing_token;
@@ -1554,6 +1594,22 @@ return {
         "updated_at"
       ]
     }),
+    aggregateNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000030",
+      name: "Aggregate Generation Marks",
+      position: [80, 320],
+      destinationFieldName: "marks_written"
+    }),
+    activeAfterGenerationMark,
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000024",
+      name: "Confirm Generation Claim Markers",
+      position: [520, 320],
+      jsCode: confirmClaimMarkersCode(
+        "Keep Winning Claims",
+        "generation_claim_markers"
+      )
+    }),
     {
       parameters: {
         conditions: {
@@ -1566,7 +1622,7 @@ return {
           conditions: [
             {
               id: "ee12f5d9-evaluation-stage",
-              leftValue: "={{ $('Keep Winning Claims').item.json.work_stage }}",
+              leftValue: "={{ $json.work_stage }}",
               rightValue: "evaluation",
               operator: {
                 type: "string",
@@ -1580,7 +1636,7 @@ return {
       },
       type: "n8n-nodes-base.if",
       typeVersion: 2.3,
-      position: [180, 180],
+      position: [620, 180],
       id: "ee12f5d9-c0d5-4586-bf62-000000000008",
       name: "Is Evaluation Work"
     },
@@ -1596,7 +1652,7 @@ return {
           conditions: [
             {
               id: "ee12f5d9-description-present",
-              leftValue: "={{ $('Keep Winning Claims').item.json.job_description }}",
+              leftValue: "={{ $json.job_description }}",
               rightValue: "",
               operator: {
                 type: "string",
@@ -1611,37 +1667,47 @@ return {
       },
       type: "n8n-nodes-base.if",
       typeVersion: 2.3,
-      position: [420, 80],
+      position: [860, 80],
       id: "ee12f5d9-c0d5-4586-bf62-000000000009",
       name: "Has Stored Description"
     },
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000010",
       name: "Use Stored Detail",
-      position: [650, 20],
+      position: [1100, 20],
       mode: "runOnceForEachItem",
-      jsCode: "return { json: $('Keep Winning Claims').item.json };"
+      jsCode: "return { json: $json };"
     }),
     fetchDetail,
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000011",
       name: "Parse Job Detail",
-      position: [650, -120],
+      position: [1340, -120],
       mode: "runOnceForEachItem",
       jsCode: parseDetailCode
     }),
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000012",
       name: "Evaluate Job",
-      position: [890, 20],
+      position: [1340, 20],
       mode: "runOnceForEachItem",
       jsCode: evaluateCode
+    }),
+    activeBeforeEvaluationCommit,
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000026",
+      name: "Confirm Evaluation Commit Marker",
+      position: [1820, 20],
+      jsCode: confirmClaimMarkersCode(
+        "Evaluate Job",
+        "generation_evaluation_commit_marker"
+      )
     }),
     updateSheetByFieldNode({
       base: activeUpdateBase,
       id: "ee12f5d9-c0d5-4586-bf62-000000000013",
       name: "Commit Evaluation Result",
-      position: [1130, 20],
+      position: [2060, 20],
       matchingField: "processing_commit_guard",
       fields: commitFields.filter(
         (field) =>
@@ -1656,7 +1722,7 @@ return {
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000016",
       name: "Prepare Application Pack",
-      position: [420, 440],
+      position: [860, 440],
       mode: "runOnceForEachItem",
       jsCode: promptCode
     }),
@@ -1688,14 +1754,14 @@ return {
       },
       type: "n8n-nodes-base.if",
       typeVersion: 2.3,
-      position: [650, 440],
+      position: [1100, 440],
       id: "ee12f5d9-c0d5-4586-bf62-000000000017",
       name: "Is Application Pack Ready"
     },
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000018",
       name: "Persist Non-Ready Pack",
-      position: [900, 300],
+      position: [1340, 300],
       mode: "runOnceForEachItem",
       jsCode: nonReadyPackCode
     }),
@@ -1704,7 +1770,7 @@ return {
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000014",
       name: "Validate Initial Draft",
-      position: [1140, 440],
+      position: [1580, 440],
       mode: "runOnceForEachItem",
       jsCode: validateInitialMessageCode
     }),
@@ -1735,7 +1801,7 @@ return {
       },
       type: "n8n-nodes-base.if",
       typeVersion: 2.3,
-      position: [1380, 440],
+      position: [1820, 440],
       id: "ee12f5d9-c0d5-4586-bf62-000000000019",
       name: "Needs Repair"
     },
@@ -1744,15 +1810,32 @@ return {
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000021",
       name: "Validate Repaired Message",
-      position: [2100, 560],
+      position: [2540, 560],
       mode: "runOnceForEachItem",
       jsCode: validateRepairedMessageCode
+    }),
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000027",
+      name: "Stage Generation Result For Commit",
+      position: [2780, 440],
+      mode: "runOnceForEachItem",
+      jsCode: "return { json: $json };"
+    }),
+    activeBeforeGenerationCommit,
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000029",
+      name: "Confirm Generation Commit Marker",
+      position: [3260, 440],
+      jsCode: confirmClaimMarkersCode(
+        "Stage Generation Result For Commit",
+        "generation_result_commit_marker"
+      )
     }),
     updateSheetByFieldNode({
       base: activeUpdateBase,
       id: "ee12f5d9-c0d5-4586-bf62-000000000015",
       name: "Commit Generation Result",
-      position: [2340, 440],
+      position: [3500, 440],
       matchingField: "processing_commit_guard",
       fields: commitFields
     })
@@ -1766,7 +1849,18 @@ return {
     "Aggregate Claims Written": { main: [[connection("Get Processing Claims")]] },
     "Get Processing Claims": { main: [[connection("Keep Winning Claims")]] },
     "Keep Winning Claims": { main: [[connection("Mark Claimed Jobs")]] },
-    "Mark Claimed Jobs": { main: [[connection("Is Evaluation Work")]] },
+    "Mark Claimed Jobs": {
+      main: [[connection("Aggregate Generation Marks")]]
+    },
+    "Aggregate Generation Marks": {
+      main: [[connection("Get Active After Generation Mark")]]
+    },
+    "Get Active After Generation Mark": {
+      main: [[connection("Confirm Generation Claim Markers")]]
+    },
+    "Confirm Generation Claim Markers": {
+      main: [[connection("Is Evaluation Work")]]
+    },
     "Is Evaluation Work": {
       main: [
         [connection("Has Stored Description")],
@@ -1782,7 +1876,15 @@ return {
     "Use Stored Detail": { main: [[connection("Evaluate Job")]] },
     "Fetch Job Detail": { main: [[connection("Parse Job Detail")]] },
     "Parse Job Detail": { main: [[connection("Evaluate Job")]] },
-    "Evaluate Job": { main: [[connection("Commit Evaluation Result")]] },
+    "Evaluate Job": {
+      main: [[connection("Get Active Before Evaluation Commit")]]
+    },
+    "Get Active Before Evaluation Commit": {
+      main: [[connection("Confirm Evaluation Commit Marker")]]
+    },
+    "Confirm Evaluation Commit Marker": {
+      main: [[connection("Commit Evaluation Result")]]
+    },
     "Prepare Application Pack": {
       main: [[connection("Is Application Pack Ready")]]
     },
@@ -1793,7 +1895,7 @@ return {
       ]
     },
     "Persist Non-Ready Pack": {
-      main: [[connection("Commit Generation Result")]]
+      main: [[connection("Stage Generation Result For Commit")]]
     },
     "Groq Chat Model": {
       ai_languageModel: [
@@ -1819,7 +1921,7 @@ return {
     "Needs Repair": {
       main: [
         [connection("Wait Before Repair")],
-        [connection("Commit Generation Result")]
+        [connection("Stage Generation Result For Commit")]
       ]
     },
     "Wait Before Repair": {
@@ -1832,6 +1934,15 @@ return {
       ]
     },
     "Validate Repaired Message": {
+      main: [[connection("Stage Generation Result For Commit")]]
+    },
+    "Stage Generation Result For Commit": {
+      main: [[connection("Get Active Before Generation Commit")]]
+    },
+    "Get Active Before Generation Commit": {
+      main: [[connection("Confirm Generation Commit Marker")]]
+    },
+    "Confirm Generation Commit Marker": {
       main: [[connection("Commit Generation Result")]]
     }
   };

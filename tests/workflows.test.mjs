@@ -582,8 +582,13 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Append Processing Claims",
     "Get Processing Claims",
     "Keep Winning Claims",
+    "Aggregate Generation Marks",
+    "Get Active After Generation Mark",
+    "Confirm Generation Claim Markers",
     "Fetch Job Detail",
     "Evaluate Job",
+    "Get Active Before Evaluation Commit",
+    "Confirm Evaluation Commit Marker",
     "Prepare Application Pack",
     "Is Application Pack Ready",
     "Persist Non-Ready Pack",
@@ -592,6 +597,9 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Needs Repair",
     "Repair AI Agent",
     "Validate Repaired Message",
+    "Stage Generation Result For Commit",
+    "Get Active Before Generation Commit",
+    "Confirm Generation Commit Marker",
     "Commit Generation Result"
   ]) {
     nodeByName(workflow, requiredNode);
@@ -638,6 +646,46 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.ok(markClaim.parameters.columns.value.processing_token);
   assertDirectConnection(
     workflow,
+    "Mark Claimed Jobs",
+    "Aggregate Generation Marks"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Generation Marks",
+    "Get Active After Generation Mark"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active After Generation Mark",
+    "Confirm Generation Claim Markers"
+  );
+  assertDirectConnection(
+    workflow,
+    "Confirm Generation Claim Markers",
+    "Is Evaluation Work"
+  );
+  const prepareCandidates = nodeByName(
+    workflow,
+    "Prepare Work Candidates"
+  ).parameters.jsCode;
+  assert.match(prepareCandidates, /claimed_manual_action:\s*record\.manual_action/);
+  for (const [nodeName, plannedNode] of [
+    ["Confirm Generation Claim Markers", "Keep Winning Claims"],
+    ["Confirm Evaluation Commit Marker", "Evaluate Job"],
+    [
+      "Confirm Generation Commit Marker",
+      "Stage Generation Result For Commit"
+    ]
+  ]) {
+    const confirmation = nodeByName(workflow, nodeName).parameters.jsCode;
+    assert.match(confirmation, /confirmGenerationClaimMarkers/);
+    assert.match(
+      confirmation,
+      new RegExp(`\\$\\('${plannedNode}'\\)\\.all\\(\\)`)
+    );
+  }
+  assertDirectConnection(
+    workflow,
     "Prepare Application Pack",
     "Is Application Pack Ready"
   );
@@ -650,7 +698,7 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assertDirectConnection(
     workflow,
     "Persist Non-Ready Pack",
-    "Commit Generation Result"
+    "Stage Generation Result For Commit"
   );
   assertDirectConnection(workflow, "AI Agent", "Validate Initial Draft");
   assert.match(
@@ -663,7 +711,7 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assertDirectConnection(
     workflow,
     "Needs Repair",
-    "Commit Generation Result"
+    "Stage Generation Result For Commit"
   );
   assertDirectConnection(
     workflow,
@@ -673,6 +721,36 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assertDirectConnection(
     workflow,
     "Validate Repaired Message",
+    "Stage Generation Result For Commit"
+  );
+  assertDirectConnection(
+    workflow,
+    "Evaluate Job",
+    "Get Active Before Evaluation Commit"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active Before Evaluation Commit",
+    "Confirm Evaluation Commit Marker"
+  );
+  assertDirectConnection(
+    workflow,
+    "Confirm Evaluation Commit Marker",
+    "Commit Evaluation Result"
+  );
+  assertDirectConnection(
+    workflow,
+    "Stage Generation Result For Commit",
+    "Get Active Before Generation Commit"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active Before Generation Commit",
+    "Confirm Generation Commit Marker"
+  );
+  assertDirectConnection(
+    workflow,
+    "Confirm Generation Commit Marker",
     "Commit Generation Result"
   );
   assert.ok(
@@ -758,7 +836,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.match(generationCode, /function validateGeneratedMessage\s*\(/);
   assert.match(generationCode, /function validateApplicationPack\s*\(/);
   assert.match(generationCode, /externalResultErrorMessage\(payload\)/);
-  assert.match(generationCode, /const originalRecord = \$\('Keep Winning Claims'\)/);
+  assert.match(
+    generationCode,
+    /const originalRecord = \$\('Confirm Generation Claim Markers'\)/
+  );
   assert.match(generationCode, /applyGeneratedApplicationPack/);
   assert.match(
     generationCode,
@@ -784,6 +865,21 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   ).parameters.jsCode;
   assert.match(nonReadyCode, /applyNonReadyApplicationPack/);
   assert.doesNotMatch(nonReadyCode, /AI Agent|Groq Chat Model/);
+  for (const nodeName of [
+    "Parse Job Detail",
+    "Prepare Application Pack",
+    "Persist Non-Ready Pack",
+    "Validate Initial Draft",
+    "Validate Repaired Message"
+  ]) {
+    const code = nodeByName(workflow, nodeName).parameters.jsCode;
+    assert.match(code, /\$\('Confirm Generation Claim Markers'\)/);
+    assert.doesNotMatch(code, /\$\('Keep Winning Claims'\)/);
+  }
+  assert.equal(
+    nodeByName(workflow, "Fetch Job Detail").parameters.url,
+    "={{ $json.canonical_url }}"
+  );
   for (const nodeName of [
     "Evaluate Job",
     "Persist Non-Ready Pack",

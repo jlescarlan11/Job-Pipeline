@@ -12,6 +12,7 @@ import {
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   classifyExternalError,
+  confirmGenerationClaimMarkers,
   evaluateJob,
   externalResultErrorMessage,
   parseJobDetail,
@@ -55,6 +56,81 @@ I can walk through the relevant implementation decisions in a short call.
 LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
+
+test("generator confirms durable work markers and the claimed manual action", () => {
+  const evaluation = {
+    row_number: 7,
+    canonical_job_id: "onlinejobs.ph:7001",
+    state_guard: "onlinejobs.ph:7001|state-a",
+    work_stage: "evaluation",
+    processing_stage: "evaluation",
+    processing_token: "token:7001",
+    processing_commit_guard: "commit:7001",
+    manual_action: "",
+    claimed_manual_action: ""
+  };
+  const generation = {
+    row_number: 8,
+    canonical_job_id: "onlinejobs.ph:7002",
+    state_guard: "onlinejobs.ph:7002|state-b",
+    work_stage: "generation",
+    processing_stage: "generation",
+    processing_token: "token:7002",
+    processing_commit_guard: "commit:7002",
+    manual_action: "",
+    claimed_manual_action: "regenerate"
+  };
+  const persistedEvaluation = { ...evaluation, row_number: 17 };
+  delete persistedEvaluation.claimed_manual_action;
+  const persistedGeneration = {
+    ...generation,
+    row_number: 18,
+    manual_action: "regenerate"
+  };
+  delete persistedGeneration.claimed_manual_action;
+
+  assert.deepEqual(
+    confirmGenerationClaimMarkers(
+      [evaluation, generation],
+      [persistedEvaluation]
+    ),
+    [{ ...evaluation, row_number: 17 }],
+    "a mixed Sheet update must not authorize an unmatched peer"
+  );
+  assert.deepEqual(
+    confirmGenerationClaimMarkers(
+      [generation],
+      [persistedGeneration]
+    ),
+    [{ ...generation, row_number: 18 }]
+  );
+  for (const mismatch of [
+    { canonical_job_id: "onlinejobs.ph:other" },
+    { state_guard: "onlinejobs.ph:7002|newer-state" },
+    { processing_stage: "alert" },
+    { processing_token: "newer-token" },
+    { manual_action: "mark_skipped" }
+  ]) {
+    assert.deepEqual(
+      confirmGenerationClaimMarkers(
+        [generation],
+        [{ ...persistedGeneration, ...mismatch }]
+      ),
+      []
+    );
+  }
+  assert.deepEqual(
+    confirmGenerationClaimMarkers(
+      [generation],
+      [
+        persistedGeneration,
+        { ...persistedGeneration, row_number: 19 }
+      ]
+    ),
+    [],
+    "duplicate durable commit markers must fail closed"
+  );
+});
 
 test("ranking policy is profile-bound, versioned, and internally consistent", () => {
   assert.deepEqual(validateRankingPolicy(rankingPolicy, profile), []);

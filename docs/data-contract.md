@@ -64,8 +64,18 @@ outcome, and outcome events. Claim marking writes both the active
 `processing_token` and a hidden `processing_commit_guard`. Terminal evaluation,
 generation, and alert commits match the commit guard while writing blank
 `processing_token`, `processing_stage`, and `processing_started_at` in that
-same guarded update. Manual actions clear both processing keys and newer claims
-replace the guard, so a stale execution cannot overwrite newer state.
+same guarded update.
+
+Generator may select one evaluation candidate and one generation candidate in
+the same execution. After marking, it re-reads `Sheet1` and requires exactly
+one row with the expected commit guard, token, stage, identity, lifecycle guard,
+and originally claimed `manual_action` before fetching job detail or calling
+Groq. It repeats the same confirmation immediately before each terminal
+commit. A mixed multi-item Sheets update therefore cannot authorize an
+unmarked peer, and a manual action changed while provider work is in flight
+takes precedence over the stale result. Manual actions clear both processing
+keys and newer claims replace the guard, so a stale execution cannot overwrite
+newer state.
 
 Reviewer action marking also matches `state_guard`, but `manual_action` remains
 a separate user-input cell and is intentionally not part of that lifecycle
