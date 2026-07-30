@@ -58,10 +58,27 @@ function archiveFieldRequiresExactMatch(field) {
 }
 
 function archiveMatchesPlanned(current, planned, schema) {
+  const currentIdentity = String(current?.canonical_job_id || "").trim();
+  const plannedIdentity = String(planned?.canonical_job_id || "").trim();
+  const foldedIdentityMatches =
+    currentIdentity &&
+    plannedIdentity &&
+    canonicalIdentityKey(currentIdentity) ===
+      canonicalIdentityKey(plannedIdentity);
+  const expected =
+    foldedIdentityMatches && currentIdentity !== plannedIdentity
+      ? {
+          ...planned,
+          canonical_job_id: currentIdentity
+        }
+      : planned;
+  if (expected !== planned) {
+    expected.state_guard = stateGuard(expected);
+  }
   return schema.fields.every(
     (field) =>
-      (!archiveFieldRequiresExactMatch(field) && !hasValue(planned[field])) ||
-      comparableValue(current[field]) === comparableValue(planned[field])
+      (!archiveFieldRequiresExactMatch(field) && !hasValue(expected[field])) ||
+      comparableValue(current[field]) === comparableValue(expected[field])
   );
 }
 
@@ -103,11 +120,23 @@ function mergeArchiveRecord(active, existing, schema, now) {
     existing?.archived_from_status ||
     active.archived_from_status ||
     active.pipeline_status;
+  const existingIdentity = String(
+    existing?.canonical_job_id || ""
+  ).trim();
+  const activeIdentity = String(active.canonical_job_id || "").trim();
+  const stableExistingIdentity =
+    existingIdentity &&
+    canonicalIdentityKey(existingIdentity) ===
+      canonicalIdentityKey(activeIdentity)
+      ? existingIdentity
+      : "";
   const archived = {
     ...merged,
     source: active.source,
     source_job_id: active.source_job_id,
-    canonical_job_id: active.canonical_job_id,
+    canonical_job_id:
+      stableExistingIdentity ||
+      activeIdentity,
     canonical_url: active.canonical_url,
     pipeline_status: "archived",
     archived_from_status: fromStatus,
@@ -242,7 +271,11 @@ export function prepareArchiveUpserts(
     .filter(
       (row) => row && typeof row === "object" && !Array.isArray(row)
     )
-    .map((row) => normalizeLegacyRecord(row, schema, now));
+    .map((row) => ({
+      record: normalizeLegacyRecord(row, schema, now),
+      storedCanonicalId: String(row.canonical_job_id || "").trim(),
+      storedCanonicalUrl: String(row.canonical_url || "").trim()
+    }));
   const upserts = [];
   const rejected = [];
   for (const candidate of planned) {
@@ -259,10 +292,10 @@ export function prepareArchiveUpserts(
       continue;
     }
     const matches = current.filter(
-      (row) =>
-        canonicalIdentityKey(row.canonical_job_id) ===
+      ({ record }) =>
+        canonicalIdentityKey(record.canonical_job_id) ===
           canonicalIdentityKey(identity) ||
-        String(row.canonical_url || "").trim() === canonicalUrl
+        String(record.canonical_url || "").trim() === canonicalUrl
     );
     if (matches.length > 1) {
       rejected.push({
@@ -271,14 +304,57 @@ export function prepareArchiveUpserts(
       });
       continue;
     }
+    const existing = matches[0];
+    if (
+      existing &&
+      !existing.storedCanonicalId &&
+      !existing.storedCanonicalUrl
+    ) {
+      rejected.push({
+        planned: candidate,
+        reason: "missing_archive_match_key"
+      });
+      continue;
+    }
+    const storedIdentityMatches =
+      existing?.storedCanonicalId &&
+      canonicalIdentityKey(existing.storedCanonicalId) ===
+        canonicalIdentityKey(identity);
+    if (
+      existing?.storedCanonicalId &&
+      !storedIdentityMatches &&
+      !existing.storedCanonicalUrl
+    ) {
+      rejected.push({
+        planned: candidate,
+        reason: "missing_archive_repair_key"
+      });
+      continue;
+    }
     const archiveRecord = mergeArchiveRecord(
       candidate.archive_record || candidate,
-      matches[0],
+      existing?.record,
       schema,
       now
     );
+    const archiveMatchField = storedIdentityMatches
+      ? "canonical_job_id"
+      : existing?.storedCanonicalUrl
+        ? "canonical_url"
+        : "canonical_job_id";
+    if (archiveMatchField === "canonical_job_id") {
+      archiveRecord.canonical_job_id =
+        existing?.storedCanonicalId ||
+        archiveRecord.canonical_job_id;
+      archiveRecord.state_guard = stateGuard(archiveRecord);
+    } else {
+      archiveRecord.canonical_job_id = identity;
+      archiveRecord.canonical_url = existing.storedCanonicalUrl;
+      archiveRecord.state_guard = stateGuard(archiveRecord);
+    }
     upserts.push({
       ...archiveRecord,
+      archive_match_field: archiveMatchField,
       source_row_number: candidate.source_row_number,
       archive_claim_token: processingToken
     });

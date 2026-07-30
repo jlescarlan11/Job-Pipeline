@@ -2198,6 +2198,29 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
   activeBeforeDelete.name = "Get Active Before Delete";
   activeBeforeDelete.position = [1400, 220];
 
+  const archiveWriteLoop = {
+    parameters: {
+      batchSize: 1,
+      options: {}
+    },
+    type: "n8n-nodes-base.splitInBatches",
+    typeVersion: 3,
+    position: [780, 220],
+    id: "7106c36a-a814-4ea8-9100-000000000019",
+    name: "Loop Over Archive Writes"
+  };
+
+  const archiveUpsert = upsertSheetNode({
+    base: archiveWriteBase,
+    id: "7106c36a-a814-4ea8-9100-000000000011",
+    name: "Upsert Archive Records",
+    position: [980, 360],
+    fields: schema.fields,
+    matchingField: "canonical_job_id"
+  });
+  archiveUpsert.parameters.columns.matchingColumns =
+    "={{ [$json.archive_match_field] }}";
+
   const deleteNode = nodeByAnyName(current, [
     "Delete rows or columns from sheet",
     "Delete Confirmed Active Rows"
@@ -2256,18 +2279,12 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
       position: [580, 220],
       jsCode: prepareUpsertsCode
     }),
-    upsertSheetNode({
-      base: archiveWriteBase,
-      id: "7106c36a-a814-4ea8-9100-000000000011",
-      name: "Upsert Archive Records",
-      position: [780, 220],
-      fields: schema.fields,
-      matchingField: "canonical_job_id"
-    }),
+    archiveWriteLoop,
+    archiveUpsert,
     aggregateNode({
       id: "7106c36a-a814-4ea8-9100-000000000016",
       name: "Aggregate Archive Upserts",
-      position: [880, 220],
+      position: [980, 220],
       destinationFieldName: "archive_upserts"
     }),
     archiveAfterRead,
@@ -2305,8 +2322,18 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
     "Get Archive Before Upsert": {
       main: [[connection("Prepare Archive Upserts")]]
     },
-    "Prepare Archive Upserts": { main: [[connection("Upsert Archive Records")]] },
-    "Upsert Archive Records": { main: [[connection("Aggregate Archive Upserts")]] },
+    "Prepare Archive Upserts": {
+      main: [[connection("Loop Over Archive Writes")]]
+    },
+    "Loop Over Archive Writes": {
+      main: [
+        [connection("Aggregate Archive Upserts")],
+        [connection("Upsert Archive Records")]
+      ]
+    },
+    "Upsert Archive Records": {
+      main: [[connection("Loop Over Archive Writes")]]
+    },
     "Aggregate Archive Upserts": { main: [[connection("Get Archive After Upsert")]] },
     "Get Archive After Upsert": { main: [[connection("Aggregate Archive After Upsert")]] },
     "Aggregate Archive After Upsert": { main: [[connection("Get Active Before Delete")]] },

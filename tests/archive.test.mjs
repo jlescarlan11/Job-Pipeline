@@ -326,6 +326,10 @@ test("archive upserts rebase current Archive-owned fields before writing", () =>
   assert.equal(prepared.upserts[0].notes, "Current Archive note");
   assert.equal(prepared.upserts[0].outcome, "interview");
   assert.equal(prepared.upserts[0].processing_token, "");
+  assert.equal(
+    prepared.upserts[0].archive_match_field,
+    "canonical_job_id"
+  );
   assert.deepEqual(
     prepared.upserts[0].outcome_events.map((event) => event.type),
     ["replied", "interview"]
@@ -351,6 +355,139 @@ test("archive upserts rebase current Archive-owned fields before writing", () =>
   assert.equal(
     duplicate.rejected[0].reason,
     "ambiguous_archive_identity"
+  );
+});
+
+test("archive upserts preserve exact stored match keys and confirm case-folded copies", () => {
+  const record = active();
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const claimed = {
+    ...plan.candidates[0],
+    processing_token: "archive:case-variant"
+  };
+  const caseVariantArchive = {
+    ...plan.candidates[0].archive_record,
+    row_number: 20,
+    canonical_job_id: "ONLINEJOBS.PH:4001"
+  };
+  const prepared = prepareArchiveUpserts(
+    [claimed],
+    [caseVariantArchive],
+    schema,
+    now
+  );
+
+  assert.equal(prepared.rejected.length, 0);
+  assert.equal(
+    prepared.upserts[0].canonical_job_id,
+    "ONLINEJOBS.PH:4001"
+  );
+  assert.equal(
+    prepared.upserts[0].archive_match_field,
+    "canonical_job_id"
+  );
+
+  const confirmed = confirmArchiveDeletions(
+    plan.candidates,
+    [record],
+    prepared.upserts,
+    schema,
+    now
+  );
+  assert.equal(confirmed.rejected.length, 0);
+  assert.deepEqual(confirmed.confirmed, [
+    { row_number: 5, canonical_job_id: "onlinejobs.ph:4001" }
+  ]);
+});
+
+test("archive upserts repair keyless URL matches without appending a duplicate", () => {
+  const record = active();
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const claimed = {
+    ...plan.candidates[0],
+    processing_token: "archive:url-match"
+  };
+  const keylessArchive = {
+    ...plan.candidates[0].archive_record,
+    row_number: 20,
+    canonical_job_id: "",
+    canonical_url:
+      "https://www.onlinejobs.ph/jobseekers/job/example-4001"
+  };
+  const prepared = prepareArchiveUpserts(
+    [claimed],
+    [keylessArchive],
+    schema,
+    now
+  );
+
+  assert.equal(prepared.rejected.length, 0);
+  assert.equal(prepared.upserts[0].archive_match_field, "canonical_url");
+  assert.equal(
+    prepared.upserts[0].canonical_url,
+    keylessArchive.canonical_url
+  );
+  assert.equal(
+    prepared.upserts[0].canonical_job_id,
+    record.canonical_job_id
+  );
+
+  const mismatchedIdentity = prepareArchiveUpserts(
+    [claimed],
+    [
+      {
+        ...keylessArchive,
+        canonical_job_id: "onlinejobs.ph:legacy-4001"
+      }
+    ],
+    schema,
+    now
+  );
+  assert.equal(mismatchedIdentity.rejected.length, 0);
+  assert.equal(
+    mismatchedIdentity.upserts[0].archive_match_field,
+    "canonical_url"
+  );
+  assert.equal(
+    mismatchedIdentity.upserts[0].canonical_job_id,
+    record.canonical_job_id
+  );
+
+  const unsafeLegacyMatch = prepareArchiveUpserts(
+    [claimed],
+    [
+      {
+        ...keylessArchive,
+        canonical_url: "",
+        job_url: keylessArchive.canonical_url
+      }
+    ],
+    schema,
+    now
+  );
+  assert.equal(unsafeLegacyMatch.upserts.length, 0);
+  assert.equal(
+    unsafeLegacyMatch.rejected[0].reason,
+    "missing_archive_match_key"
+  );
+
+  const unsafeIdentityRepair = prepareArchiveUpserts(
+    [claimed],
+    [
+      {
+        ...keylessArchive,
+        canonical_job_id: "onlinejobs.ph:legacy-4001",
+        canonical_url: "",
+        job_url: keylessArchive.canonical_url
+      }
+    ],
+    schema,
+    now
+  );
+  assert.equal(unsafeIdentityRepair.upserts.length, 0);
+  assert.equal(
+    unsafeIdentityRepair.rejected[0].reason,
+    "missing_archive_repair_key"
   );
 });
 

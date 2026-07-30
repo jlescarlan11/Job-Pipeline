@@ -656,7 +656,12 @@ For each winning archive claim:
 1. Require one active canonical identity and URL, using case-folded canonical
    ID cardinality plus exact canonical URL cardinality, then merge with one
    existing archive identity/legacy URL.
-2. Upsert the complete record into Archive by `canonical_job_id`.
+2. Upsert the complete record through a one-item write loop. New identities
+   append by `canonical_job_id`; existing rows use the exact, freshly read
+   stored `canonical_job_id` when it denotes the same folded identity,
+   including case variants. A keyless or mismatched legacy row uses its exact
+   stored `canonical_url` once to repair its canonical ID. A legacy match with
+   no safe physical repair key is rejected rather than appended.
 3. Reread Archive and Sheet1.
 4. Reject deletion if the active row identity changed, any supported source field changed after planning, or the archive copy is missing/stale.
 5. Delete exactly one confirmed Sheet1 row per item in descending row order.

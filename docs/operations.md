@@ -592,6 +592,11 @@ delivered.
   `processing_token`; confirm Archiver retains it until the owning workflow or
   orphan cleanup clears the marker.
 - Interrupt after Archive upsert or simulate source-delete failure; rerun and confirm one archive identity.
+- Seed one Archive row whose canonical ID differs from the active ID only by
+  case; confirm the pre-write rebase preserves that exact match key, updates
+  the same row, and authorizes deletion from the fresh complete copy. Repeat
+  with a keyless Archive row that has only `canonical_url`; confirm the first
+  pass populates its canonical ID without appending a second row.
 - After Archiver's initial read but before its upsert, enter a disposable
   Archive action, change its note, and add a newer outcome event. Confirm the
   one-item pre-upsert reread rebases all three current values into the write.

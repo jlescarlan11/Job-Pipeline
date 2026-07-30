@@ -1135,12 +1135,18 @@ test("alerter export claims, validates, sends, and commits without state-changin
   );
 });
 
-test("archiver export upserts by identity and confirms the copy before bottom-up deletion", () => {
+test("archiver export serializes exact-key upserts and confirms the copy before bottom-up deletion", () => {
   const workflow = workflows.archiver;
   const upsert = nodeByName(workflow, "Upsert Archive Records");
+  const writeLoop = nodeByName(workflow, "Loop Over Archive Writes");
   const deleteRows = nodeByName(workflow, "Delete Confirmed Active Rows");
   assert.equal(upsert.parameters.operation, "appendOrUpdate");
-  assert.deepEqual(upsert.parameters.columns.matchingColumns, ["canonical_job_id"]);
+  assert.equal(
+    upsert.parameters.columns.matchingColumns,
+    "={{ [$json.archive_match_field] }}"
+  );
+  assert.equal(writeLoop.type, "n8n-nodes-base.splitInBatches");
+  assert.equal(writeLoop.parameters.batchSize, 1);
   assert.equal(deleteRows.parameters.operation, "delete");
   assert.equal(deleteRows.parameters.toDelete, "rows");
   assert.match(deleteRows.parameters.startIndex, /row_number/);
@@ -1174,7 +1180,24 @@ test("archiver export upserts by identity and confirms the copy before bottom-up
   assert.match(prepareUpserts, /prepareArchiveUpserts/);
   assert.match(prepareUpserts, /freshArchiveRows/);
   assert.match(prepareUpserts, /ambiguous_archive_identity/);
-  assertDirectConnection(workflow, "Upsert Archive Records", "Aggregate Archive Upserts");
+  assertDirectConnection(
+    workflow,
+    "Prepare Archive Upserts",
+    "Loop Over Archive Writes"
+  );
+  assert.equal(
+    workflow.connections["Loop Over Archive Writes"].main[0][0].node,
+    "Aggregate Archive Upserts"
+  );
+  assert.equal(
+    workflow.connections["Loop Over Archive Writes"].main[1][0].node,
+    "Upsert Archive Records"
+  );
+  assertDirectConnection(
+    workflow,
+    "Upsert Archive Records",
+    "Loop Over Archive Writes"
+  );
   assertDirectConnection(workflow, "Aggregate Archive Upserts", "Get Archive After Upsert");
   assertDirectConnection(workflow, "Get Active Before Delete", "Confirm Archive Deletions");
   assertDirectConnection(workflow, "Confirm Archive Deletions", "Delete Confirmed Active Rows");
