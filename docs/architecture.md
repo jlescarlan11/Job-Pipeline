@@ -376,9 +376,10 @@ queue reads request formula rendering from Google Sheets, so a formula in any
 owned cell is compared as formula text rather than as its displayed result and
 therefore forces the normal cleanup/rebuild path. A required rebuild is gated
 by the shared projection claim. It inserts content-matched templates and uses
-one atomic Google Sheets batch to retire only rows that still match every
-observed cell, including blank `Action`; a last-moment Action changes the row,
-so it survives instead of being positionally deleted.
+one ordered, atomic Google Sheets batch to retire only rows whose compared
+values still match under Sheets duplicate semantics. The template's `Action`
+is blank, so a valid last-moment selection is nonblank and survives instead of
+being positionally deleted.
 
 `Applied Jobs` is a second derived operator surface, not a new source of truth.
 It projects every authoritative `application_decision=applied` record from

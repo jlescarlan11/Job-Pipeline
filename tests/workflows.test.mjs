@@ -2028,6 +2028,15 @@ test("Review Queue atomic retirement includes Action in the unchanged-row templa
     }
   );
   const requests = result[0].json.batch_update.requests;
+  assert.deepEqual(
+    requests.map((request) => Object.keys(request)[0]),
+    [
+      "insertDimension",
+      "updateCells",
+      "deleteDuplicates",
+      "deleteDimension"
+    ]
+  );
   const actionIndex = review.review_queue.fields.indexOf("Action");
   assert.deepEqual(
     requests[1].updateCells.rows[0].values[actionIndex],
