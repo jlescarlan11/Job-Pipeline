@@ -907,6 +907,44 @@ test("unsupported and invalid actions do not erase the previous record", () => {
   assert.deepEqual(malformed.record, malformedHistory);
 });
 
+test("direct source actions require valid canonical identities", () => {
+  const malformedActive = job({
+    row_number: 8,
+    source_job_id: "malformed-active",
+    canonical_job_id: "malformed",
+    manual_action: "mark_skipped"
+  });
+  const malformedArchive = job({
+    row_number: 18,
+    source_job_id: "malformed-archive",
+    canonical_job_id: "onlinejobs.ph:bad identity",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied",
+    manual_action: "outcome_offer"
+  });
+  const processed = processReviewActions(
+    [malformedActive],
+    [malformedArchive],
+    schema,
+    now
+  );
+
+  assert.deepEqual(processed.active_updates, []);
+  assert.deepEqual(processed.active_claims, []);
+  assert.deepEqual(processed.archive_updates, []);
+  assert.deepEqual(processed.archive_claims, []);
+  assert.deepEqual(
+    processed.invalid_actions.map((entry) => entry.location),
+    ["active", "archive"]
+  );
+  assert.ok(
+    processed.invalid_actions.every((entry) =>
+      entry.error.includes("invalid canonical identity")
+    )
+  );
+});
+
 test("active and archived action processing stay in their ownership boundary", () => {
   const processed = processReviewActions(
     [job({ manual_action: "mark_applied" })],

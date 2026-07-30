@@ -1432,14 +1432,17 @@ export function processReviewActions(
     const selectedProjectionAction = queueAction || appliedAction;
     const selectedAction = directAction || selectedProjectionAction;
     if (!selectedAction) return;
-    if (!identity) {
+    if (!validCanonicalIdentity(identity)) {
       invalidAction({
         location: sourceLocation,
         raw,
+        canonicalJobId: identity,
         manualAction: schema.manual_actions.includes(selectedAction)
           ? selectedAction
           : undefined,
-        error: `${sourceLocation} review action is missing canonical identity`
+        error: identity
+          ? `${sourceLocation} review action has invalid canonical identity`
+          : `${sourceLocation} review action is missing canonical identity`
       });
       return;
     }

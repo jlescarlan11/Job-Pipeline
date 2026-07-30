@@ -255,7 +255,8 @@ Slack HTTP node must remain an explicit JSON `POST`.
   attempt count and schedules the persisted generation stage, Skip records one
   idempotent decision and removes the row after reconciliation, and a forged
   `I Applied` value produces no source mutation.
-- Simulate a stale guard, missing identity, duplicate source identity,
+- Simulate a stale guard, missing or malformed identity on both a projection
+  action and a direct source action, duplicate source identity,
   conflicting duplicate queue actions, and a conflict with a direct `Sheet1`
   action. Confirm no ambiguous source update occurs and the execution log
   contains only sanitized diagnostics. First run a two-action batch with two
