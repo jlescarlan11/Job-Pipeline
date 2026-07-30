@@ -393,6 +393,10 @@ compatible and reconcile on the next run.
 - Confirm a valid repair is committed once under the original processing claim.
   Confirm an invalid or failed repair increments `attempt_count` once, never
   stores the rejected draft, and cannot overwrite a newer manual decision.
+- Confirm both a successful evaluation and a successful generation clear their
+  active processing fields in the staged result, retain the original ephemeral
+  `commit_token`, pass the fresh-marker check, and commit once by the durable
+  guard. Remove the ephemeral token and confirm the staged result is rejected.
 - Select one evaluation candidate and one generation candidate together, then
   make only one `Mark Claimed Jobs` update persist. Confirm the fresh Sheet
   read rejects the unmatched peer before any job-detail or Groq request. For a

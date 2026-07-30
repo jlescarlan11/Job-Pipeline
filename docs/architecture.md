@@ -121,6 +121,11 @@ handler must be bound and smoke-tested after import.
 
 `state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Claim marking also writes a hidden `processing_commit_guard` derived from the winning token. Final evaluation, generation, and alert commits match that guard while atomically writing blank `processing_token`, `processing_stage`, and `processing_started_at`. The retained commit guard is not an active claim: a new claim replaces it and a manual lifecycle action clears it, so stale results match zero rows. There is no second canonical-ID cleanup write that could erase a newer claim.
 
+Generator result construction releases the active fields before persistence and
+carries the original token only as an ephemeral `commit_token`. Its pre-commit
+reread accepts that fallback only when the same durable commit guard, token,
+stage, state guard, manual action, and alert state still match exactly.
+
 `ProcessingClaims` is append-written. For a canonical job and stage, the
 lowest valid, uniquely addressed Sheet row number wins until its configured
 lease expires. Missing, header-range, duplicate, or non-integer row locators

@@ -1514,7 +1514,9 @@ export function confirmGenerationClaimMarkers(plannedRecords, freshRows) {
     const commitGuard = String(
       record?.processing_commit_guard || ""
     ).trim();
-    const processingToken = String(record?.processing_token || "").trim();
+    const processingToken = String(
+      record?.processing_token || record?.commit_token || ""
+    ).trim();
     const stateGuard = String(record?.state_guard || "").trim();
     const workStage = String(record?.work_stage || "").trim();
     const manualAction = String(

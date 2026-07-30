@@ -110,6 +110,42 @@ test("generator confirms durable markers, manual action, and alert status", () =
     ),
     [{ ...generation, row_number: 18 }]
   );
+  const stagedEvaluationCommit = {
+    ...evaluation,
+    processing_stage: "",
+    processing_token: "",
+    processing_started_at: "",
+    commit_token: evaluation.processing_token
+  };
+  assert.deepEqual(
+    confirmGenerationClaimMarkers(
+      [stagedEvaluationCommit],
+      [persistedEvaluation]
+    ),
+    [{ ...stagedEvaluationCommit, row_number: 17 }],
+    "a released result must retain ownership through its ephemeral commit token"
+  );
+  const stagedGenerationCommit = {
+    ...generation,
+    processing_stage: "",
+    processing_token: "",
+    processing_started_at: "",
+    commit_token: generation.processing_token
+  };
+  assert.deepEqual(
+    confirmGenerationClaimMarkers(
+      [stagedGenerationCommit],
+      [persistedGeneration]
+    ),
+    [{ ...stagedGenerationCommit, row_number: 18 }]
+  );
+  assert.deepEqual(
+    confirmGenerationClaimMarkers(
+      [{ ...stagedEvaluationCommit, commit_token: "" }],
+      [persistedEvaluation]
+    ),
+    []
+  );
   for (const mismatch of [
     { canonical_job_id: "onlinejobs.ph:other" },
     { state_guard: "onlinejobs.ph:7002|newer-state" },
