@@ -2,6 +2,7 @@ import {
   stateGuard,
   validateRecordContract
 } from "./contracts.mjs";
+import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 
 function identityKey(value) {
   return String(value || "")
@@ -32,20 +33,6 @@ function indexStore(rows, name) {
   return index;
 }
 
-function safeApplicationReady(record) {
-  return (
-    record.pipeline_status === "ready_to_apply" &&
-    record.application_pack_status === "ready" &&
-    record.message_validation_status === "valid" &&
-    Boolean(String(record.generated_message || "").trim()) &&
-    Boolean(record.message_profile_version) &&
-    Boolean(record.message_policy_version) &&
-    Boolean(record.application_pack_version) &&
-    Boolean(record.application_pack_profile_version) &&
-    Boolean(record.application_pack_policy_version)
-  );
-}
-
 function completeCopy(expected, actual, schema) {
   if (!actual) return false;
   return schema.fields.every((field) => {
@@ -61,47 +48,71 @@ function completeCopy(expected, actual, schema) {
   });
 }
 
-function validExistingDestination(source, actual, destination, reason, schema) {
-  if (!actual) return false;
+function destinationConflict(actual, destination, reason) {
   if (
     destination === "Applied Jobs" &&
-    (!Number.isFinite(Date.parse(actual.applied_at || "")) ||
-      actual.archive_reason ||
-      actual.archived_at)
+    (actual.archive_reason || actual.archived_at)
+  ) {
+    return true;
+  }
+  if (
+    destination === "Archive" &&
+    ((actual.archive_reason && actual.archive_reason !== reason) ||
+      actual.applied_at)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function validExistingDestination(source, actual, destination, reason, schema) {
+  if (!actual || destinationConflict(actual, destination, reason)) return false;
+  if (
+    destination === "Applied Jobs" &&
+    !Number.isFinite(Date.parse(actual.applied_at || ""))
   ) {
     return false;
   }
   if (
     destination === "Archive" &&
     (!Number.isFinite(Date.parse(actual.archived_at || "")) ||
-      actual.archive_reason !== reason ||
-      actual.applied_at)
+      actual.archive_reason !== reason)
   ) {
     return false;
   }
-  const overwritten = new Set([
+  const destinationOwned = new Set([
+    "row_number",
     "record_version",
     "state_guard",
     "user_action",
     "processing_stage",
     "processing_token",
     "processing_started_at",
+    "alert_claim_token",
     "applied_at",
     "archived_at",
     "archive_reason",
+    "outcome",
+    "outcome_recorded_value",
+    "outcome_at",
+    "notes",
     "updated_at"
   ]);
   return schema.fields.every((field) => {
-    if (overwritten.has(field)) return true;
+    if (destinationOwned.has(field)) return true;
     const sourceValue = source[field];
-    if (sourceValue === "" || sourceValue === undefined || sourceValue === null) {
+    if (
+      sourceValue === "" ||
+      sourceValue === undefined ||
+      sourceValue === null
+    ) {
       return true;
     }
     return JSON.stringify(actual[field]) === JSON.stringify(sourceValue);
   });
 }
 
-function destinationRecord(source, destination, reason, now) {
+function destinationRecord(source, destination, reason, now, existing) {
   const record = {
     ...source,
     row_number: undefined,
@@ -109,23 +120,37 @@ function destinationRecord(source, destination, reason, now) {
     processing_stage: "",
     processing_token: "",
     processing_started_at: "",
-    record_version: source.record_version + 1,
+    alert_claim_token: "",
+    record_version:
+      Math.max(
+        Number(source.record_version || 1),
+        Number(existing?.record_version || 0)
+      ) + 1,
     updated_at: now
   };
   if (destination === "Applied Jobs") {
-    record.applied_at = source.applied_at || now;
+    record.applied_at = existing?.applied_at || source.applied_at || now;
     record.archived_at = "";
     record.archive_reason = "";
+    record.notes = existing ? existing.notes || "" : source.notes || "";
+    record.outcome = existing ? existing.outcome || "" : source.outcome || "";
+    record.outcome_recorded_value = existing
+      ? existing.outcome_recorded_value || ""
+      : record.outcome;
+    record.outcome_at = existing
+      ? existing.outcome_at || ""
+      : source.outcome_at || "";
   } else {
-    record.archived_at = source.archived_at || now;
+    record.archived_at = existing?.archived_at || source.archived_at || now;
     record.archive_reason = reason;
     record.applied_at = "";
+    record.notes = existing ? existing.notes || "" : source.notes || "";
   }
   record.state_guard = stateGuard(record);
   return record;
 }
 
-function classifyQueueRow(record) {
+function classifyQueueRow(record, messageSafetyContext) {
   if (record.pipeline_status === "skip" && !record.user_action) {
     return { destination: "Archive", reason: "automatic_skip" };
   }
@@ -133,8 +158,16 @@ function classifyQueueRow(record) {
     record.pipeline_status === "ready_to_apply" &&
     record.user_action === "I Applied"
   ) {
-    if (!safeApplicationReady(record)) {
-      throw new Error("I Applied rejected because application safety evidence is incomplete");
+    const safety = evaluatePersistedMessageSafety(
+      record,
+      messageSafetyContext
+    );
+    if (!safety.safe) {
+      throw new Error(
+        `I Applied rejected by shared message-safety gate: ${sanitize(
+          safety.reasons.join(",")
+        )}`
+      );
     }
     return { destination: "Applied Jobs", reason: "user_applied" };
   }
@@ -164,7 +197,9 @@ export function planQueueActions(
   appliedRows,
   archiveRows,
   schema,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  messageSafetyContext,
+  { movementPerRunCap = Number.POSITIVE_INFINITY } = {}
 ) {
   const applied = indexStore(appliedRows, "Applied Jobs");
   const archive = indexStore(archiveRows, "Archive");
@@ -172,14 +207,28 @@ export function planQueueActions(
 
   const moves = [];
   const generationRequests = [];
+  const rejected = [];
   for (const source of reviewRows) {
     const contractErrors = validateRecordContract(source, schema);
     if (contractErrors.length > 0) {
-      throw new Error(
-        `Review Queue action rejected invalid row: ${sanitize(contractErrors.join("; "))}`
-      );
+      rejected.push({
+        canonical_job_id: String(source?.canonical_job_id || ""),
+        reason: "invalid_source",
+        summary: sanitize(contractErrors.join("; "))
+      });
+      continue;
     }
-    const classification = classifyQueueRow(source);
+    let classification;
+    try {
+      classification = classifyQueueRow(source, messageSafetyContext);
+    } catch (error) {
+      rejected.push({
+        canonical_job_id: String(source?.canonical_job_id || ""),
+        reason: "unsafe_action",
+        summary: sanitize(error?.message || error)
+      });
+      continue;
+    }
     if (!classification) continue;
     if (classification.generationRequest) {
       generationRequests.push({
@@ -191,12 +240,6 @@ export function planQueueActions(
       continue;
     }
 
-    const destination = destinationRecord(
-      source,
-      classification.destination,
-      classification.reason,
-      now
-    );
     const key = identityKey(source.canonical_job_id);
     const inApplied = applied.get(key);
     const inArchive = archive.get(key);
@@ -210,15 +253,51 @@ export function planQueueActions(
     }
     if (
       existing &&
-      !validExistingDestination(
-        source,
+      destinationConflict(
         existing,
         classification.destination,
-        classification.reason,
-        schema
+        classification.reason
       )
     ) {
-      throw new Error("Existing destination record is incomplete or conflicting");
+      rejected.push({
+        canonical_job_id: source.canonical_job_id,
+        reason: "destination_conflict",
+        summary: "Existing destination record has conflicting terminal state"
+      });
+      continue;
+    }
+    if (moves.length >= movementPerRunCap) {
+      rejected.push({
+        canonical_job_id: source.canonical_job_id,
+        reason: "movement_cap_reached",
+        summary: "Movement deferred to a later bounded run"
+      });
+      continue;
+    }
+    const existingComplete = validExistingDestination(
+      source,
+      existing,
+      classification.destination,
+      classification.reason,
+      schema
+    );
+    const destination = existingComplete
+      ? { ...existing }
+      : destinationRecord(
+          source,
+          classification.destination,
+          classification.reason,
+          now,
+          existing
+        );
+    const destinationErrors = validateRecordContract(destination, schema);
+    if (destinationErrors.length > 0) {
+      rejected.push({
+        canonical_job_id: source.canonical_job_id,
+        reason: "invalid_destination",
+        summary: sanitize(destinationErrors.join("; "))
+      });
+      continue;
     }
     moves.push({
       canonical_job_id: source.canonical_job_id,
@@ -232,11 +311,11 @@ export function planQueueActions(
         classification.destination === "Archive"
           ? classification.reason
           : "",
-      write_required: !existing,
-      destination_record: existing ? { ...existing } : destination
+      write_required: !existingComplete,
+      destination_record: destination
     });
   }
-  return { moves, generation_requests: generationRequests };
+  return { moves, generation_requests: generationRequests, rejected };
 }
 
 export function destinationWrites(plans) {
@@ -324,6 +403,7 @@ export function applyOutcomeUpdate(
   const updated = {
     ...appliedRecord,
     outcome,
+    outcome_recorded_value: outcome,
     outcome_at: outcome ? now : "",
     record_version: appliedRecord.record_version + 1,
     updated_at: now
@@ -334,4 +414,41 @@ export function applyOutcomeUpdate(
     throw new Error(`Outcome update failed contract validation: ${sanitize(errors.join("; "))}`);
   }
   return updated;
+}
+
+export function planOutcomeUpdates(
+  appliedRows,
+  schema,
+  now = new Date().toISOString()
+) {
+  indexStore(appliedRows, "Applied Jobs");
+  const updates = [];
+  const rejected = [];
+  for (const record of appliedRows) {
+    const errors = validateRecordContract(record, schema);
+    if (errors.length > 0) {
+      rejected.push({
+        canonical_job_id: String(record?.canonical_job_id || ""),
+        reason: "invalid_applied_record",
+        summary: sanitize(errors.join("; "))
+      });
+      continue;
+    }
+    if (
+      String(record.outcome || "") ===
+      String(record.outcome_recorded_value || "")
+    ) {
+      continue;
+    }
+    updates.push(
+      applyOutcomeUpdate(
+        record,
+        String(record.outcome || ""),
+        record.state_guard,
+        schema,
+        now
+      )
+    );
+  }
+  return { updates, rejected };
 }

@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   scheduledRunsPerWeek,
   validateRuntimeConfig,
+  validateWorkflowArtifactManifest,
   workflowExecutionDataSettings,
   workflowTimezone
 } from "../src/runtime.mjs";
@@ -25,6 +26,33 @@ test("runtime defines only the three bounded replacement roles", () => {
   assert.equal("archiver" in runtime, false);
   assert.equal("reviewer" in runtime, false);
   assert.equal(workflowTimezone(runtime), "Asia/Manila");
+});
+
+test("workflow artifact manifest rejects missing and retired fourth exports", () => {
+  assert.deepEqual(
+    validateWorkflowArtifactManifest([
+      "scraper.json",
+      "generator.json",
+      "alerter-mover.json"
+    ]),
+    []
+  );
+  assert.match(
+    validateWorkflowArtifactManifest([
+      "scraper.json",
+      "generator.json",
+      "alerter-mover.json",
+      "reviewer.json"
+    ]).join(";"),
+    /unexpected workflow artifacts: reviewer\.json/
+  );
+  assert.match(
+    validateWorkflowArtifactManifest([
+      "scraper.json",
+      "generator.json"
+    ]).join(";"),
+    /missing workflow artifacts: alerter-mover\.json/
+  );
 });
 
 test("schedules are staggered and retain claim/timeout headroom", () => {
@@ -56,7 +84,7 @@ test("execution retention settings keep failures and manual smoke only", () => {
 test("weekly execution count reflects the final three schedules", () => {
   assert.deepEqual(scheduledRunsPerWeek(runtime), {
     scraper: 42,
-    generator: 336,
+    generator: 112,
     alerter_mover: 672
   });
 });

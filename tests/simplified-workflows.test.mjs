@@ -139,7 +139,9 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
     "evaluateAndRoute",
     "prepareApplicationGeneration",
     "applyValidatedGeneration",
+    "assessInitialGenerationDraft",
     "commitGeneratorResult",
+    "confirmGeneratorResultPersisted",
     "recordGeneratorFailure"
   ]) {
     assert.match(code, new RegExp(symbol));
@@ -147,19 +149,29 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   node(workflow, "Persist Generator Claim");
   node(workflow, "Get Review Queue Before Commit");
   node(workflow, "Guard and Commit Generator Result");
+  node(workflow, "Get Review Queue After Commit");
+  node(workflow, "Confirm Generator Result Persisted");
+  node(workflow, "Needs One Repair");
+  node(workflow, "Wait Before Repair");
   assert.equal(workflow.meta.manualSubmissionOnly, true);
   assert.equal(
-    node(workflow, "Generate Application with Groq").parameters.url,
+    node(workflow, "Generate Initial Application with Groq").parameters.url,
     "https://api.groq.com/openai/v1/chat/completions"
   );
   assert.match(
-    JSON.stringify(node(workflow, "Generate Application with Groq")),
+    JSON.stringify(node(workflow, "Generate Initial Application with Groq")),
     /JOB_PIPELINE_GROQ_API_KEY/
   );
   assert.equal(
-    node(workflow, "Generate Application with Groq").maxTries,
-    1
+    node(workflow, "Generate Initial Application with Groq").maxTries,
+    undefined
   );
+  assert.equal(
+    node(workflow, "Generate Application Repair with Groq").maxTries,
+    undefined
+  );
+  assert.equal(workflow.meta.maximumModelRequestsPerItem, 2);
+  assert.equal(workflow.meta.boundedRepairEnabled, true);
   assert.equal(node(workflow, "Fetch Job Detail").maxTries, 3);
   const claimUpdate = node(workflow, "Persist Generator Claim");
   assert.deepEqual(claimUpdate.parameters.columns.matchingColumns, [
@@ -182,15 +194,20 @@ test("Alerter & Mover plans terminal copies independently of Slack and confirms 
   assert.equal(workflow.meta.movementIndependentOfSlack, true);
   for (const name of [
     "Plan Independent Moves",
-    "Append Applied Jobs",
-    "Append Archive",
+    "Append Movement Claims",
+    "Keep Winning Movement Claims",
+    "Upsert Applied Jobs",
+    "Upsert Archive",
     "Get Review Queue After Copies",
     "Get Applied Jobs After Copies",
     "Get Archive After Copies",
     "Confirm Destination Copies",
     "Delete Confirmed Review Queue Rows",
+    "Get Review Queue After Moves",
     "Select Fresh Alerts",
-    "Persist Alert Claims",
+    "Append Alert Claims",
+    "Keep Winning Alert Claims",
+    "Persist Alert Sending States",
     "Get Review Queue After Alert Claims",
     "Confirm and Render Alerts",
     "Send Slack Alert",
@@ -204,11 +221,25 @@ test("Alerter & Mover plans terminal copies independently of Slack and confirms 
   assert.match(code, /selectFreshAlertCandidates/);
   assert.match(code, /renderSlackAlert/);
   assert.match(code, /applySlackProviderResult/);
+  assert.match(code, /selectWinningSystemClaims/);
+  assert.equal(workflow.meta.movementBeforeAlertSelection, true);
+  assert.equal(workflow.meta.appendWinnerClaims, true);
+  assert.equal(
+    workflow.connections["Aggregate Deletion Attempts"].main[0][0].node,
+    "Get Review Queue After Moves"
+  );
+  assert.equal(
+    workflow.connections["Aggregate Review After Moves"].main[0][0].node,
+    "Select Fresh Alerts"
+  );
   assert.match(
     node(workflow, "Send Slack Alert").parameters.url,
     /JOB_PIPELINE_SLACK_WEBHOOK_URL/
   );
-  for (const updateName of ["Persist Alert Claims", "Update Alert Results"]) {
+  for (const updateName of [
+    "Persist Alert Sending States",
+    "Update Alert Results"
+  ]) {
     const update = node(workflow, updateName);
     assert.deepEqual(update.parameters.columns.matchingColumns, [
       "canonical_job_id"
@@ -216,6 +247,15 @@ test("Alerter & Mover plans terminal copies independently of Slack and confirms 
     assert.equal("user_action" in update.parameters.columns.value, false);
     assert.equal("notes" in update.parameters.columns.value, false);
   }
+  const slack = node(workflow, "Send Slack Alert");
+  assert.equal(
+    slack.parameters.options.response.response.responseFormat,
+    "text"
+  );
+  assert.equal(
+    slack.parameters.options.response.response.fullResponse,
+    true
+  );
 });
 
 test("network calls and critical Sheet writes remain bounded and fail closed", () => {
@@ -230,10 +270,20 @@ test("network calls and critical Sheet writes remain bounded and fail closed", (
       }
       if (
         entry.type === "n8n-nodes-base.googleSheets" &&
-        ["append", "update", "delete"].includes(entry.parameters.operation)
+        ["append", "appendOrUpdate", "update", "delete"].includes(
+          entry.parameters.operation
+        )
       ) {
         assert.equal(entry.retryOnFail, undefined, entry.name);
-        assert.equal(entry.onError, undefined, entry.name);
+        if (workflow.meta.workflowRole === "alerter_mover") {
+          assert.equal(
+            entry.onError,
+            "continueRegularOutput",
+            entry.name
+          );
+        } else {
+          assert.equal(entry.onError, undefined, entry.name);
+        }
         assert.equal(entry.continueOnFail, undefined, entry.name);
       }
     }

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-31/v8",
+  "policy_version": "2026-07-31/v9",
   "provider": "groq",
   "last_verified_on": "2026-07-30",
   "selected_model": "openai/gpt-oss-120b",
@@ -11,7 +11,7 @@
     "repair_reserve_characters": 6000,
     "maximum_prompt_proofs": 2,
     "character_estimate_divisor": 3,
-    "maximum_requests_per_item": 1,
+    "maximum_requests_per_item": 2,
     "request_interval_ms": 65000,
     "reasoning_format": "hidden"
   },

@@ -1,11 +1,16 @@
 import {
   buildApplicationPack,
+  buildApplicationRepairMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   evaluateJob,
   validateApplicationPack,
   validateGeneratedMessage
 } from "./evaluation.mjs";
+import {
+  groqInitialUserCharacterBudget,
+  validateGroqPromptBudget
+} from "./groq-provider.mjs";
 import {
   stateGuard,
   validateRecordContract
@@ -78,7 +83,13 @@ export function selectGeneratorCandidate(
     }
     const stage = stageForCandidate(record);
     if (!stage) continue;
-    if (record.pipeline_status === "error" && !dueAt(record, nowMs)) continue;
+    if (
+      record.pipeline_status === "error" &&
+      (String(record.error_category || "").endsWith("_exhausted") ||
+        !dueAt(record, nowMs))
+    ) {
+      continue;
+    }
     candidates.push({
       record,
       stage,
@@ -117,6 +128,9 @@ export function claimGeneratorRecord(
     }
   }
   const token = `${executionId}:${record.canonical_job_id}:${stage}`;
+  const approvedReview =
+    record.pipeline_status === "review_needed" &&
+    record.user_action === "Approve";
   const claimed = {
     ...record,
     // An approved review row stays review_needed while claimed. This keeps a
@@ -128,6 +142,12 @@ export function claimGeneratorRecord(
     processing_stage: stage,
     processing_token: token,
     processing_started_at: now,
+    review_approved_at: approvedReview
+      ? record.review_approved_at || now
+      : record.review_approved_at || "",
+    review_approval_note: approvedReview
+      ? boundedText(record.notes, 1000)
+      : record.review_approval_note || "",
     record_version: record.record_version + 1,
     updated_at: now
   };
@@ -226,6 +246,7 @@ export function prepareApplicationGeneration(
   profile,
   applicationPolicy,
   packPolicy,
+  providerPolicy,
   now = new Date().toISOString()
 ) {
   if (
@@ -275,14 +296,87 @@ export function prepareApplicationGeneration(
       }
     };
   }
+  const systemMessage = buildApplicationSystemMessage(
+    profile,
+    applicationPolicy
+  );
+  if (!providerPolicy) {
+    throw new Error("Generation requires a provider policy");
+  }
+  const userMessage = buildApplicationUserMessage(claimedRecord, pack, {
+    maximumCharacters: groqInitialUserCharacterBudget(
+      providerPolicy,
+      systemMessage
+    ),
+    maximumProofs: providerPolicy.generation.maximum_prompt_proofs
+  });
+  const promptBudget = validateGroqPromptBudget(
+    providerPolicy,
+    systemMessage,
+    userMessage
+  );
+  if (!promptBudget.valid) {
+    throw new Error("Provider input budget validation failed");
+  }
   return {
     provider_required: true,
     pack,
-    system_message: buildApplicationSystemMessage(profile, applicationPolicy),
-    user_message: buildApplicationUserMessage(claimedRecord, pack, {
-      maximumCharacters: packPolicy.maximum_description_characters,
-      maximumProofs: packPolicy.maximum_proofs
-    })
+    system_message: systemMessage,
+    user_message: userMessage,
+    prompt_budget: promptBudget
+  };
+}
+
+export function assessInitialGenerationDraft(
+  claimedRecord,
+  pack,
+  message,
+  systemMessage,
+  userMessage,
+  profile,
+  applicationPolicy,
+  packPolicy,
+  providerPolicy,
+  now = new Date().toISOString()
+) {
+  const validation = validateGeneratedMessage(message, {
+    job: claimedRecord,
+    profile,
+    policy: applicationPolicy,
+    pack
+  });
+  if (validation.valid) {
+    return {
+      repair_required: false,
+      proposed_record: applyValidatedGeneration(
+        claimedRecord,
+        pack,
+        message,
+        profile,
+        applicationPolicy,
+        packPolicy,
+        now
+      )
+    };
+  }
+  const repairUserMessage = `${userMessage}\n\n${buildApplicationRepairMessage(
+    message,
+    validation.errors
+  )}`;
+  const repairBudget = validateGroqPromptBudget(
+    providerPolicy,
+    systemMessage,
+    repairUserMessage
+  );
+  if (!repairBudget.valid) {
+    throw new Error("Provider repair input budget validation failed");
+  }
+  return {
+    repair_required: true,
+    repair_user_message: repairUserMessage,
+    validation_errors: validation.errors,
+    rejected_message: String(message || ""),
+    repair_budget: repairBudget
   };
 }
 
@@ -410,4 +504,81 @@ export function commitGeneratorResult(
     throw new Error(`Generator commit failed contract validation: ${boundedText(errors.join("; "))}`);
   }
   return committed;
+}
+
+function normalizedCommitValue(field, value, schema) {
+  if (schema.string_list_fields?.includes(field)) {
+    if (Array.isArray(value)) return value;
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(String(value));
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // String-list Sheet cells may use comma-separated values.
+    }
+    return String(value)
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  if (schema.json_array_fields?.includes(field)) {
+    if (Array.isArray(value)) return value;
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(String(value));
+      return Array.isArray(parsed) ? parsed : value;
+    } catch {
+      return value;
+    }
+  }
+  if (value === undefined || value === null) return "";
+  const rule = schema.field_rules?.[field];
+  if (rule?.type === "number" || rule?.type === "integer") {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : value;
+  }
+  return String(value);
+}
+
+export function confirmGeneratorResultPersisted(
+  plannedRecord,
+  freshRows,
+  schema,
+  committedFields
+) {
+  const identity = String(plannedRecord?.canonical_job_id || "");
+  const matches = (Array.isArray(freshRows) ? freshRows : []).filter(
+    (row) => String(row?.canonical_job_id || "") === identity
+  );
+  if (!identity || matches.length !== 1) {
+    throw new Error(
+      "Generator commit verification failed: committed identity is missing or ambiguous"
+    );
+  }
+  const persisted = matches[0];
+  const fields = [...new Set(committedFields || [])];
+  if (fields.length === 0) {
+    throw new Error(
+      "Generator commit verification failed: committed field contract is empty"
+    );
+  }
+  for (const field of fields) {
+    const expected = normalizedCommitValue(field, plannedRecord[field], schema);
+    const actual = normalizedCommitValue(field, persisted[field], schema);
+    if (JSON.stringify(expected) !== JSON.stringify(actual)) {
+      throw new Error(
+        `Generator commit verification failed: persisted field mismatch (${field})`
+      );
+    }
+  }
+  if (
+    persisted.processing_token ||
+    persisted.processing_started_at ||
+    persisted.processing_stage
+  ) {
+    throw new Error(
+      "Generator commit verification failed: processing ownership was not cleared"
+    );
+  }
+  return persisted;
 }

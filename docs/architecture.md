@@ -11,7 +11,7 @@ Scraper (4h, rolling 24h)
       v
 Review Queue  <----- user actions
       |
-      +--> Evaluator & Generator (30m, one row)
+      +--> Evaluator & Generator (90m, one row)
       |         |
       |         +--> ready_to_apply
       |         +--> review_needed
@@ -27,7 +27,7 @@ Review Queue  <----- user actions
 
 ## Trust boundaries
 
-`Review Queue` is authoritative active state. There is no projection owner and no hidden `Sheet1`. `Applied Jobs` and `Archive` are authoritative terminal stores. `_System` contains only expiring claims used to arbitrate overlapping discovery inserts.
+`Review Queue` is authoritative active state. There is no projection owner and no hidden `Sheet1`. `Applied Jobs` and `Archive` are authoritative terminal stores. `_System` contains only expiring append-winner claims used to arbitrate overlapping discovery, movement, and alert work.
 
 Google Sheet validation improves usability, but workflow-side contract validation is authoritative. Generated fields use warning-only protection; an API or pasted value is still validated again before any status change, alert, or move.
 
@@ -52,7 +52,7 @@ Canonical source ID and canonical URL are compared across Review Queue, Applied 
 
 ## Evaluator & Generator
 
-The workflow selects one due row, writes a versioned claim, and rereads current state before committing. A stale token, version, state guard, identity, or user action rejects the commit.
+The workflow selects one due row, writes a versioned claim, and rereads current state before committing. A stale token, version, state guard, identity, or user action rejects the commit. It then rereads the saved row and verifies every committed machine field; a missing, ambiguous, partial, or mismatched write fails visibly.
 
 Deterministic evaluation uses the full source description and current candidate/ranking policy:
 
@@ -62,15 +62,17 @@ Deterministic evaluation uses the full source description and current candidate/
 - missing source content becomes `unavailable`;
 - provider, network, or validation failures become `error`, never `skip`.
 
-`Approve` means “reconsider through normal generation.” It does not waive proof selection, instruction sanitization, pack validation, or message validation. Prompt-injection requests, private-data requests, unsupported claims, unsupported automatic actions, and unresolved application requirements cannot become ready.
+`Approve` means “reconsider through normal generation.” The approval timestamp and a bounded snapshot of the reviewer note are retained as untrusted operator context. Approval does not waive proof selection, instruction sanitization, pack validation, or message validation. Prompt-injection requests, private-data requests, unsupported claims, unsupported automatic actions, and unresolved application requirements cannot become ready.
+
+The model path permits one initial request. If deterministic message validation rejects that draft, it permits exactly one delayed repair containing the complete rejected draft and validation errors. The repaired draft must pass the same pack and message gates; there is no third request or automatic HTTP retry.
 
 A failed retry retains an earlier valid message/provenance but the row remains `error`, so it cannot alert or be marked applied until a fresh validated result becomes ready.
 
 ## Alerter & Mover
 
-Movement is planned before Slack work and uses a separate graph branch. A Slack rejection, timeout, invalid URL, or unsafe message therefore cannot cancel an Applied Jobs or Archive move.
+Movement finishes before alert selection rereads `Review Queue`. Each movement and alert first appends a scoped `_System` claim; the earliest unexpired sheet row is the only winner. Individual destination, delete, or Slack failures continue as bounded result items, so one failed branch cannot cancel unrelated work.
 
-Alert eligibility requires a fresh, unacted `ready_to_apply` row with a current ready pack and validated message. The idempotency key includes canonical identity, policy version, generation timestamp, and message digest. A successful key is never replayed. An ambiguous timeout is terminal because delivery may have occurred.
+Alert eligibility requires a fresh, unacted `ready_to_apply` row with a current ready pack and validated message. The idempotency key includes canonical identity, policy version, generation timestamp, and message digest. A successful key is never replayed. An expired `sending` claim and an ambiguous timeout are terminal because delivery may have occurred; neither is automatically resent.
 
 Slack contains scores, decision reason, gaps, instructions, questions, proofs, warnings, the exact stored message in a code block, and open-only Review Queue/source links. It contains no action webhook.
 
@@ -83,7 +85,7 @@ Moves are:
 | `review_needed` | `Deny` | Archive | `review_denied` |
 | `skip` | blank | Archive | `automatic_skip` |
 
-The destination is written first, all non-empty planned fields are confirmed, and only the unchanged source row is then deleted. A write failure keeps Review Queue intact. A delete failure is safe to rerun because an existing complete destination becomes confirmation evidence rather than a second append.
+The destination is upserted by canonical identity first, all non-empty planned fields are confirmed, and only the unchanged source row is then deleted. A partial destination is repaired without overwriting destination-owned notes, outcomes, or the first terminal timestamp. A write failure keeps Review Queue intact. A delete failure is safe to rerun because an existing complete destination becomes confirmation evidence rather than a second append.
 
 ## Runtime
 
@@ -92,7 +94,7 @@ All workflows use `Asia/Manila`, remain inactive in source control, retain faile
 | Role | Schedule | Timeout | Claim lease |
 | --- | ---: | ---: | ---: |
 | Scraper | 240 min, offset 8 | 900 s | 1,200 s |
-| Evaluator & Generator | 30 min, offset 2 | 480 s | 600 s |
+| Evaluator & Generator | 90 min, offset 2 | 480 s | 600 s |
 | Alerter & Mover | 15 min, offset 4 | 120 s | 180 s |
 
-The timeout-weighted demand is 0.4625 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.
+The timeout-weighted demand is 0.2847 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.

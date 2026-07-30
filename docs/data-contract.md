@@ -47,7 +47,9 @@ The active record retains source timestamps and keyword provenance; deterministi
 
 Errors and operational logs use bounded categories and sanitized summaries. They must not contain credentials, authorization headers, full private profile payloads, Slack webhook URLs, or unnecessary full job/message content.
 
-`record_version`, `state_guard`, and expiring `_System` claims prevent a stale worker from overwriting a newer user action or destination move. A terminal move always confirms the destination copy before deleting Review Queue state.
+`record_version`, `state_guard`, persisted processing/alert claim tokens, and expiring append-winner `_System` claims prevent a stale worker from overwriting a newer user action or duplicating destination/Slack work. A terminal move always passes the shared persisted-message gate for `I Applied`, upserts by canonical identity, confirms the destination copy, and only then deletes unchanged Review Queue state.
+
+An `Approve` action snapshots `review_approved_at` and a bounded `review_approval_note`; that note remains explicitly untrusted prompt context and never becomes candidate evidence. Applied outcomes use `outcome_recorded_value` to distinguish a new operator edit from the last workflow-recorded value without changing the original `applied_at`, message, or notes.
 
 ## Fresh-start boundary
 

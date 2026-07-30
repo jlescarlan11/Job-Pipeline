@@ -2,9 +2,33 @@ import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 
 const REQUIRED_TIMEZONE = "Asia/Manila";
 const WORKFLOW_ROLES = ["scraper", "generator", "alerter_mover"];
+export const EXPECTED_WORKFLOW_ARTIFACTS = [
+  "alerter-mover.json",
+  "generator.json",
+  "scraper.json"
+];
 
 function positiveInteger(value) {
   return Number.isInteger(value) && value > 0;
+}
+
+export function validateWorkflowArtifactManifest(files) {
+  if (!Array.isArray(files)) {
+    return ["workflow artifact manifest must be an array"];
+  }
+  const actual = [...new Set(files.filter((file) => file.endsWith(".json")))]
+    .sort();
+  const expected = [...EXPECTED_WORKFLOW_ARTIFACTS].sort();
+  const missing = expected.filter((file) => !actual.includes(file));
+  const unexpected = actual.filter((file) => !expected.includes(file));
+  const errors = [];
+  if (missing.length > 0) {
+    errors.push(`missing workflow artifacts: ${missing.join(", ")}`);
+  }
+  if (unexpected.length > 0) {
+    errors.push(`unexpected workflow artifacts: ${unexpected.join(", ")}`);
+  }
+  return errors;
 }
 
 function validateScheduledWorkflow(config, name) {

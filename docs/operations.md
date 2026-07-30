@@ -5,7 +5,7 @@ This runbook is a gated operator procedure. Repository work must not activate n8
 Stop at any failed gate. Never run old and replacement workflows against either workbook at the same time.
 
 Runtime baseline: all three exports use `Asia/Manila`. Scraper runs every 240
-minutes with a 900-second timeout; Evaluator & Generator runs every 30 minutes
+minutes with a 900-second timeout; Evaluator & Generator runs every 90 minutes
 with a 480-second timeout; Alerter & Mover runs every 15 minutes with a
 120-second timeout.
 

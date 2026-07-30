@@ -37,6 +37,7 @@ const profile = await loadJson("../config/candidate-profile.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
+const groqPolicy = await loadJson("../config/groq-provider-policy.json");
 const runtime = (await loadJson("../config/runtime.json")).generator;
 const alertPolicy = await loadJson("../config/alert-policy.json");
 const directHtml = await readFile(
@@ -118,6 +119,7 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
     profile,
     applicationPolicy,
     packPolicy,
+    groqPolicy,
     now
   );
   assert.equal(prepared.provider_required, true);
@@ -175,7 +177,8 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
     [],
     [],
     schema,
-    now
+    now,
+    safetyContext
   );
   const writes = destinationWrites(movement);
   assert.equal(writes.applied.length, 1);

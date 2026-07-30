@@ -11,7 +11,7 @@ The replacement starts with a new Google workbook. `Review Queue` is the active 
 ## Workflow behavior
 
 1. **Scraper** runs every four hours. It searches the enabled plain keywords in `config/search-plan.json`, captures one fixed execution timestamp, and accepts only source postings in the inclusive range `[window_end - 24 hours, window_end]`. It deduplicates against all three stores.
-2. **Evaluator & Generator** runs every 30 minutes, one row per execution. It routes to `ready_to_apply`, `review_needed`, or `skip`. Provider and source failures become observable `error`/`unavailable` conditions. A ready row requires a current, validated application pack and message.
+2. **Evaluator & Generator** runs every 90 minutes, one row per execution. It routes to `ready_to_apply`, `review_needed`, or `skip`. Provider and source failures become observable `error`/`unavailable` conditions. A ready row requires a current, validated application pack and message. Generation allows one initial model request and, only after deterministic rejection, one bounded repair request.
 3. **Alerter & Mover** runs every 15 minutes. It sends an idempotent Slack copy for fresh ready rows and independently processes terminal moves with copy-confirm-delete.
 
 Applications are never submitted automatically. Slack and Sheet links only open review/source pages. The user applies manually and then selects `I Applied`.

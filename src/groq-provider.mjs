@@ -80,8 +80,10 @@ export function validateGroqProviderPolicy(
   ) {
     errors.push("Groq request interval must exceed the one-minute rate window");
   }
-  if (generation.maximum_requests_per_item !== 1) {
-    errors.push("Simplified Generator maximum_requests_per_item must be 1");
+  if (generation.maximum_requests_per_item !== 2) {
+    errors.push(
+      "Evaluator & Generator maximum_requests_per_item must be exactly 2 (initial plus one repair)"
+    );
   }
   if (generation.reasoning_format !== "hidden") {
     errors.push("Groq generation reasoning_format must be hidden");

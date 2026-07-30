@@ -5,9 +5,11 @@ import {
   parseJobDetail
 } from "../src/evaluation.mjs";
 import {
+  assessInitialGenerationDraft,
   applyValidatedGeneration,
   claimGeneratorRecord,
   commitGeneratorResult,
+  confirmGeneratorResultPersisted,
   evaluateAndRoute,
   prepareApplicationGeneration,
   recordGeneratorFailure,
@@ -25,6 +27,7 @@ const profile = await loadJson("../config/candidate-profile.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
+const groqPolicy = await loadJson("../config/groq-provider-policy.json");
 const runtimeConfig = await loadJson("../config/runtime.json");
 const runtime = runtimeConfig.generator;
 const directHtml = await readFile(
@@ -152,6 +155,7 @@ test("strong fit proceeds to generation, then only validated output becomes read
     profile,
     applicationPolicy,
     packPolicy,
+    groqPolicy,
     now
   );
   assert.equal(prepared.provider_required, true);
@@ -240,6 +244,7 @@ test("unsafe or incomplete application packs never call the provider", () => {
     profile,
     applicationPolicy,
     packPolicy,
+    groqPolicy,
     now
   );
   assert.equal(prepared.provider_required, false);
@@ -276,10 +281,145 @@ test("Approve reconsiders through the same pack and message gates", () => {
     profile,
     applicationPolicy,
     packPolicy,
+    groqPolicy,
     now
   );
   assert.equal(prepared.provider_required, false);
   assert.equal(prepared.record.pipeline_status, "review_needed");
+});
+
+test("Approve snapshots bounded reviewer evidence without trusting it as candidate proof", () => {
+  const approved = recordFromDescription(3051, {
+    status: "review_needed",
+    action: "Approve",
+    overrides: {
+      notes: `Reviewer context ${"x".repeat(1200)}`,
+      decision_reason: "Requires review",
+      required_input: "Confirm requirements"
+    }
+  });
+  const claimed = claim(approved, "generation");
+  assert.equal(claimed.review_approved_at, now);
+  assert.equal(claimed.review_approval_note.length, 1000);
+  const prepared = prepareApplicationGeneration(
+    claimed,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  if (prepared.provider_required) {
+    assert.match(prepared.user_message, /OPERATOR REVIEW CONTEXT/);
+    assert.match(prepared.user_message, /UNTRUSTED, NOT CANDIDATE EVIDENCE/);
+  }
+});
+
+test("one invalid initial draft gets one bounded repair and no validation bypass", () => {
+  const claimed = claim(recordFromDescription(3052));
+  const evaluated = evaluateAndRoute(claimed, profile, rankingPolicy, now);
+  const prepared = prepareApplicationGeneration(
+    evaluated,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  const invalidDraft = "I have a strong foundation in every required skill.";
+  const repair = assessInitialGenerationDraft(
+    evaluated,
+    prepared.pack,
+    invalidDraft,
+    prepared.system_message,
+    prepared.user_message,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(repair.repair_required, true);
+  assert.match(repair.repair_user_message, new RegExp(invalidDraft));
+  assert.ok(repair.validation_errors.length > 0);
+  assert.throws(
+    () =>
+      applyValidatedGeneration(
+        evaluated,
+        prepared.pack,
+        invalidDraft,
+        profile,
+        applicationPolicy,
+        packPolicy,
+        now
+      ),
+    /not ready/
+  );
+  const repaired = applyValidatedGeneration(
+    evaluated,
+    prepared.pack,
+    validMessage,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  assert.equal(repaired.pipeline_status, "ready_to_apply");
+
+  const validInitial = assessInitialGenerationDraft(
+    evaluated,
+    prepared.pack,
+    validMessage,
+    prepared.system_message,
+    prepared.user_message,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(validInitial.repair_required, false);
+  assert.equal(validInitial.proposed_record.generated_message, validMessage);
+});
+
+test("exhausted rows are not selected and committed writes are verified exactly", () => {
+  const exhausted = recordFromDescription(3053, {
+    status: "error",
+    overrides: {
+      processing_stage: "generation",
+      error_category: "provider_failure_exhausted",
+      next_retry_at: ""
+    }
+  });
+  assert.deepEqual(
+    selectGeneratorCandidate([exhausted], schema, runtime, now),
+    []
+  );
+
+  const committed = recordFromDescription(3054, {
+    status: "review_needed",
+    overrides: { decision_reason: "Persisted result" }
+  });
+  const fields = schema.fields.filter((field) => field !== "notes");
+  assert.equal(
+    confirmGeneratorResultPersisted(
+      committed,
+      [{ ...committed }],
+      schema,
+      fields
+    ).canonical_job_id,
+    committed.canonical_job_id
+  );
+  assert.throws(
+    () =>
+      confirmGeneratorResultPersisted(
+        committed,
+        [{ ...committed, decision_reason: "Partial write" }],
+        schema,
+        fields
+      ),
+    /persisted field mismatch/
+  );
 });
 
 test("invalid model output is error evidence and preserves a prior safe message", () => {

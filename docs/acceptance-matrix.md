@@ -54,10 +54,10 @@ Evidence labels:
 5. **Unavailable distinct:** Automated unavailable source fixture.
 6. **Invalid/stale/quarantined pack cannot ready:** Automated shared message-safety and alert suppression suites.
 7. **Injection/private/unsupported/auto-action fail closed:** Automated malicious pack and generation safety fixtures.
-8. **Approve does not bypass:** Automated approved malicious/non-ready pack fixture.
+8. **Approve does not bypass:** Automated approved malicious/non-ready pack fixture plus bounded approval timestamp/note snapshot.
 9. **Failed retry preserves safe prior message without readiness:** Automated failure recovery fixture.
-10. **No stale/double overwrite:** Automated overlap claim and version/action commit rejection.
-11. **Bounded sanitized retry:** Automated cap/backoff/category/redaction fixture.
+10. **No stale/double overwrite:** Automated overlap claim and version/action commit rejection plus exact post-write reread, partial mismatch, and ambiguous identity rejection.
+11. **Bounded sanitized retry:** Automated one-initial/one-repair proof, cap/backoff/category/redaction fixture.
 12. **Generated workflow owns Review Queue only and remains inactive:** Automated workflow suite.
 13. **Relevant tests:** Automated generator, legacy evaluation safety, workflow, and lifecycle suites.
 14. **Full evidence/URL/safety/manual boundary:** Automated evaluation, message-safety, and endpoint scans.
@@ -69,26 +69,26 @@ Evidence labels:
 3. **Forged actions fail closed:** Automated contract/planner rejection.
 4. **Approve retains context:** Automated generation-request fixture.
 5. **Deny archives with context:** Automated full-field archive fixture.
-6. **I Applied safety gate:** Automated missing-provenance loop.
+6. **I Applied safety gate:** Automated missing-provenance loop through the same shared persisted-message validator used by alerts.
 7. **Applied copy/time once:** Automated destination record and rerun fixture.
 8. **User Skip archives:** Automated `user_skip`.
 9. **Automatic skip archives:** Automated `automatic_skip`.
 10. **Destination failure retains source:** Automated unconfirmed-destination result.
-11. **Delete failure retry idempotent:** Automated existing-copy rerun/no-second-write.
+11. **Delete failure retry idempotent:** Automated existing-copy rerun/no-second-write plus partial-destination repair/upsert.
 12. **Stale source prevents delete:** Automated changed action/version fixture.
 13. **Ambiguous IDs fail:** Automated duplicate/conflicting terminal fixtures.
 14. **Repeated success no-op:** Automated missing-source confirmation.
-15. **Outcomes retain application history:** Automated guarded outcome update.
+15. **Outcomes retain application history:** Automated guarded pending-outcome update with recorded-value marker.
 16. **Safety/manual/copy confirm retained:** Automated movement/workflow/lifecycle suites.
 
 ## Issue #43 — combined Alerter & Mover
 
 1. **One inactive combined export:** Automated exact manifest/role check.
-2. **Moves independent of Slack:** Automated combined planning and separate workflow branches.
-3. **Alert after fresh state:** Automated fresh selection/claim reread nodes.
+2. **Moves independent of Slack:** Automated bounded per-row failure continuation.
+3. **Alert after fresh state:** Automated graph ordering: copy-confirm-delete attempts, fresh Review Queue reread, then selection.
 4. **Complete message/copy fidelity:** Automated exact code-block comparison and context fields.
 5. **No replay:** Automated sent-key selection fixture.
-6. **Overlap idempotency:** Automated sending lease fixture.
+6. **Overlap idempotency:** Automated `_System` append-winner arbitration, persisted alert token, unexpired overlap rejection, and expired-sending terminalization.
 7. **Slack errors do not affect moves:** Automated rejection plus applied-write assertion.
 8. **Move failures safe:** Automated movement suite.
 9. **Action precedence:** Automated stale alert/move user-edit rejection.

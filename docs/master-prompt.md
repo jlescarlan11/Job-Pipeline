@@ -50,7 +50,7 @@ banned phrase; and required-subject compliance. Schedule text is classified
 before generic numeric evidence so time fragments are not reported as the
 primary error.
 
-The simplified Generator makes at most one model request per selected row.
+The simplified Generator makes one initial model request and, only when deterministic validation rejects it, at most one delayed repair request per selected row. The repair contains the complete rejected draft and every validation error, and the repaired output must pass the same gates.
 Invalid output becomes bounded `error` evidence and returns through the normal
 retry schedule; it never stores rejected text or erases a previous valid
 pack/message. A retry is a later claimed execution and must pass the same

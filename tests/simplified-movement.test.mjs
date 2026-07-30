@@ -9,13 +9,45 @@ import {
   applyOutcomeUpdate,
   confirmMoveDeletions,
   destinationWrites,
-  planQueueActions
+  planOutcomeUpdates,
+  planQueueActions as planQueueActionsRaw
 } from "../src/movement.mjs";
 
 const schema = JSON.parse(
   await readFile(new URL("../config/pipeline-schema.json", import.meta.url))
 );
+const profile = JSON.parse(
+  await readFile(new URL("../config/candidate-profile.json", import.meta.url))
+);
+const applicationPolicy = JSON.parse(
+  await readFile(new URL("../config/application-policy.json", import.meta.url))
+);
+const packPolicy = JSON.parse(
+  await readFile(
+    new URL("../config/application-pack-policy.json", import.meta.url)
+  )
+);
+const safetyContext = { profile, applicationPolicy, packPolicy };
 const now = "2026-07-31T10:00:00.000Z";
+
+function planQueueActions(
+  reviewRows,
+  appliedRows,
+  archiveRows,
+  selectedSchema,
+  selectedNow,
+  options
+) {
+  return planQueueActionsRaw(
+    reviewRows,
+    appliedRows,
+    archiveRows,
+    selectedSchema,
+    selectedNow,
+    safetyContext,
+    options
+  );
+}
 
 function row(id, status, action = "", overrides = {}) {
   const normalized = normalizeLegacyRecord(
@@ -35,21 +67,32 @@ function row(id, status, action = "", overrides = {}) {
       company: "Example",
       decision_reason: "Auditable decision",
       generated_message:
-        status === "ready_to_apply" ? "A safe generated message." : "",
+        status === "ready_to_apply"
+          ? "Hi there,\n\nI build TypeScript and React applications using approved profile evidence.\n\nPortfolio: https://johnlesterescarlan.pro"
+          : "",
       message_validation_status:
         status === "ready_to_apply" ? "valid" : "",
       message_profile_version:
-        status === "ready_to_apply" ? "2026-07-29" : "",
+        status === "ready_to_apply" ? profile.profile_version : "",
       message_policy_version:
-        status === "ready_to_apply" ? "2026-07-28" : "",
+        status === "ready_to_apply" ? applicationPolicy.policy_version : "",
       application_pack_status:
         status === "ready_to_apply" ? "ready" : "",
       application_pack_version:
-        status === "ready_to_apply" ? "2026-07-28/v1" : "",
+        status === "ready_to_apply" ? packPolicy.pack_version : "",
       application_pack_profile_version:
-        status === "ready_to_apply" ? "2026-07-29" : "",
+        status === "ready_to_apply" ? profile.profile_version : "",
       application_pack_policy_version:
-        status === "ready_to_apply" ? "2026-07-28/v1" : "",
+        status === "ready_to_apply" ? packPolicy.policy_version : "",
+      application_pack_generated_at:
+        status === "ready_to_apply" ? now : "",
+      application_instructions: [],
+      screening_questions: [],
+      selected_proof_refs:
+        status === "ready_to_apply"
+          ? ["experience:upwork", "projects:job-pipeline"]
+          : [],
+      application_warnings: [],
       created_at: "2026-07-31T08:00:00.000Z",
       updated_at: "2026-07-31T09:00:00.000Z",
       ...overrides
@@ -84,10 +127,10 @@ test("ready rows expose only I Applied and Skip; review rows expose only Approve
     row(4005, "new", "Deny")
   ];
   for (const invalid of invalidPairs) {
-    assert.throws(
-      () => planQueueActions([invalid], [], [], schema, now),
-      /rejected invalid row/
-    );
+    const plan = planQueueActions([invalid], [], [], schema, now);
+    assert.equal(plan.moves.length, 0);
+    assert.equal(plan.generation_requests.length, 0);
+    assert.equal(plan.rejected[0].reason, "invalid_source");
   }
 });
 
@@ -165,9 +208,13 @@ test("I Applied requires current validated pack/message provenance", () => {
     const unsafe = row(4041, "ready_to_apply", "I Applied", {
       [missing]: ""
     });
-    assert.throws(
-      () => planQueueActions([unsafe], [], [], schema, now),
-      /safety evidence is incomplete/,
+    const rejected = planQueueActions([unsafe], [], [], schema, now);
+    assert.equal(rejected.moves.length, 0, missing);
+    assert.equal(rejected.rejected.length, 1, missing);
+    assert.ok(
+      ["invalid_source", "unsafe_action"].includes(
+        rejected.rejected[0].reason
+      ),
       missing
     );
   }
@@ -247,6 +294,55 @@ test("delete failure is idempotent on rerun and does not duplicate destination",
   assert.deepEqual(afterDelete, { deletions: [], rejected: [] });
 });
 
+test("a partial destination is repaired by identity without losing destination-owned data", () => {
+  const source = row(4071, "ready_to_apply", "I Applied");
+  const initial = planQueueActions([source], [], [], schema, now);
+  const complete = destinationAfterWrite(initial).applied[0];
+  const partial = {
+    ...complete,
+    job_title: "",
+    notes: "Terminal-store note",
+    outcome: "interview",
+    outcome_recorded_value: "interview",
+    outcome_at: "2026-07-31T10:01:00.000Z"
+  };
+  partial.state_guard = stateGuard(partial);
+  const recovery = planQueueActions(
+    [source],
+    [partial],
+    [],
+    schema,
+    "2026-07-31T10:05:00.000Z"
+  );
+  assert.equal(recovery.moves[0].write_required, true);
+  assert.equal(recovery.moves[0].destination_record.job_title, source.job_title);
+  assert.equal(recovery.moves[0].destination_record.notes, "Terminal-store note");
+  assert.equal(recovery.moves[0].destination_record.outcome, "interview");
+  assert.equal(
+    recovery.moves[0].destination_record.applied_at,
+    complete.applied_at
+  );
+});
+
+test("movement cap defers extra moves while retaining approval requests", () => {
+  const first = row(4072, "skip");
+  const second = row(4073, "skip");
+  const approval = row(4074, "review_needed", "Approve");
+  const plan = planQueueActions(
+    [first, second, approval],
+    [],
+    [],
+    schema,
+    now,
+    { movementPerRunCap: 1 }
+  );
+  assert.equal(plan.moves.length, 1);
+  assert.equal(plan.generation_requests.length, 1);
+  assert.ok(
+    plan.rejected.some((entry) => entry.reason === "movement_cap_reached")
+  );
+});
+
 test("last-minute source changes prevent deletion", () => {
   const source = row(4080, "ready_to_apply", "I Applied");
   const plan = planQueueActions([source], [], [], schema, now);
@@ -313,6 +409,7 @@ test("Applied Jobs outcome changes are guarded and retain application history", 
     "2026-08-01T01:00:00.000Z"
   );
   assert.equal(updated.outcome, "interview");
+  assert.equal(updated.outcome_recorded_value, "interview");
   assert.equal(updated.outcome_at, "2026-08-01T01:00:00.000Z");
   assert.equal(updated.applied_at, applied.applied_at);
   assert.equal(updated.generated_message, applied.generated_message);
@@ -338,4 +435,18 @@ test("Applied Jobs outcome changes are guarded and retain application history", 
       ),
     /unsupported/
   );
+
+  const operatorEdited = {
+    ...applied,
+    outcome: "replied",
+    outcome_recorded_value: ""
+  };
+  operatorEdited.state_guard = stateGuard(operatorEdited);
+  const planned = planOutcomeUpdates(
+    [operatorEdited],
+    schema,
+    "2026-08-01T02:00:00.000Z"
+  );
+  assert.equal(planned.updates.length, 1);
+  assert.equal(planned.updates[0].outcome_recorded_value, "replied");
 });

@@ -98,6 +98,18 @@ export function validateAlertPolicy(policy) {
     errors.push("Slack timeout must be shorter than workflow timeout");
   }
   if (
+    Number.isInteger(policy?.per_run_cap) &&
+    Number.isInteger(policy?.provider_timeout_ms) &&
+    Number.isInteger(policy?.provider_request_interval_ms) &&
+    Number.isInteger(policy?.execution_timeout_seconds) &&
+    policy.per_run_cap * policy.provider_timeout_ms +
+      Math.max(0, policy.per_run_cap - 1) *
+        policy.provider_request_interval_ms >=
+      policy.execution_timeout_seconds * 1000
+  ) {
+    errors.push("serial Slack provider budget must fit workflow timeout");
+  }
+  if (
     Number.isInteger(policy?.claim_lease_ms) &&
     policy.claim_lease_ms <= policy.execution_timeout_seconds * 1000
   ) {
@@ -131,11 +143,7 @@ export function validateAlertPolicy(policy) {
 
 function retryDue(record, policy, nowMs) {
   if (record.alert_status === "sending") {
-    const attemptedAt = Date.parse(record.alert_last_attempt_at || "");
-    return (
-      !Number.isFinite(attemptedAt) ||
-      nowMs - attemptedAt >= policy.claim_lease_ms
-    );
+    return false;
   }
   const retryAt = Date.parse(record.alert_next_retry_at || "");
   return !record.alert_next_retry_at || !Number.isFinite(retryAt) || retryAt <= nowMs;
@@ -181,6 +189,7 @@ export function selectFreshAlertCandidates(
 ) {
   const candidates = [];
   const rejected = [];
+  const stateUpdates = [];
   const identities = new Set();
   for (const record of freshReviewRows) {
     const contractErrors = validateRecordContract(record, schema);
@@ -198,6 +207,32 @@ export function selectFreshAlertCandidates(
       throw new Error("Alert selection rejected ambiguous duplicate Review Queue identity");
     }
     identities.add(identity);
+    if (record.alert_status === "sending") {
+      const attemptedAt = Date.parse(record.alert_last_attempt_at || "");
+      const expired =
+        !Number.isFinite(attemptedAt) ||
+        Date.parse(now) - attemptedAt >= policy.claim_lease_ms;
+      if (expired) {
+        const updated = {
+          ...record,
+          alert_status: "terminal_failure",
+          alert_claim_token: "",
+          alert_next_retry_at: "",
+          alert_error_category: "ambiguous_delivery",
+          alert_error_summary:
+            "A prior Slack send did not reach a confirmed commit; delivery is ambiguous and will not be replayed.",
+          record_version: record.record_version + 1,
+          updated_at: now
+        };
+        updated.state_guard = stateGuard(updated);
+        stateUpdates.push(updated);
+        rejected.push({
+          canonical_job_id: record.canonical_job_id,
+          reasons: ["ambiguous_delivery"]
+        });
+        continue;
+      }
+    }
     const eligibility = evaluateAlertEligibility(
       record,
       policy,
@@ -221,7 +256,8 @@ export function selectFreshAlertCandidates(
   );
   return {
     candidates: candidates.slice(0, policy.per_run_cap),
-    rejected
+    rejected,
+    state_updates: stateUpdates
   };
 }
 
@@ -241,7 +277,9 @@ export function markAlertSending(
     alert_error_category: "",
     alert_error_summary: "",
     alert_provider_reference: "",
-    alert_claim_token: `${executionId}:${record.canonical_job_id}:alert`,
+    alert_claim_token: `${sanitize(executionId, 120)}:alert:${stableHash(
+      `${record.canonical_job_id}:${alertIdempotencyKey(record, policy)}`
+    )}`,
     record_version: record.record_version + 1,
     updated_at: now
   };
@@ -356,11 +394,15 @@ export function applySlackProviderResult(
   now = new Date().toISOString()
 ) {
   if (
+    !freshRecord ||
+    !sendingRecord ||
     freshRecord.canonical_job_id !== sendingRecord.canonical_job_id ||
     freshRecord.record_version !== sendingRecord.record_version ||
     freshRecord.state_guard !== sendingRecord.state_guard ||
     freshRecord.alert_status !== "sending" ||
-    freshRecord.alert_idempotency_key !== sendingRecord.alert_idempotency_key
+    freshRecord.alert_idempotency_key !== sendingRecord.alert_idempotency_key ||
+    !freshRecord.alert_claim_token ||
+    freshRecord.alert_claim_token !== sendingRecord.alert_claim_token
   ) {
     throw new Error("Slack result rejected stale Review Queue state");
   }
@@ -407,7 +449,8 @@ export function planAlerterMoverRun(
   schema,
   policy,
   now,
-  messageSafetyContext
+  messageSafetyContext,
+  movementOptions
 ) {
   // Movement is planned first and remains usable even if an individual alert
   // is unsafe or the Slack provider later fails.
@@ -416,7 +459,9 @@ export function planAlerterMoverRun(
     appliedRows,
     archiveRows,
     schema,
-    now
+    now,
+    messageSafetyContext,
+    movementOptions
   );
   const alerts = selectFreshAlertCandidates(
     freshReviewRows,

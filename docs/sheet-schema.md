@@ -45,7 +45,8 @@ The exact record columns are:
 `state_guard`, `canonical_url`, `job_title`, `company`, `job_description`,
 `salary_text`, `posted_at`, `discovered_at`, `last_seen_at`,
 `matched_keywords`, `source_availability`, `pipeline_status`, `user_action`,
-`decision_reason`, `required_input`, `qualification_score`,
+`decision_reason`, `required_input`, `review_approved_at`,
+`review_approval_note`, `qualification_score`,
 `opportunity_score`, `ranking_confidence`, `match_reasons`,
 `requirement_gaps`, `profile_version`, `policy_version`, `evaluated_at`,
 `processing_stage`, `processing_token`, `processing_started_at`,
@@ -56,10 +57,12 @@ The exact record columns are:
 `application_pack_status`, `application_pack_version`,
 `application_pack_profile_version`, `application_pack_policy_version`,
 `application_pack_generated_at`, `alert_status`, `alert_idempotency_key`,
+`alert_claim_token`,
 `alert_attempt_count`, `alert_last_attempt_at`, `alert_next_retry_at`,
 `alert_sent_at`, `alert_provider_reference`, `alert_error_category`,
 `alert_error_summary`, `applied_at`, `archived_at`, `archive_reason`,
-`outcome`, `outcome_at`, `notes`, `created_at`, and `updated_at`.
+`outcome`, `outcome_recorded_value`, `outcome_at`, `notes`, `created_at`, and
+`updated_at`.
 
 `_System` contains only `claim_key`, `canonical_job_id`, `stage`, `token`, `created_at`, and `expires_at`. It is not a business-data store.
 

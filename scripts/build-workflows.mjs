@@ -1,4 +1,4 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -9,6 +9,11 @@ import {
   validateSearchPlan
 } from "../src/discovery.mjs";
 import {
+  validateGroqProviderPolicy,
+  validateGroqRuntimeCapacity
+} from "../src/groq-provider.mjs";
+import {
+  validateWorkflowArtifactManifest,
   validateRuntimeConfig,
   workflowExecutionDataSettings
 } from "../src/runtime.mjs";
@@ -57,6 +62,13 @@ const alertErrors = validateAlertPolicy(alertPolicy);
 if (alertErrors.length > 0) {
   throw new Error(`Invalid alert policy:\n- ${alertErrors.join("\n- ")}`);
 }
+const groqErrors = [
+  ...validateGroqProviderPolicy(groqPolicy),
+  ...validateGroqRuntimeCapacity(groqPolicy, runtime.generator)
+];
+if (groqErrors.length > 0) {
+  throw new Error(`Invalid Groq provider/runtime configuration:\n- ${groqErrors.join("\n- ")}`);
+}
 if (review.sheets.review_queue.name !== "Review Queue") {
   throw new Error("Review Queue must be the authoritative active sheet");
 }
@@ -83,16 +95,24 @@ const discoveryCore = await bundledCore(
 const generatorCore = await bundledCore(
   "src/contracts.mjs",
   "src/evaluation.mjs",
+  "src/groq-provider.mjs",
   "src/generator.mjs"
+);
+const groqModel = groqPolicy.models.find(
+  (model) => model.id === groqPolicy.selected_model
 );
 const movementCore = await bundledCore(
   "src/contracts.mjs",
+  "src/evaluation.mjs",
+  "src/message-safety.mjs",
+  "src/system-claims.mjs",
   "src/movement.mjs"
 );
 const alertCore = await bundledCore(
   "src/contracts.mjs",
   "src/evaluation.mjs",
   "src/message-safety.mjs",
+  "src/system-claims.mjs",
   "src/alerter-mover.mjs"
 );
 // A successful Generator commit must clear the exact Approve action it
@@ -113,6 +133,8 @@ const generatorClaimFields = [
   "processing_stage",
   "processing_token",
   "processing_started_at",
+  "review_approved_at",
+  "review_approval_note",
   "updated_at"
 ];
 const alertStateFields = [
@@ -121,6 +143,7 @@ const alertStateFields = [
   "state_guard",
   "alert_status",
   "alert_idempotency_key",
+  "alert_claim_token",
   "alert_attempt_count",
   "alert_last_attempt_at",
   "alert_next_retry_at",
@@ -128,6 +151,15 @@ const alertStateFields = [
   "alert_provider_reference",
   "alert_error_category",
   "alert_error_summary",
+  "updated_at"
+];
+const outcomeStateFields = [
+  "canonical_job_id",
+  "record_version",
+  "state_guard",
+  "outcome",
+  "outcome_recorded_value",
+  "outcome_at",
   "updated_at"
 ];
 
@@ -241,6 +273,7 @@ function httpNode(
     headers = [],
     body,
     responseFormat = "text",
+    fullResponse = false,
     continueOnError = true,
     interval
   }
@@ -270,7 +303,7 @@ function httpNode(
             }
           : {}),
         response: {
-          response: { responseFormat }
+          response: { responseFormat, fullResponse }
         },
         timeout
       }
@@ -356,7 +389,15 @@ function readSheet(name, position, sheet) {
   };
 }
 
-function writeSheet(name, position, sheet, operation, fields, matchingColumns = []) {
+function writeSheet(
+  name,
+  position,
+  sheet,
+  operation,
+  fields,
+  matchingColumns = [],
+  { continueOnError = false } = {}
+) {
   const value = Object.fromEntries(
     fields.map((field) => [field, sheetExpression(field)])
   );
@@ -382,11 +423,17 @@ function writeSheet(name, position, sheet, operation, fields, matchingColumns = 
     typeVersion: 4.7,
     position,
     id: id(),
-    name
+    name,
+    ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
 }
 
-function deleteRowsNode(name, position, sheet) {
+function deleteRowsNode(
+  name,
+  position,
+  sheet,
+  { continueOnError = false } = {}
+) {
   return {
     parameters: {
       operation: "delete",
@@ -399,7 +446,8 @@ function deleteRowsNode(name, position, sheet) {
     typeVersion: 4.7,
     position,
     id: id(),
-    name
+    name,
+    ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
 }
 
@@ -687,7 +735,7 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "scraper",
-      workflowContractVersion: "2026-07-31/v1",
+      workflowContractVersion: "2026-07-31/v2",
       searchPlanVersion: searchPlan.plan_version,
       pipelineSchemaVersion: schema.storage_version,
       windowHours: 24,
@@ -737,7 +785,12 @@ return selected.map(({ record, stage }) => ({
       ["canonical_job_id"]
     ),
     aggregateNode("Aggregate Claimed Candidate", [-600, 200], "claimed_rows"),
-    httpNode("Fetch Job Detail", [-400, 200], {
+    ifNode(
+      "Needs Fresh Job Detail",
+      [-500, 200],
+      "={{ $('Select and Claim Candidate').first().json.processing_stage === 'evaluation' }}"
+    ),
+    httpNode("Fetch Job Detail", [-300, 80], {
       url: "={{ $('Select and Claim Candidate').first().json.canonical_url }}",
       timeout: config.http_timeout_ms,
       retry: {
@@ -752,18 +805,30 @@ return selected.map(({ record, stage }) => ({
       ]
     }),
     codeNode(
+      "Use Stored Job Detail",
+      [-300, 320],
+      "return { json: {} };",
+      "runOnceForEachItem"
+    ),
+    codeNode(
       "Evaluate and Prepare Application",
-      [-200, 200],
+      [-100, 200],
       `${generatorCore}
 const PROFILE = ${JSON.stringify(profile)};
 const RANKING_POLICY = ${JSON.stringify(rankingPolicy)};
 const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const PROVIDER_POLICY = ${JSON.stringify(groqPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
 const claimed = $('Select and Claim Candidate').first().json;
 const now = new Date().toISOString();
 const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
-if (errorMessage && !$json.data && !$json.body) {
+if (
+  claimed.processing_stage === 'evaluation' &&
+  errorMessage &&
+  !$json.data &&
+  !$json.body
+) {
   return { json: {
     provider_required: false,
     claimed_record: claimed,
@@ -790,6 +855,7 @@ try {
     PROFILE,
     APPLICATION_POLICY,
     PACK_POLICY,
+    PROVIDER_POLICY,
     now
   );
   return { json: {
@@ -809,17 +875,13 @@ try {
     ),
     ifNode(
       "Provider Required",
-      [0, 200],
+      [100, 200],
       "={{ $json.provider_required === true }}"
     ),
-    httpNode("Generate Application with Groq", [200, 80], {
+    httpNode("Generate Initial Application with Groq", [300, 40], {
       url: "https://api.groq.com/openai/v1/chat/completions",
       method: "POST",
       timeout: config.http_timeout_ms,
-      retry: {
-        max_attempts: groqPolicy.generation.maximum_requests_per_item,
-        backoff_ms: config.request_retry_backoff_ms
-      },
       headers: [
         {
           name: "Authorization",
@@ -827,32 +889,119 @@ try {
         }
       ],
       body:
-        "={{ JSON.stringify({ model: $env.JOB_PIPELINE_GROQ_MODEL || " +
+        "={{ JSON.stringify({ model: " +
         JSON.stringify(groqPolicy.selected_model) +
         ", temperature: " +
         JSON.stringify(groqPolicy.generation.temperature) +
         ", max_tokens: " +
         JSON.stringify(groqPolicy.generation.maximum_output_tokens) +
+        ", reasoning_effort: " +
+        JSON.stringify(groqModel.reasoning_effort) +
+        ", reasoning_format: " +
+        JSON.stringify(groqPolicy.generation.reasoning_format) +
         ", messages: [{ role: 'system', content: $json.system_message }, { role: 'user', content: $json.user_message }] }) }}",
       responseFormat: "json"
     }),
     codeNode(
-      "Validate Provider Result",
-      [400, 80],
+      "Validate Initial Draft",
+      [500, 40],
+      `${generatorCore}
+const PROFILE = ${JSON.stringify(profile)};
+const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
+const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const PROVIDER_POLICY = ${JSON.stringify(groqPolicy)};
+const RUNTIME = ${JSON.stringify(config)};
+const prepared = $('Evaluate and Prepare Application').first().json;
+const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
+const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
+try {
+  if (errorMessage || !message) throw new Error(errorMessage || 'Provider response contained no message');
+  const assessed = assessInitialGenerationDraft(
+    prepared.working_record,
+    prepared.pack,
+    message,
+    prepared.system_message,
+    prepared.user_message,
+    PROFILE,
+    APPLICATION_POLICY,
+    PACK_POLICY,
+    PROVIDER_POLICY,
+    new Date().toISOString()
+  );
+  return { json: {
+    ...assessed,
+    claimed_record: prepared.claimed_record,
+    working_record: prepared.working_record,
+    pack: prepared.pack,
+    system_message: prepared.system_message,
+    initial_user_message: prepared.user_message
+  } };
+} catch (error) {
+  return { json: {
+    repair_required: false,
+    claimed_record: prepared.claimed_record,
+    proposed_record: recordGeneratorFailure(
+      prepared.working_record,
+      error,
+      RUNTIME,
+      new Date().toISOString()
+    )
+  } };
+}
+`,
+      "runOnceForEachItem"
+    ),
+    ifNode(
+      "Needs One Repair",
+      [700, 40],
+      "={{ $json.repair_required === true }}"
+    ),
+    waitNode(
+      "Wait Before Repair",
+      [900, -80],
+      groqPolicy.generation.request_interval_ms
+    ),
+    httpNode("Generate Application Repair with Groq", [1100, -80], {
+      url: "https://api.groq.com/openai/v1/chat/completions",
+      method: "POST",
+      timeout: config.http_timeout_ms,
+      headers: [
+        {
+          name: "Authorization",
+          value: "={{ 'Bearer ' + $env.JOB_PIPELINE_GROQ_API_KEY }}"
+        }
+      ],
+      body:
+        "={{ JSON.stringify({ model: " +
+        JSON.stringify(groqPolicy.selected_model) +
+        ", temperature: " +
+        JSON.stringify(groqPolicy.generation.temperature) +
+        ", max_tokens: " +
+        JSON.stringify(groqPolicy.generation.maximum_output_tokens) +
+        ", reasoning_effort: " +
+        JSON.stringify(groqModel.reasoning_effort) +
+        ", reasoning_format: " +
+        JSON.stringify(groqPolicy.generation.reasoning_format) +
+        ", messages: [{ role: 'system', content: $json.system_message }, { role: 'user', content: $json.repair_user_message }] }) }}",
+      responseFormat: "json"
+    }),
+    codeNode(
+      "Validate Repaired Draft",
+      [1300, -80],
       `${generatorCore}
 const PROFILE = ${JSON.stringify(profile)};
 const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
-const prepared = $('Evaluate and Prepare Application').first().json;
+const staged = $('Validate Initial Draft').first().json;
 const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
 const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
 let proposed;
 try {
-  if (errorMessage || !message) throw new Error(errorMessage || 'Provider response contained no message');
+  if (errorMessage || !message) throw new Error(errorMessage || 'Repair response contained no message');
   proposed = applyValidatedGeneration(
-    prepared.working_record,
-    prepared.pack,
+    staged.working_record,
+    staged.pack,
     message,
     PROFILE,
     APPLICATION_POLICY,
@@ -861,37 +1010,53 @@ try {
   );
 } catch (error) {
   proposed = recordGeneratorFailure(
-    prepared.working_record,
+    staged.working_record,
     error,
     RUNTIME,
     new Date().toISOString()
   );
 }
-return { json: { claimed_record: prepared.claimed_record, proposed_record: proposed } };`,
+return { json: {
+  claimed_record: staged.claimed_record,
+  proposed_record: proposed
+} };`,
       "runOnceForEachItem"
     ),
     codeNode(
-      "Use Non-Provider Result",
-      [200, 320],
+      "Use Valid Initial Draft",
+      [900, 120],
       `return { json: {
   claimed_record: $json.claimed_record,
   proposed_record: $json.proposed_record
 } };`,
       "runOnceForEachItem"
     ),
-    readSheet("Get Review Queue Before Commit", [600, 200], queue),
-    aggregateNode("Aggregate Fresh Review Queue", [800, 200], "fresh_rows"),
+    codeNode(
+      "Use Non-Provider Result",
+      [300, 320],
+      `return { json: {
+  claimed_record: $json.claimed_record,
+  proposed_record: $json.proposed_record
+} };`,
+      "runOnceForEachItem"
+    ),
+    codeNode(
+      "Stage Generator Result",
+      [1500, 160],
+      `return { json: {
+  claimed_record: $json.claimed_record,
+  proposed_record: $json.proposed_record
+} };`,
+      "runOnceForEachItem"
+    ),
+    readSheet("Get Review Queue Before Commit", [1700, 160], queue),
+    aggregateNode("Aggregate Fresh Review Queue", [1900, 160], "fresh_rows"),
     codeNode(
       "Guard and Commit Generator Result",
-      [1000, 200],
+      [2100, 160],
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
-let staged;
-try {
-  staged = $('Validate Provider Result').first().json;
-} catch {
-  staged = $('Use Non-Provider Result').first().json;
-}
+const staged = $('Stage Generator Result').first().json;
 const fresh = ($input.first().json.fresh_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA))
@@ -907,11 +1072,45 @@ return { json: commitGeneratorResult(
     ),
     writeSheet(
       "Update Review Queue Result",
-      [1200, 200],
+      [2300, 160],
       queue,
       "update",
       reviewMachineFields,
       ["canonical_job_id"]
+    ),
+    readSheet("Get Review Queue After Commit", [2500, 160], queue),
+    aggregateNode(
+      "Aggregate Review Queue After Commit",
+      [2700, 160],
+      "fresh_rows"
+    ),
+    codeNode(
+      "Confirm Generator Result Persisted",
+      [2900, 160],
+      `${generatorCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const COMMIT_FIELDS = ${JSON.stringify(reviewMachineFields)};
+const planned = $('Guard and Commit Generator Result').first().json;
+const fresh = ($input.first().json.fresh_rows || [])
+  .filter((row) => row && Object.keys(row).length)
+  .map((row) => normalizeLegacyRecord(row, SCHEMA));
+const persisted = confirmGeneratorResultPersisted(
+  planned,
+  fresh,
+  SCHEMA,
+  COMMIT_FIELDS
+);
+console.log(JSON.stringify({
+  event: 'generator_result',
+  canonical_job_id: persisted.canonical_job_id,
+  status: persisted.pipeline_status,
+  stage: persisted.processing_stage || ''
+}));
+return { json: {
+  canonical_job_id: persisted.canonical_job_id,
+  pipeline_status: persisted.pipeline_status,
+  commit_verified: true
+} };`
     )
   ];
   const connections = {
@@ -927,9 +1126,18 @@ return { json: commitGeneratorResult(
       main: [[connection("Aggregate Claimed Candidate")]]
     },
     "Aggregate Claimed Candidate": {
-      main: [[connection("Fetch Job Detail")]]
+      main: [[connection("Needs Fresh Job Detail")]]
+    },
+    "Needs Fresh Job Detail": {
+      main: [
+        [connection("Fetch Job Detail")],
+        [connection("Use Stored Job Detail")]
+      ]
     },
     "Fetch Job Detail": {
+      main: [[connection("Evaluate and Prepare Application")]]
+    },
+    "Use Stored Job Detail": {
       main: [[connection("Evaluate and Prepare Application")]]
     },
     "Evaluate and Prepare Application": {
@@ -937,17 +1145,38 @@ return { json: commitGeneratorResult(
     },
     "Provider Required": {
       main: [
-        [connection("Generate Application with Groq")],
+        [connection("Generate Initial Application with Groq")],
         [connection("Use Non-Provider Result")]
       ]
     },
-    "Generate Application with Groq": {
-      main: [[connection("Validate Provider Result")]]
+    "Generate Initial Application with Groq": {
+      main: [[connection("Validate Initial Draft")]]
     },
-    "Validate Provider Result": {
-      main: [[connection("Get Review Queue Before Commit")]]
+    "Validate Initial Draft": {
+      main: [[connection("Needs One Repair")]]
+    },
+    "Needs One Repair": {
+      main: [
+        [connection("Wait Before Repair")],
+        [connection("Use Valid Initial Draft")]
+      ]
+    },
+    "Wait Before Repair": {
+      main: [[connection("Generate Application Repair with Groq")]]
+    },
+    "Generate Application Repair with Groq": {
+      main: [[connection("Validate Repaired Draft")]]
+    },
+    "Validate Repaired Draft": {
+      main: [[connection("Stage Generator Result")]]
+    },
+    "Use Valid Initial Draft": {
+      main: [[connection("Stage Generator Result")]]
     },
     "Use Non-Provider Result": {
+      main: [[connection("Stage Generator Result")]]
+    },
+    "Stage Generator Result": {
       main: [[connection("Get Review Queue Before Commit")]]
     },
     "Get Review Queue Before Commit": {
@@ -958,6 +1187,15 @@ return { json: commitGeneratorResult(
     },
     "Guard and Commit Generator Result": {
       main: [[connection("Update Review Queue Result")]]
+    },
+    "Update Review Queue Result": {
+      main: [[connection("Get Review Queue After Commit")]]
+    },
+    "Get Review Queue After Commit": {
+      main: [[connection("Aggregate Review Queue After Commit")]]
+    },
+    "Aggregate Review Queue After Commit": {
+      main: [[connection("Confirm Generator Result Persisted")]]
     }
   };
   return {
@@ -970,7 +1208,7 @@ return { json: commitGeneratorResult(
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "evaluator_generator",
-      workflowContractVersion: "2026-07-31/v1",
+      workflowContractVersion: "2026-07-31/v2",
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileVersion: profile.profile_version,
       applicationPolicyVersion: applicationPolicy.policy_version,
@@ -978,6 +1216,9 @@ return { json: commitGeneratorResult(
       groqProviderPolicyVersion: groqPolicy.policy_version,
       authoritativeActiveSheet: queue,
       manualSubmissionOnly: true,
+      maximumModelRequestsPerItem:
+        groqPolicy.generation.maximum_requests_per_item,
+      boundedRepairEnabled: true,
       executionTimeoutSeconds: config.execution_timeout_seconds,
       scheduleOffsetMinutes: config.schedule_offset_minutes
     },
@@ -990,20 +1231,25 @@ function buildAlerterMover() {
   const queue = review.sheets.review_queue.name;
   const applied = review.sheets.applied_jobs.name;
   const archive = review.sheets.archive.name;
+  const system = review.sheets.system.name;
   const config = runtime.alerter_mover;
   const nodes = [
-    scheduleNode("alerter_mover", [-1800, 240], config),
-    readSheet("Get Fresh Review Queue", [-1600, 240], queue),
-    aggregateNode("Aggregate Fresh Review Queue", [-1400, 240], "review_rows"),
-    readSheet("Get Applied Jobs", [-1200, 240], applied),
-    aggregateNode("Aggregate Applied Jobs", [-1000, 240], "applied_rows"),
-    readSheet("Get Archive", [-800, 240], archive),
-    aggregateNode("Aggregate Archive", [-600, 240], "archive_rows"),
+    scheduleNode("alerter_mover", [-2200, 240], config),
+    readSheet("Get Fresh Review Queue", [-2000, 240], queue),
+    aggregateNode("Aggregate Fresh Review Queue", [-1800, 240], "review_rows"),
+    readSheet("Get Applied Jobs", [-1600, 240], applied),
+    aggregateNode("Aggregate Applied Jobs", [-1400, 240], "applied_rows"),
+    readSheet("Get Archive", [-1200, 240], archive),
+    aggregateNode("Aggregate Archive", [-1000, 240], "archive_rows"),
     codeNode(
       "Plan Independent Moves",
-      [-400, 360],
+      [-800, 240],
       `${movementCore}
 const SCHEMA = ${JSON.stringify(schema)};
+const PROFILE = ${JSON.stringify(profile)};
+const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
+const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const RUNTIME = ${JSON.stringify(config)};
 const now = new Date().toISOString();
 const reviewRows = ($('Aggregate Fresh Review Queue').first().json.review_rows || [])
   .filter((row) => row && Object.keys(row).length)
@@ -1014,59 +1260,177 @@ const appliedRows = ($('Aggregate Applied Jobs').first().json.applied_rows || []
 const archiveRows = ($('Aggregate Archive').first().json.archive_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
-const movement = planQueueActions(reviewRows, appliedRows, archiveRows, SCHEMA, now);
-const writes = destinationWrites(movement);
+const safety = {
+  profile: PROFILE,
+  applicationPolicy: APPLICATION_POLICY,
+  packPolicy: PACK_POLICY
+};
+const movement = planQueueActions(
+  reviewRows,
+  appliedRows,
+  archiveRows,
+  SCHEMA,
+  now,
+  safety,
+  { movementPerRunCap: RUNTIME.movement_per_run_cap }
+);
+const outcome = planOutcomeUpdates(appliedRows, SCHEMA, now);
 console.log(JSON.stringify({
   event: 'movement_plan',
   moves: movement.moves.length,
   generation_requests: movement.generation_requests.length,
-  applied_writes: writes.applied.length,
-  archive_writes: writes.archive.length
+  rejected: movement.rejected.map((entry) => entry.reason),
+  outcome_updates: outcome.updates.length
 }));
-return [{ json: { movement, writes } }];`
+return [{ json: { movement, outcome, now } }];`
+    ),
+    codeNode(
+      "Prepare Outcome Updates",
+      [-600, 240],
+      `const rows = $('Plan Independent Moves').first().json.outcome.updates || [];
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode("Has Outcome Updates", [-400, 240], "={{ $json._noop !== true }}"),
+    writeSheet(
+      "Update Applied Outcomes",
+      [-200, 120],
+      applied,
+      "update",
+      outcomeStateFields,
+      ["canonical_job_id"],
+      { continueOnError: true }
+    ),
+    codeNode(
+      "Emit Movement Claims",
+      [0, 240],
+      `${movementCore}
+const RUNTIME = ${JSON.stringify(config)};
+const plan = $('Plan Independent Moves').first().json;
+const rows = (plan.movement.moves || []).map((movementPlan) => ({
+  ...createSystemClaim({
+    stage: 'movement',
+    canonicalJobId: movementPlan.canonical_job_id,
+    scope: movementPlan.destination,
+    executionId: String($execution.id),
+    now: plan.now,
+    leaseMs: RUNTIME.claim_lease_ms
+  }),
+  movement_plan: movementPlan
+}));
+return rows.length
+  ? rows.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`
+    ),
+    ifNode("Has Movement Claims", [200, 240], "={{ $json._noop !== true }}"),
+    writeSheet(
+      "Append Movement Claims",
+      [400, 120],
+      system,
+      "append",
+      review.sheets.system.fields,
+      [],
+      { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Movement Claim Writes", [600, 120], "claims"),
+    readSheet("Get System Claims", [800, 240], system),
+    aggregateNode("Aggregate System Claims", [1000, 240], "system_claims"),
+    codeNode(
+      "Keep Winning Movement Claims",
+      [1200, 240],
+      `${movementCore}
+const plan = $('Plan Independent Moves').first().json;
+const proposed = $('Emit Movement Claims').all()
+  .map((item) => item.json)
+  .filter((item) => item._noop !== true);
+const persisted = $input.first().json.system_claims || [];
+const winners = selectWinningSystemClaims(proposed, persisted, plan.now);
+return [{ json: {
+  movement: {
+    ...plan.movement,
+    moves: winners.map((winner) => winner.movement_plan)
+  }
+} }];`
+    ),
+    codeNode(
+      "Select Expired System Claims",
+      [1200, 40],
+      `${movementCore}
+const plan = $('Plan Independent Moves').first().json;
+const rows = expiredSystemClaimRows(
+  $input.first().json.system_claims || [],
+  plan.now
+);
+return rows.length
+  ? rows.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Expired System Claims",
+      [1400, 40],
+      "={{ $json._noop !== true }}"
+    ),
+    deleteRowsNode(
+      "Delete Expired System Claims",
+      [1600, 40],
+      system,
+      { continueOnError: true }
     ),
     codeNode(
       "Prepare Applied Writes",
-      [-200, 360],
-      `const rows = $('Plan Independent Moves').first().json.writes.applied || [];
-return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+      [1400, 240],
+      `${movementCore}
+const writes = destinationWrites(
+  $('Keep Winning Movement Claims').first().json.movement
+);
+return writes.applied.length
+  ? writes.applied.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`
     ),
-    ifNode("Has Applied Writes", [0, 360], "={{ $json._noop !== true }}"),
+    ifNode("Has Applied Writes", [1600, 240], "={{ $json._noop !== true }}"),
     writeSheet(
-      "Append Applied Jobs",
-      [200, 300],
+      "Upsert Applied Jobs",
+      [1800, 120],
       applied,
-      "append",
-      schema.fields
+      "appendOrUpdate",
+      schema.fields,
+      ["canonical_job_id"],
+      { continueOnError: true }
     ),
-    aggregateNode("Aggregate Applied Writes", [400, 300], "applied_writes"),
+    aggregateNode("Aggregate Applied Writes", [2000, 120], "applied_writes"),
     codeNode(
       "Prepare Archive Writes",
-      [600, 360],
-      `const rows = $('Plan Independent Moves').first().json.writes.archive || [];
-return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+      [2200, 240],
+      `${movementCore}
+const writes = destinationWrites(
+  $('Keep Winning Movement Claims').first().json.movement
+);
+return writes.archive.length
+  ? writes.archive.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`
     ),
-    ifNode("Has Archive Writes", [800, 360], "={{ $json._noop !== true }}"),
+    ifNode("Has Archive Writes", [2400, 240], "={{ $json._noop !== true }}"),
     writeSheet(
-      "Append Archive",
-      [1000, 300],
+      "Upsert Archive",
+      [2600, 120],
       archive,
-      "append",
-      schema.fields
+      "appendOrUpdate",
+      schema.fields,
+      ["canonical_job_id"],
+      { continueOnError: true }
     ),
-    aggregateNode("Aggregate Archive Writes", [1200, 300], "archive_writes"),
-    readSheet("Get Review Queue After Copies", [1400, 360], queue),
-    aggregateNode("Aggregate Review After Copies", [1600, 360], "review_rows"),
-    readSheet("Get Applied Jobs After Copies", [1800, 360], applied),
-    aggregateNode("Aggregate Applied After Copies", [2000, 360], "applied_rows"),
-    readSheet("Get Archive After Copies", [2200, 360], archive),
-    aggregateNode("Aggregate Archive After Copies", [2400, 360], "archive_rows"),
+    aggregateNode("Aggregate Archive Writes", [2800, 120], "archive_writes"),
+    readSheet("Get Review Queue After Copies", [3000, 240], queue),
+    aggregateNode("Aggregate Review After Copies", [3200, 240], "review_rows"),
+    readSheet("Get Applied Jobs After Copies", [3400, 240], applied),
+    aggregateNode("Aggregate Applied After Copies", [3600, 240], "applied_rows"),
+    readSheet("Get Archive After Copies", [3800, 240], archive),
+    aggregateNode("Aggregate Archive After Copies", [4000, 240], "archive_rows"),
     codeNode(
       "Confirm Destination Copies",
-      [2600, 360],
+      [4200, 240],
       `${movementCore}
 const SCHEMA = ${JSON.stringify(schema)};
-const plans = $('Plan Independent Moves').first().json.movement;
+const plans = $('Keep Winning Movement Claims').first().json.movement;
 const result = confirmMoveDeletions(
   plans,
   ($('Aggregate Review After Copies').first().json.review_rows || [])
@@ -1085,19 +1449,40 @@ console.log(JSON.stringify({
   confirmed: result.deletions.length,
   rejected: result.rejected.map((entry) => entry.reason)
 }));
-return result.deletions.map((entry) => ({ json: entry }));`
+return [{ json: result }];`
     ),
-    deleteRowsNode("Delete Confirmed Review Queue Rows", [2800, 360], queue),
+    codeNode(
+      "Prepare Confirmed Deletions",
+      [4400, 240],
+      `const rows = $('Confirm Destination Copies').first().json.deletions || [];
+return rows.length
+  ? rows.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Confirmed Deletions",
+      [4600, 240],
+      "={{ $json._noop !== true }}"
+    ),
+    deleteRowsNode(
+      "Delete Confirmed Review Queue Rows",
+      [4800, 120],
+      queue,
+      { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Deletion Attempts", [5000, 240], "deletions"),
+    readSheet("Get Review Queue After Moves", [5200, 240], queue),
+    aggregateNode("Aggregate Review After Moves", [5400, 240], "review_rows"),
     codeNode(
       "Select Fresh Alerts",
-      [-400, 80],
+      [5600, 240],
       `${alertCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const POLICY = ${JSON.stringify(alertPolicy)};
 const PROFILE = ${JSON.stringify(profile)};
 const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
-const rows = ($('Aggregate Fresh Review Queue').first().json.review_rows || [])
+const rows = ($('Aggregate Review After Moves').first().json.review_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA));
 const selected = selectFreshAlertCandidates(
@@ -1110,62 +1495,179 @@ const selected = selectFreshAlertCandidates(
 console.log(JSON.stringify({
   event: 'alert_selection',
   candidates: selected.candidates.length,
+  state_updates: selected.state_updates.length,
   rejected: selected.rejected.map((entry) => entry.reasons)
 }));
-return selected.candidates.map(({ record }) => ({
-  json: markAlertSending(record, POLICY, String($execution.id), new Date().toISOString())
-}));`
+return [{ json: selected }];`
+    ),
+    codeNode(
+      "Prepare Terminal Alert States",
+      [5800, 240],
+      `const rows = $('Select Fresh Alerts').first().json.state_updates || [];
+return rows.length
+  ? rows.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Terminal Alert States",
+      [6000, 240],
+      "={{ $json._noop !== true }}"
     ),
     writeSheet(
-      "Persist Alert Claims",
-      [-200, 80],
+      "Persist Terminal Alert States",
+      [6200, 120],
       queue,
       "update",
       alertStateFields,
-      ["canonical_job_id"]
+      ["canonical_job_id"],
+      { continueOnError: true }
     ),
-    aggregateNode("Aggregate Alert Claims", [0, 80], "alert_claims"),
-    readSheet("Get Review Queue After Alert Claims", [200, 80], queue),
-    aggregateNode("Aggregate Fresh Alert Claims", [400, 80], "review_rows"),
+    codeNode(
+      "Emit Alert Claims",
+      [6400, 240],
+      `${alertCore}
+const POLICY = ${JSON.stringify(alertPolicy)};
+const RUNTIME = ${JSON.stringify(config)};
+const selected = $('Select Fresh Alerts').first().json;
+const now = new Date().toISOString();
+const rows = (selected.candidates || []).map(({ record, idempotency_key }) => ({
+  ...createSystemClaim({
+    stage: 'alert',
+    canonicalJobId: record.canonical_job_id,
+    scope: idempotency_key,
+    executionId: String($execution.id),
+    now,
+    leaseMs: RUNTIME.claim_lease_ms
+  }),
+  alert_candidate: record
+}));
+return rows.length
+  ? rows.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`
+    ),
+    ifNode("Has Alert Claims", [6600, 240], "={{ $json._noop !== true }}"),
+    writeSheet(
+      "Append Alert Claims",
+      [6800, 120],
+      system,
+      "append",
+      review.sheets.system.fields,
+      [],
+      { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Alert Claim Writes", [7000, 120], "claims"),
+    readSheet("Get Alert System Claims", [7200, 240], system),
+    aggregateNode(
+      "Aggregate Alert System Claims",
+      [7400, 240],
+      "system_claims"
+    ),
+    codeNode(
+      "Keep Winning Alert Claims",
+      [7600, 240],
+      `${alertCore}
+const proposed = $('Emit Alert Claims').all()
+  .map((item) => item.json)
+  .filter((item) => item._noop !== true);
+const winners = selectWinningSystemClaims(
+  proposed,
+  $input.first().json.system_claims || [],
+  new Date().toISOString()
+);
+return [{ json: {
+  candidates: winners.map((winner) => winner.alert_candidate)
+} }];`
+    ),
+    codeNode(
+      "Prepare Alert Sending States",
+      [7800, 240],
+      `${alertCore}
+const POLICY = ${JSON.stringify(alertPolicy)};
+const rows = $('Keep Winning Alert Claims').first().json.candidates || [];
+return rows.length
+  ? rows.map((record) => ({
+      json: markAlertSending(
+        record,
+        POLICY,
+        String($execution.id),
+        new Date().toISOString()
+      )
+    }))
+  : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Alert Sending States",
+      [8000, 240],
+      "={{ $json._noop !== true }}"
+    ),
+    writeSheet(
+      "Persist Alert Sending States",
+      [8200, 120],
+      queue,
+      "update",
+      alertStateFields,
+      ["canonical_job_id"],
+      { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Alert Sending States", [8400, 240], "claims"),
+    readSheet("Get Review Queue After Alert Claims", [8600, 240], queue),
+    aggregateNode("Aggregate Fresh Alert Claims", [8800, 240], "review_rows"),
     codeNode(
       "Confirm and Render Alerts",
-      [600, 80],
+      [9000, 240],
       `${alertCore}
 const POLICY = ${JSON.stringify(alertPolicy)};
 const PROFILE = ${JSON.stringify(profile)};
 const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
-const proposed = $('Select Fresh Alerts').all().map((item) => item.json);
+const proposed = $('Prepare Alert Sending States').all()
+  .map((item) => item.json)
+  .filter((item) => item._noop !== true);
 const fresh = ($input.first().json.review_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, ${JSON.stringify(schema)}));
 const byId = new Map(fresh.map((row) => [String(row.canonical_job_id).toLowerCase(), row]));
-return proposed.flatMap((claim) => {
-  const persisted = byId.get(String(claim.canonical_job_id).toLowerCase());
-  if (!persisted ||
-      persisted.record_version !== claim.record_version ||
-      persisted.state_guard !== claim.state_guard ||
-      persisted.alert_status !== 'sending' ||
-      persisted.user_action) return [];
-  const payload = renderSlackAlert(claim, POLICY, {
-    reviewUrl: $env[POLICY.environment.review_url],
-    messageSafetyContext: { profile: PROFILE, applicationPolicy: APPLICATION_POLICY, packPolicy: PACK_POLICY }
-  });
-  return [{ json: { claim, payload } }];
-});`
+const rendered = proposed.flatMap((claim) => {
+  try {
+    const persisted = byId.get(String(claim.canonical_job_id).toLowerCase());
+    if (!persisted ||
+        persisted.record_version !== claim.record_version ||
+        persisted.state_guard !== claim.state_guard ||
+        persisted.alert_status !== 'sending' ||
+        persisted.alert_claim_token !== claim.alert_claim_token ||
+        persisted.user_action) return [];
+    const payload = renderSlackAlert(persisted, POLICY, {
+      reviewUrl: $env[POLICY.environment.review_url],
+      messageSafetyContext: { profile: PROFILE, applicationPolicy: APPLICATION_POLICY, packPolicy: PACK_POLICY }
+    });
+    return [{ json: { claim: persisted, payload } }];
+  } catch (error) {
+    console.log(JSON.stringify({
+      event: 'alert_render_rejected',
+      canonical_job_id: claim.canonical_job_id,
+      category: 'stale_or_unsafe'
+    }));
+    return [];
+  }
+});
+return rendered.length
+  ? rendered
+  : [{ json: { _noop: true } }];`
     ),
-    httpNode("Send Slack Alert", [800, 80], {
+    ifNode("Has Provider Alerts", [9200, 240], "={{ $json._noop !== true }}"),
+    httpNode("Send Slack Alert", [9400, 120], {
       url: `={{ $env.${alertPolicy.environment.provider_webhook_url} }}`,
       method: "POST",
       timeout: alertPolicy.provider_timeout_ms,
       interval: alertPolicy.provider_request_interval_ms,
       body: "={{ JSON.stringify({ text: $json.payload.text }) }}",
-      responseFormat: "json",
+      responseFormat: "text",
+      fullResponse: true,
       continueOnError: true
     }),
     codeNode(
       "Stage Slack Result",
-      [1000, 80],
+      [9600, 120],
       `const request = $('Confirm and Render Alerts').item.json;
 return { json: {
   claim: request.claim,
@@ -1173,12 +1675,16 @@ return { json: {
 } };`,
       "runOnceForEachItem"
     ),
-    aggregateNode("Aggregate Slack Results", [1200, 80], "results"),
-    readSheet("Get Review Queue Before Alert Commit", [1400, 80], queue),
-    aggregateNode("Aggregate Review Before Alert Commit", [1600, 80], "review_rows"),
+    aggregateNode("Aggregate Slack Results", [9800, 120], "results"),
+    readSheet("Get Review Queue Before Alert Commit", [10000, 120], queue),
+    aggregateNode(
+      "Aggregate Review Before Alert Commit",
+      [10200, 120],
+      "review_rows"
+    ),
     codeNode(
       "Guard and Commit Slack Results",
-      [1800, 80],
+      [10400, 120],
       `${alertCore}
 const POLICY = ${JSON.stringify(alertPolicy)};
 const staged = $('Aggregate Slack Results').first().json.results || [];
@@ -1186,24 +1692,42 @@ const fresh = ($input.first().json.review_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, ${JSON.stringify(schema)}));
 const byId = new Map(fresh.map((row) => [String(row.canonical_job_id).toLowerCase(), row]));
-return staged.map((entry) => {
-  const current = byId.get(String(entry.claim.canonical_job_id).toLowerCase());
-  return { json: applySlackProviderResult(
-    current,
-    entry.claim,
-    entry.provider_result,
-    POLICY,
-    new Date().toISOString()
-  ) };
+return staged.flatMap((entry) => {
+  try {
+    const current = byId.get(String(entry.claim.canonical_job_id).toLowerCase());
+    const updated = applySlackProviderResult(
+      current,
+      entry.claim,
+      entry.provider_result,
+      POLICY,
+      new Date().toISOString()
+    );
+    console.log(JSON.stringify({
+      event: 'alert_delivery',
+      canonical_job_id: updated.canonical_job_id,
+      status: updated.alert_status,
+      category: updated.alert_error_category || ''
+    }));
+    return [{ json: updated }];
+  } catch (error) {
+    console.log(JSON.stringify({
+      event: 'alert_delivery',
+      canonical_job_id: entry.claim?.canonical_job_id || '',
+      status: 'commit_rejected',
+      category: 'stale_state'
+    }));
+    return [];
+  }
 });`
     ),
     writeSheet(
       "Update Alert Results",
-      [2000, 80],
+      [10600, 120],
       queue,
       "update",
       alertStateFields,
-      ["canonical_job_id"]
+      ["canonical_job_id"],
+      { continueOnError: true }
     )
   ];
   const connections = {
@@ -1217,25 +1741,65 @@ return staged.map((entry) => {
     "Get Applied Jobs": { main: [[connection("Aggregate Applied Jobs")]] },
     "Aggregate Applied Jobs": { main: [[connection("Get Archive")]] },
     "Get Archive": { main: [[connection("Aggregate Archive")]] },
-    "Aggregate Archive": {
+    "Aggregate Archive": { main: [[connection("Plan Independent Moves")]] },
+    "Plan Independent Moves": {
+      main: [[connection("Prepare Outcome Updates")]]
+    },
+    "Prepare Outcome Updates": {
+      main: [[connection("Has Outcome Updates")]]
+    },
+    "Has Outcome Updates": {
+      main: [
+        [connection("Update Applied Outcomes")],
+        [connection("Emit Movement Claims")]
+      ]
+    },
+    "Update Applied Outcomes": {
+      main: [[connection("Emit Movement Claims")]]
+    },
+    "Emit Movement Claims": {
+      main: [[connection("Has Movement Claims")]]
+    },
+    "Has Movement Claims": {
+      main: [
+        [connection("Append Movement Claims")],
+        [connection("Get System Claims")]
+      ]
+    },
+    "Append Movement Claims": {
+      main: [[connection("Aggregate Movement Claim Writes")]]
+    },
+    "Aggregate Movement Claim Writes": {
+      main: [[connection("Get System Claims")]]
+    },
+    "Get System Claims": {
+      main: [[connection("Aggregate System Claims")]]
+    },
+    "Aggregate System Claims": {
       main: [
         [
-          connection("Plan Independent Moves"),
-          connection("Select Fresh Alerts")
+          connection("Keep Winning Movement Claims"),
+          connection("Select Expired System Claims")
         ]
       ]
     },
-    "Plan Independent Moves": {
+    "Select Expired System Claims": {
+      main: [[connection("Has Expired System Claims")]]
+    },
+    "Has Expired System Claims": {
+      main: [[connection("Delete Expired System Claims")], []]
+    },
+    "Keep Winning Movement Claims": {
       main: [[connection("Prepare Applied Writes")]]
     },
     "Prepare Applied Writes": { main: [[connection("Has Applied Writes")]] },
     "Has Applied Writes": {
       main: [
-        [connection("Append Applied Jobs")],
+        [connection("Upsert Applied Jobs")],
         [connection("Prepare Archive Writes")]
       ]
     },
-    "Append Applied Jobs": {
+    "Upsert Applied Jobs": {
       main: [[connection("Aggregate Applied Writes")]]
     },
     "Aggregate Applied Writes": {
@@ -1244,11 +1808,11 @@ return staged.map((entry) => {
     "Prepare Archive Writes": { main: [[connection("Has Archive Writes")]] },
     "Has Archive Writes": {
       main: [
-        [connection("Append Archive")],
+        [connection("Upsert Archive")],
         [connection("Get Review Queue After Copies")]
       ]
     },
-    "Append Archive": {
+    "Upsert Archive": {
       main: [[connection("Aggregate Archive Writes")]]
     },
     "Aggregate Archive Writes": {
@@ -1273,13 +1837,81 @@ return staged.map((entry) => {
       main: [[connection("Confirm Destination Copies")]]
     },
     "Confirm Destination Copies": {
-      main: [[connection("Delete Confirmed Review Queue Rows")]]
+      main: [[connection("Prepare Confirmed Deletions")]]
     },
-    "Select Fresh Alerts": { main: [[connection("Persist Alert Claims")]] },
-    "Persist Alert Claims": {
-      main: [[connection("Aggregate Alert Claims")]]
+    "Prepare Confirmed Deletions": {
+      main: [[connection("Has Confirmed Deletions")]]
     },
-    "Aggregate Alert Claims": {
+    "Has Confirmed Deletions": {
+      main: [
+        [connection("Delete Confirmed Review Queue Rows")],
+        [connection("Aggregate Deletion Attempts")]
+      ]
+    },
+    "Delete Confirmed Review Queue Rows": {
+      main: [[connection("Aggregate Deletion Attempts")]]
+    },
+    "Aggregate Deletion Attempts": {
+      main: [[connection("Get Review Queue After Moves")]]
+    },
+    "Get Review Queue After Moves": {
+      main: [[connection("Aggregate Review After Moves")]]
+    },
+    "Aggregate Review After Moves": {
+      main: [[connection("Select Fresh Alerts")]]
+    },
+    "Select Fresh Alerts": {
+      main: [[connection("Prepare Terminal Alert States")]]
+    },
+    "Prepare Terminal Alert States": {
+      main: [[connection("Has Terminal Alert States")]]
+    },
+    "Has Terminal Alert States": {
+      main: [
+        [connection("Persist Terminal Alert States")],
+        [connection("Emit Alert Claims")]
+      ]
+    },
+    "Persist Terminal Alert States": {
+      main: [[connection("Emit Alert Claims")]]
+    },
+    "Emit Alert Claims": {
+      main: [[connection("Has Alert Claims")]]
+    },
+    "Has Alert Claims": {
+      main: [
+        [connection("Append Alert Claims")],
+        [connection("Get Alert System Claims")]
+      ]
+    },
+    "Append Alert Claims": {
+      main: [[connection("Aggregate Alert Claim Writes")]]
+    },
+    "Aggregate Alert Claim Writes": {
+      main: [[connection("Get Alert System Claims")]]
+    },
+    "Get Alert System Claims": {
+      main: [[connection("Aggregate Alert System Claims")]]
+    },
+    "Aggregate Alert System Claims": {
+      main: [[connection("Keep Winning Alert Claims")]]
+    },
+    "Keep Winning Alert Claims": {
+      main: [[connection("Prepare Alert Sending States")]]
+    },
+    "Prepare Alert Sending States": {
+      main: [[connection("Has Alert Sending States")]]
+    },
+    "Has Alert Sending States": {
+      main: [
+        [connection("Persist Alert Sending States")],
+        [connection("Aggregate Alert Sending States")]
+      ]
+    },
+    "Persist Alert Sending States": {
+      main: [[connection("Aggregate Alert Sending States")]]
+    },
+    "Aggregate Alert Sending States": {
       main: [[connection("Get Review Queue After Alert Claims")]]
     },
     "Get Review Queue After Alert Claims": {
@@ -1289,7 +1921,10 @@ return staged.map((entry) => {
       main: [[connection("Confirm and Render Alerts")]]
     },
     "Confirm and Render Alerts": {
-      main: [[connection("Send Slack Alert")]]
+      main: [[connection("Has Provider Alerts")]]
+    },
+    "Has Provider Alerts": {
+      main: [[connection("Send Slack Alert")], []]
     },
     "Send Slack Alert": { main: [[connection("Stage Slack Result")]] },
     "Stage Slack Result": {
@@ -1318,13 +1953,15 @@ return staged.map((entry) => {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-07-31/v1",
+      workflowContractVersion: "2026-07-31/v2",
       alertPolicyVersion: alertPolicy.policy_version,
       pipelineSchemaVersion: schema.storage_version,
       authoritativeActiveSheet: queue,
       destinationSheets: [applied, archive],
       manualSubmissionOnly: true,
       movementIndependentOfSlack: true,
+      movementBeforeAlertSelection: true,
+      appendWinnerClaims: true,
       executionTimeoutSeconds: config.execution_timeout_seconds,
       scheduleOffsetMinutes: config.schedule_offset_minutes
     },
@@ -1339,6 +1976,20 @@ const outputs = [
   ["workflows/alerter-mover.json", buildAlerterMover()]
 ];
 
+const workflowsDirectory = resolve(root, "workflows");
+const existingWorkflowFiles = (await readdir(workflowsDirectory))
+  .filter((file) => file.endsWith(".json"))
+  .sort();
+const unexpectedWorkflowErrors = validateWorkflowArtifactManifest([
+  ...existingWorkflowFiles,
+  ...outputs.map(([path]) => path.split("/").pop())
+]).filter((error) => error.startsWith("unexpected"));
+if (unexpectedWorkflowErrors.length > 0) {
+  throw new Error(
+    `Invalid workflow artifact manifest:\n- ${unexpectedWorkflowErrors.join("\n- ")}`
+  );
+}
+
 for (const [path, workflow] of outputs) {
   const target = resolve(root, path);
   const generated = `${JSON.stringify(workflow, null, 2)}\n`;
@@ -1350,6 +2001,16 @@ for (const [path, workflow] of outputs) {
   } else {
     await writeFile(target, generated);
   }
+}
+
+const finalWorkflowFiles = (await readdir(workflowsDirectory))
+  .filter((file) => file.endsWith(".json"))
+  .sort();
+const manifestErrors = validateWorkflowArtifactManifest(finalWorkflowFiles);
+if (manifestErrors.length > 0) {
+  throw new Error(
+    `Invalid workflow artifact manifest:\n- ${manifestErrors.join("\n- ")}`
+  );
 }
 
 if (checkOnly) {

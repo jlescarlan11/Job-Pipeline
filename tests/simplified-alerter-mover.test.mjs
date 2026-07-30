@@ -29,6 +29,7 @@ const profile = await loadJson("../config/candidate-profile.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
+const groqPolicy = await loadJson("../config/groq-provider-policy.json");
 const runtime = (await loadJson("../config/runtime.json")).generator;
 const alertPolicy = await loadJson("../config/alert-policy.json");
 const directHtml = await readFile(
@@ -92,6 +93,7 @@ function makeReady(id, overrides = {}) {
     profile,
     applicationPolicy,
     packPolicy,
+    groqPolicy,
     now
   );
   const proposed = applyValidatedGeneration(
@@ -217,6 +219,30 @@ test("overlapping schedulers cannot claim the same alert", () => {
   );
   assert.equal(overlap.candidates.length, 0);
   assert.match(overlap.rejected[0].reasons.join(";"), /retry_not_due/);
+});
+
+test("an expired sending claim becomes terminal without another provider candidate", () => {
+  const sending = markAlertSending(
+    makeReady(5021),
+    alertPolicy,
+    "alerter-run-expired",
+    "2026-07-31T10:00:00.000Z"
+  );
+  const selected = selectFreshAlertCandidates(
+    [sending],
+    schema,
+    alertPolicy,
+    "2026-07-31T11:00:00.000Z",
+    safetyContext
+  );
+  assert.equal(selected.candidates.length, 0);
+  assert.equal(selected.state_updates.length, 1);
+  assert.equal(selected.state_updates[0].alert_status, "terminal_failure");
+  assert.equal(
+    selected.state_updates[0].alert_error_category,
+    "ambiguous_delivery"
+  );
+  assert.equal(selected.state_updates[0].alert_claim_token, "");
 });
 
 test("successful delivery is idempotent and never replayed", () => {

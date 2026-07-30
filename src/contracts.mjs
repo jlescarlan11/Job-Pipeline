@@ -107,9 +107,13 @@ export function stateGuard(record) {
     String(record.record_version || ""),
     String(record.processing_stage || ""),
     String(record.processing_token || ""),
+    String(record.review_approved_at || ""),
+    String(record.review_approval_note || ""),
     String(record.generated_at || ""),
     String(record.alert_status || ""),
+    String(record.alert_claim_token || ""),
     String(record.outcome || ""),
+    String(record.outcome_recorded_value || ""),
     String(record.applied_at || ""),
     String(record.archived_at || ""),
     String(record.archive_reason || "")
@@ -268,7 +272,10 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
       ? "legacy/unknown"
       : "");
   record.outcome = record.outcome || "";
+  record.outcome_recorded_value = record.outcome_recorded_value || "";
   record.user_action = record.user_action || "";
+  record.review_approval_note = record.review_approval_note || "";
+  record.alert_claim_token = record.alert_claim_token || "";
   record.state_guard = record.state_guard || stateGuard(record);
   return record;
 }
@@ -394,6 +401,31 @@ export function validateRecordContract(record, schema) {
     schema?.actions_by_status?.[record?.pipeline_status] ?? [];
   if (!allowedActions.includes(record?.user_action ?? "")) {
     errors.push("user_action is not supported for pipeline_status");
+  }
+  const processingToken = String(record?.processing_token || "").trim();
+  const processingStage = String(record?.processing_stage || "").trim();
+  const processingStartedAt = String(record?.processing_started_at || "").trim();
+  if (
+    processingToken &&
+    (!["evaluation", "generation"].includes(processingStage) ||
+      !Number.isFinite(Date.parse(processingStartedAt)))
+  ) {
+    errors.push(
+      "processing_token requires an evaluation/generation stage and valid start time"
+    );
+  }
+  if (!processingToken && processingStartedAt) {
+    errors.push("processing_started_at requires processing_token");
+  }
+  if (record?.pipeline_status === "processing" && !processingToken) {
+    errors.push("processing status requires processing_token");
+  }
+  const alertClaimToken = String(record?.alert_claim_token || "").trim();
+  if (record?.alert_status === "sending" && !alertClaimToken) {
+    errors.push("sending alert status requires alert_claim_token");
+  }
+  if (record?.alert_status !== "sending" && alertClaimToken) {
+    errors.push("alert_claim_token is only valid while sending");
   }
   return errors;
 }

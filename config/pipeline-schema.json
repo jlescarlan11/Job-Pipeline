@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "storage_version": "2026-07-31-fresh-three-workflow",
+  "storage_version": "2026-07-31-fresh-three-workflow-v2",
   "authoritative_stores": {
     "active": "Review Queue",
     "applied": "Applied Jobs",
@@ -33,6 +33,8 @@
     "user_action",
     "decision_reason",
     "required_input",
+    "review_approved_at",
+    "review_approval_note",
     "qualification_score",
     "opportunity_score",
     "ranking_confidence",
@@ -64,6 +66,7 @@
     "application_pack_generated_at",
     "alert_status",
     "alert_idempotency_key",
+    "alert_claim_token",
     "alert_attempt_count",
     "alert_last_attempt_at",
     "alert_next_retry_at",
@@ -75,6 +78,7 @@
     "archived_at",
     "archive_reason",
     "outcome",
+    "outcome_recorded_value",
     "outcome_at",
     "notes",
     "created_at",
@@ -96,6 +100,7 @@
     "discovered_at",
     "last_seen_at",
     "evaluated_at",
+    "review_approved_at",
     "processing_started_at",
     "next_retry_at",
     "generated_at",
@@ -137,6 +142,10 @@
         "Approve",
         "Deny"
       ]
+    },
+    "review_approval_note": {
+      "type": "string",
+      "maximum_length": 1000
     },
     "source_availability": {
       "type": "enum",
@@ -201,6 +210,10 @@
         "suppressed"
       ]
     },
+    "alert_claim_token": {
+      "type": "string",
+      "maximum_length": 256
+    },
     "outcome": {
       "type": "enum",
       "values": [
@@ -211,6 +224,21 @@
         "offer",
         "rejected"
       ]
+    },
+    "outcome_recorded_value": {
+      "type": "enum",
+      "values": [
+        "",
+        "no_response",
+        "replied",
+        "interview",
+        "offer",
+        "rejected"
+      ]
+    },
+    "notes": {
+      "type": "string",
+      "maximum_length": 1000
     }
   },
   "business_results": [

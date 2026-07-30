@@ -20,7 +20,7 @@
     "claim_lease_ms": 1200000
   },
   "generator": {
-    "schedule_minutes": 30,
+    "schedule_minutes": 90,
     "schedule_offset_minutes": 2,
     "execution_timeout_seconds": 480,
     "per_run_cap": 1,

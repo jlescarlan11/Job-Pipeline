@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "view_version": "2026-07-31/v1",
+  "view_version": "2026-07-31/v2",
   "timezone": "Asia/Manila",
   "sheets": {
     "review_queue": {
@@ -86,6 +86,8 @@
     "user_action",
     "decision_reason",
     "required_input",
+    "review_approved_at",
+    "review_approval_note",
     "qualification_score",
     "opportunity_score",
     "ranking_confidence",
@@ -117,6 +119,7 @@
     "application_pack_generated_at",
     "alert_status",
     "alert_idempotency_key",
+    "alert_claim_token",
     "alert_attempt_count",
     "alert_last_attempt_at",
     "alert_next_retry_at",
@@ -128,6 +131,7 @@
     "archived_at",
     "archive_reason",
     "outcome",
+    "outcome_recorded_value",
     "outcome_at",
     "notes",
     "created_at",

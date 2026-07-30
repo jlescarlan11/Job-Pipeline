@@ -75,14 +75,16 @@ policy are 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute, and
 
 - maximum initial request: `ceil((15,000 - 6,000) / 3) + 1,024 = 4,024`;
 - offline repair-budget ceiling: `ceil(15,000 / 3) + 1,024 = 6,024`;
-- maximum per scheduled selected record: `4,024` character-estimated tokens;
-- conservative 30-minute trigger count: `ceil(1,440 / 30) + 1 = 49` per day;
-- maximum scheduled use: 49 requests and 197,176 character-estimated tokens
-  per day, leaving 2,824 tokens, or 1.4%, below the planning limit.
+- maximum per scheduled selected record: `4,024 + 6,024 = 10,048`
+  character-estimated tokens;
+- conservative 90-minute trigger count: `ceil(1,440 / 90) + 1 = 17` per day;
+- maximum scheduled use: 34 requests and 170,816 character-estimated tokens
+  per day, leaving 29,184 tokens, or 14.6%, below the planning limit.
 
-Both estimates are below 8,000, but the simplified scheduled workflow permits
-only the initial request. Invalid output retries in a later scheduled
-execution. The Generator cap is 1 and its execution timeout is 480 seconds.
+Both request estimates are below 8,000. The simplified scheduled workflow
+permits one initial request plus one repair only after deterministic rejection,
+with 65 seconds of pacing between them and no automatic HTTP retry. The
+Generator item cap is 1 and its execution timeout is 480 seconds.
 The build fails if policy or runtime edits exceed the selected model's
 per-minute, daily, or execution-time envelope.
 
@@ -106,8 +108,9 @@ third approved proof for review and validation, but it is not repeated to the
 provider. Only each prompt proof's canonical reference and evidence are sent;
 the internal relevance score and duplicate display label are omitted. Job URLs
 and empty sections are omitted. The checked-in scheduled workflow makes one
-model request per selected record; invalid output records a bounded generation
-failure for a later claimed retry.
+initial request per selected record. An invalid initial draft is repaired once
+with the complete rejected draft and validation errors; an invalid repair
+records a bounded generation failure for a later claimed retry.
 
 Offline measurements on the three representative ready fixtures:
 

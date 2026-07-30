@@ -37,13 +37,13 @@
     "maximum_utilization_ratio": 0.67,
     "maximum_simultaneous_scheduled_executions": 2,
     "minimum_scheduled_burst_headroom": 1,
-    "timeout_weighted_concurrency": 0.4625
+    "timeout_weighted_concurrency": 0.2847
   },
   "execution_retention": {
     "maximum_age_hours": 336,
     "maximum_count": 10000,
-    "scheduled_runs_per_week": 1050,
-    "scheduled_failure_count_at_maximum_age": 2100
+    "scheduled_runs_per_week": 826,
+    "scheduled_failure_count_at_maximum_age": 1652
   },
   "monitoring": {
     "metrics_internal_only": true,
