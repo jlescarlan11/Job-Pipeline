@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v8",
+  "policy_version": "2026-07-30/v9",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -33,6 +33,7 @@
     "N8N_METRICS_INCLUDE_DEFAULT_METRICS": "true",
     "N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL": "true",
     "N8N_METRICS_INCLUDE_QUEUE_METRICS": "false",
+    "N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT": "20000",
     "N8N_RUNNERS_MODE": "internal",
     "N8N_RUNNERS_MAX_CONCURRENCY": "3",
     "N8N_RUNNERS_TASK_TIMEOUT": "300",
@@ -46,6 +47,10 @@
     "task_request_timeout_seconds": 20,
     "heartbeat_interval_seconds": 15,
     "deployment_reason": "This single-host launchd deployment uses the current stable n8n internal runner because the official external task-runner launcher is Linux-only. The runner is explicitly bounded and must pass four consecutive scheduled Code-node smoke executions after every n8n upgrade."
+  },
+  "http_requests": {
+    "response_body_read_timeout_ms": 20000,
+    "maximum_google_sheets_read_retry_window_ms": 70000
   },
   "capacity": {
     "production_concurrency_limit": 3,

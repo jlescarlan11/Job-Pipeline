@@ -74,6 +74,13 @@ limit. The deployment validator rejects a mode change, missing timeouts, a
 heartbeat that cannot arrive within the task-offer window, or concurrency
 drift between the two controls.
 
+The instance also sets `N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT=20000`. The Google
+Sheets transport otherwise inherits n8n's 300-second response-body read
+timeout, which can outlive the 90-second Alerter budget before a retry begins.
+At 20 seconds per attempt, the checked-in three-attempt/two-backoff policy has
+a 70-second maximum read-retry window. The validator rejects any timeout or
+retry change whose computed window reaches the shortest workflow timeout.
+
 ## Execution data and pruning
 
 Instance defaults match every export: retain errors and manual smoke runs,

@@ -182,7 +182,10 @@ run must clear zero additional inputs.
    timeout, a 20-second task-offer timeout, and a 15-second heartbeat. On this
    single-host macOS launchd deployment, keep schedules inactive after every
    n8n upgrade until a disposable scheduled Code workflow succeeds four
-   consecutive times; then deactivate and delete the disposable workflow.
+   consecutive times; then deactivate and delete the disposable workflow. Pin
+   `N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT=20000`; together with the three
+   five-second-backoff Sheet-read attempts, this bounds one failed read to 70
+   seconds inside the 90-second shortest workflow timeout.
    For Cloud or queue mode,
    record the plan/worker controls and create a separately reviewed profile
    rather than claiming this one.

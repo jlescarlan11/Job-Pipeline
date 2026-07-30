@@ -74,6 +74,11 @@ test("deployment policy bounds self-hosted concurrency and execution retention",
   assert.equal(policy.task_runner.task_timeout_seconds, 300);
   assert.equal(policy.task_runner.task_request_timeout_seconds, 20);
   assert.equal(policy.task_runner.heartbeat_interval_seconds, 15);
+  assert.equal(policy.http_requests.response_body_read_timeout_ms, 20000);
+  assert.equal(
+    policy.http_requests.maximum_google_sheets_read_retry_window_ms,
+    70000
+  );
   assert.deepEqual(
     policy.monitoring.workflow_events.provider_result_events,
     ["generator_result", "alert_delivery"]
@@ -166,6 +171,18 @@ test("deployment policy rejects unbounded or drifting task-runner controls", () 
   );
   assert.match(errors, /task-runner bounds must be positive integers/);
   assert.match(errors, /task-runner deployment reason must be recorded/);
+});
+
+test("deployment policy bounds each retried Google Sheets read inside the shortest workflow", () => {
+  const invalid = structuredClone(policy);
+  invalid.http_requests.response_body_read_timeout_ms = 300000;
+  invalid.http_requests.maximum_google_sheets_read_retry_window_ms = 910000;
+  invalid.environment.N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT = "300000";
+  const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
+  assert.match(
+    errors,
+    /Google Sheets read retry window must fit inside every workflow timeout/
+  );
 });
 
 test("deployment policy rejects phase-aligned scheduled bursts", () => {

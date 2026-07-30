@@ -24,6 +24,7 @@ const REQUIRED_ENVIRONMENT_KEYS = [
   "N8N_METRICS_INCLUDE_DEFAULT_METRICS",
   "N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL",
   "N8N_METRICS_INCLUDE_QUEUE_METRICS",
+  "N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT",
   "N8N_RUNNERS_MODE",
   "N8N_RUNNERS_MAX_CONCURRENCY",
   "N8N_RUNNERS_TASK_TIMEOUT",
@@ -325,6 +326,24 @@ export function validateN8nDeploymentPolicy(policy, configs) {
     errors.push("regular-mode policy must not claim scaling queue metrics");
   }
 
+  const responseBodyReadTimeout = positiveInteger(
+    policy.http_requests?.response_body_read_timeout_ms
+  );
+  const maximumSheetsReadRetryWindow = positiveInteger(
+    policy.http_requests?.maximum_google_sheets_read_retry_window_ms
+  );
+  if (!responseBodyReadTimeout || !maximumSheetsReadRetryWindow) {
+    errors.push("HTTP request timeout bounds must be positive integers");
+  }
+  if (
+    String(responseBodyReadTimeout || "") !==
+    environment.N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT
+  ) {
+    errors.push(
+      "N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT must match http_requests"
+    );
+  }
+
   const taskRunner = policy.task_runner || {};
   const runnerMaximumConcurrency = positiveInteger(
     taskRunner.maximum_concurrency
@@ -612,6 +631,37 @@ export function validateN8nDeploymentPolicy(policy, configs) {
         defaultTimeout > maximumTimeout
       ) {
         errors.push("instance timeout bounds must cover every workflow timeout");
+      }
+      const sheetsReadAttempts = positiveInteger(
+        configs.runtime?.google_sheets?.read_retry?.max_attempts
+      );
+      const sheetsReadBackoff = positiveInteger(
+        configs.runtime?.google_sheets?.read_retry?.backoff_ms
+      );
+      if (
+        responseBodyReadTimeout &&
+        sheetsReadAttempts &&
+        sheetsReadBackoff
+      ) {
+        const sheetsReadRetryWindow =
+          responseBodyReadTimeout * sheetsReadAttempts +
+          sheetsReadBackoff * (sheetsReadAttempts - 1);
+        if (
+          sheetsReadRetryWindow !== maximumSheetsReadRetryWindow
+        ) {
+          errors.push(
+            "Google Sheets read retry window calculation has drifted"
+          );
+        }
+        const shortestWorkflowTimeout =
+          Math.min(
+            ...capacity.budgets.map((entry) => entry.timeout_seconds)
+          ) * 1000;
+        if (sheetsReadRetryWindow >= shortestWorkflowTimeout) {
+          errors.push(
+            "Google Sheets read retry window must fit inside every workflow timeout"
+          );
+        }
       }
       const scheduledFailuresAtMaximumAge = Math.ceil(
         capacity.scheduled_executions_per_week * (retentionAge / 168)
