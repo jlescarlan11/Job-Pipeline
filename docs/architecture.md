@@ -546,8 +546,10 @@ after guarded Reviewer actions finish. A decision or outcome committed by the
 current execution is therefore included in the same execution's summary.
 Content-identical metrics skip the write, so `generated_at` records the last
 material summary publication rather than acting as a workflow-health
-heartbeat. The summary never infers a reply, interview, offer, or rejection
-from `applied`.
+heartbeat. Summary lookup case-folds `metric_key`; a unique stored spelling is
+retained as the exact Sheets upsert key, while folded duplicates fail closed
+before publication. The summary never infers a reply, interview, offer, or
+rejection from `applied`.
 
 ## Analytics workflow
 

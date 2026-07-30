@@ -2014,7 +2014,8 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.match(funnelSummary, /\$\('Aggregate Archive After Review'\)/);
   assert.doesNotMatch(funnelSummary, /\$\('Aggregate Active Rows'\)/);
   assert.doesNotMatch(funnelSummary, /\$\('Aggregate Archive Rows'\)/);
-  assert.match(funnelSummary, /reusableFunnelSummary/);
+  assert.match(funnelSummary, /planFunnelSummary/);
+  assert.match(funnelSummary, /duplicate case-folded metric key/);
   assertDirectConnection(
     workflow,
     "Prepare Funnel Summary",

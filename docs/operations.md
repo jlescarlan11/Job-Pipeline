@@ -283,9 +283,12 @@ Slack HTTP node must remain an explicit JSON `POST`.
   the next run detects the formula text and rebuilds the projection.
 - Separately change only one Dashboard count, add a duplicate current Dashboard
   row, and replace a Dashboard count with a formula. Confirm each case fails
-  the idle gate closed. Restore one valid current row, run without metric
-  changes, and confirm no Dashboard upsert occurs; `generated_at` is the last
-  material summary publication, not a 15-minute health signal.
+  the idle gate closed. Repeat with `CURRENT` as the only stored key and confirm
+  a changed summary updates that exact row rather than appending `current`;
+  add both spellings and confirm publication fails closed. Restore one valid
+  current row, run without metric changes, and confirm no Dashboard upsert
+  occurs; `generated_at` is the last material summary publication, not a
+  15-minute health signal.
 - Seed active/Archive overlap whose canonical IDs differ only by case and
   confirm Dashboard counts one job with Archive precedence.
 - Enter one valid action immediately after a completed Reviewer run. Confirm it

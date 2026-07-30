@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  planFunnelSummary,
   projectionRowsMatch,
   reusableFunnelSummary,
   reviewSnapshotStatus
@@ -92,6 +93,43 @@ test("exact projections and funnel content authorize an idle Reviewer exit", () 
       claim_cleanup_required: false
     }
   );
+});
+
+test("funnel summary planning preserves one stored key spelling and rejects folded duplicates", () => {
+  const stored = {
+    ...dashboard,
+    metric_key: "CURRENT",
+    generated_at: "2026-07-29T00:00:00.000Z"
+  };
+  const unchanged = planFunnelSummary(
+    [stored],
+    dashboard,
+    dashboardFields
+  );
+  assert.equal(unchanged.ambiguous, false);
+  assert.equal(unchanged.publish_required, false);
+  assert.equal(unchanged.row.metric_key, "CURRENT");
+  assert.equal(
+    reusableFunnelSummary([stored], dashboard, dashboardFields),
+    stored
+  );
+
+  const changed = planFunnelSummary(
+    [stored],
+    { ...dashboard, applied: 2 },
+    dashboardFields
+  );
+  assert.equal(changed.publish_required, true);
+  assert.equal(changed.row.metric_key, "CURRENT");
+
+  const duplicate = planFunnelSummary(
+    [stored, { ...stored, metric_key: "current" }],
+    dashboard,
+    dashboardFields
+  );
+  assert.equal(duplicate.ambiguous, true);
+  assert.equal(duplicate.publish_required, false);
+  assert.equal(duplicate.candidate_count, 2);
 });
 
 test("any action, drift, ambiguity, formula, or retention work fails the gate closed", () => {

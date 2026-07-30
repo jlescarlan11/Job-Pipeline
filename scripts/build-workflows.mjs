@@ -3762,20 +3762,25 @@ const summary = buildFunnelSummary(
   SCHEMA,
   new Date().toISOString()
 );
-const reusable = reusableFunnelSummary(
+const publication = planFunnelSummary(
   dashboardRows,
   summary,
   ${JSON.stringify(reviewConfig.dashboard_fields)}
 );
+if (publication.ambiguous) {
+  throw new Error(
+    'Dashboard summary has an invalid or duplicate case-folded metric key'
+  );
+}
 console.log(JSON.stringify({
   event: 'dashboard_summary',
-  action: reusable ? 'unchanged' : 'publish',
-  metric_key: summary.metric_key
+  action: publication.publish_required ? 'publish' : 'unchanged',
+  metric_key: publication.row.metric_key
 }));
 return [{
   json: {
-    ...summary,
-    publish_required: !reusable
+    ...publication.row,
+    publish_required: publication.publish_required
   }
 }];`
     }),

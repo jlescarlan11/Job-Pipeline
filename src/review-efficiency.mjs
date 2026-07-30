@@ -21,23 +21,64 @@ export function projectionRowsMatch(currentRows, desiredRows, fields) {
   return rowsMatch(currentRows, desiredRows, fields);
 }
 
-export function reusableFunnelSummary(currentRows, summary, fields) {
+export function planFunnelSummary(currentRows, summary, fields) {
   if (!summary || typeof summary !== "object" || Array.isArray(summary)) {
-    return undefined;
+    return {
+      row: undefined,
+      current_row: undefined,
+      publish_required: false,
+      ambiguous: true,
+      candidate_count: 0
+    };
   }
+  const summaryKey = String(summary.metric_key || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
   const candidates = (Array.isArray(currentRows) ? currentRows : []).filter(
     (row) =>
       row &&
       typeof row === "object" &&
       !Array.isArray(row) &&
-      String(row.metric_key || "") === String(summary.metric_key || "")
+      String(row.metric_key || "")
+        .trim()
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US") === summaryKey
   );
+  if (!summaryKey || candidates.length > 1) {
+    return {
+      row: summary,
+      current_row: undefined,
+      publish_required: false,
+      ambiguous: true,
+      candidate_count: candidates.length
+    };
+  }
+  const currentRow = candidates[0];
+  const stableRow = currentRow
+    ? {
+        ...summary,
+        metric_key: String(currentRow.metric_key || "").trim()
+      }
+    : summary;
   const comparisonFields = (Array.isArray(fields) ? fields : []).filter(
     (field) => field !== "generated_at"
   );
-  return candidates.length === 1 &&
-    rowsMatch(candidates, [summary], comparisonFields)
-    ? candidates[0]
+  return {
+    row: stableRow,
+    current_row: currentRow,
+    publish_required:
+      !currentRow ||
+      !rowsMatch([currentRow], [stableRow], comparisonFields),
+    ambiguous: false,
+    candidate_count: candidates.length
+  };
+}
+
+export function reusableFunnelSummary(currentRows, summary, fields) {
+  const plan = planFunnelSummary(currentRows, summary, fields);
+  return !plan.ambiguous && !plan.publish_required
+    ? plan.current_row
     : undefined;
 }
 
