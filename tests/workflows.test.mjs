@@ -105,6 +105,7 @@ function compileCodeNode(node) {
 function executeCodeNode(node, nodeData) {
   const execute = new Function(
     "$",
+    "$input",
     `"use strict"; return (async () => { ${node.parameters.jsCode} })();`
   );
   const selectNode = (name) => {
@@ -120,7 +121,15 @@ function executeCodeNode(node, nodeData) {
       all: () => rows.map((json) => ({ json }))
     };
   };
-  return execute(selectNode);
+  const inputRows = Array.isArray(nodeData.$input)
+    ? nodeData.$input
+    : nodeData.$input
+      ? [nodeData.$input]
+      : [];
+  return execute(selectNode, {
+    first: () => ({ json: inputRows[0] }),
+    all: () => inputRows.map((json) => ({ json }))
+  });
 }
 
 test("all checked-in workflow exports are disabled, connected, and syntactically valid", () => {
@@ -357,22 +366,22 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     assert.equal(request.parameters.url, "https://api.groq.com/openai/v1/chat/completions");
     assert.equal(request.parameters.options.timeout, runtime.generator.http_timeout_ms);
     assert.ok(request.credentials.groqApi);
-    assert.match(request.parameters.body, new RegExp(groqPolicy.selected_model));
+    assert.match(request.parameters.jsonBody, new RegExp(groqPolicy.selected_model));
     assert.match(
-      request.parameters.body,
+      request.parameters.jsonBody,
       new RegExp(`max_tokens:\\s*${groqPolicy.generation.maximum_output_tokens}`)
     );
     assert.match(
-      request.parameters.body,
+      request.parameters.jsonBody,
       new RegExp(`reasoning_effort:\\s*"${groqPolicy.models.find(
         (model) => model.id === groqPolicy.selected_model
       ).reasoning_effort}"`)
     );
     assert.match(
-      request.parameters.body,
+      request.parameters.jsonBody,
       new RegExp(`reasoning_format:\\s*"${groqPolicy.generation.reasoning_format}"`)
     );
-    const expression = request.parameters.body.slice(4, -3);
+    const expression = request.parameters.jsonBody.slice(4, -3);
     const payload = JSON.parse(
       Function("$json", `"use strict"; return (${expression});`)({
         application_prompt: "initial prompt",
@@ -631,6 +640,8 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Evaluate Job",
     "Get Active Before Evaluation Commit",
     "Confirm Evaluation Commit Marker",
+    "Get Active After Evaluation Commit",
+    "Confirm Evaluation Result Persisted",
     "Prepare Application Pack",
     "Is Application Pack Ready",
     "Persist Non-Ready Pack",
@@ -642,7 +653,9 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Stage Generation Result For Commit",
     "Get Active Before Generation Commit",
     "Confirm Generation Commit Marker",
-    "Commit Generation Result"
+    "Commit Generation Result",
+    "Get Active After Generation Commit",
+    "Confirm Generation Result Persisted"
   ]) {
     nodeByName(workflow, requiredNode);
   }
@@ -663,6 +676,7 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Commit Generation Result"
   ]) {
     const commit = nodeByName(workflow, name);
+    assert.equal(commit.alwaysOutputData, true);
     assert.deepEqual(commit.parameters.columns.matchingColumns, [
       "processing_commit_guard"
     ]);
@@ -715,6 +729,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     prepareCandidates,
     /claimed_alert_status:\s*record\.alert_status/
   );
+  assert.match(
+    prepareCandidates,
+    /claimed_state_guard:\s*record\.state_guard/
+  );
   for (const [nodeName, plannedNode] of [
     ["Confirm Generation Claim Markers", "Keep Winning Claims"],
     ["Confirm Evaluation Commit Marker", "Evaluate Job"],
@@ -730,6 +748,53 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
       new RegExp(`\\$\\('${plannedNode}'\\)\\.all\\(\\)`)
     );
   }
+  for (const nodeName of [
+    "Confirm Evaluation Commit Marker",
+    "Confirm Generation Commit Marker"
+  ]) {
+    assert.match(
+      nodeByName(workflow, nodeName).parameters.jsCode,
+      /requireAll:\s*true/
+    );
+  }
+  for (const [nodeName, plannedNode] of [
+    [
+      "Confirm Evaluation Result Persisted",
+      "Confirm Evaluation Commit Marker"
+    ],
+    [
+      "Confirm Generation Result Persisted",
+      "Confirm Generation Commit Marker"
+    ]
+  ]) {
+    const confirmation = nodeByName(workflow, nodeName).parameters.jsCode;
+    assert.match(confirmation, /confirmGenerationCommitResults/);
+    assert.match(confirmation, /\$input\.all\(\)/);
+    assert.match(
+      confirmation,
+      new RegExp(`\\$\\('${plannedNode}'\\)\\.all\\(\\)`)
+    );
+  }
+  assertDirectConnection(
+    workflow,
+    "Commit Evaluation Result",
+    "Get Active After Evaluation Commit"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active After Evaluation Commit",
+    "Confirm Evaluation Result Persisted"
+  );
+  assertDirectConnection(
+    workflow,
+    "Commit Generation Result",
+    "Get Active After Generation Commit"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Active After Generation Commit",
+    "Confirm Generation Result Persisted"
+  );
   assertDirectConnection(
     workflow,
     "Prepare Application Pack",
@@ -816,10 +881,15 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "a canonical-id cleanup write could erase a newer processing claim"
   );
 
-  const systemMessage = nodeByName(
+  const systemMessageSource = nodeByName(
     workflow,
-    "Request Groq Completion"
-  ).parameters.body;
+    "Prepare Application Pack"
+  ).parameters.jsCode;
+  const systemMessageMatch = systemMessageSource.match(
+    /const APPLICATION_SYSTEM_MESSAGE = (.+);\nconst record/
+  );
+  assert.ok(systemMessageMatch, "system message literal is missing");
+  const systemMessage = JSON.parse(systemMessageMatch[1]);
   assert.match(systemMessage, /johnlesterescarlan\.pro/);
   assert.match(systemMessage, /manual review/i);
   assert.match(systemMessage, /selected approved proofs are the only candidate facts/i);
@@ -889,6 +959,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.match(packCode, /buildApplicationPack/);
   assert.match(packCode, /validateApplicationPack/);
   assert.match(packCode, /application_pack_ready/);
+  assert.match(
+    packCode,
+    /application_system_message:\s*APPLICATION_SYSTEM_MESSAGE/
+  );
   assert.match(packCode, /buildApplicationUserMessage\(record, pack,\s*\{/);
   assert.match(
     packCode,
@@ -972,8 +1046,36 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     workflow.nodes.filter((node) => node.name === "Request Groq Repair").length,
     1
   );
+  for (const nodeName of [
+    "Request Groq Completion",
+    "Request Groq Repair"
+  ]) {
+    const requestNode = nodeByName(workflow, nodeName);
+    const requestBody = requestNode.parameters.jsonBody;
+    assert.equal(requestNode.parameters.contentType, "json");
+    assert.equal(requestNode.parameters.specifyBody, "json");
+    assert.equal(requestNode.parameters.body, undefined);
+    assert.equal(requestNode.parameters.rawContentType, undefined);
+    assert.match(
+      requestBody,
+      /content:\s*\$json\.application_system_message/
+    );
+    assert.doesNotMatch(
+      requestBody,
+      /\{\{job_title\}\}/,
+      `${nodeName} must not embed nested n8n delimiters`
+    );
+    assert.deepEqual(requestNode.parameters.headerParameters, {
+      parameters: [
+        {
+          name: "Accept-Encoding",
+          value: "identity"
+        }
+      ]
+    });
+  }
   assert.match(
-    nodeByName(workflow, "Request Groq Repair").parameters.body,
+    nodeByName(workflow, "Request Groq Repair").parameters.jsonBody,
     /\$json\.repair_prompt/
   );
   const generationCommit = nodeByName(
@@ -1009,6 +1111,85 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
         !/\/apply(?:\\b|\/)/i.test(String(node.parameters?.url ?? ""))
     ),
     "no workflow node may submit an application"
+  );
+});
+
+test("generated Generator runtime commits the execution-6494 screening route and rejects silent writes", async () => {
+  const workflow = workflows.generator;
+  const claimed = {
+    row_number: 3,
+    canonical_job_id: "onlinejobs.ph:1546848",
+    state_guard: "onlinejobs.ph:1546848|recommended|||",
+    claimed_state_guard: "onlinejobs.ph:1546848|recommended|||",
+    work_stage: "generation",
+    pipeline_status: "generating",
+    processing_stage: "generation",
+    processing_token: "6494:onlinejobs.ph:1546848:generation",
+    processing_commit_guard:
+      "commit:6494:onlinejobs.ph:1546848:generation",
+    processing_started_at: "2026-07-30T13:16:58.000Z",
+    manual_action: "",
+    claimed_manual_action: "",
+    alert_status: "",
+    claimed_alert_status: ""
+  };
+  const staged = {
+    ...claimed,
+    state_guard: "onlinejobs.ph:1546848|review_required|||",
+    pipeline_status: "review_required",
+    processing_stage: "",
+    processing_token: "",
+    processing_started_at: "",
+    commit_token: claimed.processing_token,
+    application_pack_status: "review_required",
+    application_warnings: [
+      {
+        code: "screening_question_requires_review",
+        severity: "review",
+        summary: "A screening question requires a manual answer."
+      }
+    ],
+    error_category: "application_pack_not_ready",
+    error_summary: "A screening question requires a manual answer.",
+    generated_message: "",
+    updated_at: "2026-07-30T13:17:10.000Z"
+  };
+  const precommit = nodeByName(
+    workflow,
+    "Confirm Generation Commit Marker"
+  );
+  const authorized = await executeCodeNode(precommit, {
+    "Stage Generation Result For Commit": staged,
+    $input: [claimed]
+  });
+  assert.deepEqual(authorized, [{ json: staged }]);
+  await assert.rejects(
+    executeCodeNode(precommit, {
+      "Stage Generation Result For Commit": staged,
+      $input: []
+    }),
+    /no current row owns/
+  );
+
+  const postcommit = nodeByName(
+    workflow,
+    "Confirm Generation Result Persisted"
+  );
+  const persisted = {
+    ...staged,
+    application_warnings: JSON.stringify(staged.application_warnings)
+  };
+  const verified = await executeCodeNode(postcommit, {
+    "Confirm Generation Commit Marker": staged,
+    $input: [persisted]
+  });
+  assert.deepEqual(verified, [{ json: staged }]);
+  await assert.rejects(
+    executeCodeNode(postcommit, {
+      "Confirm Generation Commit Marker": staged,
+      $input: [{ ...persisted, pipeline_status: "recommended" }]
+    }),
+    /persisted field mismatch \(pipeline_status\)/
   );
 });
 

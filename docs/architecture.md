@@ -121,10 +121,30 @@ handler must be bound and smoke-tested after import.
 
 `state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Claim marking also writes a hidden `processing_commit_guard` derived from the winning token. Final evaluation, generation, and alert commits match that guard while atomically writing blank `processing_token`, `processing_stage`, and `processing_started_at`. The retained commit guard is not an active claim: a new claim replaces it and a manual lifecycle action clears it, so stale results match zero rows. There is no second canonical-ID cleanup write that could erase a newer claim.
 
-Generator result construction releases the active fields before persistence and
-carries the original token only as an ephemeral `commit_token`. Its pre-commit
-reread accepts that fallback only when the same durable commit guard, token,
-stage, state guard, manual action, and alert state still match exactly.
+Generator keeps two distinct guards. Claim acquisition captures the pre-claim
+`state_guard` as ephemeral `claimed_state_guard`, while evaluation or
+generation completion calculates the next durable `state_guard` for the
+completed state. Result construction releases the active fields before
+persistence and carries the original token only as ephemeral `commit_token`.
+The strict pre-commit reread requires exactly one current row with the same
+durable commit guard, token, stage, claimed state guard, manual action, and
+alert state. Zero or duplicate matches, missing ownership metadata, or any
+changed protected value fail the execution before the Sheet update.
+
+The final Sheet update always emits downstream output and is followed by a
+fresh authoritative read. A second verifier requires exactly one committed
+guard/identity and compares every stage-specific commit field after normalizing
+Sheet number, string, and JSON-array round trips. It also requires
+`processing_token`, `processing_stage`, and `processing_started_at` to be
+blank. A zero-row write, duplicate guard, field mismatch, or uncleared
+ownership therefore cannot appear as a green Generator execution.
+
+Groq requests use the HTTP node's native JSON-body mode. The system prompt is
+staged as an ephemeral field and referenced by the request expression instead
+of being embedded inside it; this prevents prompt text such as
+`{{job_title}}` from becoming nested n8n expression delimiters. Raw request
+mode is prohibited because current n8n versions treat it as a streamed
+response path rather than returning parsed provider JSON to the validator.
 
 `ProcessingClaims` is append-written. For a canonical job and stage, the
 lowest valid, uniquely addressed Sheet row number wins until its configured

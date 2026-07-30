@@ -452,6 +452,50 @@ compatible and reconcile on the next run.
 - Force exhaustion/validation failure and verify `terminal_error`.
 - Confirm no row becomes applied/skipped without an explicit manual action.
 
+### Generator commit recovery and cutover
+
+Use this procedure when a Generator execution staged a result but did not
+reach its final Sheet update.
+
+1. Unpublish the scheduled Generator. Export its active version and create a
+   readable database backup plus a full Drive copy of the workbook before
+   changing claims, rows, or workflow versions.
+2. Inventory every active role, schedule, timeout, active execution, and
+   in-flight Sheet marker. Keep workflow/credential references in the
+   operator-only record; publish only sanitized counts and outcomes.
+3. Import the corrected Generator inactive. On an isolated workbook copy,
+   prove evaluation, valid generation, screening-question review, zero-match,
+   duplicate-match, stale-guard, manual-action, and alert-state cases. Repeat
+   an already-current run and require no claim, provider call, or Sheet write.
+4. Before production recovery, reread the target by canonical identity and
+   require exactly one row with the expected state guard, commit guard, token,
+   stage, manual action, and alert state. Stop if the identity is missing,
+   duplicated, or changed.
+5. Run one webhook-triggered recovery version filtered to that revalidated
+   identity while all schedules are unpublished. The normal claim arbiter may
+   reclaim only a stale lease. Require the final commit reread/verifier and
+   blank token, stage, and start time.
+6. Run Reviewer reconciliation. Never apply an Action tied to a stale
+   `source_state_guard`; clear only that stale projection Action after
+   revalidating the active record. Reviewer projection is two-phase: one
+   winning lease can retire a stale row and a fresh winning lease can append
+   the desired row. Expire a projection lease early only when its owning
+   execution is terminal.
+7. Import the unchanged scheduled Generator artifact, publish it, republish
+   the other production roles, and restart n8n. Require exactly one active
+   Generator and Reviewer, no active verification/recovery workflow, the
+   configured 90-minute schedule, 540-second timeout, per-stage caps of one,
+   a 600,000-millisecond claim lease, and no live execution.
+8. Preserve the failed historical execution and retain the before/after
+   exports, database backup, workbook copy, and sanitized smoke record.
+
+Rollback is disable-first. Unpublish the corrected Generator, republish the
+pre-cutover export, restart n8n, and leave additive Sheet columns intact.
+Restore workbook data from the backup copy only after an exact target-range
+diff proves that forward correction is unsafe. Do not delete historical
+executions, canonical identity, review decisions, messages, outcomes, or
+Archive history.
+
 ### Alert
 
 - Use a disposable, fresh, high-confidence record at each configured score

@@ -12,6 +12,7 @@ import {
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   classifyExternalError,
+  confirmGenerationCommitResults,
   confirmGenerationClaimMarkers,
   evaluateJob,
   externalResultErrorMessage,
@@ -28,7 +29,8 @@ import {
 } from "../src/evaluation.mjs";
 import {
   chooseWinningClaims,
-  createProcessingClaim
+  createProcessingClaim,
+  stateGuard
 } from "../src/contracts.mjs";
 import { evaluatePersistedMessageSafety } from "../src/message-safety.mjs";
 
@@ -112,6 +114,8 @@ test("generator confirms durable markers, manual action, and alert status", () =
   );
   const stagedEvaluationCommit = {
     ...evaluation,
+    claimed_state_guard: evaluation.state_guard,
+    state_guard: "onlinejobs.ph:7001|next-state",
     processing_stage: "",
     processing_token: "",
     processing_started_at: "",
@@ -127,6 +131,8 @@ test("generator confirms durable markers, manual action, and alert status", () =
   );
   const stagedGenerationCommit = {
     ...generation,
+    claimed_state_guard: generation.state_guard,
+    state_guard: "onlinejobs.ph:7002|next-state",
     processing_stage: "",
     processing_token: "",
     processing_started_at: "",
@@ -135,7 +141,8 @@ test("generator confirms durable markers, manual action, and alert status", () =
   assert.deepEqual(
     confirmGenerationClaimMarkers(
       [stagedGenerationCommit],
-      [persistedGeneration]
+      [persistedGeneration],
+      { requireAll: true }
     ),
     [{ ...stagedGenerationCommit, row_number: 18 }]
   );
@@ -172,6 +179,250 @@ test("generator confirms durable markers, manual action, and alert status", () =
     ),
     [],
     "duplicate durable commit markers must fail closed"
+  );
+});
+
+test("real Generator completion results authorize against the claimed guard and verify exact persistence", () => {
+  const claimed = {
+    row_number: 9,
+    source: "onlinejobs.ph",
+    source_job_id: "7003",
+    canonical_job_id: "onlinejobs.ph:7003",
+    canonical_url:
+      "https://onlinejobs.ph/jobseekers/job/typescript-developer-7003",
+    state_guard: "onlinejobs.ph:7003|recommended|||",
+    claimed_state_guard: "onlinejobs.ph:7003|recommended|||",
+    work_stage: "generation",
+    pipeline_status: "generating",
+    processing_stage: "generation",
+    processing_token: "execution:7003:generation",
+    processing_commit_guard: "commit:execution:7003:generation",
+    processing_started_at: "2026-07-28T07:59:00.000Z",
+    manual_action: "",
+    claimed_manual_action: "",
+    alert_status: "",
+    claimed_alert_status: "",
+    generated_message: ""
+  };
+  const pack = buildApplicationPack(
+    {
+      ...claimed,
+      job_title: "TypeScript Developer",
+      source_availability: "active",
+      job_description:
+        "Build React and TypeScript features. Please answer this question: Which production incident did you resolve?"
+    },
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(pack.application_pack_status, "review_required");
+
+  const completed = applyNonReadyApplicationPack(
+    claimed,
+    pack,
+    profile,
+    packPolicy,
+    now
+  );
+  const staged = {
+    ...completed,
+    processing_commit_guard: claimed.processing_commit_guard,
+    commit_token: claimed.processing_token
+  };
+  assert.notEqual(staged.state_guard, claimed.claimed_state_guard);
+  assert.deepEqual(
+    confirmGenerationClaimMarkers([staged], [claimed], { requireAll: true }),
+    [staged]
+  );
+
+  const commitFields = [
+    "canonical_job_id",
+    "state_guard",
+    "pipeline_status",
+    "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "application_warnings",
+    "error_category",
+    "error_summary",
+    "manual_action",
+    "updated_at"
+  ];
+  const persisted = Object.fromEntries(
+    [
+      "row_number",
+      "processing_commit_guard",
+      ...commitFields
+    ].map((field) => [
+      field,
+      Array.isArray(staged[field])
+        ? JSON.stringify(staged[field])
+        : staged[field]
+    ])
+  );
+  assert.deepEqual(
+    confirmGenerationCommitResults(
+      [staged],
+      [persisted],
+      schema,
+      commitFields
+    ),
+    [staged]
+  );
+  assert.equal(staged.pipeline_status, "review_required");
+  assert.equal(staged.processing_token, "");
+  assert.equal(staged.processing_stage, "");
+  assert.equal(staged.processing_started_at, "");
+  assert.equal(staged.generated_message, "");
+  assert.equal(staged.error_category, "application_pack_not_ready");
+});
+
+test("Generator commit authorization and persistence verification fail visibly", () => {
+  const claimed = {
+    row_number: 10,
+    canonical_job_id: "onlinejobs.ph:7010",
+    state_guard: "onlinejobs.ph:7010|claimed",
+    claimed_state_guard: "onlinejobs.ph:7010|claimed",
+    work_stage: "evaluation",
+    processing_stage: "evaluation",
+    processing_token: "execution:7010:evaluation",
+    processing_commit_guard: "commit:execution:7010:evaluation",
+    manual_action: "",
+    claimed_manual_action: "",
+    alert_status: "",
+    claimed_alert_status: ""
+  };
+  const staged = {
+    ...claimed,
+    state_guard: "onlinejobs.ph:7010|completed",
+    pipeline_status: "recommended",
+    processing_stage: "",
+    processing_token: "",
+    processing_started_at: "",
+    commit_token: claimed.processing_token,
+    source_job_id: "7010",
+    match_score: "",
+    updated_at: now
+  };
+  assert.throws(
+    () =>
+      confirmGenerationClaimMarkers([staged], [], { requireAll: true }),
+    /no current row owns/
+  );
+  assert.throws(
+    () =>
+      confirmGenerationClaimMarkers(
+        [staged],
+        [claimed, { ...claimed, row_number: 11 }],
+        { requireAll: true }
+      ),
+    /not unique/
+  );
+  for (const mismatch of [
+    { canonical_job_id: "onlinejobs.ph:other" },
+    { state_guard: "onlinejobs.ph:7010|newer" },
+    { processing_stage: "generation" },
+    { processing_token: "newer-owner" },
+    { manual_action: "mark_skipped" },
+    { alert_status: "sending" }
+  ]) {
+    assert.throws(
+      () =>
+        confirmGenerationClaimMarkers(
+          [staged],
+          [{ ...claimed, ...mismatch }],
+          { requireAll: true }
+        ),
+      /no current row owns|no longer matches/
+    );
+  }
+
+  const fields = [
+    "source_job_id",
+    "canonical_job_id",
+    "state_guard",
+    "pipeline_status",
+    "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "match_score",
+    "updated_at"
+  ];
+  const persisted = {
+    ...staged,
+    source_job_id: 7010,
+    claimed_state_guard: undefined,
+    commit_token: undefined
+  };
+  assert.throws(
+    () => confirmGenerationCommitResults([staged], [], schema, fields),
+    /committed row was not found/
+  );
+  assert.throws(
+    () =>
+      confirmGenerationCommitResults(
+        [staged],
+        [persisted, { ...persisted, row_number: 11 }],
+        schema,
+        fields
+    ),
+    /identity is not unique/
+  );
+  assert.throws(
+    () =>
+      confirmGenerationCommitResults(
+        [staged],
+        [
+          persisted,
+          {
+            ...persisted,
+            row_number: 11,
+            canonical_job_id: "onlinejobs.ph:other"
+          }
+        ],
+        schema,
+        fields
+      ),
+    /guard is not unique/
+  );
+  assert.throws(
+    () =>
+      confirmGenerationCommitResults(
+        [staged],
+        [
+          persisted,
+          {
+            ...persisted,
+            row_number: 11,
+            processing_commit_guard: "commit:other-owner"
+          }
+        ],
+        schema,
+        fields
+      ),
+    /identity is not unique/
+  );
+  assert.throws(
+    () =>
+      confirmGenerationCommitResults(
+        [staged],
+        [{ ...persisted, match_score: 0 }],
+        schema,
+        fields
+      ),
+    /persisted field mismatch \(match_score\)/
+  );
+  assert.throws(
+    () =>
+      confirmGenerationCommitResults(
+        [staged],
+        [{ ...persisted, processing_stage: "evaluation" }],
+        schema,
+        fields
+      ),
+    /persisted field mismatch \(processing_stage\)/
   );
 });
 
@@ -798,22 +1049,76 @@ test("missing descriptions and unavailable jobs are routed without generation", 
 
 test("successful evaluation clears processing claim and stores profile evidence", () => {
   const job = parseJobDetail(directHtml, {
+    row_number: 12,
     source: "onlinejobs.ph",
     canonical_url: "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001",
     processing_token: "claim-1",
     processing_commit_guard: "commit:claim-1",
     processing_stage: "evaluation",
     processing_started_at: "2026-07-28T09:59:00.000Z",
-    pipeline_status: "evaluating"
+    pipeline_status: "evaluating",
+    manual_action: "",
+    alert_status: ""
   });
+  job.state_guard = stateGuard(job);
   const evaluation = evaluateJob(job, profile, rankingPolicy, now);
   const updated = applyEvaluation(job, evaluation, now);
+  const staged = {
+    ...updated,
+    claimed_state_guard: job.state_guard,
+    claimed_manual_action: job.manual_action,
+    claimed_alert_status: job.alert_status,
+    work_stage: "evaluation",
+    commit_token: job.processing_token
+  };
   assert.equal(updated.pipeline_status, "recommended");
   assert.equal(updated.processing_token, "");
   assert.equal(updated.processing_stage, "");
   assert.equal(updated.processing_started_at, "");
   assert.equal(updated.processing_commit_guard, "commit:claim-1");
   assert.equal(updated.profile_version, profile.profile_version);
+  assert.notEqual(staged.state_guard, staged.claimed_state_guard);
+  assert.deepEqual(
+    confirmGenerationClaimMarkers([staged], [job], { requireAll: true }),
+    [staged]
+  );
+  const commitFields = [
+    "canonical_job_id",
+    "state_guard",
+    "match_score",
+    "match_decision",
+    "match_reasons",
+    "ranking_factors",
+    "profile_version",
+    "pipeline_status",
+    "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "error_category",
+    "error_summary",
+    "updated_at"
+  ];
+  const persisted = {
+    row_number: job.row_number,
+    processing_commit_guard: staged.processing_commit_guard,
+    ...Object.fromEntries(
+      commitFields.map((field) => [
+        field,
+        Array.isArray(staged[field])
+          ? JSON.stringify(staged[field])
+          : staged[field]
+      ])
+    )
+  };
+  assert.deepEqual(
+    confirmGenerationCommitResults(
+      [staged],
+      [persisted],
+      schema,
+      commitFields
+    ),
+    [staged]
+  );
 });
 
 test("work selection honors status, manual promotion, retries, priority, and cap", () => {
@@ -1560,13 +1865,20 @@ test("pack validation rejects forged unsafe or falsely ready state", () => {
 
 test("ready pack requires existing message validation and mandatory subject compliance", () => {
   const job = parseJobDetail(instructionsHtml, {
+    row_number: 21,
     source: "onlinejobs.ph",
     role_families: ["full-stack"],
     canonical_url:
       "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2101",
     processing_token: "pack-claim",
-    pipeline_status: "generating"
+    processing_commit_guard: "commit:pack-claim",
+    processing_stage: "generation",
+    processing_started_at: "2026-07-28T07:59:00.000Z",
+    pipeline_status: "generating",
+    manual_action: "",
+    alert_status: ""
   });
+  job.state_guard = stateGuard(job);
   const pack = buildApplicationPack(job, profile, policy, packPolicy, now);
   const missingSubject = validateGeneratedMessage(canonicalValidMessage, {
     job,
@@ -1590,6 +1902,14 @@ test("ready pack requires existing message validation and mandatory subject comp
     packPolicy,
     now
   );
+  const staged = {
+    ...committed,
+    claimed_state_guard: job.state_guard,
+    claimed_manual_action: job.manual_action,
+    claimed_alert_status: job.alert_status,
+    work_stage: "generation",
+    commit_token: job.processing_token
+  };
   assert.equal(committed.pipeline_status, "ready");
   assert.equal(committed.application_pack_status, "ready");
   assert.equal(committed.generated_message, compliantMessage);
@@ -1599,6 +1919,55 @@ test("ready pack requires existing message validation and mandatory subject comp
     packPolicy.policy_version
   );
   assert.equal(committed.processing_token, "");
+  assert.notEqual(staged.state_guard, staged.claimed_state_guard);
+  assert.deepEqual(
+    confirmGenerationClaimMarkers([staged], [job], { requireAll: true }),
+    [staged]
+  );
+  const commitFields = [
+    "canonical_job_id",
+    "state_guard",
+    "pipeline_status",
+    "generated_message",
+    "message_profile_version",
+    "message_policy_version",
+    "message_validation_status",
+    "generated_at",
+    "application_instructions",
+    "screening_questions",
+    "selected_proof_refs",
+    "application_warnings",
+    "application_pack_status",
+    "application_pack_profile_version",
+    "application_pack_policy_version",
+    "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "error_category",
+    "error_summary",
+    "updated_at"
+  ];
+  const persisted = {
+    row_number: job.row_number,
+    processing_commit_guard: staged.processing_commit_guard,
+    ...Object.fromEntries(
+      commitFields.map((field) => [
+        field,
+        Array.isArray(staged[field])
+          ? JSON.stringify(staged[field])
+          : staged[field]
+      ])
+    )
+  };
+  assert.deepEqual(
+    confirmGenerationCommitResults(
+      [staged],
+      [persisted],
+      schema,
+      commitFields
+    ),
+    [staged]
+  );
 });
 
 test("failed regeneration preserves the previous valid pack and message", () => {

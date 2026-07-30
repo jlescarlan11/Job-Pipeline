@@ -281,11 +281,20 @@ function updateSheetNode({ base, id, name, position, fields }) {
   return enforceSingleAttemptFailClosedSheetWrite(node);
 }
 
-function updateSheetByFieldNode({ base, id, name, position, fields, matchingField }) {
+function updateSheetByFieldNode({
+  base,
+  id,
+  name,
+  position,
+  fields,
+  matchingField,
+  alwaysOutputData = false
+}) {
   const node = structuredClone(base);
   node.id = id;
   node.name = name;
   node.position = position;
+  node.alwaysOutputData = alwaysOutputData;
   node.parameters.operation = "update";
   node.parameters.columns = {
     mappingMode: "defineBelow",
@@ -874,12 +883,15 @@ async function buildGenerator() {
   );
   const {
     buildApplicationSystemMessage,
+    confirmGenerationCommitResults,
     confirmGenerationClaimMarkers,
     validateApplicationPackPolicy,
     validateRankingPolicy
   } = await import(new URL("../src/evaluation.mjs", import.meta.url));
   const generationClaimConfirmationCore =
     confirmGenerationClaimMarkers.toString();
+  const generationCommitConfirmationCore =
+    confirmGenerationCommitResults.toString();
   const { validateAlertPolicy } = await import(
     new URL("../src/alerts.mjs", import.meta.url)
   );
@@ -964,6 +976,20 @@ async function buildGenerator() {
     "Get Active Before Generation Commit";
   activeBeforeGenerationCommit.position = [3020, 440];
   activeBeforeGenerationCommit.alwaysOutputData = true;
+  const activeAfterEvaluationCommit = structuredClone(activeRead);
+  activeAfterEvaluationCommit.id =
+    "ee12f5d9-c0d5-4586-bf62-000000000031";
+  activeAfterEvaluationCommit.name =
+    "Get Active After Evaluation Commit";
+  activeAfterEvaluationCommit.position = [2300, 20];
+  activeAfterEvaluationCommit.alwaysOutputData = true;
+  const activeAfterGenerationCommit = structuredClone(activeRead);
+  activeAfterGenerationCommit.id =
+    "ee12f5d9-c0d5-4586-bf62-000000000033";
+  activeAfterGenerationCommit.name =
+    "Get Active After Generation Commit";
+  activeAfterGenerationCommit.position = [3740, 440];
+  activeAfterGenerationCommit.alwaysOutputData = true;
 
   const claimsRead = structuredClone(activeRead);
   claimsRead.id = "ee12f5d9-c0d5-4586-bf62-000000000005";
@@ -1049,7 +1075,7 @@ async function buildGenerator() {
       messages: [
         {
           role: 'system',
-          content: ${JSON.stringify(applicationSystemMessage)}
+          content: $json.application_system_message
         },
         {
           role: 'user',
@@ -1074,10 +1100,19 @@ async function buildGenerator() {
       url: "https://api.groq.com/openai/v1/chat/completions",
       authentication: "predefinedCredentialType",
       nodeCredentialType: "groqApi",
+      sendHeaders: true,
+      headerParameters: {
+        parameters: [
+          {
+            name: "Accept-Encoding",
+            value: "identity"
+          }
+        ]
+      },
       sendBody: true,
-      contentType: "raw",
-      rawContentType: "application/json",
-      body: groqRequestBody(promptField),
+      contentType: "json",
+      specifyBody: "json",
+      jsonBody: groqRequestBody(promptField),
       options: {
         response: {
           response: {
@@ -1142,6 +1177,7 @@ return selected.map((record) => {
       processing_token: claim.processing_token,
       processing_commit_guard: processingCommitGuard(claim.processing_token),
       processing_started_at: now,
+      claimed_state_guard: record.state_guard,
       claimed_manual_action: record.manual_action,
       claimed_alert_status: record.alert_status,
       claim_created_at: claim.created_at,
@@ -1164,14 +1200,44 @@ console.log(JSON.stringify({
 }));
 return winners.map((record) => ({ json: record }));`;
 
-  const confirmClaimMarkersCode = (plannedNode, event) =>
+  const confirmClaimMarkersCode = (plannedNode, event, requireAll = false) =>
     `${generationClaimConfirmationCore}
 
 const planned = $('${plannedNode}').all().map((item) => item.json);
 const freshRows = $input.all()
   .map((item) => item.json)
   .filter((row) => row && Object.keys(row).length > 0);
-const confirmed = confirmGenerationClaimMarkers(planned, freshRows);
+const confirmed = confirmGenerationClaimMarkers(
+  planned,
+  freshRows,
+  { requireAll: ${requireAll} }
+);
+console.log(JSON.stringify({
+  event: '${event}',
+  proposed: planned.length,
+  confirmed: confirmed.length,
+  rejected: planned.length - confirmed.length
+}));
+return confirmed.map((record) => ({ json: record }));`;
+
+  const confirmCommittedResultCode = (
+    plannedNode,
+    event,
+    fields
+  ) => `${generationCommitConfirmationCore}
+
+const SCHEMA = ${JSON.stringify(schema)};
+const COMMIT_FIELDS = ${JSON.stringify(fields)};
+const planned = $('${plannedNode}').all().map((item) => item.json);
+const freshRows = $input.all()
+  .map((item) => item.json)
+  .filter((row) => row && Object.keys(row).length > 0);
+const confirmed = confirmGenerationCommitResults(
+  planned,
+  freshRows,
+  SCHEMA,
+  COMMIT_FIELDS
+);
 console.log(JSON.stringify({
   event: '${event}',
   proposed: planned.length,
@@ -1539,6 +1605,7 @@ return {
   json: {
     ...record,
     ...pack,
+    application_system_message: APPLICATION_SYSTEM_MESSAGE,
     application_prompt: applicationPrompt,
     application_pack_ready:
       pack.application_pack_status === 'ready' &&
@@ -1649,6 +1716,16 @@ return {
     "manual_action",
     "updated_at"
   ];
+  const evaluationCommitFields = commitFields.filter(
+    (field) =>
+      !field.startsWith("alert_") &&
+      ![
+        "generated_message",
+        "message_profile_version",
+        "message_validation_status",
+        "generated_at"
+      ].includes(field)
+  );
 
   const nodes = [
     schedule,
@@ -1793,7 +1870,8 @@ return {
       position: [1820, 20],
       jsCode: confirmClaimMarkersCode(
         "Evaluate Job",
-        "generation_evaluation_commit_marker"
+        "generation_evaluation_commit_marker",
+        true
       )
     }),
     updateSheetByFieldNode({
@@ -1802,15 +1880,18 @@ return {
       name: "Commit Evaluation Result",
       position: [2060, 20],
       matchingField: "processing_commit_guard",
-      fields: commitFields.filter(
-        (field) =>
-          !field.startsWith("alert_") &&
-          ![
-            "generated_message",
-            "message_profile_version",
-            "message_validation_status",
-            "generated_at"
-          ].includes(field)
+      fields: evaluationCommitFields,
+      alwaysOutputData: true
+    }),
+    activeAfterEvaluationCommit,
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000032",
+      name: "Confirm Evaluation Result Persisted",
+      position: [2540, 20],
+      jsCode: confirmCommittedResultCode(
+        "Confirm Evaluation Commit Marker",
+        "generation_evaluation_commit_verified",
+        evaluationCommitFields
       )
     }),
     codeNode({
@@ -1921,7 +2002,8 @@ return {
       position: [3260, 440],
       jsCode: confirmClaimMarkersCode(
         "Stage Generation Result For Commit",
-        "generation_result_commit_marker"
+        "generation_result_commit_marker",
+        true
       )
     }),
     updateSheetByFieldNode({
@@ -1930,7 +2012,19 @@ return {
       name: "Commit Generation Result",
       position: [3500, 440],
       matchingField: "processing_commit_guard",
-      fields: commitFields
+      fields: commitFields,
+      alwaysOutputData: true
+    }),
+    activeAfterGenerationCommit,
+    codeNode({
+      id: "ee12f5d9-c0d5-4586-bf62-000000000034",
+      name: "Confirm Generation Result Persisted",
+      position: [3980, 440],
+      jsCode: confirmCommittedResultCode(
+        "Confirm Generation Commit Marker",
+        "generation_result_commit_verified",
+        commitFields
+      )
     })
   ];
 
@@ -1978,6 +2072,12 @@ return {
     "Confirm Evaluation Commit Marker": {
       main: [[connection("Commit Evaluation Result")]]
     },
+    "Commit Evaluation Result": {
+      main: [[connection("Get Active After Evaluation Commit")]]
+    },
+    "Get Active After Evaluation Commit": {
+      main: [[connection("Confirm Evaluation Result Persisted")]]
+    },
     "Prepare Application Pack": {
       main: [[connection("Is Application Pack Ready")]]
     },
@@ -2019,6 +2119,12 @@ return {
     },
     "Confirm Generation Commit Marker": {
       main: [[connection("Commit Generation Result")]]
+    },
+    "Commit Generation Result": {
+      main: [[connection("Get Active After Generation Commit")]]
+    },
+    "Get Active After Generation Commit": {
+      main: [[connection("Confirm Generation Result Persisted")]]
     }
   };
 

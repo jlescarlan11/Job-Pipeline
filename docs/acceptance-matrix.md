@@ -1010,3 +1010,96 @@ failures, fixes, and reconciliation are recorded in
   claims, projections, Dashboard state, and legacy rows are unchanged and
   remain durable until the next sweep. The runbook restores the exact prior
   ten-minute schedule and phase for rollback.
+
+## Issue #36 — Generator claim guards and exact Sheet commit verification
+
+- **I36-AC1 — Evaluation completion:** The real completion-helper test changes
+  the next state guard, authorizes against `claimed_state_guard`, commits once,
+  and verifies the persisted evaluation fields.
+- **I36-AC2 — Non-ready pack:** Unit, generated-runtime, and copied-workbook
+  tests persist `review_required`, warnings/reasons, blank ownership, and zero
+  Groq calls.
+- **I36-AC3 — Generated pack:** Message-safety tests and copied-workbook
+  evidence require `ready`, current provenance, a valid message, and cleared
+  prior errors.
+- **I36-AC4 — Strict pre-commit identity:** The generated authorization node
+  requires one guard match plus identity, token, stage, claimed state guard,
+  manual action, and alert snapshot.
+- **I36-AC5 — Zero/duplicate failure:** Tests and the copy conflict harness
+  throw sanitized, distinct zero-match and duplicate-match errors.
+- **I36-AC6 — Protected snapshot conflict:** State-guard, identity, token,
+  stage, manual-action, and alert-state mutations reject stale results.
+- **I36-AC7 — Final ownership clear:** Stage commit fields include the next
+  state guard and blank token, stage, and start time.
+- **I36-AC8 — Authoritative reread:** Evaluation and generation final writes
+  connect to fresh Sheet reads and exact-field verifier nodes.
+- **I36-AC9 — Post-write failure:** Missing, duplicate, mismatched, or
+  uncleared persisted rows throw visibly.
+- **I36-AC10 — Successful no-op:** The copied already-current run stops after
+  selection with no claim, provider, or write node.
+- **I36-AC11 — Deterministic concurrency:** Append-only claim tests retain one
+  lowest valid unique owner for folded identity/stage.
+- **I36-AC12 — Provider and safety gates:** Existing repair, retry,
+  previous-valid-message, manual-action, and alert-state gates remain covered;
+  provider nodes now use native JSON request/response handling.
+- **I36-AC13 — Real helpers:** Tests call actual evaluation and non-ready
+  completion helpers rather than preserving the old claim-state guard.
+- **I36-AC14 — Execution 6494 regression:** The generated runtime reproduces
+  its screening route and proves one result reaches the commit and post-write
+  verifier chain.
+- **I36-AC15 — Generated artifacts:** Build, validation, artifact-drift,
+  syntax, credential-reference, and secret-scan checks cover the inactive
+  exports.
+
+## Issue #37 — Stuck Generator recovery and verified cutover
+
+Detailed sanitized operational evidence is in
+`docs/smoke-test-2026-07-30-generator-recovery.md`.
+
+- **I37-AC1 — Backups:** Readable active-workflow, database, seven-role,
+  workbook-copy, and verification-copy backups precede mutation.
+- **I37-AC2 — Inventory:** Active roles, schedules, versions, in-flight
+  executions, and Sheet ownership were inventoried without credential values.
+- **I37-AC3 — Inactive corrected artifact:** The corrected artifact retained
+  the 90-minute schedule, 540-second timeout, per-stage caps of one,
+  600,000-millisecond lease, and `Asia/Manila`.
+- **I37-AC4 — Copied evaluation:** One evaluation committed exactly and
+  cleared ownership.
+- **I37-AC5 — Copied generation:** A valid repaired message committed
+  `ready` with exact reread verification.
+- **I37-AC6 — Copied screening:** The record became `review_required` with
+  evidence, blank ownership, and no Groq node.
+- **I37-AC7 — Copied conflicts:** Zero, duplicate, stale-guard,
+  manual-action, and alert-state cases failed visibly without a write node.
+- **I37-AC8 — Empty/current no-op:** The rerun created no claim, provider
+  call, or Sheet write.
+- **I37-AC9 — Idempotent rerun:** The no-op added no duplicate claim or
+  message and preserved ownership-free state.
+- **I37-AC10 — Exact production revalidation:** The stuck identity, guard,
+  token, stage, manual action, and alert state were reread immediately before
+  recovery.
+- **I37-AC11 — Fail-closed ambiguity:** Strict authorization and identity
+  filtering stop missing, duplicate, or concurrent targets.
+- **I37-AC12 — Guarded recovery:** One stale production lease was reclaimed
+  and safely committed through both verifier lanes.
+- **I37-AC13 — Affected screening record:** The production record is
+  `review_required`, made no Groq call, and has no active process fields.
+- **I37-AC14 — Reviewer recovery:** A stale guarded action was not applied;
+  completed projection leases were resolved and the two-phase projection
+  converged.
+- **I37-AC15 — Single active Generator:** Exactly one final Generator is
+  active; old, copy-verification, conflict, and recovery variants are inactive.
+- **I37-AC16 — Bounded production proof:** The target-filtered production
+  execution reached final commit and exact post-write verification.
+- **I37-AC17 — Reviewer projection:** Exactly one final queue row has
+  `review_required`, the new source guard, expected reason, and blank Action.
+- **I37-AC18 — Intended data diff:** The source row, queue projection, and
+  append-only/completed lease records changed only for the authorized recovery
+  and projection convergence.
+- **I37-AC19 — Terminal execution state:** No non-deleted execution remains
+  new, queued, running, or waiting; historical execution 6494 remains.
+- **I37-AC20 — Rollback:** Before/after exports and the disable-first,
+  preservation-first rollback procedure were verified.
+- **I37-AC21 — Sanitized evidence:** Repository evidence contains counts,
+  stages, and outcomes only, with no workbook URL, provider payload,
+  credential, or processing token.

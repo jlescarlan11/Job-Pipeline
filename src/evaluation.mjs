@@ -1504,11 +1504,26 @@ export function selectWorkCandidates(
     .map((candidate) => candidate.record);
 }
 
-export function confirmGenerationClaimMarkers(plannedRecords, freshRows) {
+export function confirmGenerationClaimMarkers(
+  plannedRecords,
+  freshRows,
+  { requireAll = false } = {}
+) {
   const planned = Array.isArray(plannedRecords) ? plannedRecords : [];
   const current = (Array.isArray(freshRows) ? freshRows : []).filter(
     (row) => row && typeof row === "object" && !Array.isArray(row)
   );
+  const fail = (reason) => {
+    if (requireAll) {
+      throw new Error(`Generator commit authorization failed: ${reason}`);
+    }
+    return [];
+  };
+  if (requireAll && planned.length !== 1) {
+    throw new Error(
+      "Generator commit authorization failed: expected exactly one staged result"
+    );
+  }
   return planned.flatMap((record) => {
     const identity = String(record?.canonical_job_id || "").trim();
     const commitGuard = String(
@@ -1517,7 +1532,9 @@ export function confirmGenerationClaimMarkers(plannedRecords, freshRows) {
     const processingToken = String(
       record?.processing_token || record?.commit_token || ""
     ).trim();
-    const stateGuard = String(record?.state_guard || "").trim();
+    const claimedStateGuard = String(
+      record?.claimed_state_guard ?? record?.state_guard ?? ""
+    ).trim();
     const workStage = String(record?.work_stage || "").trim();
     const manualAction = String(
       record?.claimed_manual_action ?? record?.manual_action ?? ""
@@ -1529,30 +1546,178 @@ export function confirmGenerationClaimMarkers(plannedRecords, freshRows) {
       !identity ||
       !commitGuard ||
       !processingToken ||
-      !stateGuard ||
+      !claimedStateGuard ||
       !["evaluation", "generation"].includes(workStage)
     ) {
-      return [];
+      return fail("staged ownership metadata is incomplete");
     }
     const matches = current.filter(
       (candidate) =>
         String(candidate?.processing_commit_guard || "").trim() ===
         commitGuard
     );
-    if (matches.length !== 1) return [];
+    if (matches.length === 0) {
+      return fail("no current row owns the staged commit guard");
+    }
+    if (matches.length !== 1) {
+      return fail("the staged commit guard is not unique");
+    }
     const persisted = matches[0];
     if (
       String(persisted.canonical_job_id || "").trim() !== identity ||
       String(persisted.processing_token || "").trim() !== processingToken ||
       String(persisted.processing_stage || "").trim() !== workStage ||
-      String(persisted.state_guard || "").trim() !== stateGuard ||
+      String(persisted.state_guard || "").trim() !== claimedStateGuard ||
       String(persisted.manual_action || "").trim() !== manualAction ||
       String(persisted.alert_status || "").trim() !== alertStatus
     ) {
-      return [];
+      return fail("the current row no longer matches the claimed snapshot");
     }
     return [{ ...record, row_number: persisted.row_number }];
   });
+}
+
+export function confirmGenerationCommitResults(
+  plannedRecords,
+  freshRows,
+  schema,
+  commitFields
+) {
+  const planned = Array.isArray(plannedRecords) ? plannedRecords : [];
+  const current = (Array.isArray(freshRows) ? freshRows : []).filter(
+    (row) => row && typeof row === "object" && !Array.isArray(row)
+  );
+  const fields = [
+    ...new Set(
+      (Array.isArray(commitFields) ? commitFields : [])
+        .map((field) => String(field || "").trim())
+        .filter(Boolean)
+    )
+  ];
+  if (planned.length !== 1) {
+    throw new Error(
+      "Generator commit verification failed: expected exactly one committed result"
+    );
+  }
+  if (fields.length === 0) {
+    throw new Error(
+      "Generator commit verification failed: the commit field contract is empty"
+    );
+  }
+
+  const stringListFields = new Set(schema?.string_list_fields ?? []);
+  const jsonArrayFields = new Set(schema?.json_array_fields ?? []);
+  const fieldRules = schema?.field_rules ?? {};
+  const parseArray = (value, allowCsv) => {
+    if (Array.isArray(value)) return value;
+    if (value === "" || value === undefined || value === null) return [];
+    try {
+      const parsed = JSON.parse(String(value));
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Legacy string-list cells may be comma-separated.
+    }
+    return allowCsv
+      ? String(value)
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean)
+      : value;
+  };
+  const stable = (value) => {
+    if (Array.isArray(value)) return value.map(stable);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.keys(value)
+          .sort()
+          .map((key) => [key, stable(value[key])])
+      );
+    }
+    return value;
+  };
+  const normalize = (field, value) => {
+    if (stringListFields.has(field)) return stable(parseArray(value, true));
+    if (jsonArrayFields.has(field)) return stable(parseArray(value, false));
+    if (value === "" || value === undefined || value === null) return "";
+    const rule = fieldRules[field];
+    if (rule?.type === "number" || rule?.type === "integer") {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : value;
+    }
+    if (rule?.type === "string") return String(value).trim();
+    return String(value);
+  };
+  const equal = (left, right) =>
+    JSON.stringify(left) === JSON.stringify(right);
+
+  const record = planned[0];
+  const identity = String(record?.canonical_job_id || "").trim();
+  const commitGuard = String(
+    record?.processing_commit_guard || ""
+  ).trim();
+  if (!identity || !commitGuard) {
+    throw new Error(
+      "Generator commit verification failed: committed identity metadata is incomplete"
+    );
+  }
+  const identityMatches = current.filter(
+    (candidate) =>
+      String(candidate?.canonical_job_id || "").trim() === identity
+  );
+  if (identityMatches.length === 0) {
+    throw new Error(
+      "Generator commit verification failed: the committed row was not found"
+    );
+  }
+  if (identityMatches.length !== 1) {
+    throw new Error(
+      "Generator commit verification failed: the committed identity is not unique"
+    );
+  }
+  const guardMatches = current.filter(
+    (candidate) =>
+      String(candidate?.processing_commit_guard || "").trim() === commitGuard
+  );
+  if (guardMatches.length === 0) {
+    throw new Error(
+      "Generator commit verification failed: the committed row was not found"
+    );
+  }
+  if (guardMatches.length !== 1) {
+    throw new Error(
+      "Generator commit verification failed: the committed guard is not unique"
+    );
+  }
+  const persisted = identityMatches[0];
+  if (guardMatches[0] !== persisted) {
+    throw new Error(
+      "Generator commit verification failed: the committed guard changed"
+    );
+  }
+  for (const field of fields) {
+    if (
+      !equal(
+        normalize(field, record?.[field]),
+        normalize(field, persisted?.[field])
+      )
+    ) {
+      throw new Error(
+        `Generator commit verification failed: persisted field mismatch (${field})`
+      );
+    }
+  }
+  for (const field of [
+    "processing_stage",
+    "processing_token",
+    "processing_started_at"
+  ]) {
+    if (normalize(field, persisted?.[field]) !== "") {
+      throw new Error(
+        `Generator commit verification failed: ownership was not cleared (${field})`
+      );
+    }
+  }
+  return [{ ...record, row_number: persisted.row_number }];
 }
 
 function sanitizeError(value) {
