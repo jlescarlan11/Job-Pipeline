@@ -723,6 +723,48 @@ test("recommendation completion requires one exact persisted copy of every detai
     ).join("\n"),
     /content/
   );
+  const blankNumericRow = result.rows.find((candidate) =>
+    [
+      "numerator",
+      "denominator",
+      "sample_size",
+      "comparison_value",
+      "baseline_value",
+      "difference",
+      "coverage_numerator",
+      "coverage_denominator",
+      "coverage_rate"
+    ].some((field) => candidate[field] === "")
+  );
+  assert.ok(
+    blankNumericRow,
+    "fixture must cover an absent numeric recommendation value"
+  );
+  const blankNumericField = [
+    "numerator",
+    "denominator",
+    "sample_size",
+    "comparison_value",
+    "baseline_value",
+    "difference",
+    "coverage_numerator",
+    "coverage_denominator",
+    "coverage_rate"
+  ].find((field) => blankNumericRow[field] === "");
+  assert.match(
+    recommendationDetailPersistenceErrors(
+      result.rows,
+      result.rows.map((candidate) =>
+        candidate.recommendation_id === blankNumericRow.recommendation_id
+          ? { ...candidate, [blankNumericField]: 0 }
+          : candidate
+      ),
+      result.report,
+      recommendationPolicy.recommendation_fields
+    ).join("\n"),
+    /content/,
+    "confirmation must not weaken absent numeric values into zero"
+  );
 });
 
 test("recommendation analysis never mutates analytics, policy, profile, or source records", () => {
