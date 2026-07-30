@@ -1572,13 +1572,20 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   }
   const deleteRows = nodeByName(
     workflow,
-    "Delete Existing Review Queue Rows"
+    "Retire Unchanged Review Queue Rows"
   );
-  assert.equal(deleteRows.parameters.operation, "delete");
-  assert.equal(deleteRows.parameters.sheetName.value, review.review_queue.sheet);
-  assert.equal(deleteRows.parameters.toDelete, "rows");
-  assert.match(deleteRows.parameters.startIndex, /row_number/);
-  assert.equal(deleteRows.parameters.numberToDelete, 1);
+  assert.equal(deleteRows.type, "n8n-nodes-base.httpRequest");
+  assert.equal(deleteRows.parameters.method, "POST");
+  assert.match(deleteRows.parameters.url, /:batchUpdate$/);
+  assert.equal(deleteRows.retryOnFail, false);
+  const queueCleanup = nodeByName(
+    workflow,
+    "Prepare Review Queue Atomic Cleanup"
+  ).parameters.jsCode;
+  assert.match(queueCleanup, /queue_delete_snapshots/);
+  assert.match(queueCleanup, /deleteDuplicates/);
+  assert.match(queueCleanup, /comparisonColumns/);
+  assert.match(queueCleanup, /deleteDimension/);
   const appendRows = nodeByName(workflow, "Append Review Queue Rows");
   assert.equal(appendRows.parameters.operation, "append");
   assert.equal(appendRows.parameters.sheetName.value, review.review_queue.sheet);
@@ -1865,7 +1872,22 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   );
   assertDirectConnection(
     workflow,
-    "Delete Existing Review Queue Rows",
+    "Keep Winning Applied Jobs Projection Claim",
+    "Has Review Queue Deletions"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Review Queue Sheet Metadata",
+    "Prepare Review Queue Atomic Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Prepare Review Queue Atomic Cleanup",
+    "Retire Unchanged Review Queue Rows"
+  );
+  assertDirectConnection(
+    workflow,
+    "Retire Unchanged Review Queue Rows",
     "Aggregate Review Queue Deletions"
   );
   assertDirectConnection(
@@ -1956,6 +1978,74 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assert.equal(dashboard.parameters.sheetName.value, review.dashboard_sheet);
   assert.equal(workflow.meta.reviewQueueVersion, review.review_queue.version);
   assert.equal(workflow.meta.appliedJobsVersion, review.applied_jobs.version);
+});
+
+test("Review Queue atomic retirement includes Action in the unchanged-row template", async () => {
+  const code = nodeByName(
+    workflows.reviewer,
+    "Prepare Review Queue Atomic Cleanup"
+  ).parameters.jsCode;
+  const execute = new Function(
+    "$input",
+    "$",
+    `"use strict"; return (async () => { ${code} })();`
+  );
+  const snapshot = Object.fromEntries(
+    review.review_queue.fields.map((field) => [field, ""])
+  );
+  snapshot.Status = "ready";
+  snapshot.Score = 88;
+  snapshot["Job title"] = "Atomic queue test";
+  snapshot.canonical_job_id = "onlinejobs.ph:atomic-queue";
+  snapshot.source_state_guard = "guard:atomic-queue";
+  snapshot.row_number = 4;
+  const result = await execute(
+    {
+      first: () => ({
+        json: {
+          sheets: [
+            {
+              properties: {
+                title: review.review_queue.sheet,
+                sheetId: 29
+              }
+            }
+          ]
+        }
+      })
+    },
+    (name) => {
+      assert.equal(name, "Prepare Review Queue Reconciliation");
+      return {
+        first: () => ({
+          json: {
+            queue_delete_snapshots: [snapshot],
+            queue_max_row_number: 4
+          }
+        })
+      };
+    }
+  );
+  const requests = result[0].json.batch_update.requests;
+  const actionIndex = review.review_queue.fields.indexOf("Action");
+  assert.deepEqual(
+    requests[1].updateCells.rows[0].values[actionIndex],
+    {}
+  );
+  assert.equal(
+    requests[2].deleteDuplicates.comparisonColumns.length,
+    review.review_queue.fields.length
+  );
+  assert.deepEqual(requests[3], {
+    deleteDimension: {
+      range: {
+        sheetId: 29,
+        dimension: "ROWS",
+        startIndex: 1,
+        endIndex: 2
+      }
+    }
+  });
 });
 
 test("Applied Jobs atomic retirement templates are case-fold unique and delete only themselves", async () => {

@@ -2754,20 +2754,47 @@ return [{
   appliedJobsAfterMaintenance.position = [3300, 500];
   appliedJobsAfterMaintenance.alwaysOutputData = true;
 
-  const deleteQueueRows = nodeByAnyName(archiver, [
-    "Delete Confirmed Active Rows",
-    "Delete rows or columns from sheet"
-  ]);
-  deleteQueueRows.id = "88af9ce3-b45f-4aa8-a980-000000000025";
-  deleteQueueRows.name = "Delete Existing Review Queue Rows";
-  deleteQueueRows.position = [2080, -60];
-  deleteQueueRows.parameters = {
-    operation: "delete",
-    documentId: structuredClone(activeRead.parameters.documentId),
-    sheetName: structuredClone(queueRead.parameters.sheetName),
-    toDelete: "rows",
-    startIndex: "={{ $json.row_number }}",
-    numberToDelete: 1
+  const reviewerDocumentId = activeRead.parameters.documentId.value;
+  const reviewerMetadataUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${reviewerDocumentId}` +
+    "?fields=sheets.properties";
+  const reviewerBatchUpdateUrl =
+    `https://sheets.googleapis.com/v4/spreadsheets/${reviewerDocumentId}` +
+    ":batchUpdate";
+  const googleSheetsCredentials = structuredClone(activeRead.credentials);
+  const queueMetadata = {
+    id: "88af9ce3-b45f-4aa8-a980-000000000023",
+    name: "Get Review Queue Sheet Metadata",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [1760, -60],
+    parameters: {
+      url: reviewerMetadataUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      options: {}
+    },
+    credentials: googleSheetsCredentials
+  };
+  const deleteQueueRows = {
+    id: "88af9ce3-b45f-4aa8-a980-000000000025",
+    name: "Retire Unchanged Review Queue Rows",
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    position: [2420, -60],
+    parameters: {
+      method: "POST",
+      url: reviewerBatchUpdateUrl,
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "googleSheetsOAuth2Api",
+      sendBody: true,
+      contentType: "raw",
+      rawContentType: "application/json",
+      body: "={{ JSON.stringify($json.batch_update) }}",
+      options: {}
+    },
+    retryOnFail: false,
+    credentials: googleSheetsCredentials
   };
 
   const clearAppliedJobsRows = updateSheetByFieldNode({
@@ -2812,6 +2839,22 @@ const appliedJobs = reconcileAppliedJobs(
   REVIEW_CONFIG,
   new Date().toISOString()
 );
+const queueDeleteRowNumbers = new Set(
+  reviewQueue.delete_rows.map((row) => Number(row.row_number))
+);
+const queueDeleteSnapshots = currentQueueRows
+  .filter((row) => queueDeleteRowNumbers.has(Number(row.row_number)))
+  .map((row) => ({
+    row_number: Number(row.row_number),
+    ...Object.fromEntries(
+      REVIEW_CONFIG.review_queue.fields.map(
+        (field) => [field, row[field] ?? '']
+      )
+    )
+  }));
+if (queueDeleteSnapshots.length !== reviewQueue.delete_rows.length) {
+  throw new Error('Review Queue deletion snapshot is incomplete');
+}
 console.log(JSON.stringify({
   event: 'review_projection_reconciliation',
   review_queue_projected: reviewQueue.queue_rows.length,
@@ -2829,6 +2872,11 @@ console.log(JSON.stringify({
 return [{ json: {
   queue_rows: reviewQueue.queue_rows,
   queue_delete_rows: reviewQueue.delete_rows,
+  queue_delete_snapshots: queueDeleteSnapshots,
+  queue_max_row_number: Math.max(
+    1,
+    ...currentQueueRows.map((row) => Number(row.row_number) || 1)
+  ),
   queue_protected_action_count: reviewQueue.protected_action_count,
   queue_unchanged_row_count: reviewQueue.unchanged_row_count,
   applied_rows: appliedJobs.applied_rows,
@@ -2840,6 +2888,121 @@ return [{ json: {
     ...reviewQueue.invalid_records,
     ...appliedJobs.invalid_records
   ]
+} }];`;
+
+  const queueAtomicCleanupCode = `
+const CONFIG = ${JSON.stringify(reviewConfig.review_queue)};
+const planned = $('Prepare Review Queue Reconciliation').first().json;
+const snapshots = planned.queue_delete_snapshots || [];
+const metadata = $input.first().json;
+const sheet = (metadata.sheets || []).find(
+  (entry) => entry?.properties?.title === CONFIG.sheet
+);
+const sheetId = Number(sheet?.properties?.sheetId);
+if (!Number.isInteger(sheetId) || sheetId < 0) {
+  throw new Error('Review Queue sheet metadata is missing');
+}
+if (snapshots.length === 0) return [];
+const fields = CONFIG.fields || [];
+if (fields.length === 0) {
+  throw new Error('Review Queue fields are missing');
+}
+const signature = (row) =>
+  fields.map((field) => {
+    const value = row[field];
+    if (typeof value === 'number') return ['number', value];
+    if (typeof value === 'boolean') return ['boolean', value];
+    return [
+      'string',
+      String(value ?? '').normalize('NFKC').toLocaleLowerCase('en-US')
+    ];
+  });
+const signatures = snapshots.map((row) => JSON.stringify(signature(row)));
+if (new Set(signatures).size !== signatures.length) {
+  throw new Error('Review Queue deletion snapshots are ambiguous');
+}
+const cellValue = (value) => {
+  if (value === '' || value === undefined || value === null) return {};
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return { userEnteredValue: { numberValue: value } };
+  }
+  if (typeof value === 'boolean') {
+    return { userEnteredValue: { boolValue: value } };
+  }
+  const text = String(value);
+  return {
+    userEnteredValue: text.startsWith('=')
+      ? { formulaValue: text }
+      : { stringValue: text }
+  };
+};
+const templateCount = snapshots.length;
+const columnCount = fields.length;
+const maxRowNumber = Number(planned.queue_max_row_number);
+if (!Number.isInteger(maxRowNumber) || maxRowNumber < 2) {
+  throw new Error('Review Queue row bound is invalid');
+}
+const requests = [
+  {
+    insertDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS',
+        startIndex: 1,
+        endIndex: 1 + templateCount
+      },
+      inheritFromBefore: false
+    }
+  },
+  {
+    updateCells: {
+      rows: snapshots.map((row) => ({
+        values: fields.map((field) => cellValue(row[field]))
+      })),
+      fields: 'userEnteredValue',
+      range: {
+        sheetId,
+        startRowIndex: 1,
+        endRowIndex: 1 + templateCount,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount
+      }
+    }
+  },
+  {
+    deleteDuplicates: {
+      range: {
+        sheetId,
+        startRowIndex: 1,
+        endRowIndex: maxRowNumber + templateCount,
+        startColumnIndex: 0,
+        endColumnIndex: columnCount
+      },
+      comparisonColumns: Array.from(
+        { length: columnCount },
+        (_, index) => ({
+          sheetId,
+          dimension: 'COLUMNS',
+          startIndex: index,
+          endIndex: index + 1
+        })
+      )
+    }
+  },
+  {
+    deleteDimension: {
+      range: {
+        sheetId,
+        dimension: 'ROWS',
+        startIndex: 1,
+        endIndex: 1 + templateCount
+      }
+    }
+  }
+];
+return [{ json: {
+  batch_update: { requests },
+  review_queue_retirement_candidates: templateCount
 } }];`;
 
   const finalAppliedJobsCleanupCode = `${reviewCore}
@@ -2888,13 +3051,8 @@ console.log(JSON.stringify({
 }));
 return winners.map((record) => ({ json: record }));`;
 
-  const appliedJobsDocumentId = activeRead.parameters.documentId.value;
-  const appliedJobsMetadataUrl =
-    `https://sheets.googleapis.com/v4/spreadsheets/${appliedJobsDocumentId}` +
-    "?fields=sheets.properties";
-  const appliedJobsBatchUpdateUrl =
-    `https://sheets.googleapis.com/v4/spreadsheets/${appliedJobsDocumentId}` +
-    ":batchUpdate";
+  const appliedJobsMetadataUrl = reviewerMetadataUrl;
+  const appliedJobsBatchUpdateUrl = reviewerBatchUpdateUrl;
   const appliedAtColumn = reviewConfig.applied_jobs.fields.indexOf("Applied at");
   const identityColumn =
     reviewConfig.applied_jobs.fields.indexOf("canonical_job_id");
@@ -3023,7 +3181,6 @@ return [{ json: {
   applied_jobs_retirement_candidates: tombstoneIdentities.length
 } }];`;
 
-  const googleSheetsCredentials = structuredClone(activeRead.credentials);
   const appliedJobsMetadata = {
     id: "88af9ce3-b45f-4aa8-a980-000000000090",
     name: "Get Applied Jobs Sheet Metadata",
@@ -3685,34 +3842,34 @@ return [{ json: {
     booleanIfNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000022",
       name: "Has Review Queue Deletions",
-      position: [1540, 20],
+      position: [2200, 180],
       leftValue: "={{ $json.queue_delete_rows.length > 0 }}"
     }),
+    queueMetadata,
     codeNode({
-      id: "88af9ce3-b45f-4aa8-a980-000000000023",
-      name: "Prepare Review Queue Deletions",
-      position: [1760, -60],
-      jsCode:
-        "return $('Prepare Review Queue Reconciliation').first().json.queue_delete_rows.map((record) => ({ json: record }));"
+      id: "88af9ce3-b45f-4aa8-a980-000000000115",
+      name: "Prepare Review Queue Atomic Cleanup",
+      position: [2200, -60],
+      jsCode: queueAtomicCleanupCode
     }),
     deleteQueueRows,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000026",
       name: "Aggregate Review Queue Deletions",
-      position: [2290, -60],
+      position: [2640, -60],
       destinationFieldName: "deleted_rows"
     }),
     booleanIfNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000024",
       name: "Has Review Queue Appends",
-      position: [2500, 20],
+      position: [2860, 180],
       leftValue:
         "={{ $('Prepare Review Queue Reconciliation').first().json.queue_rows.length > 0 }}"
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000027",
       name: "Prepare Review Queue Appends",
-      position: [2720, -60],
+      position: [3080, -60],
       jsCode:
         "return $('Prepare Review Queue Reconciliation').first().json.queue_rows.map((record) => ({ json: record }));"
     }),
@@ -3720,7 +3877,7 @@ return [{ json: {
       base: queueAppendBase,
       id: "88af9ce3-b45f-4aa8-a980-000000000035",
       name: "Append Review Queue Rows",
-      position: [2940, -60],
+      position: [3300, -60],
       fields: reviewConfig.review_queue.fields
     }),
     booleanIfNode({
@@ -4026,10 +4183,7 @@ return [{ json: {
       main: [[connection("Prepare Review Queue Reconciliation")]]
     },
     "Prepare Review Queue Reconciliation": {
-      main: [[
-        connection("Has Review Queue Deletions"),
-        connection("Prepare Applied Jobs Projection Claim")
-      ]]
+      main: [[connection("Prepare Applied Jobs Projection Claim")]]
     },
     "Prepare Applied Jobs Projection Claim": {
       main: [[connection("Append Applied Jobs Projection Claim")]]
@@ -4042,6 +4196,7 @@ return [{ json: {
     },
     "Keep Winning Applied Jobs Projection Claim": {
       main: [[
+        connection("Has Review Queue Deletions"),
         connection("Get Applied Jobs Before Cleanup"),
         connection("Plan Processing Claims Cleanup")
       ]]
@@ -4084,14 +4239,17 @@ return [{ json: {
     },
     "Has Review Queue Deletions": {
       main: [
-        [connection("Prepare Review Queue Deletions")],
+        [connection("Get Review Queue Sheet Metadata")],
         [connection("Has Review Queue Appends")]
       ]
     },
-    "Prepare Review Queue Deletions": {
-      main: [[connection("Delete Existing Review Queue Rows")]]
+    "Get Review Queue Sheet Metadata": {
+      main: [[connection("Prepare Review Queue Atomic Cleanup")]]
     },
-    "Delete Existing Review Queue Rows": {
+    "Prepare Review Queue Atomic Cleanup": {
+      main: [[connection("Retire Unchanged Review Queue Rows")]]
+    },
+    "Retire Unchanged Review Queue Rows": {
       main: [[connection("Aggregate Review Queue Deletions")]]
     },
     "Aggregate Review Queue Deletions": {
