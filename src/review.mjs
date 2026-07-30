@@ -2156,6 +2156,15 @@ export function finalizeAppliedJobsCleanup(
   const latest = Array.isArray(latestRows) ? latestRows : [];
   const previousSnapshot = projectionActionSnapshot(previous);
   const latestSnapshot = projectionActionSnapshot(latest);
+  const retainLatestIdentity = (row) => {
+    const identityKey = canonicalIdentityKey(row?.canonical_job_id);
+    const latestIdentity = String(
+      latestSnapshot.byIdentity.get(identityKey)?.row?.canonical_job_id || ""
+    ).trim();
+    return latestIdentity
+      ? { ...row, canonical_job_id: latestIdentity }
+      : row;
+  };
   const desiredByIdentity = new Map(
     [
       ...(planned.applied_rows || []),
@@ -2190,10 +2199,13 @@ export function finalizeAppliedJobsCleanup(
           identity
         );
         if (desired && (plannedRebase || actionChangedSinceReconciliation)) {
-          rebaseRows.set(identityKey, {
-            ...(plannedRebase || desired),
-            Action: action
-          });
+          rebaseRows.set(
+            identityKey,
+            retainLatestIdentity({
+              ...(plannedRebase || desired),
+              Action: action
+            })
+          );
         }
       }
       continue;
@@ -2201,21 +2213,23 @@ export function finalizeAppliedJobsCleanup(
   }
   return {
     ...planned,
-    applied_rows: (planned.applied_rows || []).filter(
-      (row) =>
-        !ambiguousIdentities.has(
-          canonicalIdentityKey(row?.canonical_job_id)
-        )
-    ),
-    applied_clear_rows: (planned.applied_clear_rows || []).filter(
-      (row) => {
+    applied_rows: (planned.applied_rows || [])
+      .filter(
+        (row) =>
+          !ambiguousIdentities.has(
+            canonicalIdentityKey(row?.canonical_job_id)
+          )
+      )
+      .map(retainLatestIdentity),
+    applied_clear_rows: (planned.applied_clear_rows || [])
+      .filter((row) => {
         const identityKey = canonicalIdentityKey(row?.canonical_job_id);
         return (
           !ambiguousIdentities.has(identityKey) &&
           !protectedIdentities.has(identityKey)
         );
-      }
-    ),
+      })
+      .map(retainLatestIdentity),
     applied_rebase_rows: [...rebaseRows.values()],
     applied_last_minute_protected_actions: protectedIdentities.size,
     invalid_records: [

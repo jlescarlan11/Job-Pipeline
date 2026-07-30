@@ -2874,6 +2874,25 @@ test("Applied Jobs final cleanup protects an Action entered after reconciliation
   assert.deepEqual(unchanged.applied_rebase_rows, []);
   assert.equal(unchanged.applied_last_minute_protected_actions, 0);
 
+  const caseShifted = finalizeAppliedJobsCleanup(
+    planned,
+    [projected],
+    [
+      {
+        ...latest,
+        canonical_job_id: projected.canonical_job_id.toUpperCase()
+      }
+    ]
+  );
+  assert.equal(
+    caseShifted.applied_rows[0].canonical_job_id,
+    projected.canonical_job_id.toUpperCase()
+  );
+  assert.equal(
+    caseShifted.applied_rebase_rows[0].canonical_job_id,
+    projected.canonical_job_id.toUpperCase()
+  );
+
   const ambiguous = finalizeAppliedJobsCleanup(
     planned,
     [projected],

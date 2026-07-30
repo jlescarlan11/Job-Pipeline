@@ -450,9 +450,10 @@ case variants as one identity. Maintenance never deletes or updates by
 upserted by `canonical_job_id`. When one valid projection row already represents
 an identity, maintenance retains that row's exact stored identity spelling as
 the Sheets write key while source matching remains case-folded. This prevents
-an exact-key append-or-update from creating a case-variant duplicate. Every
-cell update omits `Action`, so a user selection made during any workflow step
-cannot be erased. An append-written
+an exact-key append-or-update from creating a case-variant duplicate. The final
+pre-maintenance reread refreshes that exact spelling again for upserts, stale
+clears, and protected-action rebases. Every cell update omits `Action`, so a
+user selection made during any workflow step cannot be erased. An append-written
 `applied_jobs_projection` claim in `ProcessingClaims` selects one maintenance
 winner; the workflow's three-minute timeout is shorter than the four-minute
 lease. The winner clears stale generated cells and guards, rereads the sheet,

@@ -313,7 +313,8 @@ Slack HTTP node must remain an explicit JSON `POST`.
   rejects case-variant duplicate applied sources before projection,
   fails closed if a case-variant duplicate appears during final reconciliation,
   preserves the exact stored ID spelling for a single case-variant projection
-  row so an exact-key refresh updates that row instead of appending a duplicate,
+  row at reconciliation and the final reread, so exact-key refreshes, clears,
+  and action rebases update that row instead of appending or missing it,
   and retires a blank stale row only when it still matches its
   identity-specific blank template inside the final atomic batch. Enter an
   Action after the final reread but before that batch and verify the row remains
