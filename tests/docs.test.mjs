@@ -205,8 +205,25 @@ test("acceptance accounting covers every criterion and labels live gates honestl
       `issue #${issue} criterion count`
     );
   }
-  assert.match(acceptance, /Issue #45 remains operationally open/i);
-  assert.match(acceptance, /No production or provider action is represented as completed/i);
+  assert.match(acceptance, /every Issue #45 live gate (?:is|are) completed/i);
+  assert.match(acceptance, /authorized production cutover/i);
+});
+
+test("completed cutover report records sanitized live evidence", async () => {
+  const report = await loadText("../docs/cutover-2026-07-31.md");
+  for (const required of [
+    "exactly 3 active replacements",
+    "rolling 24-hour",
+    "04:08",
+    "04:32",
+    "04:44",
+    "04:59",
+    "automatic_skip",
+    "zero webhook/API-key/authorization pattern hits",
+    "No automatic application submission"
+  ]) {
+    assert.match(report, new RegExp(required, "i"), required);
+  }
 });
 
 test("retired workflow documents and smoke snapshots are removed", async () => {

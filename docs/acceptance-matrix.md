@@ -119,25 +119,25 @@ Evidence labels:
 
 ## Issue #45 — fresh cutover
 
-1. **Old workbook/workflow backups:** Live gate; validator requires IDs/references.
-2. **Blank non-production setup:** Live gate; repository setup fixture proves expected structure.
-3. **Second setup idempotent:** Live gate; repository idempotency fixture.
-4. **No old imports:** Automated artifact check plus live gate.
-5. **Three inactive authorized bindings:** Live gate; inventory validator rejects otherwise.
-6. **Fixed 24-hour smoke:** Live gate; deterministic boundary suite already passes.
-7. **Old/future/missing exclusion smoke:** Live gate; deterministic fixtures already pass.
-8. **Complete non-production lifecycle:** Live gate; deterministic lifecycle/actions already pass.
-9. **Failure matrix:** Live gate; deterministic failure suites already pass.
-10. **Slack issue #22 copy smoke:** Live gate; renderer byte-fidelity test passes locally.
-11. **Build/validate/deployment/cutover gates:** Build/validate/policy pass locally; production environment and complete cutover evidence are live gates.
-12. **Fresh production zero rows:** Live gate; validator requires recorded zero counts.
-13. **All old copies inactive:** Live gate; instance-wide inventory validator.
-14. **Exactly three active new copies:** Live gate; post-activation validator.
-15. **Initial schedules clean:** Live gate; observation booleans required.
-16. **Old workbook unchanged/unbound:** Live gate; evidence requires zero binding and unchanged observation.
-17. **No auto apply/secrets/mutating links:** Automated tests plus live log/link inspection.
-18. **Rollback recorded/verified:** Live gate; validator requires prior IDs and old workbook.
-19. **Evidence sanitized:** Automated secret detector/capture minimization plus live inspection.
-20. **Remaining behavior or retirement documented:** Artifact README, architecture, operations, and this matrix.
+1. **Old workbook/workflow backups:** Completed; encrypted workflow export and Drive workbook backup are recorded.
+2. **Blank non-production setup:** Completed with zero business rows.
+3. **Second setup idempotent:** Completed without duplicate tabs, headers, validation, protections, or records.
+4. **No old imports:** Completed; both fresh workbooks started without copied rows.
+5. **Three inactive authorized bindings:** Completed before smoke and activation.
+6. **Fixed 24-hour smoke:** Completed with one immutable window per run.
+7. **Old/future/missing exclusion smoke:** Completed.
+8. **Complete non-production lifecycle:** Completed across ready, review, skip, applied, archive, and outcome paths.
+9. **Failure matrix:** Completed across source, provider, concurrency, destination, delete, Slack, and recovery paths.
+10. **Slack issue #22 copy smoke:** Completed with byte-equivalent code-block content and open-only links.
+11. **Build/validate/deployment/cutover gates:** Completed against the exact deployed artifacts and managed listener.
+12. **Fresh production zero rows:** Completed before activation.
+13. **All old copies inactive:** Completed in the pre-activation instance-wide inventory.
+14. **Exactly three active new copies:** Completed in the post-activation instance-wide inventory.
+15. **Initial schedules clean:** Completed after the live overlap finding was corrected by the offset-14 Alerter schedule.
+16. **Old workbook unchanged/unbound:** Completed; its observed timestamp remained unchanged through replacement execution.
+17. **No auto apply/secrets/mutating links:** Completed through automated and live inspection.
+18. **Rollback recorded/verified:** Completed with prior IDs, backup references, and restoration order.
+19. **Evidence sanitized:** Completed; the post evidence passed secret-pattern inspection.
+20. **Remaining behavior or retirement documented:** Completed in the artifact docs and the [2026-07-31 cutover report](cutover-2026-07-31.md).
 
-No production or provider action is represented as completed by this repository change. Issue #45 remains operationally open until authorized live evidence satisfies every **Live gate** item.
+The authorized production cutover and every Issue #45 live gate are completed. The permanent sanitized observations are recorded in the [2026-07-31 cutover report](cutover-2026-07-31.md).
