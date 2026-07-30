@@ -4993,6 +4993,24 @@ async function buildAnalytics() {
     mode: "name",
     cachedResultName: policy.detail_sheet
   };
+  const analyticsDetailConfirmationRead =
+    structuredClone(analyticsWriteBase);
+  analyticsDetailConfirmationRead.id =
+    "a13a17c5-0000-4000-8000-000000000031";
+  analyticsDetailConfirmationRead.name =
+    "Get Analytics Detail After Writes";
+  analyticsDetailConfirmationRead.position = [860, 240];
+  analyticsDetailConfirmationRead.parameters.operation = "read";
+  analyticsDetailConfirmationRead.parameters.options = {
+    ...analyticsDetailConfirmationRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  analyticsDetailConfirmationRead.alwaysOutputData = true;
   const reportsWriteBase = structuredClone(activeRead);
   reportsWriteBase.parameters.sheetName = {
     __rl: true,
@@ -5294,11 +5312,18 @@ return (report.analytics_rows || []).map((row) => ({ json: row }));`;
 
   const prepareCompletionCode = `const report = $('Build Analytics Report').first().json;
 const completion = report.completion;
-const writes = $json.analytics_rows_written || [];
-if (writes.length !== Number(completion.detail_row_count)) {
+const persistedRows =
+  $('Aggregate Analytics Detail After Writes').first().json.analytics_detail_rows || [];
+const errors = analyticsDetailPersistenceErrors(
+  report.analytics_rows || [],
+  persistedRows,
+  completion,
+  ${JSON.stringify(policy.detail_fields)}
+);
+if (errors.length > 0) {
   throw new Error(
-    'Analytics detail refresh incomplete: expected ' +
-    completion.detail_row_count + ' rows, observed ' + writes.length
+    'Analytics detail refresh could not be confirmed: ' +
+    errors.join('; ')
   );
 }
 return [{ json: completion }];`;
@@ -5389,17 +5414,24 @@ return [{ json: completion }];`;
       position: [620, 240],
       destinationFieldName: "analytics_rows_written"
     }),
+    analyticsDetailConfirmationRead,
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000032",
+      name: "Aggregate Analytics Detail After Writes",
+      position: [1100, 240],
+      destinationFieldName: "analytics_detail_rows"
+    }),
     codeNode({
       id: "a13a17c5-0000-4000-8000-000000000009",
       name: "Prepare Analytics Completion",
-      position: [860, 240],
+      position: [1340, 240],
       jsCode: prepareCompletionCode
     }),
     upsertSheetNode({
       base: reportsWriteBase,
       id: "a13a17c5-0000-4000-8000-000000000010",
       name: "Publish Complete Analytics Report",
-      position: [1100, 240],
+      position: [1580, 240],
       fields: policy.report_fields,
       matchingField: "report_id"
     }),
@@ -5487,6 +5519,12 @@ return [{ json: completion }];`;
       main: [[connection("Aggregate Analytics Row Writes")]]
     },
     "Aggregate Analytics Row Writes": {
+      main: [[connection("Get Analytics Detail After Writes")]]
+    },
+    "Get Analytics Detail After Writes": {
+      main: [[connection("Aggregate Analytics Detail After Writes")]]
+    },
+    "Aggregate Analytics Detail After Writes": {
       main: [[connection("Prepare Analytics Completion")]]
     },
     "Prepare Analytics Completion": {

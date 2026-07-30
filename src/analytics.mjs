@@ -1483,6 +1483,76 @@ export function reusableAnalyticsReport(reportRows, completion) {
     : undefined;
 }
 
+export function analyticsDetailPersistenceErrors(
+  expectedRows,
+  persistedRows,
+  completion,
+  fields
+) {
+  const expected = Array.isArray(expectedRows) ? expectedRows : [];
+  const persisted = Array.isArray(persistedRows) ? persistedRows : [];
+  const comparedFields = Array.isArray(fields) ? fields : [];
+  const reportId = String(completion?.report_id || "").trim();
+  const expectedCount = Number(completion?.detail_row_count);
+  const fold = (value) =>
+    String(value || "")
+      .trim()
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US");
+  const errors = [];
+  if (
+    !reportId ||
+    !Number.isInteger(expectedCount) ||
+    expectedCount < 0 ||
+    expected.length !== expectedCount ||
+    comparedFields.length === 0
+  ) {
+    errors.push("analytics detail confirmation input is invalid");
+    return errors;
+  }
+  const expectedKeys = expected.map((row) =>
+    fold(row?.analytics_row_id)
+  );
+  if (
+    expectedKeys.some((key) => !key) ||
+    new Set(expectedKeys).size !== expectedKeys.length
+  ) {
+    errors.push("expected analytics detail identities are ambiguous");
+    return errors;
+  }
+  const expectedKeySet = new Set(expectedKeys);
+  const reportKey = fold(reportId);
+  const relevant = persisted.filter(
+    (row) =>
+      fold(row?.report_id) === reportKey ||
+      expectedKeySet.has(fold(row?.analytics_row_id))
+  );
+  if (relevant.length !== expectedCount) {
+    errors.push("persisted analytics detail count is not exact");
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    const desired = expected[index];
+    const identityKey = expectedKeys[index];
+    const matches = relevant.filter(
+      (row) => fold(row?.analytics_row_id) === identityKey
+    );
+    if (matches.length !== 1) {
+      errors.push("persisted analytics detail identity is not unique");
+      continue;
+    }
+    if (
+      comparedFields.some(
+        (field) =>
+          String(matches[0]?.[field] ?? "") !==
+          String(desired?.[field] ?? "")
+      )
+    ) {
+      errors.push("persisted analytics detail content does not match");
+    }
+  }
+  return [...new Set(errors)];
+}
+
 export function buildAnalyticsReport(
   activeRows,
   archiveRows,

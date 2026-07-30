@@ -521,7 +521,10 @@ delivered.
   formula-prefixed segment and confirm it is neutralized.
 - Interrupt after a subset of detail writes. Confirm the incomplete report has
   no `status=complete` metadata and the previous complete report remains the
-  newest authoritative result. Rerun and verify deterministic row upserts.
+  newest authoritative result. Repeat with a missing row, a mismatched field,
+  and a case-variant duplicate detail ID; the authoritative post-write reread
+  must block completion in every case. Rerun and verify deterministic row
+  upserts.
 - Rerun an unchanged copied source at a later time. Confirm the same
   content-addressed report ID is selected, the execution logs
   `action=unchanged`, and neither `Analytics` nor `AnalyticsReports` receives a

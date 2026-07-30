@@ -578,12 +578,14 @@ report. Missing, older, partial, incompatible, or malformed metadata cannot
 authorize that skip; returning to an older result republishes it as current.
 An unavailable history read also disables only the skip and is logged before
 the same idempotent publication path. Concurrent or recovered executions with
-the same result converge on the same IDs. Only after every expected detail
-write is observed does the workflow
-publish `status=complete` metadata, so a partial refresh cannot replace the
-last identifiable complete report. Analytic text is formula-neutralized and
-excludes descriptions, messages, credentials, provider payloads, contact
-details, and job identifiers.
+the same result converge on the same IDs. After the writes, the workflow
+rereads Analytics with formulas visible and requires exactly one
+field-matching physical row for every expected detail ID, with no extra row for
+that report, before it publishes `status=complete` metadata. A partial refresh cannot replace
+the last identifiable complete report; duplicated, case-variant, or mismatched
+detail fails the same gate. Analytic text is
+formula-neutralized and excludes descriptions, messages, credentials, provider
+payloads, contact details, and job identifiers.
 
 Before either learning workflow reads or writes its report store, it appends a
 global store claim and proceeds only when it owns the lowest unexpired claim.

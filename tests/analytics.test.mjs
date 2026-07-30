@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  analyticsDetailPersistenceErrors,
   analyticsResultKey,
   buildAnalyticsReport,
   deduplicateAnalyticsRecords,
@@ -524,6 +525,66 @@ test("analytics result identity is content-addressed and safely reusable", () =>
     "2026-07-29T12:00:00.000Z"
   );
   assert.notEqual(changed.completion.report_id, first.completion.report_id);
+});
+
+test("analytics completion requires one exact persisted copy of every detail row", () => {
+  const report = buildAnalyticsReport(
+    fixture.active,
+    fixture.archive,
+    schema,
+    policy,
+    now
+  );
+  assert.deepEqual(
+    analyticsDetailPersistenceErrors(
+      report.rows,
+      report.rows,
+      report.completion,
+      policy.detail_fields
+    ),
+    []
+  );
+  assert.match(
+    analyticsDetailPersistenceErrors(
+      report.rows,
+      report.rows.slice(1),
+      report.completion,
+      policy.detail_fields
+    ).join("\n"),
+    /count|identity/
+  );
+  assert.match(
+    analyticsDetailPersistenceErrors(
+      report.rows,
+      [
+        ...report.rows,
+        {
+          ...report.rows[0],
+          analytics_row_id:
+            report.rows[0].analytics_row_id.toUpperCase(),
+          report_id: report.completion.report_id.toUpperCase()
+        }
+      ],
+      report.completion,
+      policy.detail_fields
+    ).join("\n"),
+    /count|unique/
+  );
+  assert.match(
+    analyticsDetailPersistenceErrors(
+      report.rows,
+      [
+        {
+          ...report.rows[0],
+          value: "tampered"
+        },
+        ...report.rows.slice(1)
+      ],
+      report.completion,
+      policy.detail_fields
+    ).join("\n"),
+    /content/
+  );
 });
 
 test("analytics result keys use SHA-256 over Unicode-safe canonical evidence", () => {

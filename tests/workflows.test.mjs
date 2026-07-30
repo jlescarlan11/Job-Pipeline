@@ -2233,6 +2233,8 @@ test("analytics export publishes completion only after every idempotent detail w
     "Prepare Analytics Rows",
     "Upsert Analytics Rows",
     "Aggregate Analytics Row Writes",
+    "Get Analytics Detail After Writes",
+    "Aggregate Analytics Detail After Writes",
     "Prepare Analytics Completion",
     "Publish Complete Analytics Report",
     "Plan Analytics Retention Candidates",
@@ -2325,6 +2327,16 @@ test("analytics export publishes completion only after every idempotent detail w
   assertDirectConnection(
     workflow,
     "Aggregate Analytics Row Writes",
+    "Get Analytics Detail After Writes"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Analytics Detail After Writes",
+    "Aggregate Analytics Detail After Writes"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Analytics Detail After Writes",
     "Prepare Analytics Completion"
   );
   assertDirectConnection(
@@ -2401,8 +2413,18 @@ test("analytics export publishes completion only after every idempotent detail w
     workflow,
     "Prepare Analytics Completion"
   ).parameters.jsCode;
-  assert.match(publishGuard, /writes\.length !==/);
-  assert.match(publishGuard, /detail_row_count/);
+  assert.match(publishGuard, /analyticsDetailPersistenceErrors/);
+  assert.match(publishGuard, /Aggregate Analytics Detail After Writes/);
+  const confirmationRead = nodeByName(
+    workflow,
+    "Get Analytics Detail After Writes"
+  );
+  assert.equal(confirmationRead.parameters.operation, "read");
+  assert.equal(
+    confirmationRead.parameters.options.outputFormatting.values.general,
+    "FORMULA"
+  );
+  assert.equal(confirmationRead.onError, undefined);
   assert.ok(
     workflow.nodes
       .filter((node) => node.type === "n8n-nodes-base.googleSheets")
