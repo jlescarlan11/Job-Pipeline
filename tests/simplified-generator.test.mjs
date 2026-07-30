@@ -139,6 +139,15 @@ test("new rows are claimed once in deterministic order", () => {
     ).map((entry) => entry.record.canonical_job_id),
     [later.canonical_job_id]
   );
+  const expired = selectGeneratorCandidate(
+    [firstClaim.record],
+    schema,
+    runtime,
+    new Date(Date.parse(now) + runtime.claim_lease_ms + 1).toISOString()
+  );
+  assert.equal(expired.length, 1);
+  assert.equal(expired[0].record.canonical_job_id, earlier.canonical_job_id);
+  assert.equal(expired[0].stage, "evaluation");
 });
 
 test("strong fit proceeds to generation, then only validated output becomes ready", () => {
@@ -444,7 +453,21 @@ test("invalid model output is error evidence and preserves a prior safe message"
   assert.equal(failure.message_validation_status, "valid");
   assert.match(failure.error_category, /validation_failure/);
   assert.ok(failure.next_retry_at);
+  assert.equal(failure.processing_stage, "");
   assert.equal(failure.processing_token, "");
+  assert.equal(failure.processing_started_at, "");
+});
+
+test("HTTP 404 bodies cannot be misclassified as provider authentication failures", () => {
+  const claimed = claim(recordFromDescription(3065));
+  const failure = recordGeneratorFailure(
+    claimed,
+    new Error("404 - <html><body>unrelated 403 forbidden footer text</body></html>"),
+    runtime,
+    now
+  );
+  assert.equal(failure.error_category, "provider_failure");
+  assert.equal(failure.processing_stage, "");
 });
 
 test("provider failures are bounded, observable, and sanitized", () => {

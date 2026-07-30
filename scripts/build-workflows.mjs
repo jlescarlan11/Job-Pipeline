@@ -94,6 +94,7 @@ const discoveryCore = await bundledCore(
 );
 const generatorCore = await bundledCore(
   "src/contracts.mjs",
+  "src/profile.mjs",
   "src/evaluation.mjs",
   "src/groq-provider.mjs",
   "src/generator.mjs"
@@ -103,6 +104,7 @@ const groqModel = groqPolicy.models.find(
 );
 const movementCore = await bundledCore(
   "src/contracts.mjs",
+  "src/profile.mjs",
   "src/evaluation.mjs",
   "src/message-safety.mjs",
   "src/system-claims.mjs",
@@ -110,6 +112,7 @@ const movementCore = await bundledCore(
 );
 const alertCore = await bundledCore(
   "src/contracts.mjs",
+  "src/profile.mjs",
   "src/evaluation.mjs",
   "src/message-safety.mjs",
   "src/system-claims.mjs",
@@ -272,6 +275,7 @@ function httpNode(
     retry,
     headers = [],
     body,
+    jsonBody,
     responseFormat = "text",
     fullResponse = false,
     continueOnError = true,
@@ -286,7 +290,13 @@ function httpNode(
       ...(headers.length > 0
         ? { headerParameters: { parameters: headers } }
         : {}),
-      ...(body !== undefined
+      ...(jsonBody !== undefined
+        ? {
+            sendBody: true,
+            specifyBody: "json",
+            jsonBody
+          }
+        : body !== undefined
         ? {
             sendBody: true,
             contentType: "raw",
@@ -886,9 +896,13 @@ try {
         {
           name: "Authorization",
           value: "={{ 'Bearer ' + $env.JOB_PIPELINE_GROQ_API_KEY }}"
+        },
+        {
+          name: "Accept-Encoding",
+          value: "identity"
         }
       ],
-      body:
+      jsonBody:
         "={{ JSON.stringify({ model: " +
         JSON.stringify(groqPolicy.selected_model) +
         ", temperature: " +
@@ -969,9 +983,13 @@ try {
         {
           name: "Authorization",
           value: "={{ 'Bearer ' + $env.JOB_PIPELINE_GROQ_API_KEY }}"
+        },
+        {
+          name: "Accept-Encoding",
+          value: "identity"
         }
       ],
-      body:
+      jsonBody:
         "={{ JSON.stringify({ model: " +
         JSON.stringify(groqPolicy.selected_model) +
         ", temperature: " +

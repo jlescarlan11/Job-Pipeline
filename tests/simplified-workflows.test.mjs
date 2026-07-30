@@ -68,6 +68,49 @@ test("all generated Code nodes are syntactically valid", () => {
   }
 });
 
+test("profile helpers are bundled wherever evaluation code uses them", () => {
+  for (const workflow of Object.values(workflows)) {
+    for (const entry of workflow.nodes.filter(
+      (candidate) =>
+        candidate.type === "n8n-nodes-base.code" &&
+        candidate.parameters.jsCode.includes("knownSkillsInText")
+    )) {
+      assert.match(
+        entry.parameters.jsCode,
+        /function approvedSkillNames\(profile\)/,
+        `${workflow.name}/${entry.name} missing approvedSkillNames`
+      );
+      assert.match(
+        entry.parameters.jsCode,
+        /function profileEvidenceText\(profile\)/,
+        `${workflow.name}/${entry.name} missing profileEvidenceText`
+      );
+    }
+  }
+});
+
+test("Groq requests disable compressed streaming responses", () => {
+  const workflow = workflows["generator.json"];
+  for (const name of [
+    "Generate Initial Application with Groq",
+    "Generate Application Repair with Groq"
+  ]) {
+    const parameters = node(workflow, name).parameters;
+    const headers = parameters.headerParameters?.parameters ?? [];
+    assert.ok(
+      headers.some(
+        (header) =>
+          header.name === "Accept-Encoding" && header.value === "identity"
+      ),
+      `${workflow.name}/${name} must request an identity response`
+    );
+    assert.equal(parameters.specifyBody, "json");
+    assert.match(parameters.jsonBody, /JSON\.stringify/);
+    assert.equal("body" in parameters, false);
+    assert.equal("rawContentType" in parameters, false);
+  }
+});
+
 test("all workflows bind the fresh workbook by environment, never the old workbook", () => {
   const serialized = JSON.stringify(workflows);
   assert.match(serialized, /JOB_PIPELINE_SPREADSHEET_ID/);

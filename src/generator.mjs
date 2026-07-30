@@ -37,6 +37,11 @@ function dueAt(record, nowMs) {
 
 function stageForCandidate(record) {
   if (record.pipeline_status === "new") return "evaluation";
+  if (record.pipeline_status === "processing") {
+    return record.processing_stage === "generation"
+      ? "generation"
+      : "evaluation";
+  }
   if (record.pipeline_status === "error") {
     return record.processing_stage === "generation" ? "generation" : "evaluation";
   }
@@ -438,9 +443,18 @@ export function applyValidatedGeneration(
 
 function classifyFailure(error) {
   const value = String(error?.message || error || "").toLowerCase();
+  const leadingStatus = value.match(/^\s*(\d{3})\b/)?.[1] ?? "";
   if (/timeout|timed out|econnreset|network/.test(value)) return "provider_timeout";
-  if (/429|rate.?limit|quota/.test(value)) return "provider_rate_limit";
-  if (/401|403|unauthor|forbidden/.test(value)) return "provider_auth";
+  if (leadingStatus === "429" || /rate.?limit|quota/.test(value)) {
+    return "provider_rate_limit";
+  }
+  if (
+    leadingStatus === "401" ||
+    leadingStatus === "403" ||
+    (!leadingStatus && /unauthor|forbidden/.test(value.slice(0, 500)))
+  ) {
+    return "provider_auth";
+  }
   if (/validation|not ready|invalid|unsupported/.test(value)) return "validation_failure";
   return "provider_failure";
 }
@@ -456,6 +470,7 @@ export function recordGeneratorFailure(
   return {
     ...claimedRecord,
     pipeline_status: "error",
+    processing_stage: "",
     processing_token: "",
     processing_started_at: "",
     attempt_count: attemptCount,
