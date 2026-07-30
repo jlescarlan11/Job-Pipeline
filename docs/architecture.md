@@ -379,7 +379,9 @@ by the shared projection claim. It inserts content-matched templates and uses
 one ordered, atomic Google Sheets batch to retire only rows whose compared
 values still match under Sheets duplicate semantics. The template's `Action`
 is blank, so a valid last-moment selection is nonblank and survives instead of
-being positionally deleted.
+being positionally deleted. Template identities must be nonblank and
+case-fold unique; ambiguous queue identities fail before the batch so duplicate
+comparison cannot shorten the known template range.
 
 `Applied Jobs` is a second derived operator surface, not a new source of truth.
 It projects every authoritative `application_decision=applied` record from

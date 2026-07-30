@@ -290,7 +290,8 @@ Slack HTTP node must remain an explicit JSON `POST`.
   committed exactly once. Confirm a second concurrent edit still survives the
   compare-and-commit path. Enter another Action after Review Queue reconciliation
   but before its atomic retirement batch and confirm the content mismatch keeps
-  that row visible. Confirm two scheduled observation opportunities fit within
+  that row visible. Seed case-variant duplicate queue identities and confirm
+  cleanup fails before submitting a batch. Confirm two scheduled observation opportunities fit within
   the 30-minute manual-action alert. The three-minute timeout and four-minute
   shared projection lease must both end before the next scheduled Reviewer run,
   and a successful backlog event remains inside the 20-minute freshness threshold.

@@ -2056,6 +2056,41 @@ test("Review Queue atomic retirement includes Action in the unchanged-row templa
       }
     }
   });
+
+  await assert.rejects(
+    execute(
+      {
+        first: () => ({
+          json: {
+            sheets: [
+              {
+                properties: {
+                  title: review.review_queue.sheet,
+                  sheetId: 29
+                }
+              }
+            ]
+          }
+        })
+      },
+      () => ({
+        first: () => ({
+          json: {
+            queue_delete_snapshots: [
+              snapshot,
+              {
+                ...snapshot,
+                canonical_job_id: "ONLINEJOBS.PH:ATOMIC-QUEUE",
+                "Job title": "Conflicting duplicate"
+              }
+            ],
+            queue_max_row_number: 5
+          }
+        })
+      })
+    ),
+    /snapshot identities are ambiguous/
+  );
 });
 
 test("Applied Jobs atomic retirement templates are case-fold unique and delete only themselves", async () => {

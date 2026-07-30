@@ -2907,19 +2907,17 @@ const fields = CONFIG.fields || [];
 if (fields.length === 0) {
   throw new Error('Review Queue fields are missing');
 }
-const signature = (row) =>
-  fields.map((field) => {
-    const value = row[field];
-    if (typeof value === 'number') return ['number', value];
-    if (typeof value === 'boolean') return ['boolean', value];
-    return [
-      'string',
-      String(value ?? '').normalize('NFKC').toLocaleLowerCase('en-US')
-    ];
-  });
-const signatures = snapshots.map((row) => JSON.stringify(signature(row)));
-if (new Set(signatures).size !== signatures.length) {
-  throw new Error('Review Queue deletion snapshots are ambiguous');
+const identityKeys = snapshots.map((row) =>
+  String(row.canonical_job_id || '')
+    .trim()
+    .normalize('NFKC')
+    .toLocaleLowerCase('en-US')
+);
+if (
+  identityKeys.some((identity) => !identity) ||
+  new Set(identityKeys).size !== identityKeys.length
+) {
+  throw new Error('Review Queue deletion snapshot identities are ambiguous');
 }
 const cellValue = (value) => {
   if (value === '' || value === undefined || value === null) return {};
