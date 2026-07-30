@@ -102,6 +102,27 @@ function compileCodeNode(node) {
   );
 }
 
+function executeCodeNode(node, nodeData) {
+  const execute = new Function(
+    "$",
+    `"use strict"; return (async () => { ${node.parameters.jsCode} })();`
+  );
+  const selectNode = (name) => {
+    assert.ok(
+      Object.hasOwn(nodeData, name),
+      `missing execution data for node: ${name}`
+    );
+    const rows = Array.isArray(nodeData[name])
+      ? nodeData[name]
+      : [nodeData[name]];
+    return {
+      first: () => ({ json: rows[0] }),
+      all: () => rows.map((json) => ({ json }))
+    };
+  };
+  return execute(selectNode);
+}
+
 test("all checked-in workflow exports are disabled, connected, and syntactically valid", () => {
   for (const [file, workflow] of Object.entries(workflows)) {
     assert.equal(workflow.active, false, `${file} must import disabled`);
@@ -2477,6 +2498,10 @@ test("analytics export publishes completion only after every idempotent detail w
     workflow,
     "Prepare Analytics Completion"
   ).parameters.jsCode;
+  assert.match(
+    publishGuard,
+    /function analyticsDetailPersistenceErrors\(/
+  );
   assert.match(publishGuard, /analyticsDetailPersistenceErrors/);
   assert.match(publishGuard, /Aggregate Analytics Detail After Writes/);
   const confirmationRead = nodeByName(
@@ -2498,6 +2523,74 @@ test("analytics export publishes completion only after every idempotent detail w
           node.parameters.operation === "read"
       ),
     "analytics must not mutate source records"
+  );
+});
+
+test("analytics completion preparation confirms persisted detail in its isolated runtime", async () => {
+  const prepare = nodeByName(
+    workflows.analytics,
+    "Prepare Analytics Completion"
+  );
+  const expectedRow = {
+    analytics_row_id: "analytics-row-1",
+    report_id: "analytics-report-1",
+    metric_key: "application_count"
+  };
+  const completion = {
+    report_id: "analytics-report-1",
+    detail_row_count: 1
+  };
+  const buildResult = {
+    analytics_rows: [expectedRow],
+    completion
+  };
+  const exact = await executeCodeNode(prepare, {
+    "Build Analytics Report": buildResult,
+    "Aggregate Analytics Detail After Writes": {
+      analytics_detail_rows: [{ ...expectedRow }]
+    }
+  });
+  assert.deepEqual(exact, [{ json: completion }]);
+
+  await assert.rejects(
+    executeCodeNode(prepare, {
+      "Build Analytics Report": buildResult,
+      "Aggregate Analytics Detail After Writes": {
+        analytics_detail_rows: []
+      }
+    }),
+    /Analytics detail refresh could not be confirmed:.*count is not exact.*identity is not unique/
+  );
+
+  await assert.rejects(
+    executeCodeNode(prepare, {
+      "Build Analytics Report": buildResult,
+      "Aggregate Analytics Detail After Writes": {
+        analytics_detail_rows: [
+          {
+            ...expectedRow,
+            metric_key: "tampered_metric"
+          }
+        ]
+      }
+    }),
+    /Analytics detail refresh could not be confirmed:.*content does not match/
+  );
+
+  await assert.rejects(
+    executeCodeNode(prepare, {
+      "Build Analytics Report": buildResult,
+      "Aggregate Analytics Detail After Writes": {
+        analytics_detail_rows: [
+          { ...expectedRow },
+          {
+            ...expectedRow,
+            analytics_row_id: expectedRow.analytics_row_id.toUpperCase()
+          }
+        ]
+      }
+    }),
+    /Analytics detail refresh could not be confirmed:.*count is not exact.*identity is not unique/
   );
 });
 
@@ -2768,6 +2861,10 @@ test("weekly recommender consumes only complete analytics and publishes versione
     workflow,
     "Prepare Recommendation Report"
   ).parameters.jsCode;
+  assert.match(
+    publishGuard,
+    /function recommendationDetailPersistenceErrors\(/
+  );
   assert.match(publishGuard, /detail_write_failure/);
   assert.match(publishGuard, /recommendationDetailPersistenceErrors/);
   assert.match(
@@ -2820,6 +2917,88 @@ test("weekly recommender consumes only complete analytics and publishes versione
       ),
     "recommender HTTP requests must be restricted to report retention"
   );
+});
+
+test("recommendation report preparation confirms persisted detail in its isolated runtime", async () => {
+  const prepare = nodeByName(
+    workflows.recommender,
+    "Prepare Recommendation Report"
+  );
+  const expectedRow = {
+    recommendation_id: "recommendation-row-1",
+    run_id: "recommendation-run-1",
+    status: "empty",
+    category: "analytics_input"
+  };
+  const report = {
+    run_id: "recommendation-run-1",
+    detail_row_count: 1,
+    status: "complete",
+    result: "empty",
+    error_category: "",
+    error_summary: ""
+  };
+  const buildResult = {
+    recommendation_rows: [expectedRow],
+    report
+  };
+  const exact = await executeCodeNode(prepare, {
+    "Build Weekly Recommendations": buildResult,
+    "Aggregate Recommendation Detail After Writes": {
+      recommendation_rows: [{ ...expectedRow }]
+    }
+  });
+  assert.deepEqual(exact, [{ json: report }]);
+
+  const missing = await executeCodeNode(prepare, {
+    "Build Weekly Recommendations": buildResult,
+    "Aggregate Recommendation Detail After Writes": {
+      recommendation_rows: []
+    }
+  });
+  assert.equal(missing[0].json.status, "failed");
+  assert.equal(missing[0].json.result, "failed");
+  assert.equal(missing[0].json.error_category, "detail_write_failure");
+
+  const mismatched = await executeCodeNode(prepare, {
+    "Build Weekly Recommendations": buildResult,
+    "Aggregate Recommendation Detail After Writes": {
+      recommendation_rows: [
+        {
+          ...expectedRow,
+          category: "tampered_category"
+        }
+      ]
+    }
+  });
+  assert.deepEqual(mismatched, [
+    {
+      json: {
+        ...report,
+        status: "failed",
+        result: "failed",
+        error_category: "detail_write_failure",
+        error_summary:
+          "Weekly recommendation detail persistence could not be confirmed."
+      }
+    }
+  ]);
+
+  const duplicate = await executeCodeNode(prepare, {
+    "Build Weekly Recommendations": buildResult,
+    "Aggregate Recommendation Detail After Writes": {
+      recommendation_rows: [
+        { ...expectedRow },
+        {
+          ...expectedRow,
+          recommendation_id: expectedRow.recommendation_id.toUpperCase()
+        }
+      ]
+    }
+  });
+  assert.equal(duplicate[0].json.status, "failed");
+  assert.equal(duplicate[0].json.result, "failed");
+  assert.equal(duplicate[0].json.error_category, "detail_write_failure");
 });
 
 test("report retention batches delete detail and metadata atomically by their own sheet IDs", async () => {

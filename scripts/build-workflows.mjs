@@ -4991,9 +4991,14 @@ async function buildAnalytics() {
     "src/analytics.mjs",
     "src/report-retention.mjs"
   );
-  const { validateAnalyticsPolicy } = await import(
+  const {
+    analyticsDetailPersistenceErrors,
+    validateAnalyticsPolicy
+  } = await import(
     new URL("../src/analytics.mjs", import.meta.url)
   );
+  const analyticsDetailConfirmationCore =
+    analyticsDetailPersistenceErrors.toString();
   const policyErrors = validateAnalyticsPolicy(policy);
   if (policyErrors.length > 0) {
     throw new Error(`Invalid analytics policy:\n- ${policyErrors.join("\n- ")}`);
@@ -5395,7 +5400,9 @@ return [{
   const prepareRowsCode = `const report = $('Build Analytics Report').first().json;
 return (report.analytics_rows || []).map((row) => ({ json: row }));`;
 
-  const prepareCompletionCode = `const report = $('Build Analytics Report').first().json;
+  const prepareCompletionCode = `${analyticsDetailConfirmationCore}
+
+const report = $('Build Analytics Report').first().json;
 const completion = report.completion;
 const persistedRows =
   $('Aggregate Analytics Detail After Writes').first().json.analytics_detail_rows || [];
@@ -5733,9 +5740,14 @@ async function buildRecommender() {
     "src/recommendations.mjs",
     "src/report-retention.mjs"
   );
-  const { validateRecommendationPolicy } = await import(
+  const {
+    recommendationDetailPersistenceErrors,
+    validateRecommendationPolicy
+  } = await import(
     new URL("../src/recommendations.mjs", import.meta.url)
   );
+  const recommendationDetailConfirmationCore =
+    recommendationDetailPersistenceErrors.toString();
   const policyErrors = validateRecommendationPolicy(policy);
   if (policyErrors.length > 0) {
     throw new Error(
@@ -6196,7 +6208,9 @@ return [{
   const prepareRowsCode = `const result = $('Build Weekly Recommendations').first().json;
 return (result.recommendation_rows || []).map((row) => ({ json: row }));`;
 
-  const prepareReportCode = `const result = $('Build Weekly Recommendations').first().json;
+  const prepareReportCode = `${recommendationDetailConfirmationCore}
+
+const result = $('Build Weekly Recommendations').first().json;
 const report = { ...result.report };
 const persistedRows =
   $('Aggregate Recommendation Detail After Writes').first().json.recommendation_rows || [];
