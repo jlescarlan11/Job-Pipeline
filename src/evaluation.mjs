@@ -1486,6 +1486,9 @@ export function confirmGenerationClaimMarkers(plannedRecords, freshRows) {
     const manualAction = String(
       record?.claimed_manual_action ?? record?.manual_action ?? ""
     ).trim();
+    const alertStatus = String(
+      record?.claimed_alert_status ?? record?.alert_status ?? ""
+    ).trim();
     if (
       !identity ||
       !commitGuard ||
@@ -1507,7 +1510,8 @@ export function confirmGenerationClaimMarkers(plannedRecords, freshRows) {
       String(persisted.processing_token || "").trim() !== processingToken ||
       String(persisted.processing_stage || "").trim() !== workStage ||
       String(persisted.state_guard || "").trim() !== stateGuard ||
-      String(persisted.manual_action || "").trim() !== manualAction
+      String(persisted.manual_action || "").trim() !== manualAction ||
+      String(persisted.alert_status || "").trim() !== alertStatus
     ) {
       return [];
     }

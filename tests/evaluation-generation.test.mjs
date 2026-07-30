@@ -57,7 +57,7 @@ LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
 
-test("generator confirms durable work markers and the claimed manual action", () => {
+test("generator confirms durable markers, manual action, and alert status", () => {
   const evaluation = {
     row_number: 7,
     canonical_job_id: "onlinejobs.ph:7001",
@@ -66,8 +66,10 @@ test("generator confirms durable work markers and the claimed manual action", ()
     processing_stage: "evaluation",
     processing_token: "token:7001",
     processing_commit_guard: "commit:7001",
+    alert_status: "",
     manual_action: "",
-    claimed_manual_action: ""
+    claimed_manual_action: "",
+    claimed_alert_status: ""
   };
   const generation = {
     row_number: 8,
@@ -77,17 +79,21 @@ test("generator confirms durable work markers and the claimed manual action", ()
     processing_stage: "generation",
     processing_token: "token:7002",
     processing_commit_guard: "commit:7002",
+    alert_status: "sent",
     manual_action: "",
-    claimed_manual_action: "regenerate"
+    claimed_manual_action: "regenerate",
+    claimed_alert_status: "sent"
   };
   const persistedEvaluation = { ...evaluation, row_number: 17 };
   delete persistedEvaluation.claimed_manual_action;
+  delete persistedEvaluation.claimed_alert_status;
   const persistedGeneration = {
     ...generation,
     row_number: 18,
     manual_action: "regenerate"
   };
   delete persistedGeneration.claimed_manual_action;
+  delete persistedGeneration.claimed_alert_status;
 
   assert.deepEqual(
     confirmGenerationClaimMarkers(
@@ -109,7 +115,8 @@ test("generator confirms durable work markers and the claimed manual action", ()
     { state_guard: "onlinejobs.ph:7002|newer-state" },
     { processing_stage: "alert" },
     { processing_token: "newer-token" },
-    { manual_action: "mark_skipped" }
+    { manual_action: "mark_skipped" },
+    { alert_status: "sending" }
   ]) {
     assert.deepEqual(
       confirmGenerationClaimMarkers(

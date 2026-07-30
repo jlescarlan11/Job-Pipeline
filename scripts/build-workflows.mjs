@@ -1065,6 +1065,7 @@ return selected.map((record) => {
       processing_commit_guard: processingCommitGuard(claim.processing_token),
       processing_started_at: now,
       claimed_manual_action: record.manual_action,
+      claimed_alert_status: record.alert_status,
       claim_created_at: claim.created_at,
       claim_expires_at: claim.expires_at,
       updated_at: now
@@ -1711,6 +1712,7 @@ return {
       matchingField: "processing_commit_guard",
       fields: commitFields.filter(
         (field) =>
+          !field.startsWith("alert_") &&
           ![
             "generated_message",
             "message_profile_version",

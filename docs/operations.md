@@ -375,6 +375,10 @@ compatible and reconcile on the next run.
   separately confirmed generation claim, change `manual_action` while the
   provider call is in flight and confirm the pre-commit read discards the stale
   result without clearing the newer action.
+- On a disposable ready regeneration, pause after Generator marker
+  confirmation, then let Alerter persist `sending`. Confirm Generator's
+  pre-commit check rejects its stale alert snapshot and cannot restore
+  `pending`, while deterministic evaluation writes contain no alert columns.
 - Force the initial Agent to return an n8n error-output item and confirm the
   execution persists one categorized generation failure with no repair call.
   Separately force the Repair Agent error output and confirm the initial plus

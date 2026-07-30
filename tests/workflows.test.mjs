@@ -669,6 +669,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Prepare Work Candidates"
   ).parameters.jsCode;
   assert.match(prepareCandidates, /claimed_manual_action:\s*record\.manual_action/);
+  assert.match(
+    prepareCandidates,
+    /claimed_alert_status:\s*record\.alert_status/
+  );
   for (const [nodeName, plannedNode] of [
     ["Confirm Generation Claim Markers", "Keep Winning Claims"],
     ["Confirm Evaluation Commit Marker", "Evaluate Job"],
@@ -809,6 +813,12 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   ]) {
     assert.ok(field in evaluationCommit, `evaluation commit is missing ${field}`);
   }
+  assert.ok(
+    Object.keys(evaluationCommit).every(
+      (field) => !field.startsWith("alert_")
+    ),
+    "deterministic evaluation must not write Alerter-owned fields"
+  );
   const packCode = nodeByName(
     workflow,
     "Prepare Application Pack"

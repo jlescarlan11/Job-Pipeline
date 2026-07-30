@@ -69,13 +69,14 @@ same guarded update.
 Generator may select one evaluation candidate and one generation candidate in
 the same execution. After marking, it re-reads `Sheet1` and requires exactly
 one row with the expected commit guard, token, stage, identity, lifecycle guard,
-and originally claimed `manual_action` before fetching job detail or calling
-Groq. It repeats the same confirmation immediately before each terminal
-commit. A mixed multi-item Sheets update therefore cannot authorize an
-unmarked peer, and a manual action changed while provider work is in flight
-takes precedence over the stale result. Manual actions clear both processing
-keys and newer claims replace the guard, so a stale execution cannot overwrite
-newer state.
+originally claimed `manual_action`, and originally observed `alert_status`
+before fetching job detail or calling Groq. It repeats the same confirmation
+immediately before each terminal commit. A mixed multi-item Sheets update
+therefore cannot authorize an unmarked peer, while a manual action or alert
+delivery transition changed during provider work takes precedence over the
+stale result. Deterministic evaluation commits do not map any Alerter-owned
+field. Manual actions clear both processing keys and newer claims replace the
+guard, so a stale execution cannot overwrite newer state.
 
 Reviewer action marking also matches `state_guard`, but `manual_action` remains
 a separate user-input cell and is intentionally not part of that lifecycle
