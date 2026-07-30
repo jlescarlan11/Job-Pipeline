@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   analyticsDetailPersistenceErrors,
   analyticsResultKey,
+  analyticsSourceIntegrityErrors,
   buildAnalyticsReport,
   deduplicateAnalyticsRecords,
   latestCompleteAnalyticsReport,
@@ -445,6 +446,17 @@ test("latest complete report ignores partial and malformed refreshes", () => {
     }
   ];
   assert.equal(latestCompleteAnalyticsReport(reports).report_id, "complete-new");
+  assert.equal(
+    latestCompleteAnalyticsReport([
+      ...reports,
+      {
+        ...reports[2],
+        report_id: reports[2].report_id.toUpperCase()
+      }
+    ]),
+    undefined,
+    "a folded duplicate of the newest complete metadata is ambiguous"
+  );
   assert.equal(latestCompleteAnalyticsReport([]), undefined);
 });
 
@@ -597,6 +609,61 @@ test("analytics completion requires one exact persisted copy of every detail row
       policy.detail_fields
     ).join("\n"),
     /content/
+  );
+});
+
+test("analytics consumers verify exact identities, metadata, and content hash", () => {
+  const report = buildAnalyticsReport(
+    fixture.active,
+    fixture.archive,
+    schema,
+    policy,
+    now
+  );
+  assert.deepEqual(
+    analyticsSourceIntegrityErrors(report.rows, report.completion),
+    []
+  );
+  assert.match(
+    analyticsSourceIntegrityErrors(
+      [
+        ...report.rows,
+        {
+          ...report.rows[0],
+          analytics_row_id:
+            report.rows[0].analytics_row_id.toUpperCase(),
+          report_id: report.completion.report_id.toUpperCase()
+        }
+      ],
+      report.completion
+    ).join("\n"),
+    /count|identity/
+  );
+  assert.match(
+    analyticsSourceIntegrityErrors(
+      [
+        {
+          ...report.rows[0],
+          value: "tampered"
+        },
+        ...report.rows.slice(1)
+      ],
+      report.completion
+    ).join("\n"),
+    /content hash/
+  );
+  assert.match(
+    analyticsSourceIntegrityErrors(
+      [
+        {
+          ...report.rows[0],
+          window_end_at: "2026-07-29T00:00:00.000Z"
+        },
+        ...report.rows.slice(1)
+      ],
+      report.completion
+    ).join("\n"),
+    /metadata/
   );
 });
 

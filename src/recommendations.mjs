@@ -1,4 +1,5 @@
 import {
+  analyticsSourceIntegrityErrors,
   latestCompleteAnalyticsReport,
   stableSha256
 } from "./analytics.mjs";
@@ -949,17 +950,11 @@ export function buildRecommendationReport(
         "The latest complete analytics report does not match the required metric, band, or window version."
     });
   }
-  const rowsForReport = analyticsRows.filter(
-    (row) => row.report_id === latest.report_id
+  const sourceIntegrityErrors = analyticsSourceIntegrityErrors(
+    analyticsRows,
+    latest
   );
-  if (
-    rowsForReport.length !== Number(latest.detail_row_count) ||
-    rowsForReport.some(
-      (row) =>
-        row.metric_definition_version !== latest.metric_definition_version ||
-        row.band_version !== latest.band_version
-    )
-  ) {
+  if (sourceIntegrityErrors.length > 0) {
     return buildRecommendationFailure(policy, profile, now, {
       attemptId,
       analytics: latest,
@@ -968,6 +963,9 @@ export function buildRecommendationReport(
         "The latest complete analytics metadata does not match its persisted detail rows."
     });
   }
+  const rowsForReport = analyticsRows.filter(
+    (row) => row.report_id === latest.report_id
+  );
   const index = analyticsIndex(rowsForReport);
   const guard = overallGuard(source, index);
   if (guard.applicationCount === 0) {

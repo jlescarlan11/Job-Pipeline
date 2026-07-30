@@ -101,7 +101,7 @@ The repository implementation is ready for disabled import and non-production sm
 | Mutable scores or latest-only outcomes could contaminate conversion history. | First application freezes context and append-safe events preserve milestones; analytics consumes the immutable snapshot and explicit event union. |
 | Contract-invalid application snapshots or malformed legacy arrays could bias conversion, point-efficiency, or blocker metrics. | Invalid values stay unknown, malformed arrays reduce disclosed coverage, and data-quality rows identify excluded evidence. |
 | Discovery volume or sparse observational cohorts could drive self-reinforcing policy edits. | Volume is separate from conversion, sample/coverage gates force abstention, caveats remain stored, and the recommender has no configuration write path. |
-| Partial analytic or recommendation detail could appear current. | Consumers require a complete versioned metadata row whose detail count matches; non-empty sources without a valid complete analytics report fail, report-store errors fail the workflow, and failed/partial attempts retain the prior complete report. |
+| Partial or tampered analytic/recommendation detail could appear current. | Analytics publication confirms exact physical detail; the weekly consumer independently requires unambiguous metadata, exact sequential identities and row metadata, and a matching SHA-256 content identity. Non-empty sources without a valid complete report fail, and failed/partial attempts retain the prior complete report. |
 
 ## Residual release gates
 

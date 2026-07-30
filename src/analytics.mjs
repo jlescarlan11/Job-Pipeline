@@ -1553,6 +1553,112 @@ export function analyticsDetailPersistenceErrors(
   return [...new Set(errors)];
 }
 
+export function analyticsSourceIntegrityErrors(detailRows, report) {
+  const rows = Array.isArray(detailRows) ? detailRows : [];
+  const reportIdValue = String(report?.report_id ?? "");
+  const reportIdKey = reportIdValue
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
+  const detailCount = Number(report?.detail_row_count);
+  const recordCount = Number(report?.record_count);
+  const applicationCount = Number(report?.application_count);
+  const errors = [];
+  if (
+    report?.status !== "complete" ||
+    !reportIdKey ||
+    !Number.isInteger(detailCount) ||
+    detailCount < 0 ||
+    !Number.isInteger(recordCount) ||
+    recordCount < 0 ||
+    !Number.isInteger(applicationCount) ||
+    applicationCount < 0 ||
+    !report?.metric_definition_version ||
+    !report?.band_version ||
+    !report?.window_type ||
+    !report?.analysis_timezone ||
+    !report?.attribution_policy ||
+    timestamp(report?.generated_at) === undefined ||
+    timestamp(report?.window_end_at) === undefined
+  ) {
+    return ["analytics source metadata is invalid"];
+  }
+  const fold = (value) =>
+    String(value ?? "")
+      .trim()
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US");
+  const expectedIds = Array.from(
+    { length: detailCount },
+    (_, index) =>
+      `${reportIdValue}|${String(index + 1).padStart(5, "0")}`
+  );
+  const expectedIdKeys = new Set(expectedIds.map(fold));
+  const relevant = rows.filter((row) => {
+    const rowIdKey = fold(row?.analytics_row_id);
+    return (
+      fold(row?.report_id) === reportIdKey ||
+      expectedIdKeys.has(rowIdKey) ||
+      rowIdKey.startsWith(`${reportIdKey}|`)
+    );
+  });
+  if (relevant.length !== detailCount) {
+    errors.push("analytics source detail count is not exact");
+  }
+  const metadataFields = [
+    "metric_definition_version",
+    "band_version",
+    "generated_at",
+    "window_type",
+    "window_start_at",
+    "window_end_at"
+  ];
+  const orderedRows = [];
+  for (const expectedId of expectedIds) {
+    const expectedIdKey = fold(expectedId);
+    const matches = relevant.filter(
+      (row) => fold(row?.analytics_row_id) === expectedIdKey
+    );
+    if (matches.length !== 1) {
+      errors.push("analytics source detail identity is not unique");
+      continue;
+    }
+    const row = matches[0];
+    orderedRows.push(row);
+    if (
+      String(row.analytics_row_id ?? "") !== expectedId ||
+      String(row.report_id ?? "") !== reportIdValue
+    ) {
+      errors.push("analytics source detail identity is not exact");
+    }
+    if (
+      metadataFields.some(
+        (field) =>
+          String(row?.[field] ?? "") !== String(report?.[field] ?? "")
+      )
+    ) {
+      errors.push("analytics source detail metadata does not match");
+    }
+  }
+  if (orderedRows.length === detailCount) {
+    const resultKey = analyticsResultKey(orderedRows, {
+      analysis_timezone: report.analysis_timezone,
+      record_count: recordCount,
+      application_count: applicationCount,
+      attribution_policy: report.attribution_policy,
+      warning_summary: String(report.warning_summary || "")
+    });
+    const expectedReportId = reportId(
+      { metric_definition_version: report.metric_definition_version },
+      resultKey
+    );
+    if (reportIdValue !== expectedReportId) {
+      errors.push("analytics source content hash does not match");
+    }
+  }
+  return [...new Set(errors)];
+}
+
 export function buildAnalyticsReport(
   activeRows,
   archiveRows,
@@ -1662,7 +1768,8 @@ export function buildAnalyticsReport(
 }
 
 export function latestCompleteAnalyticsReport(reportRows) {
-  return [...reportRows]
+  const rows = Array.isArray(reportRows) ? reportRows : [];
+  const latest = [...rows]
     .filter(
       (row) =>
         row?.status === "complete" &&
@@ -1674,4 +1781,14 @@ export function latestCompleteAnalyticsReport(reportRows) {
         timestamp(right.generated_at) - timestamp(left.generated_at) ||
         String(right.report_id).localeCompare(String(left.report_id))
     )[0];
+  if (!latest) return undefined;
+  const fold = (value) =>
+    String(value ?? "")
+      .trim()
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US");
+  const latestKey = fold(latest.report_id);
+  return rows.filter((row) => fold(row?.report_id) === latestKey).length === 1
+    ? latest
+    : undefined;
 }

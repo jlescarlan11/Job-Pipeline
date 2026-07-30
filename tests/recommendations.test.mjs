@@ -468,6 +468,41 @@ test("partial analytics input is a failed run and cannot supersede prior complet
   );
 });
 
+test("weekly recommendations reject ambiguous or tampered analytics detail", () => {
+  const analytics = completeAnalytics();
+  const caseVariantDuplicate = [
+    ...analytics.rows,
+    {
+      ...analytics.rows[0],
+      analytics_row_id: analytics.rows[0].analytics_row_id.toUpperCase(),
+      report_id: analytics.reports[0].report_id.toUpperCase()
+    }
+  ];
+  const tampered = [
+    {
+      ...analytics.rows[0],
+      value: "tampered"
+    },
+    ...analytics.rows.slice(1)
+  ];
+  for (const sourceRows of [caseVariantDuplicate, tampered]) {
+    const result = buildRecommendationReport(
+      sourceRows,
+      analytics.reports,
+      recommendationPolicy,
+      profile,
+      recommendationAt,
+      { attemptId: "weekly-corrupt-source" }
+    );
+    assert.equal(result.report.status, "failed");
+    assert.equal(
+      result.report.error_category,
+      "incomplete_analytics_detail"
+    );
+    assert.equal(result.report.recommendation_count, 0);
+  }
+});
+
 test("successful reruns converge while failures retain attempt evidence", () => {
   const analytics = completeAnalytics();
   const first = buildRecommendationReport(

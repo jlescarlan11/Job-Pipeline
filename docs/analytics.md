@@ -31,9 +31,12 @@ Detail rows are idempotently upserted to `Analytics` by `analytics_row_id`.
 Only after the workflow observes every expected detail write does it upsert
 `status=complete` to `AnalyticsReports`. Concurrent or recovered executions
 with the same result converge on the same IDs. Consumers select the newest
-valid complete metadata row and then filter `Analytics` to that report ID.
-Detail rows without complete metadata are from a failed/partial refresh and
-must not replace the previous complete report.
+unambiguous complete metadata row, require its exact sequential detail IDs and
+matching row metadata, and recompute its SHA-256 content identity before using
+the rows. Folded metadata/detail duplicates, substitutions, formulas, and
+content tampering therefore fail closed even when the physical row count is
+unchanged. Detail rows without complete metadata are from a failed/partial
+refresh and must not replace the previous complete report.
 
 ## Store serialization and retention
 

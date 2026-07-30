@@ -609,10 +609,13 @@ recent, and current history fails closed and remains untouched.
 
 The recommender reads `AnalyticsReports` and `Analytics` as its evidence
 source. It chooses the
-newest valid complete analytics report, verifies the required all-time window
-and metric/band versions, and rejects missing or mismatched detail. The source
-analytics and every job/config operational tab remain read-only; the only
-coordination write outside recommendation tabs is its report-store claim.
+newest unambiguous complete analytics report, verifies the required all-time
+window and metric/band versions, requires the exact sequential detail identity
+set and matching row metadata, and recomputes the SHA-256 content identity
+before analysis. Missing, substituted, duplicated, case-variant, formula, or
+content-tampered source detail fails closed. The source analytics and every
+job/config operational tab remain read-only; the only coordination write
+outside recommendation tabs is its report-store claim.
 
 `config/recommendation-policy.json` versions the 168-hour schedule, overall and
 fixed Monday 02:45 start, 15-minute post-timeout source-completion buffer,

@@ -5722,6 +5722,15 @@ async function buildRecommender() {
     mode: "name",
     cachedResultName: policy.source_reports_sheet
   };
+  reportsRead.parameters.options = {
+    ...reportsRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
   reportsRead.alwaysOutputData = true;
   reportsRead.onError = "continueRegularOutput";
 

@@ -562,6 +562,12 @@ delivered.
   after the daily Analytics timeout deadline. Simulate a failed or overrun
   same-day refresh and confirm the Recommender uses the latest complete report
   and ignores partial detail.
+- Before analysis, replace one Analytics value without changing its row count,
+  substitute one sequential detail ID, add a case-variant detail duplicate,
+  add a folded duplicate of the newest AnalyticsReports ID, and place a formula
+  in source detail. Each fixture must fail closed before recommendation
+  evidence is calculated; the consumer must read formulas visibly and reject
+  any source whose recomputed content identity differs from its report ID.
 - Run the recommender and verify its 168-hour policy version, required analytics
   versions, all-time window, numerator, denominator, sample, comparison,
   coverage, caveat, and proposed operator action.

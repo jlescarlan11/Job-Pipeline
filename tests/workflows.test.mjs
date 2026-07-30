@@ -2579,6 +2579,12 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assert.equal(detailRead.parameters.operation, "read");
   assert.equal(reportRead.onError, "continueRegularOutput");
   assert.equal(detailRead.onError, "continueRegularOutput");
+  for (const node of [reportRead, detailRead]) {
+    assert.equal(
+      node.parameters.options.outputFormatting.values.general,
+      "FORMULA"
+    );
+  }
 
   const details = nodeByName(workflow, "Upsert Recommendation Rows");
   assert.equal(
@@ -2704,6 +2710,7 @@ test("weekly recommender consumes only complete analytics and publishes versione
     "Build Weekly Recommendations"
   ).parameters.jsCode;
   assert.match(build, /latestCompleteAnalyticsReport/);
+  assert.match(build, /analyticsSourceIntegrityErrors/);
   assert.match(build, /buildRecommendationReport/);
   assert.match(build, /buildRecommendationFailure/);
   assert.match(build, /reusableRecommendationReport/);
