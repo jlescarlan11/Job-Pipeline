@@ -2772,6 +2772,12 @@ return [{
   queueAfterReview.name = "Get Review Queue After Review";
   queueAfterReview.position = [900, 20];
 
+  const queueBeforeCleanup = structuredClone(queueRead);
+  queueBeforeCleanup.id = "88af9ce3-b45f-4aa8-a980-000000000116";
+  queueBeforeCleanup.name = "Get Review Queue Before Cleanup";
+  queueBeforeCleanup.position = [1760, 180];
+  queueBeforeCleanup.alwaysOutputData = true;
+
   const appliedJobsAfterReview = structuredClone(appliedJobsRead);
   appliedJobsAfterReview.id = "88af9ce3-b45f-4aa8-a980-000000000039";
   appliedJobsAfterReview.name = "Get Applied Jobs After Review";
@@ -2927,9 +2933,27 @@ return [{ json: {
   ]
 } }];`;
 
+  const finalReviewQueueCleanupCode = `${reviewCore}
+
+const planned = $('Prepare Review Queue Reconciliation').first().json;
+const latestRows =
+  $('Aggregate Review Queue Before Cleanup').first().json.queue_rows || [];
+const finalized = finalizeReviewQueueCleanup(planned, latestRows);
+console.log(JSON.stringify({
+  event: 'review_queue_finalization',
+  projected: finalized.queue_rows.length,
+  retirement_candidates: finalized.queue_delete_snapshots.length,
+  deferred_appends: finalized.queue_append_deferred_count,
+  protected_actions:
+    finalized.queue_last_minute_protected_action_count
+}));
+return [{
+  json: finalized
+}];`;
+
   const queueAtomicCleanupCode = `
 const CONFIG = ${JSON.stringify(reviewConfig.review_queue)};
-const planned = $('Prepare Review Queue Reconciliation').first().json;
+const planned = $('Finalize Review Queue Cleanup').first().json;
 const snapshots = planned.queue_delete_snapshots || [];
 const metadata = $input.first().json;
 const sheet = (metadata.sheets || []).find(
@@ -3842,6 +3866,19 @@ return [{ json: {
       position: [1980, 700],
       jsCode: projectionWinnerCode
     }),
+    queueBeforeCleanup,
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000117",
+      name: "Aggregate Review Queue Before Cleanup",
+      position: [1980, 180],
+      destinationFieldName: "queue_rows"
+    }),
+    codeNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000118",
+      name: "Finalize Review Queue Cleanup",
+      position: [2200, 180],
+      jsCode: finalReviewQueueCleanupCode
+    }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000087",
       name: "Plan Processing Claims Cleanup",
@@ -3900,14 +3937,14 @@ return [{ json: {
       name: "Has Review Queue Appends",
       position: [2860, 180],
       leftValue:
-        "={{ $('Prepare Review Queue Reconciliation').first().json.queue_rows.length > 0 }}"
+        "={{ $('Finalize Review Queue Cleanup').first().json.queue_rows.length > 0 }}"
     }),
     codeNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000027",
       name: "Prepare Review Queue Appends",
       position: [3080, -60],
       jsCode:
-        "return $('Prepare Review Queue Reconciliation').first().json.queue_rows.map((record) => ({ json: record }));"
+        "return $('Finalize Review Queue Cleanup').first().json.queue_rows.map((record) => ({ json: record }));"
     }),
     appendSheetNode({
       base: queueAppendBase,
@@ -4232,10 +4269,19 @@ return [{ json: {
     },
     "Keep Winning Applied Jobs Projection Claim": {
       main: [[
-        connection("Has Review Queue Deletions"),
+        connection("Get Review Queue Before Cleanup"),
         connection("Get Applied Jobs Before Cleanup"),
         connection("Plan Processing Claims Cleanup")
       ]]
+    },
+    "Get Review Queue Before Cleanup": {
+      main: [[connection("Aggregate Review Queue Before Cleanup")]]
+    },
+    "Aggregate Review Queue Before Cleanup": {
+      main: [[connection("Finalize Review Queue Cleanup")]]
+    },
+    "Finalize Review Queue Cleanup": {
+      main: [[connection("Has Review Queue Deletions")]]
     },
     "Plan Processing Claims Cleanup": {
       main: [[connection("Get Processing Claims Sheet Metadata")]]

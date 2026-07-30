@@ -1903,6 +1903,21 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Keep Winning Applied Jobs Projection Claim",
+    "Get Review Queue Before Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Review Queue Before Cleanup",
+    "Aggregate Review Queue Before Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Review Queue Before Cleanup",
+    "Finalize Review Queue Cleanup"
+  );
+  assertDirectConnection(
+    workflow,
+    "Finalize Review Queue Cleanup",
     "Has Review Queue Deletions"
   );
   assertDirectConnection(
@@ -1924,6 +1939,19 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
     workflow,
     "Prepare Review Queue Appends",
     "Append Review Queue Rows"
+  );
+  assert.match(
+    nodeByName(
+      workflow,
+      "Prepare Review Queue Appends"
+    ).parameters.jsCode,
+    /Finalize Review Queue Cleanup/
+  );
+  assert.match(
+    JSON.stringify(
+      nodeByName(workflow, "Has Review Queue Appends").parameters
+    ),
+    /Finalize Review Queue Cleanup/
   );
   assertDirectConnection(
     workflow,
@@ -2045,7 +2073,7 @@ test("Review Queue atomic retirement includes Action in the unchanged-row templa
       })
     },
     (name) => {
-      assert.equal(name, "Prepare Review Queue Reconciliation");
+      assert.equal(name, "Finalize Review Queue Cleanup");
       return {
         first: () => ({
           json: {

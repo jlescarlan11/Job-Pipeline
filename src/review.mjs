@@ -2146,6 +2146,86 @@ export function reconcileAppliedJobs(
   };
 }
 
+export function finalizeReviewQueueCleanup(
+  plannedReconciliation,
+  latestRows
+) {
+  const planned = plannedReconciliation || {};
+  const latest = Array.isArray(latestRows) ? latestRows : [];
+  const latestSnapshot = projectionActionSnapshot(
+    latest,
+    "review_queue"
+  );
+  const protectedIdentities = new Set();
+  for (const row of latest) {
+    const identity = String(row?.canonical_job_id || "").trim();
+    if (
+      String(row?.Action || "").trim() &&
+      validCanonicalIdentity(identity)
+    ) {
+      protectedIdentities.add(canonicalIdentityKey(identity));
+    }
+  }
+  const blockedIdentities = new Set([
+    ...protectedIdentities,
+    ...latestSnapshot.duplicates
+  ]);
+  const identityIsSafe = (row) =>
+    !blockedIdentities.has(
+      canonicalIdentityKey(row?.canonical_job_id)
+    );
+  const queueDeleteSnapshots = (
+    planned.queue_delete_snapshots || []
+  ).filter(identityIsSafe);
+  const safeQueueRows = (planned.queue_rows || []).filter(
+    identityIsSafe
+  );
+  const safeDeleteRows = new Set(
+    queueDeleteSnapshots.map((row) => Number(row?.row_number))
+  );
+  const unreportedAmbiguities = [...latestSnapshot.duplicates].flatMap(
+    (identityKey) =>
+      latestSnapshot.invalid_records.some(
+        (record) =>
+          canonicalIdentityKey(record?.canonical_job_id) === identityKey
+      )
+        ? []
+        : [
+            {
+              location: "review_queue",
+              canonical_job_id: safeReviewText(
+                latest.find(
+                  (row) =>
+                    canonicalIdentityKey(row?.canonical_job_id) ===
+                    identityKey
+                )?.canonical_job_id || identityKey,
+                128
+              ),
+              error:
+                "Review Queue maintenance has duplicate canonical identity"
+            }
+          ]
+  );
+  return {
+    ...planned,
+    queue_rows:
+      queueDeleteSnapshots.length > 0 ? [] : safeQueueRows,
+    queue_append_deferred_count:
+      queueDeleteSnapshots.length > 0 ? safeQueueRows.length : 0,
+    queue_delete_rows: (planned.queue_delete_rows || []).filter(
+      (row) => safeDeleteRows.has(Number(row?.row_number))
+    ),
+    queue_delete_snapshots: queueDeleteSnapshots,
+    queue_last_minute_protected_action_count:
+      protectedIdentities.size,
+    invalid_records: [
+      ...(planned.invalid_records || []),
+      ...latestSnapshot.invalid_records,
+      ...unreportedAmbiguities
+    ]
+  };
+}
+
 export function finalizeAppliedJobsCleanup(
   plannedReconciliation,
   previousRows,

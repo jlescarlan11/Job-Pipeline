@@ -10,6 +10,7 @@ import {
   buildReviewQueueProjection,
   confirmClaimedReviewUpdates,
   finalizeAppliedJobsCleanup,
+  finalizeReviewQueueCleanup,
   reasonForReview,
   reconcileAppliedJobs,
   reconcileReviewQueue,
@@ -2441,6 +2442,75 @@ test("queue reconciliation retains an action until its guarded source write is c
   assert.deepEqual(cleanupRetry.delete_rows, [{ row_number: 2 }]);
   assert.deepEqual(cleanupRetry.queue_rows, []);
   assert.equal(cleanupRetry.protected_action_count, 0);
+});
+
+test("Review Queue final cleanup blocks appends beside late actions and duplicates", () => {
+  const queueRow = (identity, rowNumber, action = "") => ({
+    row_number: rowNumber,
+    canonical_job_id: identity,
+    source_state_guard: `guard:${identity}`,
+    Action: action
+  });
+  const lateIdentity = "onlinejobs.ph:queue-late-action";
+  const duplicateIdentity = "onlinejobs.ph:queue-late-duplicate";
+  const safeIdentity = "onlinejobs.ph:queue-safe";
+  const planned = {
+    queue_rows: [
+      queueRow(lateIdentity),
+      queueRow(duplicateIdentity),
+      queueRow(safeIdentity)
+    ],
+    queue_delete_rows: [
+      { row_number: 2 },
+      { row_number: 3 },
+      { row_number: 5 }
+    ],
+    queue_delete_snapshots: [
+      queueRow(lateIdentity, 2),
+      queueRow(duplicateIdentity, 3),
+      queueRow(safeIdentity, 5)
+    ],
+    invalid_records: []
+  };
+  const finalized = finalizeReviewQueueCleanup(planned, [
+    queueRow(lateIdentity, 2, "Skip"),
+    queueRow(duplicateIdentity, 3),
+    queueRow(duplicateIdentity.toUpperCase(), 4),
+    queueRow(safeIdentity, 5)
+  ]);
+  assert.deepEqual(finalized.queue_rows, []);
+  assert.equal(finalized.queue_append_deferred_count, 1);
+  assert.deepEqual(finalized.queue_delete_rows, [{ row_number: 5 }]);
+  assert.deepEqual(
+    finalized.queue_delete_snapshots.map((row) => row.row_number),
+    [5]
+  );
+  assert.equal(
+    finalized.queue_last_minute_protected_action_count,
+    1
+  );
+  assert.match(
+    finalized.invalid_records.map((record) => record.error).join("\n"),
+    /duplicate canonical identity/
+  );
+
+  const appendOnly = finalizeReviewQueueCleanup(
+    {
+      queue_rows: [
+        queueRow(lateIdentity),
+        queueRow(safeIdentity)
+      ],
+      queue_delete_rows: [],
+      queue_delete_snapshots: [],
+      invalid_records: []
+    },
+    [queueRow(lateIdentity, 2, "Skip")]
+  );
+  assert.deepEqual(
+    appendOnly.queue_rows.map((row) => row.canonical_job_id),
+    [safeIdentity]
+  );
+  assert.equal(appendOnly.queue_append_deferred_count, 0);
 });
 
 test("Applied Jobs reconciliation preserves unconfirmed and concurrent actions", () => {

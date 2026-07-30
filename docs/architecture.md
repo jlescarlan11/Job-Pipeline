@@ -417,7 +417,13 @@ case-fold unique; ambiguous queue identities fail before the batch so duplicate
 comparison cannot shorten the known template range. Reconciliation indexes every
 observed Sheet1 state guard by case-folded identity, so an action remains
 visible when casing differs or divergent duplicate source rows make guarded
-processing ambiguous.
+processing ambiguous. The claim winner rereads Review Queue before maintenance
+and excludes late-action or ambiguous identities from both retirement and
+append planning. A run with any retirement candidate performs only the atomic
+retirement phase; missing desired rows are appended by the next claimed run.
+This two-phase convergence ensures an Action entered even after the final
+reread can survive the content check without a blank duplicate being appended
+beside it.
 
 `Applied Jobs` is a second derived operator surface, not a new source of truth.
 It projects every authoritative `application_decision=applied` record from

@@ -293,8 +293,10 @@ Slack HTTP node must remain an explicit JSON `POST`.
   committed exactly once. Confirm a second concurrent edit still survives the
   compare-and-commit path. Enter another Action after Review Queue reconciliation
   but before its atomic retirement batch and confirm the content mismatch keeps
-  that row visible. Seed case-variant duplicate queue identities and confirm
-  cleanup fails before submitting a batch. Seed malformed and case-variant
+  that row visible without appending a blank duplicate beside it. Confirm any
+  run with retirement work defers all queue appends and the next claimed run
+  completes the projection. Seed case-variant duplicate queue identities and
+  confirm cleanup fails before submitting a batch. Seed malformed and case-variant
   duplicate eligible Sheet1 identities and confirm none are projected. Seed
   divergent duplicate Sheet1 rows for an action identity and confirm the action
   remains visible while processing fails closed; repeat with a case-variant
