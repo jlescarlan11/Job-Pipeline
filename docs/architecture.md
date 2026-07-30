@@ -627,8 +627,12 @@ remain observational comparisons. Promising-job missing requirements are
 checked against approved profile skills before an investigate-only suggestion
 is produced.
 
-The workflow writes evidence rows to `Recommendations` and publishes a
-`RecommendationReports` row only after observing every expected detail write.
+The workflow writes evidence rows to `Recommendations`, rereads the sheet with
+formulas visible, and publishes a complete `RecommendationReports` row only
+after confirming exactly one field-matching physical row for every expected
+detail ID with no extra row in that run. Missing, duplicated, case-variant, or
+mismatched detail converts the attempt metadata to a non-authoritative
+`detail_write_failure`.
 A successful analysis has a SHA-256 identity derived from its analytics report,
 recommendation policy, and profile version; successful overlap converges on
 that stable run/detail scope. If an exact compatible result is already the

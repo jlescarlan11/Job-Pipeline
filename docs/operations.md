@@ -568,7 +568,9 @@ delivered.
   explicit-outcome coverage, low dimension coverage, no applications, an
   incomplete analytics report, and a source/read or detail-write failure.
   Verify explicit abstained, empty, or failed history and no unsupported
-  directional result.
+  directional result. Seed a missing detail row, mismatched field, and
+  case-variant duplicate recommendation ID before the post-write reread;
+  confirm each attempt publishes only `detail_write_failure`, never complete.
 - Rerun the same complete fixture at a later time and confirm the SHA-256
   `analysis_key`/successful `run_id` are stable, the execution logs
   `action=unchanged`, and neither recommendation tab receives a write. Change

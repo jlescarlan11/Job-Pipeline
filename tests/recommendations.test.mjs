@@ -7,6 +7,7 @@ import {
   buildRecommendationFailure,
   buildRecommendationReport,
   latestCompleteRecommendationReport,
+  recommendationDetailPersistenceErrors,
   reusableRecommendationReport,
   validateRecommendationPolicy
 } from "../src/recommendations.mjs";
@@ -550,6 +551,68 @@ test("successful reruns converge while failures retain attempt evidence", () => 
   assert.equal(
     reusableRecommendationReport([failedFirst.report], failedFirst.report),
     undefined
+  );
+});
+
+test("recommendation completion requires one exact persisted copy of every detail row", () => {
+  const analytics = completeAnalytics();
+  const result = buildRecommendationReport(
+    analytics.rows,
+    analytics.reports,
+    testPolicy(),
+    profile,
+    recommendationAt,
+    { attemptId: "detail-confirmation" }
+  );
+  assert.deepEqual(
+    recommendationDetailPersistenceErrors(
+      result.rows,
+      result.rows,
+      result.report,
+      recommendationPolicy.recommendation_fields
+    ),
+    []
+  );
+  assert.match(
+    recommendationDetailPersistenceErrors(
+      result.rows,
+      result.rows.slice(1),
+      result.report,
+      recommendationPolicy.recommendation_fields
+    ).join("\n"),
+    /count|identity/
+  );
+  assert.match(
+    recommendationDetailPersistenceErrors(
+      result.rows,
+      [
+        ...result.rows,
+        {
+          ...result.rows[0],
+          recommendation_id:
+            result.rows[0].recommendation_id.toUpperCase(),
+          run_id: result.report.run_id.toUpperCase()
+        }
+      ],
+      result.report,
+      recommendationPolicy.recommendation_fields
+    ).join("\n"),
+    /count|unique/
+  );
+  assert.match(
+    recommendationDetailPersistenceErrors(
+      result.rows,
+      [
+        {
+          ...result.rows[0],
+          title: "Tampered title"
+        },
+        ...result.rows.slice(1)
+      ],
+      result.report,
+      recommendationPolicy.recommendation_fields
+    ).join("\n"),
+    /content/
   );
 });
 

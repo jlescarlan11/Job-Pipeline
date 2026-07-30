@@ -1105,3 +1105,73 @@ export function reusableRecommendationReport(reportRows, report) {
     ? latest
     : undefined;
 }
+
+export function recommendationDetailPersistenceErrors(
+  expectedRows,
+  persistedRows,
+  report,
+  fields
+) {
+  const expected = Array.isArray(expectedRows) ? expectedRows : [];
+  const persisted = Array.isArray(persistedRows) ? persistedRows : [];
+  const comparedFields = Array.isArray(fields) ? fields : [];
+  const runId = String(report?.run_id || "").trim();
+  const expectedCount = Number(report?.detail_row_count);
+  const fold = (value) =>
+    String(value || "")
+      .trim()
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US");
+  const errors = [];
+  if (
+    !runId ||
+    !Number.isInteger(expectedCount) ||
+    expectedCount < 0 ||
+    expected.length !== expectedCount ||
+    comparedFields.length === 0
+  ) {
+    errors.push("recommendation detail confirmation input is invalid");
+    return errors;
+  }
+  const expectedKeys = expected.map((row) =>
+    fold(row?.recommendation_id)
+  );
+  if (
+    expectedKeys.some((key) => !key) ||
+    new Set(expectedKeys).size !== expectedKeys.length
+  ) {
+    errors.push("expected recommendation detail identities are ambiguous");
+    return errors;
+  }
+  const expectedKeySet = new Set(expectedKeys);
+  const runKey = fold(runId);
+  const relevant = persisted.filter(
+    (row) =>
+      fold(row?.run_id) === runKey ||
+      expectedKeySet.has(fold(row?.recommendation_id))
+  );
+  if (relevant.length !== expectedCount) {
+    errors.push("persisted recommendation detail count is not exact");
+  }
+  for (let index = 0; index < expected.length; index += 1) {
+    const desired = expected[index];
+    const identityKey = expectedKeys[index];
+    const matches = relevant.filter(
+      (row) => fold(row?.recommendation_id) === identityKey
+    );
+    if (matches.length !== 1) {
+      errors.push("persisted recommendation detail identity is not unique");
+      continue;
+    }
+    if (
+      comparedFields.some(
+        (field) =>
+          String(matches[0]?.[field] ?? "") !==
+          String(desired?.[field] ?? "")
+      )
+    ) {
+      errors.push("persisted recommendation detail content does not match");
+    }
+  }
+  return [...new Set(errors)];
+}

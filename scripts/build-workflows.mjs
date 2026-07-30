@@ -5698,6 +5698,25 @@ async function buildRecommender() {
     mode: "name",
     cachedResultName: policy.recommendations_sheet
   };
+  const recommendationDetailConfirmationRead =
+    structuredClone(recommendationWriteBase);
+  recommendationDetailConfirmationRead.id =
+    "b14b18d6-0000-4000-8000-000000000032";
+  recommendationDetailConfirmationRead.name =
+    "Get Recommendation Detail After Writes";
+  recommendationDetailConfirmationRead.position = [1100, 240];
+  recommendationDetailConfirmationRead.parameters.operation = "read";
+  recommendationDetailConfirmationRead.parameters.options = {
+    ...recommendationDetailConfirmationRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  recommendationDetailConfirmationRead.alwaysOutputData = true;
+  delete recommendationDetailConfirmationRead.onError;
   const reportWriteBase = structuredClone(reportsRead);
   delete reportWriteBase.alwaysOutputData;
   delete reportWriteBase.onError;
@@ -6027,16 +6046,20 @@ return (result.recommendation_rows || []).map((row) => ({ json: row }));`;
 
   const prepareReportCode = `const result = $('Build Weekly Recommendations').first().json;
 const report = { ...result.report };
-const writes = $json.recommendation_rows_written || [];
-const writeFailed = writes.some(
-  (row) => row && (row.error || row.errorMessage || row.error_description)
+const persistedRows =
+  $('Aggregate Recommendation Detail After Writes').first().json.recommendation_rows || [];
+const errors = recommendationDetailPersistenceErrors(
+  result.recommendation_rows || [],
+  persistedRows,
+  report,
+  ${JSON.stringify(policy.recommendation_fields)}
 );
-if (writeFailed || writes.length !== Number(report.detail_row_count)) {
+if (errors.length > 0) {
   report.status = 'failed';
   report.result = 'failed';
   report.error_category = 'detail_write_failure';
   report.error_summary =
-    'One or more weekly recommendation detail rows could not be persisted.';
+    'Weekly recommendation detail persistence could not be confirmed.';
 }
 console.log(JSON.stringify({
   event: 'weekly_recommendation_report_published',
@@ -6044,7 +6067,7 @@ console.log(JSON.stringify({
   status: report.status,
   result: report.result,
   detail_rows_expected: report.detail_row_count,
-  detail_rows_observed: writes.length,
+  detail_confirmation_errors: errors,
   error_category: report.error_category
 }));
 return [{ json: report }];`;
@@ -6138,17 +6161,24 @@ return [{ json: report }];`;
       position: [860, 240],
       destinationFieldName: "recommendation_rows_written"
     }),
+    recommendationDetailConfirmationRead,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000033",
+      name: "Aggregate Recommendation Detail After Writes",
+      position: [1340, 240],
+      destinationFieldName: "recommendation_rows"
+    }),
     codeNode({
       id: "b14b18d6-0000-4000-8000-000000000010",
       name: "Prepare Recommendation Report",
-      position: [1100, 240],
+      position: [1580, 240],
       jsCode: prepareReportCode
     }),
     upsertSheetNode({
       base: reportWriteBase,
       id: "b14b18d6-0000-4000-8000-000000000011",
       name: "Publish Recommendation Report",
-      position: [1340, 240],
+      position: [1820, 240],
       fields: policy.report_fields,
       matchingField: "run_id"
     }),
@@ -6244,6 +6274,12 @@ return [{ json: report }];`;
       main: [[connection("Aggregate Recommendation Row Writes")]]
     },
     "Aggregate Recommendation Row Writes": {
+      main: [[connection("Get Recommendation Detail After Writes")]]
+    },
+    "Get Recommendation Detail After Writes": {
+      main: [[connection("Aggregate Recommendation Detail After Writes")]]
+    },
+    "Aggregate Recommendation Detail After Writes": {
       main: [[connection("Prepare Recommendation Report")]]
     },
     "Prepare Recommendation Report": {

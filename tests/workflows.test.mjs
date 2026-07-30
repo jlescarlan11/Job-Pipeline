@@ -2454,6 +2454,8 @@ test("weekly recommender consumes only complete analytics and publishes versione
     "Prepare Recommendation Rows",
     "Upsert Recommendation Rows",
     "Aggregate Recommendation Row Writes",
+    "Get Recommendation Detail After Writes",
+    "Aggregate Recommendation Detail After Writes",
     "Prepare Recommendation Report",
     "Publish Recommendation Report",
     "Plan Recommendation Retention Candidates",
@@ -2570,6 +2572,16 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assertDirectConnection(
     workflow,
     "Aggregate Recommendation Row Writes",
+    "Get Recommendation Detail After Writes"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Recommendation Detail After Writes",
+    "Aggregate Recommendation Detail After Writes"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Recommendation Detail After Writes",
     "Prepare Recommendation Report"
   );
   assertDirectConnection(
@@ -2652,8 +2664,22 @@ test("weekly recommender consumes only complete analytics and publishes versione
     "Prepare Recommendation Report"
   ).parameters.jsCode;
   assert.match(publishGuard, /detail_write_failure/);
-  assert.match(publishGuard, /writes\.length !==/);
+  assert.match(publishGuard, /recommendationDetailPersistenceErrors/);
+  assert.match(
+    publishGuard,
+    /Aggregate Recommendation Detail After Writes/
+  );
   assert.match(publishGuard, /report\.status = 'failed'/);
+  const confirmationRead = nodeByName(
+    workflow,
+    "Get Recommendation Detail After Writes"
+  );
+  assert.equal(confirmationRead.parameters.operation, "read");
+  assert.equal(
+    confirmationRead.parameters.options.outputFormatting.values.general,
+    "FORMULA"
+  );
+  assert.equal(confirmationRead.onError, undefined);
   assert.equal(reports.onError, undefined);
 
   assert.ok(
