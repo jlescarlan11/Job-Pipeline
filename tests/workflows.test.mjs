@@ -1878,7 +1878,19 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   assertDirectConnection(
     workflow,
     "Upsert Applied Jobs Rows",
+    "Aggregate Applied Jobs Upserts"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Applied Jobs Upserts",
     "Get Applied Jobs After Maintenance"
+  );
+  assert.equal(
+    nodeByName(
+      workflow,
+      "Aggregate Applied Jobs Upserts"
+    ).parameters.aggregate,
+    "aggregateAllItemData"
   );
   assertDirectConnection(
     workflow,

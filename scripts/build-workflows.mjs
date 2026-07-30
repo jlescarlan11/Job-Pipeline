@@ -3790,6 +3790,12 @@ return [{ json: {
       fields: appliedProjectionRefreshFields,
       matchingField: "canonical_job_id"
     }),
+    aggregateNode({
+      id: "88af9ce3-b45f-4aa8-a980-000000000114",
+      name: "Aggregate Applied Jobs Upserts",
+      position: [3160, 420],
+      destinationFieldName: "upserted_rows"
+    }),
     appliedJobsAfterMaintenance,
     aggregateNode({
       id: "88af9ce3-b45f-4aa8-a980-000000000089",
@@ -4118,6 +4124,9 @@ return [{ json: {
       main: [[connection("Upsert Applied Jobs Rows")]]
     },
     "Upsert Applied Jobs Rows": {
+      main: [[connection("Aggregate Applied Jobs Upserts")]]
+    },
+    "Aggregate Applied Jobs Upserts": {
       main: [[connection("Get Applied Jobs After Maintenance")]]
     },
     "Get Applied Jobs After Maintenance": {

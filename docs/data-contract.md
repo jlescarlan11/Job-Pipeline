@@ -92,6 +92,9 @@ Reviewer mark has a one-item aggregate barrier before the Google Sheets node.
 Google Sheets node version 4.7 evaluates reads once per incoming item; without
 that barrier, one full-tab result would be duplicated for every marked input
 and valid unique commit guards would fail the duplicate-marker check.
+Reviewer applies the same barrier after multi-row `Applied Jobs` upserts so its
+final authoritative reread contains one physical copy of each Sheet row before
+identity-specific cleanup is planned.
 
 Archiver also collapses winning claims before its final pre-upsert `Archive`
 read. It rebases each planned copy against the unique current Archive identity,

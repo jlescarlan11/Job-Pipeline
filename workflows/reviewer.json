@@ -4668,6 +4668,21 @@
     },
     {
       "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "upserted_rows",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        3160,
+        420
+      ],
+      "id": "88af9ce3-b45f-4aa8-a980-000000000114",
+      "name": "Aggregate Applied Jobs Upserts"
+    },
+    {
+      "parameters": {
         "documentId": {
           "__rl": true,
           "value": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
@@ -5940,6 +5955,17 @@
       ]
     },
     "Upsert Applied Jobs Rows": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Applied Jobs Upserts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Applied Jobs Upserts": {
       "main": [
         [
           {
