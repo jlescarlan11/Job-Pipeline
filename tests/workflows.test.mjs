@@ -1735,6 +1735,7 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   );
   assert.equal(batchUpdate.parameters.method, "POST");
   assert.match(batchUpdate.parameters.url, /:batchUpdate$/);
+  assert.equal(batchUpdate.retryOnFail, false);
   assert.equal(
     batchUpdate.parameters.nodeCredentialType,
     "googleSheetsOAuth2Api"

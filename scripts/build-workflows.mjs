@@ -3212,6 +3212,7 @@ return [{ json: {
       body: "={{ JSON.stringify($json.batch_update) }}",
       options: {}
     },
+    retryOnFail: false,
     credentials: googleSheetsCredentials
   };
   const claimRetentionPlanCode = `

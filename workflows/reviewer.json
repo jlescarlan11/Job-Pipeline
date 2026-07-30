@@ -4803,6 +4803,7 @@
         "body": "={{ JSON.stringify($json.batch_update) }}",
         "options": {}
       },
+      "retryOnFail": false,
       "credentials": {
         "googleSheetsOAuth2Api": {
           "id": "4Vxkm1v1ZER0YYlg",

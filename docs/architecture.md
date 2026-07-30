@@ -409,8 +409,8 @@ selection made during any workflow step cannot be erased. An append-written
 `applied_jobs_projection` claim in `ProcessingClaims` selects one maintenance
 winner; the workflow's three-minute timeout is shorter than the four-minute
 lease. The winner clears stale generated cells and guards, rereads the sheet,
-then submits one Google Sheets `batchUpdate`. For each uniquely identified
-blank stale row, the batch inserts an identity-matched blank template,
+then submits one non-retrying Google Sheets `batchUpdate`. For each uniquely
+identified blank stale row, the batch inserts an identity-matched blank template,
 server-side duplicate removal compares every current cell, and only an
 unchanged stale row matches its template. An Action entered after the reread
 therefore makes the row non-duplicate and prevents retirement. The templates
