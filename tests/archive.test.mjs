@@ -5,7 +5,8 @@ import test from "node:test";
 import {
   archiveRecordIsComplete,
   confirmArchiveDeletions,
-  prepareArchiveCandidates
+  prepareArchiveCandidates,
+  prepareArchiveUpserts
 } from "../src/archive.mjs";
 
 const schema = JSON.parse(
@@ -184,6 +185,65 @@ test("existing archive history wins over stale active outcome data", () => {
   assert.equal(plan.candidates[0].archive_already_complete, true);
   assert.equal(plan.candidates[0].archive_record.outcome, "offer");
   assert.equal(plan.candidates[0].archive_record.archived_at, existing.archived_at);
+});
+
+test("archive upserts rebase current Archive-owned fields before writing", () => {
+  const record = active({
+    outcome: "replied",
+    outcome_at: "2026-07-28T08:15:00.000Z",
+    outcome_events: [
+      { id: "reply-1", type: "replied", at: "2026-07-28T08:15:00.000Z" }
+    ],
+    notes: "Initial note"
+  });
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const claimed = {
+    ...plan.candidates[0],
+    processing_token: "archive:4001"
+  };
+  const freshArchive = {
+    ...plan.candidates[0].archive_record,
+    row_number: 20,
+    manual_action: "outcome_offer",
+    notes: "Current Archive note",
+    outcome: "interview",
+    outcome_at: "2026-07-28T08:45:00.000Z",
+    outcome_events: [
+      { id: "reply-1", type: "replied", at: "2026-07-28T08:15:00.000Z" },
+      {
+        id: "interview-1",
+        type: "interview",
+        at: "2026-07-28T08:45:00.000Z"
+      }
+    ]
+  };
+  const prepared = prepareArchiveUpserts(
+    [claimed],
+    [freshArchive],
+    schema,
+    now
+  );
+  assert.equal(prepared.rejected.length, 0);
+  assert.equal(prepared.upserts[0].manual_action, "outcome_offer");
+  assert.equal(prepared.upserts[0].notes, "Current Archive note");
+  assert.equal(prepared.upserts[0].outcome, "interview");
+  assert.deepEqual(
+    prepared.upserts[0].outcome_events.map((event) => event.type),
+    ["replied", "interview"]
+  );
+  assert.equal(prepared.upserts[0].archive_claim_token, "archive:4001");
+
+  const duplicate = prepareArchiveUpserts(
+    [claimed],
+    [freshArchive, { ...freshArchive, row_number: 21 }],
+    schema,
+    now
+  );
+  assert.equal(duplicate.upserts.length, 0);
+  assert.equal(
+    duplicate.rejected[0].reason,
+    "ambiguous_archive_identity"
+  );
 });
 
 test("source deletion requires a complete archive copy and unchanged row identity", () => {

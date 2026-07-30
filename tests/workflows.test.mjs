@@ -1127,6 +1127,35 @@ test("archiver export upserts by identity and confirms the copy before bottom-up
   assert.deepEqual(upsert.parameters.columns.matchingColumns, ["canonical_job_id"]);
   assert.equal(deleteRows.parameters.operation, "delete");
   assert.match(deleteRows.parameters.startIndex, /row_number/);
+  assertDirectConnection(
+    workflow,
+    "Keep Winning Archive Claims",
+    "Aggregate Winning Archive Claims"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Winning Archive Claims",
+    "Get Archive Before Upsert"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Archive Before Upsert",
+    "Prepare Archive Upserts"
+  );
+  assert.equal(
+    nodeByName(
+      workflow,
+      "Aggregate Winning Archive Claims"
+    ).parameters.aggregate,
+    "aggregateAllItemData"
+  );
+  const prepareUpserts = nodeByName(
+    workflow,
+    "Prepare Archive Upserts"
+  ).parameters.jsCode;
+  assert.match(prepareUpserts, /prepareArchiveUpserts/);
+  assert.match(prepareUpserts, /freshArchiveRows/);
+  assert.match(prepareUpserts, /ambiguous_archive_identity/);
   assertDirectConnection(workflow, "Upsert Archive Records", "Aggregate Archive Upserts");
   assertDirectConnection(workflow, "Aggregate Archive Upserts", "Get Archive After Upsert");
   assertDirectConnection(workflow, "Get Active Before Delete", "Confirm Archive Deletions");

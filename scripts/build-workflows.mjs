@@ -2124,13 +2124,29 @@ console.log(JSON.stringify({
 }));
 return winners.map((record) => ({ json: record }));`;
 
-  const prepareUpsertsCode = `return $('Keep Winning Archive Claims').all().map((item) => ({
-  json: {
-    ...item.json.archive_record,
-    source_row_number: item.json.source_row_number,
-    archive_claim_token: item.json.processing_token
-  }
-}));`;
+  const prepareUpsertsCode = `${archiveCore}
+
+const SCHEMA = ${JSON.stringify(schema)};
+const planned = $('Keep Winning Archive Claims').all()
+  .map((item) => item.json);
+const freshArchiveRows = $input.all()
+  .map((item) => item.json)
+  .filter((row) => row && Object.keys(row).length > 0);
+const preparation = prepareArchiveUpserts(
+  planned,
+  freshArchiveRows,
+  SCHEMA,
+  new Date().toISOString()
+);
+console.log(JSON.stringify({
+  event: 'archive_upsert_rebase',
+  proposed: planned.length,
+  prepared: preparation.upserts.length,
+  rejected: preparation.rejected.length,
+  rejected_reasons:
+    preparation.rejected.map((entry) => entry.reason)
+}));
+return preparation.upserts.map((record) => ({ json: record }));`;
 
   const confirmCode = `${archiveCore}
 
@@ -2157,6 +2173,13 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
   archiveAfterRead.id = "7106c36a-a814-4ea8-9100-000000000012";
   archiveAfterRead.name = "Get Archive After Upsert";
   archiveAfterRead.position = [980, 220];
+
+  const archiveBeforeUpsert = structuredClone(archiveRead);
+  archiveBeforeUpsert.id =
+    "7106c36a-a814-4ea8-9100-000000000018";
+  archiveBeforeUpsert.name = "Get Archive Before Upsert";
+  archiveBeforeUpsert.position = [780, 360];
+  archiveBeforeUpsert.alwaysOutputData = true;
 
   const activeBeforeDelete = structuredClone(activeRead);
   activeBeforeDelete.id = "7106c36a-a814-4ea8-9100-000000000014";
@@ -2206,6 +2229,13 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
       position: [380, 220],
       jsCode: winnersCode
     }),
+    aggregateNode({
+      id: "7106c36a-a814-4ea8-9100-000000000017",
+      name: "Aggregate Winning Archive Claims",
+      position: [580, 360],
+      destinationFieldName: "winning_claims"
+    }),
+    archiveBeforeUpsert,
     codeNode({
       id: "7106c36a-a814-4ea8-9100-000000000010",
       name: "Prepare Archive Upserts",
@@ -2252,7 +2282,15 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
     "Append Archive Claims": { main: [[connection("Aggregate Archive Claims")]] },
     "Aggregate Archive Claims": { main: [[connection("Get Processing Claims")]] },
     "Get Processing Claims": { main: [[connection("Keep Winning Archive Claims")]] },
-    "Keep Winning Archive Claims": { main: [[connection("Prepare Archive Upserts")]] },
+    "Keep Winning Archive Claims": {
+      main: [[connection("Aggregate Winning Archive Claims")]]
+    },
+    "Aggregate Winning Archive Claims": {
+      main: [[connection("Get Archive Before Upsert")]]
+    },
+    "Get Archive Before Upsert": {
+      main: [[connection("Prepare Archive Upserts")]]
+    },
     "Prepare Archive Upserts": { main: [[connection("Upsert Archive Records")]] },
     "Upsert Archive Records": { main: [[connection("Aggregate Archive Upserts")]] },
     "Aggregate Archive Upserts": { main: [[connection("Get Archive After Upsert")]] },

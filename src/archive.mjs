@@ -149,6 +149,65 @@ export function prepareArchiveCandidates(
   };
 }
 
+export function prepareArchiveUpserts(
+  plannedCandidates,
+  freshArchiveRows,
+  schema,
+  now = new Date().toISOString()
+) {
+  const planned = Array.isArray(plannedCandidates)
+    ? plannedCandidates
+    : [];
+  const current = (Array.isArray(freshArchiveRows)
+    ? freshArchiveRows
+    : []
+  )
+    .filter(
+      (row) => row && typeof row === "object" && !Array.isArray(row)
+    )
+    .map((row) => normalizeLegacyRecord(row, schema, now));
+  const upserts = [];
+  const rejected = [];
+  for (const candidate of planned) {
+    const identity = String(candidate?.canonical_job_id || "").trim();
+    const canonicalUrl = String(candidate?.canonical_url || "").trim();
+    const processingToken = String(
+      candidate?.processing_token || ""
+    ).trim();
+    if (!identity || !canonicalUrl || !processingToken) {
+      rejected.push({
+        planned: candidate,
+        reason: "invalid_archive_upsert_claim"
+      });
+      continue;
+    }
+    const matches = current.filter(
+      (row) =>
+        String(row.canonical_job_id || "").trim() === identity ||
+        String(row.canonical_url || "").trim() === canonicalUrl
+    );
+    if (matches.length > 1) {
+      rejected.push({
+        planned: candidate,
+        reason: "ambiguous_archive_identity"
+      });
+      continue;
+    }
+    const archiveRecord = mergeArchiveRecord(
+      candidate,
+      matches[0],
+      schema,
+      now
+    );
+    upserts.push({
+      ...archiveRecord,
+      source_row_number: candidate.source_row_number,
+      archive_claim_token: processingToken
+    });
+  }
+  return { upserts, rejected };
+}
+
 export function confirmArchiveDeletions(
   plannedCandidates,
   currentActiveRows,

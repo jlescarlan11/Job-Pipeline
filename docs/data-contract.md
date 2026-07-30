@@ -92,6 +92,12 @@ Google Sheets node version 4.7 evaluates reads once per incoming item; without
 that barrier, one full-tab result would be duplicated for every marked input
 and valid unique commit guards would fail the duplicate-marker check.
 
+Archiver also collapses winning claims before its final pre-upsert `Archive`
+read. It rebases each planned copy against the unique current Archive identity,
+preserving current Archive-owned actions, notes, outcome history, and the
+latest outcome view. A duplicate canonical identity or URL rejects that upsert;
+the active source remains available for a later reconciled run.
+
 ## Opportunity-learning dimensions
 
 - `qualification_score` and `opportunity_score` are distinct 0–100 values.

@@ -541,6 +541,11 @@ delivered.
   behavior, and a skipped generation failure archives once through the
   existing idempotent path.
 - Interrupt after Archive upsert or simulate source-delete failure; rerun and confirm one archive identity.
+- After Archiver's initial read but before its upsert, enter a disposable
+  Archive action, change its note, and add a newer outcome event. Confirm the
+  one-item pre-upsert reread rebases all three current values into the write.
+  Seed a duplicate matching Archive identity and confirm the upsert is rejected
+  while the active source remains.
 - Change a source row after the plan and confirm deletion is rejected.
 - Confirm final deletions are bottom-up and all supported history exists in Archive.
 
