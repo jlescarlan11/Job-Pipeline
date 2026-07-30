@@ -1147,9 +1147,10 @@ export function processReviewActions(
   for (const row of appliedJobsRows) {
     const identity = String(row?.canonical_job_id || "").trim();
     if (!identity) continue;
+    const identityKey = canonicalIdentityKey(identity);
     appliedProjectionIdentityCounts.set(
-      identity,
-      (appliedProjectionIdentityCounts.get(identity) || 0) + 1
+      identityKey,
+      (appliedProjectionIdentityCounts.get(identityKey) || 0) + 1
     );
   }
 
@@ -1182,6 +1183,7 @@ export function processReviewActions(
       const label = String(raw?.Action || "").trim();
       if (!label) continue;
       const canonicalJobId = String(raw?.canonical_job_id || "").trim();
+      const canonicalKey = canonicalIdentityKey(canonicalJobId);
       const command = configuredActions[label];
       if (!canonicalJobId) {
         invalidAction({
@@ -1194,7 +1196,7 @@ export function processReviewActions(
       }
       if (
         location === "applied_jobs" &&
-        appliedProjectionIdentityCounts.get(canonicalJobId) !== 1
+        appliedProjectionIdentityCounts.get(canonicalKey) !== 1
       ) {
         invalidAction({
           location,
@@ -1214,7 +1216,7 @@ export function processReviewActions(
         });
         continue;
       }
-      const entries = destination.get(canonicalJobId) || [];
+      const entries = destination.get(canonicalKey) || [];
       entries.push({
         raw,
         canonical_job_id: canonicalJobId,
@@ -1222,7 +1224,7 @@ export function processReviewActions(
         label,
         command
       });
-      destination.set(canonicalJobId, entries);
+      destination.set(canonicalKey, entries);
     }
   };
 
@@ -1251,9 +1253,10 @@ export function processReviewActions(
   for (const { record } of active) {
     const identity = String(record.canonical_job_id || "").trim();
     if (identity) {
+      const identityKey = canonicalIdentityKey(identity);
       activeIdentityCounts.set(
-        identity,
-        (activeIdentityCounts.get(identity) || 0) + 1
+        identityKey,
+        (activeIdentityCounts.get(identityKey) || 0) + 1
       );
     }
   }
@@ -1261,9 +1264,10 @@ export function processReviewActions(
   for (const { record } of archive) {
     const identity = String(record.canonical_job_id || "").trim();
     if (identity) {
+      const identityKey = canonicalIdentityKey(identity);
       archiveIdentityCounts.set(
-        identity,
-        (archiveIdentityCounts.get(identity) || 0) + 1
+        identityKey,
+        (archiveIdentityCounts.get(identityKey) || 0) + 1
       );
     }
   }
@@ -1273,9 +1277,10 @@ export function processReviewActions(
       const identity = String(entry.record.canonical_job_id || "").trim();
       const action = String(entry.record.manual_action || "").trim();
       if (!identity || !action) continue;
-      const matches = actions.get(identity) || [];
+      const identityKey = canonicalIdentityKey(identity);
+      const matches = actions.get(identityKey) || [];
       matches.push({ ...entry, action });
-      actions.set(identity, matches);
+      actions.set(identityKey, matches);
     }
     return actions;
   };
@@ -1547,19 +1552,20 @@ export function processReviewActions(
 
   for (const { raw, record } of active) {
     const identity = String(record.canonical_job_id || "").trim();
+    const identityKey = canonicalIdentityKey(identity);
     const directAction = String(record.manual_action || "").trim();
     let queueEntries = identity
-      ? queueActionsById.get(identity) || []
+      ? queueActionsById.get(identityKey) || []
       : [];
 
     let appliedEntries = identity
-      ? appliedActionsById.get(identity) || []
+      ? appliedActionsById.get(identityKey) || []
       : [];
     const archiveDirectEntries = identity
-      ? archiveDirectActions.get(identity) || []
+      ? archiveDirectActions.get(identityKey) || []
       : [];
 
-    if (identity && activeIdentityCounts.get(identity) > 1) {
+    if (identity && activeIdentityCounts.get(identityKey) > 1) {
       if (directAction) {
         invalidAction({
           location: "active",
@@ -1571,7 +1577,7 @@ export function processReviewActions(
           error: "active review action has duplicate canonical identity"
         });
       }
-      if (!reportedActiveDuplicates.has(identity)) {
+      if (!reportedActiveDuplicates.has(identityKey)) {
         rejectEntries(
           queueEntries,
           "review_queue",
@@ -1582,22 +1588,22 @@ export function processReviewActions(
           "applied_jobs",
           "Applied Jobs action has duplicate source identity"
         );
-        consumedQueueIdentities.add(identity);
-        consumedAppliedIdentities.add(identity);
-        reportedActiveDuplicates.add(identity);
+        consumedQueueIdentities.add(identityKey);
+        consumedAppliedIdentities.add(identityKey);
+        reportedActiveDuplicates.add(identityKey);
       }
       continue;
     }
 
     if (archiveDirectEntries.length > 0) {
-      suppressedArchiveDirectIdentities.add(identity);
+      suppressedArchiveDirectIdentities.add(identityKey);
       if (queueEntries.length > 0) {
         rejectEntries(
           queueEntries,
           "review_queue",
           "review queue action conflicts with direct Archive action"
         );
-        consumedQueueIdentities.add(identity);
+        consumedQueueIdentities.add(identityKey);
         queueEntries = [];
       }
       if (appliedEntries.length > 0) {
@@ -1606,7 +1612,7 @@ export function processReviewActions(
           "applied_jobs",
           "Applied Jobs action conflicts with direct Archive action"
         );
-        consumedAppliedIdentities.add(identity);
+        consumedAppliedIdentities.add(identityKey);
         appliedEntries = [];
       }
       for (const entry of archiveDirectEntries) {
@@ -1625,7 +1631,7 @@ export function processReviewActions(
 
     let queueResolution = { action: "", entries: [] };
     if (queueEntries.length > 0) {
-      consumedQueueIdentities.add(identity);
+      consumedQueueIdentities.add(identityKey);
       queueResolution = resolveGuardedAction({
         entries: queueEntries,
         record,
@@ -1652,8 +1658,8 @@ export function processReviewActions(
 
     let appliedResolution = { action: "", entries: [] };
     if (appliedEntries.length > 0) {
-      consumedAppliedIdentities.add(identity);
-      if ((archiveIdentityCounts.get(identity) || 0) > 1) {
+      consumedAppliedIdentities.add(identityKey);
+      if ((archiveIdentityCounts.get(identityKey) || 0) > 1) {
         rejectEntries(
           appliedEntries,
           "applied_jobs",
@@ -1678,13 +1684,13 @@ export function processReviewActions(
     });
   }
 
-  for (const [identity, entries] of queueActionsById) {
-    if (consumedQueueIdentities.has(identity)) continue;
+  for (const [identityKey, entries] of queueActionsById) {
+    if (consumedQueueIdentities.has(identityKey)) continue;
     for (const entry of entries) {
       invalidAction({
         location: "review_queue",
         raw: entry.raw,
-        canonicalJobId: identity,
+        canonicalJobId: entry.canonical_job_id,
         manualAction: entry.command,
         error: "review queue source record is missing"
       });
@@ -1693,14 +1699,20 @@ export function processReviewActions(
 
   for (const { raw, record } of archive) {
     const identity = String(record.canonical_job_id || "").trim();
+    const identityKey = canonicalIdentityKey(identity);
     const directAction = String(record.manual_action || "").trim();
-    if (identity && suppressedArchiveDirectIdentities.has(identity)) continue;
+    if (
+      identity &&
+      suppressedArchiveDirectIdentities.has(identityKey)
+    ) {
+      continue;
+    }
     const appliedEntries =
-      identity && !consumedAppliedIdentities.has(identity)
-        ? appliedActionsById.get(identity) || []
+      identity && !consumedAppliedIdentities.has(identityKey)
+        ? appliedActionsById.get(identityKey) || []
         : [];
 
-    if (identity && archiveIdentityCounts.get(identity) > 1) {
+    if (identity && archiveIdentityCounts.get(identityKey) > 1) {
       if (directAction) {
         invalidAction({
           location: "archive",
@@ -1714,22 +1726,22 @@ export function processReviewActions(
       }
       if (
         appliedEntries.length > 0 &&
-        !reportedArchiveDuplicates.has(identity)
+        !reportedArchiveDuplicates.has(identityKey)
       ) {
         rejectEntries(
           appliedEntries,
           "applied_jobs",
           "Applied Jobs action has duplicate source identity"
         );
-        consumedAppliedIdentities.add(identity);
-        reportedArchiveDuplicates.add(identity);
+        consumedAppliedIdentities.add(identityKey);
+        reportedArchiveDuplicates.add(identityKey);
       }
       continue;
     }
 
     let appliedResolution = { action: "", entries: [] };
     if (appliedEntries.length > 0) {
-      consumedAppliedIdentities.add(identity);
+      consumedAppliedIdentities.add(identityKey);
       appliedResolution = resolveGuardedAction({
         entries: appliedEntries,
         record,
@@ -1745,8 +1757,8 @@ export function processReviewActions(
     });
   }
 
-  for (const [identity, entries] of appliedActionsById) {
-    if (consumedAppliedIdentities.has(identity)) continue;
+  for (const [identityKey, entries] of appliedActionsById) {
+    if (consumedAppliedIdentities.has(identityKey)) continue;
     rejectEntries(
       entries,
       "applied_jobs",

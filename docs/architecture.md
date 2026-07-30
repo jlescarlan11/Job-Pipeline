@@ -358,7 +358,9 @@ removed from recovery-row dropdowns and remains authoritatively rejected until
 a current validated message is `ready`. The Reviewer rereads `Sheet1`,
 rejects missing, duplicate, stale, unsupported, or conflicting inputs, and
 reuses the same `applyManualAction` transition and message-safety boundary as
-the detailed review path. A compare-and-commit sequence first matches
+the detailed review path. Action and source arbitration use case-folded
+canonical identity keys, closing the race where a case-variant duplicate
+appears after projection. A compare-and-commit sequence first matches
 `state_guard`, writes an execution-unique `processing_commit_guard`, and then
 commits only the row that still owns that guard. Direct `Sheet1` input wins if
 it conflicts with a queue input.

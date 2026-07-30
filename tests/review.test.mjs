@@ -1326,7 +1326,11 @@ test("Applied Jobs actions fail closed for stale, forged, malformed, and ambiguo
       executionId: "applied-duplicate-projection",
       reviewConfig: view,
       appliedJobsRows: [
-        { ...action(""), row_number: 2 },
+        {
+          ...action(""),
+          row_number: 2,
+          canonical_job_id: applied.canonical_job_id.toUpperCase()
+        },
         { ...action("Offer"), row_number: 3 }
       ]
     }
@@ -2065,7 +2069,14 @@ test("duplicate, stale, missing, and conflicting queue actions fail closed", () 
   assert.match(missing.invalid_actions[0].error, /source record is missing/);
 
   const duplicateSource = processReviewActions(
-    [source, { ...source, row_number: 10 }],
+    [
+      source,
+      {
+        ...source,
+        row_number: 10,
+        canonical_job_id: source.canonical_job_id.toUpperCase()
+      }
+    ],
     [],
     schema,
     now,
