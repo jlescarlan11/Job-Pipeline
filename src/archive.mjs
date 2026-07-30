@@ -37,11 +37,37 @@ function archiveMatchesPlanned(current, planned, schema) {
   );
 }
 
+const ARCHIVE_OWNED_INPUT_FIELDS = new Set([
+  "apply_points_input",
+  "application_message_strategy_input",
+  "manual_action",
+  "notes"
+]);
+
+const ACTIVE_EXACT_PROCESSING_FIELDS = new Set([
+  "processing_stage",
+  "processing_commit_guard",
+  "processing_token",
+  "processing_started_at"
+]);
+
 function mergeArchiveRecord(active, existing, schema, now) {
   const merged = {};
   for (const field of schema.fields) {
     if (hasValue(active[field])) merged[field] = active[field];
-    if (hasValue(existing?.[field])) merged[field] = existing[field];
+    if (
+      hasValue(existing?.[field]) &&
+      (!hasValue(active[field]) ||
+        ARCHIVE_OWNED_INPUT_FIELDS.has(field))
+    ) {
+      merged[field] = existing[field];
+    }
+    if (
+      field.startsWith("alert_") ||
+      ACTIVE_EXACT_PROCESSING_FIELDS.has(field)
+    ) {
+      merged[field] = active[field] ?? "";
+    }
   }
   const eventCollections = [
     existing?.outcome_events,
@@ -58,6 +84,9 @@ function mergeArchiveRecord(active, existing, schema, now) {
   ) {
     merged.outcome = active.outcome;
     merged.outcome_at = active.outcome_at;
+  } else if (Number.isFinite(existingOutcomeAt)) {
+    merged.outcome = existing.outcome;
+    merged.outcome_at = existing.outcome_at;
   }
   const fromStatus =
     existing?.archived_from_status ||
@@ -194,7 +223,7 @@ export function prepareArchiveUpserts(
       continue;
     }
     const archiveRecord = mergeArchiveRecord(
-      candidate,
+      candidate.archive_record || candidate,
       matches[0],
       schema,
       now

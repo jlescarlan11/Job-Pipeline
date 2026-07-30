@@ -187,6 +187,51 @@ test("existing archive history wins over stale active outcome data", () => {
   assert.equal(plan.candidates[0].archive_record.archived_at, existing.archived_at);
 });
 
+test("newer active automation wins while Archive-owned inputs are preserved", () => {
+  const record = active({
+    alert_status: "sent",
+    alert_sent_at: "2026-07-28T08:50:00.000Z",
+    alert_error_category: "",
+    alert_error_summary: "",
+    processing_stage: "",
+    processing_commit_guard: "",
+    processing_token: "",
+    processing_started_at: "",
+    notes: "Active note"
+  });
+  const existing = {
+    ...record,
+    row_number: 20,
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    archived_at: "2026-07-27T12:00:00.000Z",
+    alert_status: "pending",
+    alert_sent_at: "",
+    alert_error_category: "provider_failure",
+    alert_error_summary: "Stale failure",
+    processing_stage: "alert",
+    processing_commit_guard: "stale-guard",
+    processing_token: "stale-token",
+    processing_started_at: "2026-07-28T08:00:00.000Z",
+    manual_action: "outcome_offer",
+    notes: "Current Archive note"
+  };
+  const plan = prepareArchiveCandidates([record], [existing], schema, {
+    now
+  });
+  const merged = plan.candidates[0].archive_record;
+  assert.equal(merged.alert_status, "sent");
+  assert.equal(merged.alert_sent_at, record.alert_sent_at);
+  assert.equal(merged.alert_error_category, "");
+  assert.equal(merged.alert_error_summary, "");
+  assert.equal(merged.processing_stage, "");
+  assert.equal(merged.processing_commit_guard, "");
+  assert.equal(merged.processing_token, "");
+  assert.equal(merged.processing_started_at, "");
+  assert.equal(merged.manual_action, "outcome_offer");
+  assert.equal(merged.notes, "Current Archive note");
+});
+
 test("archive upserts rebase current Archive-owned fields before writing", () => {
   const record = active({
     outcome: "replied",
@@ -227,6 +272,7 @@ test("archive upserts rebase current Archive-owned fields before writing", () =>
   assert.equal(prepared.upserts[0].manual_action, "outcome_offer");
   assert.equal(prepared.upserts[0].notes, "Current Archive note");
   assert.equal(prepared.upserts[0].outcome, "interview");
+  assert.equal(prepared.upserts[0].processing_token, "");
   assert.deepEqual(
     prepared.upserts[0].outcome_events.map((event) => event.type),
     ["replied", "interview"]

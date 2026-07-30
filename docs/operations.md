@@ -549,6 +549,10 @@ delivered.
 - After Archiver's initial read but before its upsert, enter a disposable
   Archive action, change its note, and add a newer outcome event. Confirm the
   one-item pre-upsert reread rebases all three current values into the write.
+  Start from a partial copy with stale `pending` alert state and stale
+  processing fields while the active source is `sent` and clear; confirm the
+  retry stores the active automation state and never stores the archival claim
+  token.
   Seed a duplicate matching Archive identity and confirm the upsert is rejected
   while the active source remains.
 - Change a source row after the plan and confirm deletion is rejected.
