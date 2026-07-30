@@ -2363,6 +2363,28 @@ test("queue reconciliation retains an action until its guarded source write is c
   assert.deepEqual(duplicateSource.queue_rows, []);
   assert.equal(duplicateSource.protected_action_count, 1);
 
+  const caseVariantSource = {
+    ...ready,
+    row_number: 10,
+    canonical_job_id: ready.canonical_job_id.toUpperCase()
+  };
+  caseVariantSource.state_guard = stateGuard(caseVariantSource);
+  const caseVariantPending = {
+    ...pending,
+    source_state_guard: caseVariantSource.state_guard
+  };
+  const caseVariant = reconcileReviewQueue(
+    [caseVariantSource],
+    [caseVariantPending],
+    [caseVariantPending],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(caseVariant.delete_rows, []);
+  assert.deepEqual(caseVariant.queue_rows, []);
+  assert.equal(caseVariant.protected_action_count, 1);
+
   const committed = {
     ...ready,
     pipeline_status: "applied",

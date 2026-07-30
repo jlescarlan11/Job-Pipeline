@@ -1966,9 +1966,10 @@ export function reconcileReviewQueue(
     const record = normalizeLegacyRecord(row, schema, now);
     const identity = String(record.canonical_job_id || "").trim();
     if (!identity) continue;
-    const guards = currentSourceGuards.get(identity) || new Set();
+    const identityKey = canonicalIdentityKey(identity);
+    const guards = currentSourceGuards.get(identityKey) || new Set();
     guards.add(String(record.state_guard || stateGuard(record)));
-    currentSourceGuards.set(identity, guards);
+    currentSourceGuards.set(identityKey, guards);
   }
   const protectedRows = new Set();
   const protectedIdentities = new Set();
@@ -1976,18 +1977,19 @@ export function reconcileReviewQueue(
     const action = String(row?.Action || "").trim();
     if (!action) continue;
     const identity = String(row.canonical_job_id || "").trim();
+    const identityKey = canonicalIdentityKey(identity);
     const sourceGuard = String(row.source_state_guard || "").trim();
     const actionAppearedAfterRead = !initialActions.has(queueSnapshotKey(row));
     const sourceWriteIsUnconfirmed =
       identity &&
       sourceGuard &&
-      currentSourceGuards.get(identity)?.has(sourceGuard);
+      currentSourceGuards.get(identityKey)?.has(sourceGuard);
     if (!actionAppearedAfterRead && !sourceWriteIsUnconfirmed) continue;
     const rowNumber = Number(row.row_number);
     if (Number.isInteger(rowNumber) && rowNumber > 1) {
       protectedRows.add(rowNumber);
     }
-    if (identity) protectedIdentities.add(identity);
+    if (identity) protectedIdentities.add(identityKey);
   }
   const deleteRows = currentQueueRows
     .map((row) => Number(row?.row_number))
@@ -2001,7 +2003,10 @@ export function reconcileReviewQueue(
     .map((rowNumber) => ({ row_number: rowNumber }));
   return {
     queue_rows: projection.rows.filter(
-      (row) => !protectedIdentities.has(row.canonical_job_id)
+      (row) =>
+        !protectedIdentities.has(
+          canonicalIdentityKey(row.canonical_job_id)
+        )
     ),
     delete_rows: deleteRows,
     protected_action_count: protectedRows.size,

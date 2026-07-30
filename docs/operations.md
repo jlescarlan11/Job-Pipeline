@@ -295,7 +295,8 @@ Slack HTTP node must remain an explicit JSON `POST`.
   duplicate eligible Sheet1 identities and confirm none are projected. Seed
   divergent duplicate Sheet1 rows for an action identity and confirm the action
   remains visible while processing fails closed; repeat with a case-variant
-  duplicate introduced after projection. Confirm two scheduled observation opportunities fit within
+  duplicate introduced after projection, and with a case-only queue/source
+  spelling difference plus a failed source commit. Confirm two scheduled observation opportunities fit within
   the 30-minute manual-action alert. The three-minute timeout and four-minute
   shared projection lease must both end before the next scheduled Reviewer run,
   and a successful backlog event remains inside the 20-minute freshness threshold.
