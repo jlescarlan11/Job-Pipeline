@@ -672,6 +672,39 @@ test("analytics completion requires one exact persisted copy of every detail row
     ).join("\n"),
     /content/
   );
+  const blankNumericRow = report.rows.find((candidate) =>
+    [
+      "numerator",
+      "denominator",
+      "value",
+      "sample_size",
+      "coverage_numerator",
+      "coverage_denominator"
+    ].some((field) => candidate[field] === "")
+  );
+  assert.ok(blankNumericRow, "fixture must cover an absent numeric metric value");
+  const blankNumericField = [
+    "numerator",
+    "denominator",
+    "value",
+    "sample_size",
+    "coverage_numerator",
+    "coverage_denominator"
+  ].find((field) => blankNumericRow[field] === "");
+  assert.match(
+    analyticsDetailPersistenceErrors(
+      report.rows,
+      report.rows.map((candidate) =>
+        candidate.analytics_row_id === blankNumericRow.analytics_row_id
+          ? { ...candidate, [blankNumericField]: 0 }
+          : candidate
+      ),
+      report.completion,
+      policy.detail_fields
+    ).join("\n"),
+    /content/,
+    "confirmation must not weaken absent numeric values into zero"
+  );
 });
 
 test("analytics consumers verify exact identities, metadata, and content hash", () => {

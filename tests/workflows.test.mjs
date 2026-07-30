@@ -2368,6 +2368,24 @@ test("analytics export publishes completion only after every idempotent detail w
   assert.deepEqual(details.parameters.columns.matchingColumns, [
     "analytics_row_id"
   ]);
+  assert.equal(details.parameters.options.cellFormat, "USER_ENTERED");
+  const analyticsDetailSchema = new Map(
+    details.parameters.columns.schema.map((field) => [field.id, field])
+  );
+  for (const field of [
+    "numerator",
+    "denominator",
+    "value",
+    "sample_size",
+    "coverage_numerator",
+    "coverage_denominator"
+  ]) {
+    assert.equal(
+      analyticsDetailSchema.get(field)?.type,
+      "string",
+      `${field} must preserve blank Analytics detail cells before Sheets parses non-empty numbers`
+    );
+  }
   const completion = nodeByName(
     workflow,
     "Publish Complete Analytics Report"
@@ -2727,6 +2745,27 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assert.deepEqual(details.parameters.columns.matchingColumns, [
     "recommendation_id"
   ]);
+  assert.equal(details.parameters.options.cellFormat, "USER_ENTERED");
+  const recommendationDetailSchema = new Map(
+    details.parameters.columns.schema.map((field) => [field.id, field])
+  );
+  for (const field of [
+    "numerator",
+    "denominator",
+    "sample_size",
+    "comparison_value",
+    "baseline_value",
+    "difference",
+    "coverage_numerator",
+    "coverage_denominator",
+    "coverage_rate"
+  ]) {
+    assert.equal(
+      recommendationDetailSchema.get(field)?.type,
+      "string",
+      `${field} must preserve blank Recommendation detail cells before Sheets parses non-empty numbers`
+    );
+  }
   assert.equal(details.onError, "continueRegularOutput");
 
   const reports = nodeByName(workflow, "Publish Recommendation Report");

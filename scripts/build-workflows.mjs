@@ -152,7 +152,8 @@ function intervalWaitNode({ id, name, position, milliseconds }) {
   };
 }
 
-function schemaColumns(fields) {
+function schemaColumns(fields, { stringFields = [] } = {}) {
+  const stringFieldSet = new Set(stringFields);
   return [
     ...fields.map((field) => ({
       id: field,
@@ -160,36 +161,40 @@ function schemaColumns(fields) {
       required: false,
       defaultMatch: false,
       display: true,
-      type: [
-        "match_score",
-        "qualification_score",
-        "opportunity_score",
-        "application_qualification_score",
-        "application_opportunity_score",
-        "application_posting_age_days",
-        "attempt_count",
-        "alert_attempt_count",
-        "apply_points_input",
-        "apply_points_used",
-        "numerator",
-        "denominator",
-        "value",
-        "sample_size",
-        "coverage_numerator",
-        "coverage_denominator",
-        "record_count",
-        "application_count",
-        "detail_row_count",
-        "minimum_overall_applications",
-        "minimum_segment_applications",
-        "minimum_explicit_outcome_coverage",
-        "recommendation_count",
-        "abstention_count",
-        "comparison_value",
-        "baseline_value",
-        "difference",
-        "coverage_rate"
-      ].includes(field) ? "number" : "string",
+      type: stringFieldSet.has(field)
+        ? "string"
+        : [
+            "match_score",
+            "qualification_score",
+            "opportunity_score",
+            "application_qualification_score",
+            "application_opportunity_score",
+            "application_posting_age_days",
+            "attempt_count",
+            "alert_attempt_count",
+            "apply_points_input",
+            "apply_points_used",
+            "numerator",
+            "denominator",
+            "value",
+            "sample_size",
+            "coverage_numerator",
+            "coverage_denominator",
+            "record_count",
+            "application_count",
+            "detail_row_count",
+            "minimum_overall_applications",
+            "minimum_segment_applications",
+            "minimum_explicit_outcome_coverage",
+            "recommendation_count",
+            "abstention_count",
+            "comparison_value",
+            "baseline_value",
+            "difference",
+            "coverage_rate"
+          ].includes(field)
+        ? "number"
+        : "string",
       canBeUsedToMatch: true
     })),
     {
@@ -296,17 +301,36 @@ function updateSheetByFieldNode({ base, id, name, position, fields, matchingFiel
   return enforceSingleAttemptFailClosedSheetWrite(node);
 }
 
-function upsertSheetNode({ base, id, name, position, fields, matchingField }) {
+function upsertSheetNode({
+  base,
+  id,
+  name,
+  position,
+  fields,
+  matchingField,
+  blankPreservingNumericFields = []
+}) {
   const node = structuredClone(base);
   node.id = id;
   node.name = name;
   node.position = position;
   node.parameters.operation = "appendOrUpdate";
+  if (blankPreservingNumericFields.length > 0) {
+    // n8n's resource mapper casts an empty value to 0 when its saved schema
+    // declares a number. Map optional numeric values as strings, then let
+    // Sheets parse non-empty numeric strings while retaining empty cells.
+    node.parameters.options = {
+      ...node.parameters.options,
+      cellFormat: "USER_ENTERED"
+    };
+  }
   node.parameters.columns = {
     mappingMode: "defineBelow",
     value: Object.fromEntries(fields.map((field) => [field, sheetExpression(field)])),
     matchingColumns: [matchingField],
-    schema: schemaColumns(fields),
+    schema: schemaColumns(fields, {
+      stringFields: blankPreservingNumericFields
+    }),
     attemptToConvertTypes: false,
     convertFieldsToString: false
   };
@@ -5505,7 +5529,15 @@ return [{ json: completion }];`;
       name: "Upsert Analytics Rows",
       position: [380, 240],
       fields: policy.detail_fields,
-      matchingField: "analytics_row_id"
+      matchingField: "analytics_row_id",
+      blankPreservingNumericFields: [
+        "numerator",
+        "denominator",
+        "value",
+        "sample_size",
+        "coverage_numerator",
+        "coverage_denominator"
+      ]
     }),
     aggregateNode({
       id: "a13a17c5-0000-4000-8000-000000000008",
@@ -6261,7 +6293,18 @@ return [{ json: report }];`;
     name: "Upsert Recommendation Rows",
     position: [620, 240],
     fields: policy.recommendation_fields,
-    matchingField: "recommendation_id"
+    matchingField: "recommendation_id",
+    blankPreservingNumericFields: [
+      "numerator",
+      "denominator",
+      "sample_size",
+      "comparison_value",
+      "baseline_value",
+      "difference",
+      "coverage_numerator",
+      "coverage_denominator",
+      "coverage_rate"
+    ]
   });
   upsertRows.onError = "continueRegularOutput";
 

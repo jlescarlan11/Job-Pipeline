@@ -670,8 +670,9 @@ because its metadata is absent.
 7. Execute Analytics first. Confirm exact detail plus one valid
    `status=complete` Analytics report, then execute Recommender and confirm it
    consumes that report and publishes exact detail plus matching report
-   metadata. Repeat both unchanged inputs and require `action=unchanged` with
-   no detail or metadata write.
+   metadata. For empty or sparse metrics, confirm optional numeric detail cells
+   remain blank rather than being coerced to zero. Repeat both unchanged inputs
+   and require `action=unchanged` with no detail or metadata write.
 8. On the workbook copy, exercise a missing row, configured-field mismatch,
    and case-variant duplicate. Analytics must publish no completion metadata;
    Recommender must publish only `detail_write_failure`. Neither path may

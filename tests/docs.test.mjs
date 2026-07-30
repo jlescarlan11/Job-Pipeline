@@ -10,6 +10,9 @@ const architecture = await loadText("../docs/architecture.md");
 const analyticsDoc = await loadText("../docs/analytics.md");
 const sheetSchema = await loadText("../docs/sheet-schema.md");
 const operations = await loadText("../docs/operations.md");
+const recoveryEvidence = await loadText(
+  "../docs/smoke-test-2026-07-30-report-recovery.md"
+);
 const recommendationsDoc = await loadText("../docs/recommendations.md");
 const deploymentDoc = await loadText("../docs/n8n-deployment.md");
 const prompt = await loadText("../docs/master-prompt.md");
@@ -275,6 +278,7 @@ test("runbook preserves fail-closed learning-report recovery", () => {
     operations,
     /Execute Analytics first[\s\S]{0,300}execute Recommender/i
   );
+  assert.match(operations, /remain blank rather than being coerced to zero/i);
   assert.match(operations, /action=unchanged/);
   assert.match(
     operations,
@@ -284,6 +288,29 @@ test("runbook preserves fail-closed learning-report recovery", () => {
   assert.match(
     operations,
     /every old Analytics and Recommender copy is\s+inactive/i
+  );
+});
+
+test("report recovery evidence is sanitized and covers every live gate", () => {
+  for (const executionId of [
+    6469,
+    6470,
+    6472,
+    6474,
+    6476,
+    6478,
+    6480,
+    6481,
+    6484,
+    6485
+  ]) {
+    assert.match(recoveryEvidence, new RegExp(`\\b${executionId}\\b`));
+  }
+  assert.match(recoveryEvidence, /unchanged-input reuse verification/i);
+  assert.match(recoveryEvidence, /Production cutover/i);
+  assert.doesNotMatch(
+    recoveryEvidence,
+    /docs\.google\.com|spreadsheets\/d\/|hooks\.slack\.com|credential id/i
   );
 });
 
