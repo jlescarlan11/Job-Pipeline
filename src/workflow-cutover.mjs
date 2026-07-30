@@ -370,6 +370,34 @@ export function validateWorkflowCutoverEvidence(policy, evidence) {
       ) {
         errors.push(`${status} execution inventory must exclude execution data`);
       }
+      const executionSource =
+        evidence.source?.execution_inventories?.[status];
+      if (executionSource?.requested_status !== status) {
+        errors.push(
+          `${status} execution inventory must record its requested status`
+        );
+      }
+      if (
+        !Number.isInteger(executionSource?.response_records) ||
+        executionSource.response_records < executions.length
+      ) {
+        errors.push(
+          `${status} execution inventory response count is invalid`
+        );
+      }
+      if (typeof executionSource?.server_status_filter_verified !== "boolean") {
+        errors.push(
+          `${status} execution inventory must record server filter verification`
+        );
+      }
+      if (
+        executionSource?.server_status_filter_verified === true &&
+        executionSource.response_records !== executions.length
+      ) {
+        errors.push(
+          `${status} execution inventory verified filter count is inconsistent`
+        );
+      }
       for (const execution of executions) {
         if (
           !isObject(execution) ||
@@ -626,15 +654,22 @@ export async function captureWorkflowCutoverEvidence({
         },
         fetchImpl
       });
+      const matchingRecords = result.records.filter(
+        (execution) => String(execution?.status ?? "") === status
+      );
       evidence.source.execution_inventories[status] = {
         endpoint: `/executions?status=${status}`,
         limit: cutover(policy).inventory_page_limit,
         pages: result.pages,
-        records: result.records.length,
+        records: matchingRecords.length,
+        response_records: result.records.length,
+        requested_status: status,
+        server_status_filter_verified:
+          matchingRecords.length === result.records.length,
         pagination_complete: true,
         include_data: false
       };
-      evidence.executions[status] = result.records.map(sanitizedExecution);
+      evidence.executions[status] = matchingRecords.map(sanitizedExecution);
     }
   }
   return evidence;

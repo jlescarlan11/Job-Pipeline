@@ -85,6 +85,11 @@ function evidenceFor(phase) {
         0
       );
       evidence.source.execution_inventories[status].include_data = false;
+      evidence.source.execution_inventories[status].response_records = 0;
+      evidence.source.execution_inventories[status].requested_status = status;
+      evidence.source.execution_inventories[
+        status
+      ].server_status_filter_verified = true;
       evidence.executions[status] = [];
     }
   }
@@ -260,6 +265,73 @@ test("capture paginates GET inventories and removes workflow parameters", async 
   assert.doesNotMatch(serialized, /secret-api-key/);
   assert.doesNotMatch(serialized, /sensitive-node-value|sensitive-id|sensitive-code/);
   assert.doesNotMatch(serialized, /parameters|credentials/);
+});
+
+test("capture locally filters a complete execution inventory when n8n ignores new status", async () => {
+  const rawWorkflows = roles.map((definition) => workflowRecord(definition));
+  const fetchImpl = async (url) => {
+    if (url.pathname.endsWith("/workflows")) {
+      return {
+        ok: true,
+        json: async () => ({ data: rawWorkflows, nextCursor: null })
+      };
+    }
+    if (
+      url.pathname.endsWith("/executions") &&
+      url.searchParams.get("status") === "new"
+    ) {
+      return {
+        ok: true,
+        json: async () => ({
+          data: [
+            {
+              id: "historical-success",
+              workflowId: "scraper-target",
+              status: "success",
+              startedAt: "2026-07-30T01:00:00.000Z",
+              waitTill: null
+            }
+          ],
+          nextCursor: null
+        })
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({ data: [], nextCursor: null })
+    };
+  };
+  const evidence = await captureWorkflowCutoverEvidence({
+    policy,
+    phase: "pre_activation",
+    apiBaseUrl: "https://n8n.example.test/api/v1/",
+    apiKey: "secret-api-key",
+    targetMap: {
+      schema_version: 1,
+      targets,
+      inventory_scope: {
+        instance_wide_workflow_list_confirmed: true,
+        instance_wide_execution_list_confirmed: true
+      },
+      runtime_restart: {
+        method: "process_restart",
+        completed_at: "2026-07-30T02:00:00.000Z",
+        readiness_checked_at: "2026-07-30T02:00:30.000Z",
+        readiness_recovered: true
+      }
+    },
+    capturedAt: new Date("2026-07-30T02:01:00.000Z"),
+    fetchImpl
+  });
+
+  assert.deepEqual(evidence.executions.new, []);
+  assert.equal(evidence.source.execution_inventories.new.records, 0);
+  assert.equal(evidence.source.execution_inventories.new.response_records, 1);
+  assert.equal(
+    evidence.source.execution_inventories.new.server_status_filter_verified,
+    false
+  );
+  assert.deepEqual(validateWorkflowCutoverEvidence(policy, evidence), []);
 });
 
 test("capture rejects non-TLS remote API endpoints", async () => {
