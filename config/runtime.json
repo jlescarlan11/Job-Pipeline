@@ -7,6 +7,12 @@
     "save_execution_progress": false,
     "save_manual_executions": true
   },
+  "google_sheets": {
+    "read_retry": {
+      "max_attempts": 3,
+      "backoff_ms": 5000
+    }
+  },
   "generator": {
     "schedule_minutes": 90,
     "schedule_offset_minutes": 1,

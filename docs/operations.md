@@ -166,6 +166,10 @@ run must clear zero additional inputs.
    per-node execution progress. Manual smoke executions therefore retain IDs and data;
    scheduled success must be verified from sanitized runtime logs and
    authoritative Sheet state.
+   Google Sheets reads use the bounded retry policy in `config/runtime.json`:
+   three attempts with five-second waits. Writes remain single-attempt because
+   an acknowledgement failure can make a blind retry duplicate or overwrite
+   durable state.
 9. For self-hosted regular mode, apply
    `config/n8n-deployment-policy.json`, restart n8n, and run
    `npm run validate:deployment` inside that configured runtime. Confirm

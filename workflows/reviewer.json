@@ -55,6 +55,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -104,7 +107,10 @@
           "name": "Google Sheets account"
         }
       },
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -160,6 +166,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -210,6 +219,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -266,6 +278,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -316,6 +331,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -553,6 +571,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -1147,6 +1168,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -1516,6 +1540,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -2121,7 +2148,10 @@
           "name": "Google Sheets account"
         }
       },
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -2484,7 +2514,10 @@
           "name": "Google Sheets account"
         }
       },
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -3249,6 +3282,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -3298,7 +3334,10 @@
           "name": "Google Sheets account"
         }
       },
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     },
     {
       "parameters": {
@@ -3354,6 +3393,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -3404,6 +3446,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -3586,6 +3631,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -3640,6 +3688,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -3792,6 +3843,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {
@@ -4800,6 +4854,9 @@
           "name": "Google Sheets account"
         }
       },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
       "alwaysOutputData": true
     },
     {

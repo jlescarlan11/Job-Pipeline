@@ -63,6 +63,11 @@ export function validateRuntimeConfig(runtime) {
   if (runtime.execution_data?.save_manual_executions !== true) {
     errors.push("execution_data.save_manual_executions must be true");
   }
+  for (const field of ["max_attempts", "backoff_ms"]) {
+    if (!positiveInteger(runtime.google_sheets?.read_retry?.[field])) {
+      errors.push(`google_sheets.read_retry.${field} must be a positive integer`);
+    }
+  }
   errors.push(
     ...validateScheduledClaimWorkflow(runtime.generator, "generator"),
     ...validateMinuteIntervalSchedule(runtime.generator, "generator"),

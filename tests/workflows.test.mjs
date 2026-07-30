@@ -2950,3 +2950,32 @@ test("every persisted Google Sheets match key is within the first 26 record colu
     }
   }
 });
+
+test("Google Sheets reads retry transient failures without retrying ambiguous writes", () => {
+  for (const [workflowName, workflow] of Object.entries(workflows)) {
+    for (const node of workflow.nodes.filter(
+      (entry) => entry.type === "n8n-nodes-base.googleSheets"
+    )) {
+      const operation = node.parameters?.operation ?? "read";
+      if (operation === "read") {
+        assert.equal(node.retryOnFail, true, `${workflowName}/${node.name}`);
+        assert.equal(
+          node.maxTries,
+          runtime.google_sheets.read_retry.max_attempts,
+          `${workflowName}/${node.name}`
+        );
+        assert.equal(
+          node.waitBetweenTries,
+          runtime.google_sheets.read_retry.backoff_ms,
+          `${workflowName}/${node.name}`
+        );
+      } else {
+        assert.notEqual(
+          node.retryOnFail,
+          true,
+          `${workflowName}/${node.name} must not automatically retry a write`
+        );
+      }
+    }
+  }
+});

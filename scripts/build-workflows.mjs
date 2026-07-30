@@ -221,6 +221,24 @@ function enforceSingleAttemptFailClosedSheetWrite(node) {
   return node;
 }
 
+function enforceBoundedSheetReadRetries(workflow, runtime) {
+  const retry = runtime.google_sheets.read_retry;
+  for (const node of workflow.nodes) {
+    if (node.type !== "n8n-nodes-base.googleSheets") continue;
+    const operation = node.parameters?.operation ?? "read";
+    if (operation === "read") {
+      node.retryOnFail = true;
+      node.maxTries = retry.max_attempts;
+      node.waitBetweenTries = retry.backoff_ms;
+    } else {
+      delete node.retryOnFail;
+      delete node.maxTries;
+      delete node.waitBetweenTries;
+    }
+  }
+  return workflow;
+}
+
 function appendSheetNode({ base, id, name, position, fields }) {
   const node = structuredClone(base);
   node.id = id;
@@ -6520,6 +6538,11 @@ const generated = [
   await buildAnalytics(),
   await buildRecommender()
 ];
-for (const workflow of generated) await writeGenerated(workflow);
+const runtime = await readJson("config/runtime.json");
+assertValidRuntime(runtime);
+for (const generatedWorkflow of generated) {
+  enforceBoundedSheetReadRetries(generatedWorkflow.workflow, runtime);
+  await writeGenerated(generatedWorkflow);
+}
 
 console.log(checkOnly ? "Workflow exports are up to date." : "Workflow exports rebuilt.");
