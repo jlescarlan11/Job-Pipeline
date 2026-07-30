@@ -144,12 +144,16 @@ and retry up to 3 times with 5-second waits. A successful earlier page remains
 in the query's accumulated state if a later page exhausts its retries. Saved
 search pages are parsed as parent cards to keep title, URL, date, description,
 badge, and salary aligned. A seven-day cutoff and seniority exclusion remain
-configured.
+configured. A 200 response is successful only when it contains at least one
+recognized result card or the explicit empty-result marker; login, challenge,
+maintenance, and structurally unfamiliar pages become `unexpected_search_page`
+failures without producing jobs.
 
-Pagination stops only when the source no longer advertises a next page or the
-configured cap is reached. It does not stop merely because every parsed card
-was old, excluded, or malformed. Successful pages are retained when another
-page/query fails. Coverage records `complete`, `empty`, `partial`, or `failed`
+Pagination stops when the source no longer advertises a next page, the
+configured cap is reached, or the response lacks recognizable search-page
+evidence. It does not stop merely because every recognized card was old,
+excluded, or malformed. Successful pages are retained when another page/query
+fails. Coverage records `complete`, `empty`, `partial`, or `failed`
 per query, plus actual and maximum page-request counts; reaching the configured
 page cap while a next page exists is `partial`, never `complete`.
 

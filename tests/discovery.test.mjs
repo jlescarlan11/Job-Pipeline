@@ -134,6 +134,7 @@ test("adaptive pagination follows source cards, stops at exhaustion, and retains
     { now, lookbackDays: 7 }
   );
   assert.equal(empty.result_card_count, 0);
+  assert.equal(empty.ok, true);
   assert.equal(buildNextSearchRequest(empty, plan), null);
 
   const zeroCardsWithNext = parseSearchResults(
@@ -142,10 +143,22 @@ test("adaptive pagination follows source cards, stops at exhaustion, and retains
     { now, lookbackDays: 7 }
   );
   assert.equal(zeroCardsWithNext.result_card_count, 0);
+  assert.equal(zeroCardsWithNext.ok, false);
   assert.equal(
-    buildNextSearchRequest(zeroCardsWithNext, plan).page_number,
-    2
+    zeroCardsWithNext.error_category,
+    "unexpected_search_page"
   );
+  assert.equal(buildNextSearchRequest(zeroCardsWithNext, plan), null);
+
+  const unexpected = parseSearchResults(
+    "<html><body><form>Sign in to continue</form></body></html>",
+    request("typescript", "typescript developer", "full-stack", 1),
+    { now, lookbackDays: 7 }
+  );
+  assert.equal(unexpected.ok, false);
+  assert.equal(unexpected.error_category, "unexpected_search_page");
+  assert.deepEqual(unexpected.jobs, []);
+  assert.equal(buildNextSearchRequest(unexpected, plan), null);
 });
 
 test("multi-page and multi-query discoveries merge into one canonical record", () => {

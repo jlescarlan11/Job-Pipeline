@@ -343,6 +343,9 @@ compatible and reconcile on the next run.
 
 - Run one manual discovery execution or temporarily reduce the copy’s query catalog in an uncommitted local export.
 - Confirm requests are paced and bounded.
+- Feed a login/challenge fixture and a next-link-only fixture through the
+  parser; confirm both are explicit `unexpected_search_page` failures with no
+  discovered rows, while the explicit empty-result fixture remains `empty`.
 - Record per-query complete/empty/partial/failed counts, unique jobs, active/archive duplicates, malformed cards, seniority exclusions, and discovery-claim losses.
 - Run the same fixture/input again and confirm canonical identity prevents a second row.
 - On the workbook copy, force each critical Sheet mutation to fail once:

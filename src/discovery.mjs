@@ -288,15 +288,27 @@ export function parseSearchResults(
     Number(entry[1])
   );
   const reportedLastPage = pageNumbers.length > 0 ? Math.max(...pageNumbers) : request.page_number;
+  const explicitEmpty =
+    /\bno\s+(?:job\s+posts?|jobs?)\s+(?:matched|found|available)\b/i.test(
+      textFromHtml(pageText)
+    );
+  const hasSearchPageEvidence = resultCardCount > 0 || explicitEmpty;
   return {
     ...request,
-    ok: true,
+    ok: hasSearchPageEvidence,
     jobs,
     excluded,
     malformed,
     result_card_count: resultCardCount,
     has_next: hasNext,
-    reported_last_page: reportedLastPage
+    reported_last_page: reportedLastPage,
+    ...(hasSearchPageEvidence
+      ? {}
+      : {
+          error_category: "unexpected_search_page",
+          error_summary:
+            "The search response did not contain recognizable result-page evidence."
+        })
   };
 }
 
