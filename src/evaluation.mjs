@@ -421,6 +421,14 @@ export function parseJobDetail(html, baseRecord = {}) {
   const hoursMatch = page.match(
     /<h3[^>]*>\s*HOURS PER WEEK\s*<\/h3>\s*<p[^>]*>([\s\S]*?)<\/p>/i
   );
+  const hasJobPageEvidence = Boolean(
+    titleMatch ||
+      idMatch ||
+      descriptionMatch ||
+      salaryMatch ||
+      workTypeMatch ||
+      hoursMatch
+  );
 
   const strip = (value) =>
     normalizeText(
@@ -447,7 +455,10 @@ export function parseJobDetail(html, baseRecord = {}) {
     salary_text: strip(salaryMatch?.[1]) || baseRecord.salary_text || "",
     work_type: strip(workTypeMatch?.[1]),
     hours_per_week: strip(hoursMatch?.[1]),
-    source_availability: descriptionMatch ? "active" : "unknown"
+    source_availability: descriptionMatch ? "active" : "unknown",
+    ...(hasJobPageEvidence
+      ? {}
+      : { detail_parse_error: "unexpected_job_page" })
   };
 }
 

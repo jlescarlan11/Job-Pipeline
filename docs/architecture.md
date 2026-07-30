@@ -184,7 +184,15 @@ unchanged `match_score`; the fallback is a queue value only and does not
 populate either new score. Existing application decisions and historical ready
 messages are not selected.
 
-Evaluation work uses a stored description when available; otherwise it fetches the detail page once and persists parsed metadata for reuse. Deleted/unavailable pages route to `unavailable`; insufficient content routes to `unscorable`. Deterministic evaluation uses full description evidence, known skills, role family, unsupported requirements, and seniority. It stores score, tier, decision, reasons, gaps, profile version, and timestamp.
+Evaluation work uses a stored description when available; otherwise it fetches
+the detail page once and persists parsed metadata for reuse. Deleted/unavailable
+pages route to `unavailable`; recognizable job pages with insufficient content
+route to `unscorable`. A 200 body without any job-page marker becomes an
+evaluation-stage failure and follows the existing bounded retry policy instead
+of creating a manual-review record from a login, challenge, or maintenance
+page. Deterministic evaluation uses full description evidence, known skills,
+role family, unsupported requirements, and seniority. It stores score, tier,
+decision, reasons, gaps, profile version, and timestamp.
 
 `config/ranking-policy.json` versions the dual-score rules. Qualification uses
 only canonical-profile skills and configured role-family evidence. Opportunity

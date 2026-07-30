@@ -164,6 +164,23 @@ test("detail enrichment persists reusable metadata and stable identity", () => {
   assert.equal(job.salary_text, "PHP 70,000 / month");
   assert.match(job.job_description, /TypeScript/);
   assert.equal(job.source_availability, "active");
+
+  const unexpected = parseJobDetail(
+    "<html><body><form>Sign in to continue</form></body></html>",
+    {
+      source: "onlinejobs.ph",
+      canonical_job_id: "onlinejobs.ph:unexpected-detail"
+    }
+  );
+  assert.equal(unexpected.source_availability, "unknown");
+  assert.equal(unexpected.detail_parse_error, "unexpected_job_page");
+
+  const recognizableButIncomplete = parseJobDetail(
+    '<h1 class="job__title" data-jobid="2002">Incomplete Job</h1>',
+    { source: "onlinejobs.ph" }
+  );
+  assert.equal(recognizableButIncomplete.source_availability, "unknown");
+  assert.equal(recognizableButIncomplete.detail_parse_error, undefined);
 });
 
 test("direct and adjacent evidence-supported jobs are recommended", () => {

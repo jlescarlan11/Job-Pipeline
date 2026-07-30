@@ -363,6 +363,9 @@ compatible and reconcile on the next run.
   and the selected model also passes this disabled n8n smoke. Repository
   validation is offline and is not a substitute for that gate.
 - Exercise one direct, adjacent, unscorable, unavailable, and unsupported job.
+- Feed a login/challenge body through the detail parser and confirm it records
+  an evaluation-stage failure for bounded retry; confirm a recognizable job
+  page that merely lacks a description still routes to `unscorable`.
 - Confirm a ready pack makes one initial Groq call and a valid draft becomes
   `ready`.
 - With the scheduled Generator disabled, confirm the production project shows

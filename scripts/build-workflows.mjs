@@ -1116,7 +1116,17 @@ if (errorMessage && !payload.data && !payload.body) {
   };
 }
 const html = typeof payload === 'string' ? payload : (payload.data || payload.body || '');
-return { json: parseJobDetail(html, record) };`;
+const parsed = parseJobDetail(html, record);
+if (parsed.detail_parse_error) {
+  return {
+    json: {
+      ...record,
+      work_error:
+        'The job detail response did not contain recognizable job-page evidence.'
+    }
+  };
+}
+return { json: parsed };`;
 
   const evaluateCode = `${evaluationCore}
 

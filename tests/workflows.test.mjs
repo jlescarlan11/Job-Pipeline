@@ -770,6 +770,12 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   assert.doesNotMatch(systemMessage, /netlify|FireCheck|PriceCraft|HEALTH/);
   assert.equal(policy.manual_submission_required, true);
   const evaluationCode = nodeByName(workflow, "Evaluate Job").parameters.jsCode;
+  const detailParserCode = nodeByName(
+    workflow,
+    "Parse Job Detail"
+  ).parameters.jsCode;
+  assert.match(detailParserCode, /detail_parse_error/);
+  assert.match(detailParserCode, /recognizable job-page evidence/);
   assert.match(evaluationCode, /const RANKING_POLICY/);
   assert.match(
     evaluationCode,
