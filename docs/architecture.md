@@ -533,8 +533,9 @@ interview, offer, or rejection from `applied`.
 ## Analytics workflow
 
 The analytics workflow reads both active and archived records and never mutates
-either source. It deduplicates recoverable overlap by canonical identity, uses
-the earliest immutable application snapshot when overlap conflicts, unions
+either source. It deduplicates recoverable overlap by case-folded canonical
+identity and normalizes the report cohort to that folded identity, uses the
+earliest immutable application snapshot when overlap conflicts, unions
 cumulative outcome events and multi-touch provenance, and discloses conflicts
 as data-quality metrics. Existing Dashboard funnel behavior remains owned by
 the reviewer.

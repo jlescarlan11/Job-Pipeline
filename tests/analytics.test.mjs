@@ -600,6 +600,7 @@ test("deduplication reports invalid identities and immutable snapshot conflicts"
   };
   const conflicting = {
     ...fixture.archive[0],
+    canonical_job_id: fixture.archive[0].canonical_job_id.toUpperCase(),
     application_opportunity_score: 10,
     application_snapshot_at: "2026-07-02T04:00:00.000Z"
   };
@@ -614,7 +615,12 @@ test("deduplication reports invalid identities and immutable snapshot conflicts"
   assert.deepEqual(result.records[0].requirement_gap_details, [
     { requirement: "Kubernetes", classification: "hard" }
   ]);
+  assert.equal(
+    result.records[0].canonical_job_id,
+    fixture.active[0].canonical_job_id
+  );
   assert.equal(result.diagnostics.invalid_identity_rows, 1);
+  assert.equal(result.diagnostics.overlap_records, 1);
   assert.equal(result.diagnostics.application_snapshot_conflicts, 1);
 });
 

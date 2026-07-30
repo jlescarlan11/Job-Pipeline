@@ -489,6 +489,8 @@ delivered.
 - Hand-calculate a small applied cohort with active/archive overlap,
   multi-query provenance, progressive outcomes, known/unknown Apply Points,
   complete/incomplete packs, and score-band boundary values.
+- Change one overlapping canonical ID to a case variant and confirm the cohort
+  still contains one normalized job and reports one overlap.
 - Confirm the Schedule Trigger is a daily 02:00 `Asia/Manila` rule rather than
   an activation-relative hourly interval.
 - Run analytics and compare every overall numerator/denominator, per-ten value,

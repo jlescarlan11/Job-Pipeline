@@ -30,6 +30,13 @@ function hasValue(value) {
   return value !== undefined && value !== null && value !== "";
 }
 
+function canonicalIdentityKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
+}
+
 function timestamp(value) {
   const parsed = Date.parse(value || "");
   return Number.isFinite(parsed) ? parsed : undefined;
@@ -500,17 +507,22 @@ export function deduplicateAnalyticsRecords(
       diagnostics.malformed_application_warning_rows += 1;
       normalized.__analytics_malformed_application_warnings = true;
     }
-    if (!normalized.canonical_job_id) {
+    const identityKey = canonicalIdentityKey(normalized.canonical_job_id);
+    if (!identityKey) {
       diagnostics.invalid_identity_rows += 1;
       continue;
     }
+    const merged = mergeAnalyticsRecords(
+      records.get(identityKey),
+      normalized,
+      diagnostics
+    );
     records.set(
-      normalized.canonical_job_id,
-      mergeAnalyticsRecords(
-        records.get(normalized.canonical_job_id),
-        normalized,
-        diagnostics
-      )
+      identityKey,
+      {
+        ...merged,
+        canonical_job_id: identityKey
+      }
     );
   }
   return {
