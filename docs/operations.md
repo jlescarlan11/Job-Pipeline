@@ -578,7 +578,9 @@ delivered.
   while the active source remains.
 - Seed duplicate active identities before planning, then separately introduce a
   duplicate active or Archive identity before final confirmation; confirm every
-  affected source row remains active with an ambiguity reason.
+  affected source row remains active with an ambiguity reason. Repeat with
+  case-variant canonical IDs and deliberately distinct URLs so ID folding, not
+  URL equality, supplies the ambiguity guard.
 - Change a source row after the plan and confirm deletion is rejected.
 - Confirm final deletions are bottom-up and all supported history exists in Archive.
 

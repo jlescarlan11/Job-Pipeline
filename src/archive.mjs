@@ -21,6 +21,13 @@ function comparableValue(value) {
   return String(value ?? "");
 }
 
+function canonicalIdentityKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
+}
+
 function recordSnapshot(record, schema) {
   return JSON.stringify(
     Object.fromEntries(
@@ -134,7 +141,12 @@ export function prepareArchiveCandidates(
   const archiveByUrl = new Map();
   for (const raw of archiveRows) {
     const record = normalizeLegacyRecord(raw, schema, now);
-    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);
+    if (record.canonical_job_id) {
+      archiveById.set(
+        canonicalIdentityKey(record.canonical_job_id),
+        record
+      );
+    }
     if (record.canonical_url) archiveByUrl.set(record.canonical_url, record);
   }
   const normalizedActive = activeRows.map((raw) =>
@@ -144,9 +156,10 @@ export function prepareArchiveCandidates(
   const activeUrlCounts = new Map();
   for (const record of normalizedActive) {
     if (record.canonical_job_id) {
+      const identityKey = canonicalIdentityKey(record.canonical_job_id);
       activeIdentityCounts.set(
-        record.canonical_job_id,
-        (activeIdentityCounts.get(record.canonical_job_id) || 0) + 1
+        identityKey,
+        (activeIdentityCounts.get(identityKey) || 0) + 1
       );
     }
     if (record.canonical_url) {
@@ -185,14 +198,16 @@ export function prepareArchiveCandidates(
       continue;
     }
     if (
-      activeIdentityCounts.get(record.canonical_job_id) !== 1 ||
+      activeIdentityCounts.get(
+        canonicalIdentityKey(record.canonical_job_id)
+      ) !== 1 ||
       activeUrlCounts.get(record.canonical_url) !== 1
     ) {
       retained.push({ record, reason: "ambiguous_active_identity" });
       continue;
     }
     const existing =
-      archiveById.get(record.canonical_job_id) ||
+      archiveById.get(canonicalIdentityKey(record.canonical_job_id)) ||
       archiveByUrl.get(record.canonical_url);
     candidates.push({
       ...record,
@@ -245,7 +260,8 @@ export function prepareArchiveUpserts(
     }
     const matches = current.filter(
       (row) =>
-        String(row.canonical_job_id || "").trim() === identity ||
+        canonicalIdentityKey(row.canonical_job_id) ===
+          canonicalIdentityKey(identity) ||
         String(row.canonical_url || "").trim() === canonicalUrl
     );
     if (matches.length > 1) {
@@ -284,9 +300,10 @@ export function confirmArchiveDeletions(
     currentByRow.set(Number(raw.row_number), raw);
     const record = normalizeLegacyRecord(raw, schema, now);
     if (record.canonical_job_id) {
+      const identityKey = canonicalIdentityKey(record.canonical_job_id);
       currentIdentityCounts.set(
-        record.canonical_job_id,
-        (currentIdentityCounts.get(record.canonical_job_id) || 0) + 1
+        identityKey,
+        (currentIdentityCounts.get(identityKey) || 0) + 1
       );
     }
     if (record.canonical_url) {
@@ -312,7 +329,9 @@ export function confirmArchiveDeletions(
       continue;
     }
     if (
-      currentIdentityCounts.get(planned.canonical_job_id) !== 1 ||
+      currentIdentityCounts.get(
+        canonicalIdentityKey(planned.canonical_job_id)
+      ) !== 1 ||
       currentUrlCounts.get(planned.canonical_url) !== 1
     ) {
       rejected.push({ planned, reason: "ambiguous_active_identity" });
@@ -327,7 +346,8 @@ export function confirmArchiveDeletions(
     }
     const archiveMatches = archiveRecords.filter(
       (record) =>
-        record.canonical_job_id === planned.canonical_job_id ||
+        canonicalIdentityKey(record.canonical_job_id) ===
+          canonicalIdentityKey(planned.canonical_job_id) ||
         record.canonical_url === planned.canonical_url
     );
     if (archiveMatches.length > 1) {

@@ -117,6 +117,9 @@ test("eligible rows with unresolved processing claims remain active", () => {
 test("duplicate active identities cannot become archive candidates", () => {
   const duplicate = active({
     row_number: 6,
+    canonical_job_id: "ONLINEJOBS.PH:4001",
+    canonical_url:
+      "https://onlinejobs.ph/jobseekers/job/conflicting-4001",
     job_title: "Conflicting duplicate"
   });
   const plan = prepareArchiveCandidates(
@@ -331,7 +334,16 @@ test("archive upserts rebase current Archive-owned fields before writing", () =>
 
   const duplicate = prepareArchiveUpserts(
     [claimed],
-    [freshArchive, { ...freshArchive, row_number: 21 }],
+    [
+      freshArchive,
+      {
+        ...freshArchive,
+        row_number: 21,
+        canonical_job_id: "ONLINEJOBS.PH:4001",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/archive-conflict-4001"
+      }
+    ],
     schema,
     now
   );
@@ -400,7 +412,13 @@ test("source deletion rejects identities duplicated after planning", () => {
   const record = active();
   const plan = prepareArchiveCandidates([record], [], schema, { now });
   const candidate = plan.candidates[0];
-  const duplicateActive = { ...record, row_number: 6 };
+  const duplicateActive = {
+    ...record,
+    row_number: 6,
+    canonical_job_id: "ONLINEJOBS.PH:4001",
+    canonical_url:
+      "https://onlinejobs.ph/jobseekers/job/active-conflict-4001"
+  };
   const activeConflict = confirmArchiveDeletions(
     [candidate],
     [record, duplicateActive],
@@ -416,7 +434,10 @@ test("source deletion rejects identities duplicated after planning", () => {
 
   const duplicateArchive = {
     ...candidate.archive_record,
-    row_number: 21
+    row_number: 21,
+    canonical_job_id: "ONLINEJOBS.PH:4001",
+    canonical_url:
+      "https://onlinejobs.ph/jobseekers/job/archive-conflict-4001"
   };
   const archiveConflict = confirmArchiveDeletions(
     [candidate],
