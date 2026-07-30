@@ -366,6 +366,9 @@ compatible and reconcile on the next run.
   and the selected model also passes this disabled n8n smoke. Repository
   validation is offline and is not a substitute for that gate.
 - Exercise one direct, adjacent, unscorable, unavailable, and unsupported job.
+- Seed duplicate active rows whose canonical IDs differ only by case and whose
+  states would otherwise select different work stages. Confirm neither reaches
+  claim creation, job-detail retrieval, or Groq.
 - Feed a login/challenge body through the detail parser and confirm it records
   an evaluation-stage failure for bounded retry; confirm a recognizable job
   page that merely lacks a description still routes to `unscorable`.

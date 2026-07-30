@@ -177,6 +177,8 @@ repeating an ambiguous write.
 
 Eligible records are split into generation and deterministic-evaluation queues.
 Each 90-minute execution selects at most one from each queue, so a generation
+and evaluation candidate with the same case-folded identity are both withheld
+as ambiguous before claims or external requests. Otherwise, a generation
 backlog cannot consume the evaluation slot and the Groq path remains capped at
 one. Within either queue, fresh work retains opportunity score, confidence,
 posting time, creation time, and canonical-identity priority. Once work has

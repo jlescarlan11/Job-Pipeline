@@ -877,6 +877,37 @@ test("stage caps guarantee bounded evaluation progress beside generation work", 
   );
 });
 
+test("work selection rejects ambiguous folded identities across stages", () => {
+  const selected = selectWorkCandidates(
+    [
+      {
+        row_number: 1,
+        canonical_job_id: "onlinejobs.ph:ambiguous-identity",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/ambiguous-identity-3191",
+        pipeline_status: "discovered"
+      },
+      {
+        row_number: 2,
+        canonical_job_id: "ONLINEJOBS.PH:AMBIGUOUS-IDENTITY",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/changed-slug-3191",
+        pipeline_status: "recommended",
+        opportunity_score: 99
+      }
+    ],
+    schema,
+    {
+      now,
+      stageCaps: {
+        generation: 1,
+        evaluation: 1
+      }
+    }
+  );
+  assert.deepEqual(selected, []);
+});
+
 test("fresh work keeps score priority while aged and malformed work cannot starve", () => {
   const fairNow = "2026-07-30T10:00:00.000Z";
   const base = {

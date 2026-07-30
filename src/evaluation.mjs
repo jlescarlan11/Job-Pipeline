@@ -78,6 +78,13 @@ function normalizeText(value) {
     .trim();
 }
 
+function canonicalIdentityKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
+}
+
 function includesAlias(text, aliases) {
   return aliases.some((alias) => {
     const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -1397,8 +1404,24 @@ export function selectWorkCandidates(
 ) {
   const nowMs = Date.parse(now);
   const candidates = [];
-  for (const raw of rawRows) {
-    const record = normalizeLegacyRecord(raw, schema, now);
+  const normalizedRows = rawRows.map((raw) => ({
+    raw,
+    record: normalizeLegacyRecord(raw, schema, now)
+  }));
+  const identityCounts = new Map();
+  for (const { record } of normalizedRows) {
+    const identityKey = canonicalIdentityKey(record.canonical_job_id);
+    if (!identityKey) continue;
+    identityCounts.set(
+      identityKey,
+      (identityCounts.get(identityKey) || 0) + 1
+    );
+  }
+  for (const { raw, record } of normalizedRows) {
+    const identityKey = canonicalIdentityKey(record.canonical_job_id);
+    if (!identityKey || identityCounts.get(identityKey) !== 1) {
+      continue;
+    }
     if (record.application_decision || ["applied", "skipped", "archived"].includes(record.pipeline_status)) {
       continue;
     }
