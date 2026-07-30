@@ -517,6 +517,19 @@ export function chooseWinningClaims(proposedRecords, allClaims, now = new Date()
       record?.processing_stage || record?.work_stage || ""
     ).trim()}`;
   const nowMs = Date.parse(now);
+  const expectedLeaseMsByKey = new Map();
+  for (const record of proposedRecords) {
+    const claimCreatedAt = Date.parse(
+      record?.claim_created_at ?? record?.created_at
+    );
+    const claimExpiresAt = Date.parse(
+      record?.claim_expires_at ?? record?.expires_at
+    );
+    const leaseMs = claimExpiresAt - claimCreatedAt;
+    if (Number.isFinite(leaseMs) && leaseMs > 0) {
+      expectedLeaseMsByKey.set(claimKey(record), leaseMs);
+    }
+  }
   const rowNumberCounts = new Map();
   for (const claim of allClaims) {
     const rowNumber = Number(claim?.row_number);
@@ -530,14 +543,18 @@ export function chooseWinningClaims(proposedRecords, allClaims, now = new Date()
     const createdAt = Date.parse(claim.created_at);
     const expiresAt = Date.parse(claim.expires_at);
     const rowNumber = Number(claim.row_number);
+    const expectedLeaseMs = expectedLeaseMsByKey.get(claimKey(claim));
     return (
       claim.canonical_job_id &&
       claim.processing_stage &&
       claim.processing_token &&
       Number.isFinite(createdAt) &&
       Number.isFinite(expiresAt) &&
+      createdAt <= nowMs &&
       expiresAt > createdAt &&
       expiresAt > nowMs &&
+      (!Number.isFinite(expectedLeaseMs) ||
+        expiresAt - createdAt <= expectedLeaseMs) &&
       Number.isInteger(rowNumber) &&
       rowNumber >= 2 &&
       rowNumberCounts.get(rowNumber) === 1

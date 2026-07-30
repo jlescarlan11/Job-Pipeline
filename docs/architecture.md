@@ -129,13 +129,14 @@ stage, state guard, manual action, and alert state still match exactly.
 `ProcessingClaims` is append-written. For a canonical job and stage, the
 lowest valid, uniquely addressed Sheet row number wins until its configured
 lease expires. Missing, header-range, duplicate, or non-integer row locators
-and inverted leases cannot own work. This arbitrates concurrent discovery,
-evaluation, generation, alert, archival, Applied Jobs projection, Analytics
-report-store, and Recommendation report-store executions without treating a
-mutable active-row number as identity. Shared arbitration compares canonical
-identities case-folded and emits at most one proposed record for each
-identity/stage, so case variants or repeated same-token proposals cannot fan
-out duplicate downstream work. The projection winner also performs fail-closed retention:
+and inverted, future-dated, or longer-than-configured leases cannot own work.
+This arbitrates concurrent discovery, evaluation, generation, alert, archival,
+Applied Jobs projection, Analytics report-store, and Recommendation
+report-store executions without treating a mutable active-row number as
+identity. Shared arbitration compares canonical identities case-folded and
+emits at most one proposed record for each identity/stage, so case variants or
+repeated same-token proposals cannot fan out duplicate downstream work. The
+projection winner also performs fail-closed retention:
 once 10,000 data rows exist, it can delete at most 1,000 uniquely addressed
 claim rows per run only after 30 days beyond expiry. Active/recent, malformed,
 unknown-stage, and duplicate-locator rows are preserved. Descending ranges are

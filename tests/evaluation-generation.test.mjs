@@ -1156,6 +1156,39 @@ test("append-only claims choose one concurrent owner deterministically", () => {
     [first.processing_token]
   );
 
+  const boundedLeaseWinner = chooseWinningClaims(
+    [
+      {
+        ...record,
+        processing_token: first.processing_token,
+        claim_created_at: now,
+        claim_expires_at: "2026-07-28T08:10:00.000Z"
+      }
+    ],
+    [
+      {
+        ...second,
+        processing_token: "future-claim",
+        row_number: 5,
+        created_at: "2026-07-28T08:00:01.000Z",
+        expires_at: "2026-07-28T08:10:01.000Z"
+      },
+      {
+        ...second,
+        processing_token: "overlong-claim",
+        row_number: 6,
+        created_at: "2026-07-28T07:59:00.000Z",
+        expires_at: "2026-07-28T08:20:00.000Z"
+      },
+      { ...first, row_number: 7 }
+    ],
+    now
+  );
+  assert.deepEqual(
+    boundedLeaseWinner.map((candidate) => candidate.processing_token),
+    [first.processing_token]
+  );
+
   const repeatedProposal = chooseWinningClaims(
     [
       { ...record, processing_token: first.processing_token },

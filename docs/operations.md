@@ -409,6 +409,8 @@ compatible and reconcile on the next run.
 - Add missing, header-range, duplicate, and non-integer claim row locators plus
   an inverted lease on the workbook copy. Confirm none can own work and the
   lowest valid uniquely addressed row still wins.
+- Add a future-dated claim and a claim whose duration exceeds the current
+  proposal's configured lease. Confirm neither can win or extend starvation.
 - On a disposable ready regeneration, pause after Generator marker
   confirmation, then let Alerter persist `sending`. Confirm Generator's
   pre-commit check rejects its stale alert snapshot and cannot restore
