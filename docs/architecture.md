@@ -95,6 +95,6 @@ All workflows use `Asia/Manila`, remain inactive in source control, retain faile
 | --- | ---: | ---: | ---: |
 | Scraper | 240 min, offset 8 | 900 s | 1,200 s |
 | Evaluator & Generator | 90 min, offset 2 | 480 s | 600 s |
-| Alerter & Mover | 15 min, offset 4 | 120 s | 180 s |
+| Alerter & Mover | 15 min, offset 14 | 120 s | 180 s |
 
 The timeout-weighted demand is 0.2847 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.

@@ -103,3 +103,17 @@ test("runtime validation rejects overlap, unbounded claims, and legacy schema", 
     /schema_version|claim lease|must not start together/
   );
 });
+
+test("generator and alerter schedules retain worst-case timeout separation", () => {
+  assert.equal(runtime.alerter_mover.schedule_offset_minutes, 14);
+  assert.match(
+    validateRuntimeConfig({
+      ...runtime,
+      alerter_mover: {
+        ...runtime.alerter_mover,
+        schedule_offset_minutes: 4
+      }
+    }).join(";"),
+    /generator and alerter_mover schedules must not overlap/
+  );
+});

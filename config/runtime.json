@@ -34,7 +34,7 @@
   },
   "alerter_mover": {
     "schedule_minutes": 15,
-    "schedule_offset_minutes": 4,
+    "schedule_offset_minutes": 14,
     "execution_timeout_seconds": 120,
     "claim_lease_ms": 180000,
     "movement_per_run_cap": 25,

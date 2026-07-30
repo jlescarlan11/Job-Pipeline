@@ -145,6 +145,43 @@ export function validateRuntimeConfig(runtime) {
       }
     }
   }
+  const generatorMinutes = scheduleMinuteSets.find(
+    ({ role }) => role === "generator"
+  )?.minutes;
+  const alerterMinutes = scheduleMinuteSets.find(
+    ({ role }) => role === "alerter_mover"
+  )?.minutes;
+  if (
+    generatorMinutes &&
+    alerterMinutes &&
+    positiveInteger(runtime.generator?.execution_timeout_seconds) &&
+    positiveInteger(runtime.alerter_mover?.execution_timeout_seconds)
+  ) {
+    const dayMinutes = 1440;
+    const generatorDuration = Math.ceil(
+      runtime.generator.execution_timeout_seconds / 60
+    );
+    const alerterDuration = Math.ceil(
+      runtime.alerter_mover.execution_timeout_seconds / 60
+    );
+    const overlaps = [...generatorMinutes].some((generatorMinute) =>
+      [...alerterMinutes].some((alerterMinute) => {
+        const alerterAfterGenerator =
+          (alerterMinute - generatorMinute + dayMinutes) % dayMinutes;
+        const generatorAfterAlerter =
+          (generatorMinute - alerterMinute + dayMinutes) % dayMinutes;
+        return (
+          alerterAfterGenerator < generatorDuration ||
+          generatorAfterAlerter < alerterDuration
+        );
+      })
+    );
+    if (overlaps) {
+      errors.push(
+        "generator and alerter_mover schedules must not overlap at configured timeouts"
+      );
+    }
+  }
   return errors;
 }
 
