@@ -2226,6 +2226,8 @@ test("analytics export publishes completion only after every idempotent detail w
     "Keep Winning Analytics Store Claim",
     "Get Analytics Reports",
     "Aggregate Analytics Reports",
+    "Get Existing Analytics Detail",
+    "Aggregate Existing Analytics Detail",
     "Get Active Rows",
     "Get Archive Rows",
     "Build Analytics Report",
@@ -2281,7 +2283,27 @@ test("analytics export publishes completion only after every idempotent detail w
   assertDirectConnection(
     workflow,
     "Aggregate Analytics Reports",
+    "Get Existing Analytics Detail"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Existing Analytics Detail",
+    "Aggregate Existing Analytics Detail"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Existing Analytics Detail",
     "Get Active Rows"
+  );
+  const existingDetails = nodeByName(
+    workflow,
+    "Get Existing Analytics Detail"
+  );
+  assert.equal(existingDetails.parameters.operation, "read");
+  assert.equal(existingDetails.onError, "continueRegularOutput");
+  assert.equal(
+    existingDetails.parameters.options.outputFormatting.values.general,
+    "FORMULA"
   );
   const details = nodeByName(workflow, "Upsert Analytics Rows");
   assert.equal(details.parameters.sheetName.value, analyticsPolicy.detail_sheet);
@@ -2405,7 +2427,10 @@ test("analytics export publishes completion only after every idempotent detail w
   assert.match(build, /outcome_events/);
   assert.match(build, /multi_touch_full_credit/);
   assert.match(build, /reusableAnalyticsReport/);
+  assert.match(build, /analyticsDetailPersistenceErrors/);
   assert.match(build, /reportHistoryReadFailed/);
+  assert.match(build, /detailHistoryReadFailed/);
+  assert.match(build, /detail_integrity_errors: reusableDetailErrors/);
   assert.match(build, /history_read_failed: reportHistoryReadFailed/);
   assert.doesNotMatch(build, /analytics report store could not be read/);
   assert.match(build, /publish_required: publishRequired/);
@@ -2446,6 +2471,8 @@ test("weekly recommender consumes only complete analytics and publishes versione
     "Keep Winning Recommendation Store Claim",
     "Get Recommendation Reports",
     "Aggregate Recommendation Reports",
+    "Get Existing Recommendation Detail",
+    "Aggregate Existing Recommendation Detail",
     "Get Analytics Reports",
     "Aggregate Analytics Reports",
     "Get Analytics Detail",
@@ -2509,7 +2536,34 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assertDirectConnection(
     workflow,
     "Aggregate Recommendation Reports",
+    "Get Existing Recommendation Detail"
+  );
+  assertDirectConnection(
+    workflow,
+    "Get Existing Recommendation Detail",
+    "Aggregate Existing Recommendation Detail"
+  );
+  assertDirectConnection(
+    workflow,
+    "Aggregate Existing Recommendation Detail",
     "Get Analytics Reports"
+  );
+  const existingRecommendationDetails = nodeByName(
+    workflow,
+    "Get Existing Recommendation Detail"
+  );
+  assert.equal(
+    existingRecommendationDetails.parameters.operation,
+    "read"
+  );
+  assert.equal(
+    existingRecommendationDetails.onError,
+    "continueRegularOutput"
+  );
+  assert.equal(
+    existingRecommendationDetails.parameters.options.outputFormatting.values
+      .general,
+    "FORMULA"
   );
   const reportRead = nodeByName(workflow, "Get Analytics Reports");
   const detailRead = nodeByName(workflow, "Get Analytics Detail");
@@ -2653,6 +2707,9 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assert.match(build, /buildRecommendationReport/);
   assert.match(build, /buildRecommendationFailure/);
   assert.match(build, /reusableRecommendationReport/);
+  assert.match(build, /recommendationDetailPersistenceErrors/);
+  assert.match(build, /recommendationDetailReadFailed/);
+  assert.match(build, /detail_integrity_errors: reusableDetailErrors/);
   assert.match(build, /history_read_failed: recommendationReportReadFailed/);
   assert.match(build, /publish_required: publishRequired/);
   assert.match(build, /source_read_failure/);

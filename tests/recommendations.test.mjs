@@ -505,6 +505,20 @@ test("successful reruns converge while failures retain attempt evidence", () => 
     )?.run_id,
     first.report.run_id
   );
+  const reusableDetailFields =
+    recommendationPolicy.recommendation_fields.filter(
+      (field) => field !== "generated_at"
+    );
+  assert.deepEqual(
+    recommendationDetailPersistenceErrors(
+      superseding.rows,
+      first.rows,
+      superseding.report,
+      reusableDetailFields
+    ),
+    [],
+    "volatile generation time must not invalidate intact reusable detail"
+  );
   assert.equal(
     reusableRecommendationReport(
       [

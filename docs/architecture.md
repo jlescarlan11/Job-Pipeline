@@ -574,12 +574,15 @@ Each distinct aggregate result receives a SHA-256 content-addressed report ID
 and deterministic detail IDs. The daily workflow first verifies
 `AnalyticsReports`; an exact compatible complete result is logged as unchanged
 and performs no analytic writes only when it is already the latest complete
-report. Missing, older, partial, incompatible, or malformed metadata cannot
-authorize that skip; returning to an older result republishes it as current.
-An unavailable history read also disables only the skip and is logged before
-the same idempotent publication path. Concurrent or recovered executions with
-the same result converge on the same IDs. After the writes, the workflow
-rereads Analytics with formulas visible and requires exactly one
+report and its stored semantic detail still has exactly one field-matching
+physical row per expected ID. Missing, older, partial, incompatible, or
+malformed metadata cannot authorize that skip; neither can missing,
+duplicated, case-variant, or mismatched detail. Returning to an older result
+republishes it as current. An unavailable metadata or detail-history read also
+disables only the skip and is logged before the same idempotent publication
+path. Concurrent or recovered executions with the same result converge on the
+same IDs. After the writes, the workflow rereads Analytics with formulas
+visible and requires exactly one
 field-matching physical row for every expected detail ID, with no extra row for
 that report, before it publishes `status=complete` metadata. A partial refresh cannot replace
 the last identifiable complete report; duplicated, case-variant, or mismatched
@@ -637,8 +640,11 @@ A successful analysis has a SHA-256 identity derived from its analytics report,
 recommendation policy, and profile version; successful overlap converges on
 that stable run/detail scope. If an exact compatible result is already the
 latest complete report, the weekly execution logs it as unchanged and performs
-no recommendation writes. A history-read failure disables only the skip.
-Returning to older evidence republishes it as current.
+no recommendation writes only when its stored semantic detail also has exactly
+one field-matching physical row per expected ID. Missing, duplicated,
+case-variant, or mismatched detail disables the shortcut and enters the normal
+repair-and-confirm path. A metadata or detail-history read failure likewise
+disables only the skip. Returning to older evidence republishes it as current.
 
 Recommendation history uses the same fail-closed retention boundary: cleanup
 starts at 80 report rows, keeps at least the newest 12 complete reports and 365

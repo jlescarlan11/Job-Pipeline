@@ -528,9 +528,12 @@ delivered.
 - Rerun an unchanged copied source at a later time. Confirm the same
   content-addressed report ID is selected, the execution logs
   `action=unchanged`, and neither `Analytics` nor `AnalyticsReports` receives a
-  write. Simulate an unavailable `AnalyticsReports` history read and confirm it
-  logs `history_read_failed=true`, disables only the unchanged optimization,
-  and republishes idempotently. Change one outcome and confirm a new result
+  write. Delete or alter one existing detail row, then add a case-variant
+  duplicate; each condition must disable the shortcut and enter the
+  repair-and-confirm path instead of logging unchanged. Simulate an unavailable
+  `AnalyticsReports` or `Analytics` history read and confirm it logs the
+  corresponding read failure, disables only the unchanged optimization, and
+  republishes idempotently. Change one outcome and confirm a new result
   publishes normally.
 - Start overlapping manual Analytics runs. Confirm both append
   `analytics_report_store` claims, only the lowest unexpired claim enters the
@@ -573,11 +576,15 @@ delivered.
   confirm each attempt publishes only `detail_write_failure`, never complete.
 - Rerun the same complete fixture at a later time and confirm the SHA-256
   `analysis_key`/successful `run_id` are stable, the execution logs
-  `action=unchanged`, and neither recommendation tab receives a write. Change
-  the source analytics report and confirm a new successful run publishes.
+  `action=unchanged`, and neither recommendation tab receives a write. Delete
+  or alter one existing detail row, then add a case-variant duplicate; each
+  condition must disable the shortcut and enter the repair-and-confirm path.
+  Change the source analytics report and confirm a new successful run
+  publishes.
 - Simulate a failed attempt and confirm its execution-scoped run remains
   non-authoritative. Simulate an unavailable RecommendationReports history read
-  and confirm the workflow publishes normally instead of suppressing work.
+  or Recommendations detail-history read and confirm the workflow publishes
+  normally instead of suppressing work.
 - In `RecommendationReports`, select the newest `status=complete` row, filter
   `Recommendations` to its `run_id`, and confirm a failed/partial later run
   cannot become the current internal report.

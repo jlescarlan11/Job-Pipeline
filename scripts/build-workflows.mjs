@@ -4993,6 +4993,24 @@ async function buildAnalytics() {
     mode: "name",
     cachedResultName: policy.detail_sheet
   };
+  const analyticsDetailHistoryRead =
+    structuredClone(analyticsWriteBase);
+  analyticsDetailHistoryRead.id =
+    "a13a17c5-0000-4000-8000-000000000033";
+  analyticsDetailHistoryRead.name = "Get Existing Analytics Detail";
+  analyticsDetailHistoryRead.position = [-980, 20];
+  analyticsDetailHistoryRead.parameters.operation = "read";
+  analyticsDetailHistoryRead.parameters.options = {
+    ...analyticsDetailHistoryRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  analyticsDetailHistoryRead.alwaysOutputData = true;
+  analyticsDetailHistoryRead.onError = "continueRegularOutput";
   const analyticsDetailConfirmationRead =
     structuredClone(analyticsWriteBase);
   analyticsDetailConfirmationRead.id =
@@ -5272,6 +5290,12 @@ const reportHistoryReadFailed = reportHistoryRows.some(
   (row) => row.error || row.errorMessage || row.error_description
 );
 const reportRows = reportHistoryReadFailed ? [] : reportHistoryRows;
+const detailHistoryRows = ($('Aggregate Existing Analytics Detail').first().json.analytics_detail_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const detailHistoryReadFailed = detailHistoryRows.some(
+  (row) => row.error || row.errorMessage || row.error_description
+);
+const detailRows = detailHistoryReadFailed ? [] : detailHistoryRows;
 const activeRows = ($('Aggregate Active Rows').first().json.active_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 const archiveRows = $input.all()
@@ -5285,15 +5309,35 @@ const report = buildAnalyticsReport(
   new Date().toISOString(),
   { runId: String($execution.id) }
 );
-const reusable = reportHistoryReadFailed
+const reusableMetadata = reportHistoryReadFailed
   ? undefined
   : reusableAnalyticsReport(reportRows, report.completion);
+const reusableDetailFields = POLICY.detail_fields.filter(
+  (field) => !['generated_at', 'window_end_at'].includes(field)
+);
+const reusableDetailErrors =
+  reusableMetadata && !detailHistoryReadFailed
+    ? analyticsDetailPersistenceErrors(
+        report.rows,
+        detailRows,
+        report.completion,
+        reusableDetailFields
+      )
+    : [];
+const reusable =
+  reusableMetadata &&
+  !detailHistoryReadFailed &&
+  reusableDetailErrors.length === 0
+    ? reusableMetadata
+    : undefined;
 const publishRequired = !reusable;
 console.log(JSON.stringify({
   event: 'analytics_report_built',
   report_id: report.completion.report_id,
   action: publishRequired ? 'publish' : 'unchanged',
   history_read_failed: reportHistoryReadFailed,
+  detail_history_read_failed: detailHistoryReadFailed,
+  detail_integrity_errors: reusableDetailErrors,
   records: report.completion.record_count,
   applications: report.completion.application_count,
   detail_rows: report.completion.detail_row_count,
@@ -5373,6 +5417,13 @@ return [{ json: completion }];`;
       name: "Aggregate Analytics Reports",
       position: [-1200, 240],
       destinationFieldName: "analytics_report_rows"
+    }),
+    analyticsDetailHistoryRead,
+    aggregateNode({
+      id: "a13a17c5-0000-4000-8000-000000000034",
+      name: "Aggregate Existing Analytics Detail",
+      position: [-760, 20],
+      destinationFieldName: "analytics_detail_rows"
     }),
     activeRead,
     aggregateNode({
@@ -5500,6 +5551,12 @@ return [{ json: completion }];`;
       main: [[connection("Aggregate Analytics Reports")]]
     },
     "Aggregate Analytics Reports": {
+      main: [[connection("Get Existing Analytics Detail")]]
+    },
+    "Get Existing Analytics Detail": {
+      main: [[connection("Aggregate Existing Analytics Detail")]]
+    },
+    "Aggregate Existing Analytics Detail": {
       main: [[connection("Get Active Rows")]]
     },
     "Get Active Rows": { main: [[connection("Aggregate Active Rows")]] },
@@ -5698,6 +5755,25 @@ async function buildRecommender() {
     mode: "name",
     cachedResultName: policy.recommendations_sheet
   };
+  const recommendationDetailHistoryRead =
+    structuredClone(recommendationWriteBase);
+  recommendationDetailHistoryRead.id =
+    "b14b18d6-0000-4000-8000-000000000034";
+  recommendationDetailHistoryRead.name =
+    "Get Existing Recommendation Detail";
+  recommendationDetailHistoryRead.position = [-980, 20];
+  recommendationDetailHistoryRead.parameters.operation = "read";
+  recommendationDetailHistoryRead.parameters.options = {
+    ...recommendationDetailHistoryRead.parameters.options,
+    outputFormatting: {
+      values: {
+        general: "FORMULA",
+        date: "FORMATTED_STRING"
+      }
+    }
+  };
+  recommendationDetailHistoryRead.alwaysOutputData = true;
+  recommendationDetailHistoryRead.onError = "continueRegularOutput";
   const recommendationDetailConfirmationRead =
     structuredClone(recommendationWriteBase);
   recommendationDetailConfirmationRead.id =
@@ -5988,6 +6064,11 @@ const recommendationReportRows = ($('Aggregate Recommendation Reports').first().
 const recommendationReportReadFailed = recommendationReportRows.some(
   (row) => row.error || row.errorMessage || row.error_description
 );
+const recommendationDetailRows = ($('Aggregate Existing Recommendation Detail').first().json.recommendation_rows || [])
+  .filter((row) => row && Object.keys(row).length > 0);
+const recommendationDetailReadFailed = recommendationDetailRows.some(
+  (row) => row.error || row.errorMessage || row.error_description
+);
 const reportRows = ($('Aggregate Analytics Reports').first().json.analytics_report_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 const analyticsRows = $input.all()
@@ -6017,15 +6098,35 @@ try {
       : 'The weekly recommendation analysis could not be completed.'
   });
 }
-const reusable = recommendationReportReadFailed
+const reusableMetadata = recommendationReportReadFailed
   ? undefined
   : reusableRecommendationReport(recommendationReportRows, result.report);
+const reusableDetailFields = POLICY.recommendation_fields.filter(
+  (field) => field !== 'generated_at'
+);
+const reusableDetailErrors =
+  reusableMetadata && !recommendationDetailReadFailed
+    ? recommendationDetailPersistenceErrors(
+        result.rows,
+        recommendationDetailRows,
+        result.report,
+        reusableDetailFields
+      )
+    : [];
+const reusable =
+  reusableMetadata &&
+  !recommendationDetailReadFailed &&
+  reusableDetailErrors.length === 0
+    ? reusableMetadata
+    : undefined;
 const publishRequired = !reusable;
 console.log(JSON.stringify({
   event: 'weekly_recommendation_report_built',
   run_id: result.report.run_id,
   action: publishRequired ? 'publish' : 'unchanged',
   history_read_failed: recommendationReportReadFailed,
+  detail_history_read_failed: recommendationDetailReadFailed,
+  detail_integrity_errors: reusableDetailErrors,
   status: result.report.status,
   result: result.report.result,
   recommendations: result.report.recommendation_count,
@@ -6127,6 +6228,13 @@ return [{ json: report }];`;
       name: "Aggregate Recommendation Reports",
       position: [-1200, 240],
       destinationFieldName: "recommendation_report_rows"
+    }),
+    recommendationDetailHistoryRead,
+    aggregateNode({
+      id: "b14b18d6-0000-4000-8000-000000000035",
+      name: "Aggregate Existing Recommendation Detail",
+      position: [-760, 20],
+      destinationFieldName: "recommendation_rows"
     }),
     reportsRead,
     aggregateNode({
@@ -6247,6 +6355,12 @@ return [{ json: report }];`;
       main: [[connection("Aggregate Recommendation Reports")]]
     },
     "Aggregate Recommendation Reports": {
+      main: [[connection("Get Existing Recommendation Detail")]]
+    },
+    "Get Existing Recommendation Detail": {
+      main: [[connection("Aggregate Existing Recommendation Detail")]]
+    },
+    "Aggregate Existing Recommendation Detail": {
       main: [[connection("Get Analytics Reports")]]
     },
     "Get Analytics Reports": {

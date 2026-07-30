@@ -478,6 +478,19 @@ test("analytics result identity is content-addressed and safely reusable", () =>
     reusableAnalyticsReport([existing], unchangedLater.completion)?.report_id,
     first.completion.report_id
   );
+  const reusableDetailFields = policy.detail_fields.filter(
+    (field) => !["generated_at", "window_end_at"].includes(field)
+  );
+  assert.deepEqual(
+    analyticsDetailPersistenceErrors(
+      unchangedLater.rows,
+      first.rows,
+      unchangedLater.completion,
+      reusableDetailFields
+    ),
+    [],
+    "volatile refresh timestamps must not invalidate intact reusable detail"
+  );
   assert.equal(
     reusableAnalyticsReport(
       [
