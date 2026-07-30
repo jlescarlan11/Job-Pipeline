@@ -335,7 +335,9 @@ Company, Score, Reason for review, Generated message, Job link, and Action.
 Hidden `canonical_job_id` and `source_state_guard` cells bind each displayed
 row to an authoritative source state; row position, title, and visible link
 text are never used as update identity. Only Action is intended for editing in
-this simplified surface.
+this simplified surface. Eligible source identities must match the canonical
+format and be case-fold unique before projection; malformed or ambiguous
+records stay off the operator surface and are reported as invalid.
 
 The queue contains the configured `ready`, `recommended`, and
 `review_required` states plus only retryable or terminal failures from the

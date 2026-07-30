@@ -1723,6 +1723,21 @@ test("simplified queue excludes ambiguous source identities instead of projectin
       duplicate,
       { ...duplicate, row_number: 9, job_title: "Conflicting duplicate" },
       job({
+        source_job_id: "case-variant",
+        canonical_job_id: "onlinejobs.ph:case-variant",
+        pipeline_status: "ready"
+      }),
+      job({
+        source_job_id: "case-variant",
+        canonical_job_id: "ONLINEJOBS.PH:CASE-VARIANT",
+        pipeline_status: "ready"
+      }),
+      job({
+        source_job_id: "malformed",
+        canonical_job_id: "malformed",
+        pipeline_status: "ready"
+      }),
+      job({
         source: "",
         source_job_id: "",
         canonical_job_id: "",
@@ -1741,6 +1756,9 @@ test("simplified queue excludes ambiguous source identities instead of projectin
     [
       "eligible review record has duplicate canonical identity",
       "eligible review record has duplicate canonical identity",
+      "eligible review record has duplicate canonical identity",
+      "eligible review record has duplicate canonical identity",
+      "eligible review record has invalid canonical identity",
       "eligible review record is missing canonical identity"
     ]
   );

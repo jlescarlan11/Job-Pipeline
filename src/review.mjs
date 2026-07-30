@@ -134,6 +134,13 @@ function validCanonicalIdentity(value) {
   );
 }
 
+function canonicalIdentityKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
+}
+
 function verifiedStateGuard(record) {
   const computed = stateGuard(record);
   const persisted = String(record?.state_guard || "").trim();
@@ -456,7 +463,8 @@ export function buildReviewQueueProjection(
   for (const record of records) {
     const identity = String(record.canonical_job_id || "").trim();
     if (identity) {
-      identityCounts.set(identity, (identityCounts.get(identity) || 0) + 1);
+      const key = canonicalIdentityKey(identity);
+      identityCounts.set(key, (identityCounts.get(key) || 0) + 1);
     }
   }
   const invalidRecords = [];
@@ -469,9 +477,16 @@ export function buildReviewQueueProjection(
       });
       return false;
     }
-    if (identityCounts.get(identity) !== 1) {
+    if (!validCanonicalIdentity(identity)) {
       invalidRecords.push({
-        canonical_job_id: identity,
+        canonical_job_id: safeReviewText(identity, 128),
+        error: "eligible review record has invalid canonical identity"
+      });
+      return false;
+    }
+    if (identityCounts.get(canonicalIdentityKey(identity)) !== 1) {
+      invalidRecords.push({
+        canonical_job_id: safeReviewText(identity, 128),
         error: "eligible review record has duplicate canonical identity"
       });
       return false;
