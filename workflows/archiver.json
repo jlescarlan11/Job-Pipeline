@@ -1437,7 +1437,9 @@
           "cachedResultName": "Sheet1",
           "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/edit#gid=0"
         },
-        "startIndex": "={{ $json.row_number }}"
+        "toDelete": "rows",
+        "startIndex": "={{ $json.row_number }}",
+        "numberToDelete": 1
       },
       "type": "n8n-nodes-base.googleSheets",
       "typeVersion": 4.7,

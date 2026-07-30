@@ -2198,7 +2198,9 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
     operation: "delete",
     documentId: structuredClone(activeRead.parameters.documentId),
     sheetName: structuredClone(activeRead.parameters.sheetName),
-    startIndex: "={{ $json.row_number }}"
+    toDelete: "rows",
+    startIndex: "={{ $json.row_number }}",
+    numberToDelete: 1
   };
 
   const nodes = [

@@ -1136,7 +1136,9 @@ test("archiver export upserts by identity and confirms the copy before bottom-up
   assert.equal(upsert.parameters.operation, "appendOrUpdate");
   assert.deepEqual(upsert.parameters.columns.matchingColumns, ["canonical_job_id"]);
   assert.equal(deleteRows.parameters.operation, "delete");
+  assert.equal(deleteRows.parameters.toDelete, "rows");
   assert.match(deleteRows.parameters.startIndex, /row_number/);
+  assert.equal(deleteRows.parameters.numberToDelete, 1);
   assertDirectConnection(
     workflow,
     "Keep Winning Archive Claims",
