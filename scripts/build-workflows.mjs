@@ -5162,13 +5162,12 @@ return [{ json: {
 
 const SCHEMA = ${JSON.stringify(schema)};
 const POLICY = ${JSON.stringify(policy)};
-const reportRows = ($('Aggregate Analytics Reports').first().json.analytics_report_rows || [])
+const reportHistoryRows = ($('Aggregate Analytics Reports').first().json.analytics_report_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
-if (reportRows.some(
+const reportHistoryReadFailed = reportHistoryRows.some(
   (row) => row.error || row.errorMessage || row.error_description
-)) {
-  throw new Error('analytics report store could not be read');
-}
+);
+const reportRows = reportHistoryReadFailed ? [] : reportHistoryRows;
 const activeRows = ($('Aggregate Active Rows').first().json.active_rows || [])
   .filter((row) => row && Object.keys(row).length > 0);
 const archiveRows = $input.all()
@@ -5182,12 +5181,15 @@ const report = buildAnalyticsReport(
   new Date().toISOString(),
   { runId: String($execution.id) }
 );
-const reusable = reusableAnalyticsReport(reportRows, report.completion);
+const reusable = reportHistoryReadFailed
+  ? undefined
+  : reusableAnalyticsReport(reportRows, report.completion);
 const publishRequired = !reusable;
 console.log(JSON.stringify({
   event: 'analytics_report_built',
   report_id: report.completion.report_id,
   action: publishRequired ? 'publish' : 'unchanged',
+  history_read_failed: reportHistoryReadFailed,
   records: report.completion.record_count,
   applications: report.completion.application_count,
   detail_rows: report.completion.detail_row_count,

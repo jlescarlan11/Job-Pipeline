@@ -2291,7 +2291,9 @@ test("analytics export publishes completion only after every idempotent detail w
   assert.match(build, /outcome_events/);
   assert.match(build, /multi_touch_full_credit/);
   assert.match(build, /reusableAnalyticsReport/);
-  assert.match(build, /analytics report store could not be read/);
+  assert.match(build, /reportHistoryReadFailed/);
+  assert.match(build, /history_read_failed: reportHistoryReadFailed/);
+  assert.doesNotMatch(build, /analytics report store could not be read/);
   assert.match(build, /publish_required: publishRequired/);
   const publishGuard = nodeByName(
     workflow,

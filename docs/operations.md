@@ -477,7 +477,10 @@ delivered.
 - Rerun an unchanged copied source at a later time. Confirm the same
   content-addressed report ID is selected, the execution logs
   `action=unchanged`, and neither `Analytics` nor `AnalyticsReports` receives a
-  write. Change one outcome and confirm a new result publishes normally.
+  write. Simulate an unavailable `AnalyticsReports` history read and confirm it
+  logs `history_read_failed=true`, disables only the unchanged optimization,
+  and republishes idempotently. Change one outcome and confirm a new result
+  publishes normally.
 - Start overlapping manual Analytics runs. Confirm both append
   `analytics_report_store` claims, only the lowest unexpired claim enters the
   report path, and a retry after the 35-minute lease can recover a crashed

@@ -20,7 +20,10 @@ ID, generation time, and moving all-time window end. Before publishing, the
 workflow reads `AnalyticsReports`; an exact compatible complete result ends as
 a successful unchanged refresh with no detail or completion writes only when
 that result is already the latest complete report. A missing, older, partial,
-incompatible, or malformed prior row never authorizes the skip.
+incompatible, or malformed prior row never authorizes the skip. If the history
+read itself is unavailable, the workflow logs that condition and safely
+disables only the optimization: content-addressed detail and completion
+upserts proceed normally.
 
 Detail rows are idempotently upserted to `Analytics` by `analytics_row_id`.
 Only after the workflow observes every expected detail write does it upsert

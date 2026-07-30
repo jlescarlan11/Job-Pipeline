@@ -518,8 +518,10 @@ and deterministic detail IDs. The daily workflow first verifies
 and performs no analytic writes only when it is already the latest complete
 report. Missing, older, partial, incompatible, or malformed metadata cannot
 authorize that skip; returning to an older result republishes it as current.
-Concurrent or recovered executions with the same result converge on the same
-IDs. Only after every expected detail write is observed does the workflow
+An unavailable history read also disables only the skip and is logged before
+the same idempotent publication path. Concurrent or recovered executions with
+the same result converge on the same IDs. Only after every expected detail
+write is observed does the workflow
 publish `status=complete` metadata, so a partial refresh cannot replace the
 last identifiable complete report. Analytic text is formula-neutralized and
 excludes descriptions, messages, credentials, provider payloads, contact
