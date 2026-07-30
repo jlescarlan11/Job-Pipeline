@@ -447,8 +447,12 @@ sources and both operator surfaces before reconciling them. Applied Jobs
 action snapshots, last-minute protection, and maintenance planning all group
 case variants as one identity. Maintenance never deletes or updates by
 `row_number`: desired records are
-upserted by `canonical_job_id`, and every cell update omits `Action`, so a user
-selection made during any workflow step cannot be erased. An append-written
+upserted by `canonical_job_id`. When one valid projection row already represents
+an identity, maintenance retains that row's exact stored identity spelling as
+the Sheets write key while source matching remains case-folded. This prevents
+an exact-key append-or-update from creating a case-variant duplicate. Every
+cell update omits `Action`, so a user selection made during any workflow step
+cannot be erased. An append-written
 `applied_jobs_projection` claim in `ProcessingClaims` selects one maintenance
 winner; the workflow's three-minute timeout is shorter than the four-minute
 lease. The winner clears stale generated cells and guards, rereads the sheet,

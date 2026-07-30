@@ -2037,6 +2037,15 @@ export function reconcileAppliedJobs(
   );
   const initialSnapshot = projectionActionSnapshot(initialAppliedRows);
   const currentSnapshot = projectionActionSnapshot(currentAppliedRows);
+  const stableProjectionRows = projection.rows.map((row) => {
+    const identityKey = canonicalIdentityKey(row.canonical_job_id);
+    const storedIdentity = String(
+      currentSnapshot.byIdentity.get(identityKey)?.row?.canonical_job_id || ""
+    ).trim();
+    return storedIdentity
+      ? { ...row, canonical_job_id: storedIdentity }
+      : row;
+  });
   const currentSources = new Map(
     selectAppliedJobSources(
       activeRows,
@@ -2050,7 +2059,7 @@ export function reconcileAppliedJobs(
     ])
   );
   const projectedByIdentity = new Map(
-    projection.rows.map((row) => [
+    stableProjectionRows.map((row) => [
       canonicalIdentityKey(row.canonical_job_id),
       row
     ])
@@ -2116,7 +2125,7 @@ export function reconcileAppliedJobs(
     });
   }
   return {
-    applied_rows: projection.rows.filter(
+    applied_rows: stableProjectionRows.filter(
       (row) => {
         const identityKey = canonicalIdentityKey(row.canonical_job_id);
         return (
@@ -2125,7 +2134,7 @@ export function reconcileAppliedJobs(
         );
       }
     ),
-    desired_rows: projection.rows,
+    desired_rows: stableProjectionRows,
     rebase_rows: rebaseRows,
     clear_rows: clearRows,
     protected_action_count: protectedRows.size,

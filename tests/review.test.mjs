@@ -2495,6 +2495,61 @@ test("Applied Jobs reconciliation preserves unconfirmed and concurrent actions",
   assert.equal(protectsLateEdit.protected_action_count, 1);
 });
 
+test("Applied Jobs preserves the unique stored identity spelling for exact upserts", () => {
+  const source = job({
+    row_number: 92,
+    source_job_id: "applied-case-upsert",
+    canonical_job_id: "onlinejobs.ph:applied-case-upsert",
+    pipeline_status: "applied",
+    application_decision: "applied",
+    application_decided_at: "2026-07-27T10:00:00.000Z",
+    outcome: "",
+    outcome_events: []
+  });
+  source.state_guard = stateGuard(source);
+  const projected = buildAppliedJobsProjection(
+    [source],
+    [],
+    schema,
+    view,
+    now
+  ).rows[0];
+  const storedIdentity = source.canonical_job_id.toUpperCase();
+  const current = {
+    ...projected,
+    row_number: 2,
+    canonical_job_id: storedIdentity,
+    "Job title": "Stale title"
+  };
+  const refresh = reconcileAppliedJobs(
+    [source],
+    [],
+    [current],
+    [current],
+    schema,
+    view,
+    now
+  );
+  assert.equal(refresh.applied_rows.length, 1);
+  assert.equal(refresh.applied_rows[0].canonical_job_id, storedIdentity);
+  assert.equal(refresh.applied_rows[0]["Job title"], source.job_title);
+  assert.equal(refresh.desired_rows[0].canonical_job_id, storedIdentity);
+
+  const lateAction = reconcileAppliedJobs(
+    [source],
+    [],
+    [{ ...current, Action: "Offer" }],
+    [{ ...current, Action: "" }],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(lateAction.applied_rows, []);
+  assert.equal(lateAction.rebase_rows.length, 1);
+  assert.equal(lateAction.rebase_rows[0].canonical_job_id, storedIdentity);
+  assert.equal(lateAction.rebase_rows[0].Action, "Offer");
+});
+
 test("Applied Jobs rebases a concurrent second action for the next guarded run", () => {
   const source = job({
     row_number: 96,
