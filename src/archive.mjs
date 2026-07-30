@@ -137,11 +137,29 @@ export function prepareArchiveCandidates(
     if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);
     if (record.canonical_url) archiveByUrl.set(record.canonical_url, record);
   }
+  const normalizedActive = activeRows.map((raw) =>
+    normalizeLegacyRecord(raw, schema, now)
+  );
+  const activeIdentityCounts = new Map();
+  const activeUrlCounts = new Map();
+  for (const record of normalizedActive) {
+    if (record.canonical_job_id) {
+      activeIdentityCounts.set(
+        record.canonical_job_id,
+        (activeIdentityCounts.get(record.canonical_job_id) || 0) + 1
+      );
+    }
+    if (record.canonical_url) {
+      activeUrlCounts.set(
+        record.canonical_url,
+        (activeUrlCounts.get(record.canonical_url) || 0) + 1
+      );
+    }
+  }
 
   const candidates = [];
   const retained = [];
-  for (const raw of activeRows) {
-    const record = normalizeLegacyRecord(raw, schema, now);
+  for (const record of normalizedActive) {
     if (record.pipeline_status === "retryable_error") {
       retained.push({ record, reason: "retryable_error" });
       continue;
@@ -164,6 +182,13 @@ export function prepareArchiveCandidates(
     }
     if (!record.canonical_job_id || !record.canonical_url || !record.row_number) {
       retained.push({ record, reason: "invalid_identity_or_row" });
+      continue;
+    }
+    if (
+      activeIdentityCounts.get(record.canonical_job_id) !== 1 ||
+      activeUrlCounts.get(record.canonical_url) !== 1
+    ) {
+      retained.push({ record, reason: "ambiguous_active_identity" });
       continue;
     }
     const existing =
@@ -253,14 +278,27 @@ export function confirmArchiveDeletions(
   now = new Date().toISOString()
 ) {
   const currentByRow = new Map();
+  const currentIdentityCounts = new Map();
+  const currentUrlCounts = new Map();
   for (const raw of currentActiveRows) {
     currentByRow.set(Number(raw.row_number), raw);
-  }
-  const archiveById = new Map();
-  for (const raw of currentArchiveRows) {
     const record = normalizeLegacyRecord(raw, schema, now);
-    if (record.canonical_job_id) archiveById.set(record.canonical_job_id, record);
+    if (record.canonical_job_id) {
+      currentIdentityCounts.set(
+        record.canonical_job_id,
+        (currentIdentityCounts.get(record.canonical_job_id) || 0) + 1
+      );
+    }
+    if (record.canonical_url) {
+      currentUrlCounts.set(
+        record.canonical_url,
+        (currentUrlCounts.get(record.canonical_url) || 0) + 1
+      );
+    }
   }
+  const archiveRecords = currentArchiveRows.map((raw) =>
+    normalizeLegacyRecord(raw, schema, now)
+  );
 
   const confirmed = [];
   const rejected = [];
@@ -269,9 +307,15 @@ export function confirmArchiveDeletions(
     const current = currentRaw
       ? normalizeLegacyRecord(currentRaw, schema, planned.source_snapshot_at || now)
       : undefined;
-    const archived = archiveById.get(planned.canonical_job_id);
     if (!current || current.canonical_job_id !== planned.canonical_job_id) {
       rejected.push({ planned, reason: "active_row_identity_changed" });
+      continue;
+    }
+    if (
+      currentIdentityCounts.get(planned.canonical_job_id) !== 1 ||
+      currentUrlCounts.get(planned.canonical_url) !== 1
+    ) {
+      rejected.push({ planned, reason: "ambiguous_active_identity" });
       continue;
     }
     if (
@@ -281,6 +325,16 @@ export function confirmArchiveDeletions(
       rejected.push({ planned, reason: "active_record_changed_after_plan" });
       continue;
     }
+    const archiveMatches = archiveRecords.filter(
+      (record) =>
+        record.canonical_job_id === planned.canonical_job_id ||
+        record.canonical_url === planned.canonical_url
+    );
+    if (archiveMatches.length > 1) {
+      rejected.push({ planned, reason: "ambiguous_archive_identity" });
+      continue;
+    }
+    const archived = archiveMatches[0];
     if (
       !archiveRecordIsComplete(archived) ||
       !archiveMatchesPlanned(archived, planned.archive_record, schema)

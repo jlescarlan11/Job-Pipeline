@@ -558,6 +558,9 @@ delivered.
   token.
   Seed a duplicate matching Archive identity and confirm the upsert is rejected
   while the active source remains.
+- Seed duplicate active identities before planning, then separately introduce a
+  duplicate active or Archive identity before final confirmation; confirm every
+  affected source row remains active with an ambiguity reason.
 - Change a source row after the plan and confirm deletion is rejected.
 - Confirm final deletions are bottom-up and all supported history exists in Archive.
 

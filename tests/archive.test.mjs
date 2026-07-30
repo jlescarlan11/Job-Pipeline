@@ -114,6 +114,24 @@ test("eligible rows with unresolved processing claims remain active", () => {
   );
 });
 
+test("duplicate active identities cannot become archive candidates", () => {
+  const duplicate = active({
+    row_number: 6,
+    job_title: "Conflicting duplicate"
+  });
+  const plan = prepareArchiveCandidates(
+    [active(), duplicate],
+    [],
+    schema,
+    { now }
+  );
+  assert.equal(plan.candidates.length, 0);
+  assert.deepEqual(
+    plan.retained.map((entry) => entry.reason),
+    ["ambiguous_active_identity", "ambiguous_active_identity"]
+  );
+});
+
 test("archive candidates preserve generated, evaluation, decision, and outcome data", () => {
   const record = active({
     match_score: 82,
@@ -376,6 +394,45 @@ test("source deletion requires exact cleared automation state in Archive", () =>
   assert.equal(result.confirmed.length, 0);
   assert.equal(result.rejected.length, 1);
   assert.equal(result.rejected[0].reason, "archive_copy_not_confirmed");
+});
+
+test("source deletion rejects identities duplicated after planning", () => {
+  const record = active();
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const candidate = plan.candidates[0];
+  const duplicateActive = { ...record, row_number: 6 };
+  const activeConflict = confirmArchiveDeletions(
+    [candidate],
+    [record, duplicateActive],
+    [candidate.archive_record],
+    schema,
+    now
+  );
+  assert.equal(activeConflict.confirmed.length, 0);
+  assert.equal(
+    activeConflict.rejected[0].reason,
+    "ambiguous_active_identity"
+  );
+
+  const duplicateArchive = {
+    ...candidate.archive_record,
+    row_number: 21
+  };
+  const archiveConflict = confirmArchiveDeletions(
+    [candidate],
+    [record],
+    [
+      { ...candidate.archive_record, row_number: 20 },
+      duplicateArchive
+    ],
+    schema,
+    now
+  );
+  assert.equal(archiveConflict.confirmed.length, 0);
+  assert.equal(
+    archiveConflict.rejected[0].reason,
+    "ambiguous_archive_identity"
+  );
 });
 
 test("a concurrent manual update blocks deletion until the archive copy is refreshed", () => {

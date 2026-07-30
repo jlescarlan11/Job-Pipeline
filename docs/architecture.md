@@ -602,13 +602,17 @@ record.
 
 For each winning archive claim:
 
-1. Merge with any existing archive history by canonical identity/legacy URL.
+1. Require one active canonical identity and URL, then merge with one existing
+   archive identity/legacy URL.
 2. Upsert the complete record into Archive by `canonical_job_id`.
 3. Reread Archive and Sheet1.
 4. Reject deletion if the active row identity changed, any supported source field changed after planning, or the archive copy is missing/stale.
 5. Delete confirmed Sheet1 rows in descending row order.
 
-An interrupted run may temporarily leave one copy in both tabs; retry reconciliation treats that as recoverable. It cannot authorize deletion merely because a minimal archive row exists.
+An interrupted run may temporarily leave one copy in both tabs; retry
+reconciliation treats that as recoverable. It cannot authorize deletion merely
+because a minimal archive row exists, or while either the active or Archive
+identity is ambiguous on the final reread.
 
 ## Physical storage and compatibility
 
