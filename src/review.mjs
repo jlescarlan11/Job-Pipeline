@@ -1910,6 +1910,14 @@ function projectionActionChanged(previousSnapshot, currentSnapshot, identity) {
   );
 }
 
+function projectionRowMatches(currentRow, desiredRow, fields) {
+  if (!currentRow || !desiredRow) return false;
+  return fields.every(
+    (field) =>
+      String(currentRow[field] ?? "") === String(desiredRow[field] ?? "")
+  );
+}
+
 function reviewQueueProjectionMatches(currentRows, desiredRows, fields) {
   if (
     !Array.isArray(currentRows) ||
@@ -2104,6 +2112,9 @@ export function reconcileAppliedJobs(
     if (identity) protectedIdentities.add(identityKey);
   }
   const appliedJobs = appliedJobsConfiguration(reviewConfig);
+  const refreshFields = (appliedJobs.fields || []).filter(
+    (field) => field !== "Action"
+  );
   const clearFields = (appliedJobs.fields || []).filter(
     (field) =>
       !["Action", "canonical_job_id"].includes(field)
@@ -2127,10 +2138,13 @@ export function reconcileAppliedJobs(
   return {
     applied_rows: stableProjectionRows.filter(
       (row) => {
-        const identityKey = canonicalIdentityKey(row.canonical_job_id);
+        const identity = row.canonical_job_id;
+        const identityKey = canonicalIdentityKey(identity);
+        const current = currentSnapshot.byIdentity.get(identityKey)?.row;
         return (
           !protectedIdentities.has(identityKey) &&
-          !currentSnapshot.duplicates.has(identityKey)
+          !currentSnapshot.duplicates.has(identityKey) &&
+          !projectionRowMatches(current, row, refreshFields)
         );
       }
     ),

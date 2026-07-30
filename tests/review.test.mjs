@@ -2810,6 +2810,22 @@ test("Applied Jobs reconciliation refreshes confirmed actions and empty state", 
   assert.equal(refreshed.applied_rows[0].Action, "");
   assert.equal(refreshed.protected_action_count, 0);
 
+  const stableProjection = {
+    ...refreshed.applied_rows[0],
+    row_number: 2
+  };
+  const unchangedProjection = reconcileAppliedJobs(
+    [],
+    [updated],
+    [stableProjection],
+    [stableProjection],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(unchangedProjection.applied_rows, []);
+  assert.equal(unchangedProjection.desired_rows.length, 1);
+
   const markerOnly = {
     ...source,
     processing_commit_guard: "commit:review:not-confirmed"
