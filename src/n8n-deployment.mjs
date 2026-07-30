@@ -23,7 +23,12 @@ const REQUIRED_ENVIRONMENT_KEYS = [
   "N8N_METRICS",
   "N8N_METRICS_INCLUDE_DEFAULT_METRICS",
   "N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL",
-  "N8N_METRICS_INCLUDE_QUEUE_METRICS"
+  "N8N_METRICS_INCLUDE_QUEUE_METRICS",
+  "N8N_RUNNERS_MODE",
+  "N8N_RUNNERS_MAX_CONCURRENCY",
+  "N8N_RUNNERS_TASK_TIMEOUT",
+  "N8N_RUNNERS_TASK_REQUEST_TIMEOUT",
+  "N8N_RUNNERS_HEARTBEAT_INTERVAL"
 ];
 const REQUIRED_MONITORING_THRESHOLDS = [
   "readiness_consecutive_failures",
@@ -320,6 +325,61 @@ export function validateN8nDeploymentPolicy(policy, configs) {
     errors.push("regular-mode policy must not claim scaling queue metrics");
   }
 
+  const taskRunner = policy.task_runner || {};
+  const runnerMaximumConcurrency = positiveInteger(
+    taskRunner.maximum_concurrency
+  );
+  const runnerTaskTimeout = positiveInteger(
+    taskRunner.task_timeout_seconds
+  );
+  const runnerTaskRequestTimeout = positiveInteger(
+    taskRunner.task_request_timeout_seconds
+  );
+  const runnerHeartbeatInterval = positiveInteger(
+    taskRunner.heartbeat_interval_seconds
+  );
+  if (
+    environment.N8N_RUNNERS_MODE !== "internal" ||
+    taskRunner.mode !== "internal"
+  ) {
+    errors.push(
+      "single-host regular-mode task runner must be explicitly configured in internal mode"
+    );
+  }
+  if (
+    !runnerMaximumConcurrency ||
+    !runnerTaskTimeout ||
+    !runnerTaskRequestTimeout ||
+    !runnerHeartbeatInterval
+  ) {
+    errors.push("task-runner bounds must be positive integers");
+  } else {
+    for (const [key, expected] of [
+      ["N8N_RUNNERS_MAX_CONCURRENCY", runnerMaximumConcurrency],
+      ["N8N_RUNNERS_TASK_TIMEOUT", runnerTaskTimeout],
+      ["N8N_RUNNERS_TASK_REQUEST_TIMEOUT", runnerTaskRequestTimeout],
+      ["N8N_RUNNERS_HEARTBEAT_INTERVAL", runnerHeartbeatInterval]
+    ]) {
+      if (String(expected) !== environment[key]) {
+        errors.push(`${key} must match task_runner`);
+      }
+    }
+    if (runnerTaskRequestTimeout >= runnerTaskTimeout) {
+      errors.push("task-runner request timeout must be shorter than task timeout");
+    }
+    if (runnerHeartbeatInterval >= runnerTaskRequestTimeout) {
+      errors.push(
+        "task-runner heartbeat interval must be shorter than request timeout"
+      );
+    }
+  }
+  if (
+    typeof taskRunner.deployment_reason !== "string" ||
+    !taskRunner.deployment_reason.trim()
+  ) {
+    errors.push("task-runner deployment reason must be recorded");
+  }
+
   const concurrencyLimit = positiveInteger(
     policy.capacity?.production_concurrency_limit
   );
@@ -331,6 +391,14 @@ export function validateN8nDeploymentPolicy(policy, configs) {
   );
   if (!concurrencyLimit) {
     errors.push("production concurrency limit must be a positive integer");
+  }
+  if (
+    concurrencyLimit &&
+    runnerMaximumConcurrency !== concurrencyLimit
+  ) {
+    errors.push(
+      "task-runner maximum concurrency must match production concurrency"
+    );
   }
   if (
     !Number.isFinite(maximumConcurrency) ||

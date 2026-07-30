@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v7",
+  "policy_version": "2026-07-30/v8",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-30",
   "official_sources": [
@@ -9,6 +9,8 @@
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
     "https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/monitor-n8n",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/enable-prometheus-metrics",
+    "https://docs.n8n.io/hosting/configuration/task-runners/",
+    "https://docs.n8n.io/hosting/configuration/environment-variables/task-runners/",
     "https://docs.n8n.io/build/flow-logic/handle-errors-gracefully",
     "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/",
     "https://docs.n8n.io/api/api-reference/",
@@ -30,7 +32,20 @@
     "N8N_METRICS": "true",
     "N8N_METRICS_INCLUDE_DEFAULT_METRICS": "true",
     "N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL": "true",
-    "N8N_METRICS_INCLUDE_QUEUE_METRICS": "false"
+    "N8N_METRICS_INCLUDE_QUEUE_METRICS": "false",
+    "N8N_RUNNERS_MODE": "internal",
+    "N8N_RUNNERS_MAX_CONCURRENCY": "3",
+    "N8N_RUNNERS_TASK_TIMEOUT": "300",
+    "N8N_RUNNERS_TASK_REQUEST_TIMEOUT": "20",
+    "N8N_RUNNERS_HEARTBEAT_INTERVAL": "15"
+  },
+  "task_runner": {
+    "mode": "internal",
+    "maximum_concurrency": 3,
+    "task_timeout_seconds": 300,
+    "task_request_timeout_seconds": 20,
+    "heartbeat_interval_seconds": 15,
+    "deployment_reason": "This single-host launchd deployment uses the current stable n8n internal runner because the official external task-runner launcher is Linux-only. The runner is explicitly bounded and must pass four consecutive scheduled Code-node smoke executions after every n8n upgrade."
   },
   "capacity": {
     "production_concurrency_limit": 3,

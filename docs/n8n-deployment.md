@@ -16,6 +16,14 @@ record the Cloud plan limit or create a separately reviewed queue-mode profile.
 n8n recommends worker concurrency of at least 5 in queue mode, while the
 regular-mode policy here sets the production concurrency limit to 3.
 
+This single-host launchd profile explicitly configures n8n's task runner in
+internal mode. It caps runner concurrency at the same 3-slot production limit,
+sets a 300-second Code-task timeout, a 20-second task-offer timeout, and a
+15-second heartbeat. The official external task-runner launcher is Linux-only,
+so it is not used on this macOS host. After every n8n upgrade, keep schedules
+inactive until one disposable scheduled Code workflow completes successfully
+four consecutive times, then delete that workflow before activation.
+
 The same policy defines stable structural signatures for all seven pipeline
 roles. They are used by the separate, evidence-driven cutover commands:
 
@@ -60,6 +68,11 @@ CLI, or error executions. Do not treat it as provider request concurrency:
 nodes within one workflow can still issue several requests. Existing workflow
 caps, pacing, provider timeouts, append-only claims, and commit guards remain
 the provider and record-safety boundaries.
+
+The task-runner cap is intentionally equal to the production concurrency
+limit. The deployment validator rejects a mode change, missing timeouts, a
+heartbeat that cannot arrive within the task-offer window, or concurrency
+drift between the two controls.
 
 ## Execution data and pruning
 
@@ -208,7 +221,8 @@ requires HTTPS except for a loopback n8n endpoint.
 
 Apply the template first in non-production, restart n8n, run the deployment
 validator inside the same runtime, and verify readiness plus internally
-scraped metrics. Create a controlled collision of disabled-copy executions and
+scraped metrics. Run the four-cycle disposable scheduled Code-node smoke gate.
+Create a controlled collision of disabled-copy executions and
 confirm FIFO release without a five-minute queue wait. Seed only synthetic
 failed executions and verify age/count pruning after the hard-delete buffer.
 Before activating the production exports, inspect each generated custom cron

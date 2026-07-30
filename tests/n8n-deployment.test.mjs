@@ -66,6 +66,14 @@ test("deployment policy bounds self-hosted concurrency and execution retention",
       policy.execution_retention.scheduled_failure_count_at_maximum_age
   );
   assert.equal(policy.monitoring.log_ingestion_required, true);
+  assert.equal(policy.task_runner.mode, "internal");
+  assert.equal(
+    policy.task_runner.maximum_concurrency,
+    policy.capacity.production_concurrency_limit
+  );
+  assert.equal(policy.task_runner.task_timeout_seconds, 300);
+  assert.equal(policy.task_runner.task_request_timeout_seconds, 20);
+  assert.equal(policy.task_runner.heartbeat_interval_seconds, 15);
   assert.deepEqual(
     policy.monitoring.workflow_events.provider_result_events,
     ["generator_result", "alert_delivery"]
@@ -116,6 +124,9 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
   invalid.workflow_cutover.roles =
     invalid.workflow_cutover.roles.slice(0, 6);
   invalid.failure_detection.central_error_workflow_bound = true;
+  invalid.task_runner.maximum_concurrency = 4;
+  invalid.task_runner.task_request_timeout_seconds = 15;
+  invalid.environment.N8N_RUNNERS_MAX_CONCURRENCY = "4";
   const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
   assert.match(errors, /execution pruning must be enabled/);
   assert.match(errors, /cannot retain the full age window/);
@@ -131,6 +142,30 @@ test("deployment policy rejects unbounded storage and exhausted capacity", () =>
   );
   assert.match(errors, /exactly seven unique roles/);
   assert.match(errors, /without a fabricated error-workflow binding/);
+  assert.match(
+    errors,
+    /task-runner maximum concurrency must match production concurrency/
+  );
+  assert.match(
+    errors,
+    /task-runner heartbeat interval must be shorter than request timeout/
+  );
+});
+
+test("deployment policy rejects unbounded or drifting task-runner controls", () => {
+  const invalid = structuredClone(policy);
+  invalid.task_runner.mode = "external";
+  invalid.task_runner.task_timeout_seconds = 0;
+  invalid.task_runner.deployment_reason = "";
+  invalid.environment.N8N_RUNNERS_MODE = "external";
+  invalid.environment.N8N_RUNNERS_TASK_REQUEST_TIMEOUT = "21";
+  const errors = validateN8nDeploymentPolicy(invalid, configs).join("\n");
+  assert.match(
+    errors,
+    /task runner must be explicitly configured in internal mode/
+  );
+  assert.match(errors, /task-runner bounds must be positive integers/);
+  assert.match(errors, /task-runner deployment reason must be recorded/);
 });
 
 test("deployment policy rejects phase-aligned scheduled bursts", () => {

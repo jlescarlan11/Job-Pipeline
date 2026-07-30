@@ -177,7 +177,13 @@ run must clear zero additional inputs.
    1-hour hard-delete buffer; readiness and metrics are internally reachable;
    workflow ID labels are present; and the validator reports a maximum
    scheduled burst of 2 with one slot of headroom. The exports do not activate
-   instance-level pruning or concurrency controls. For Cloud or queue mode,
+   instance-level pruning or concurrency controls. Confirm the task runner is
+   configured in internal mode with maximum concurrency 3, a 300-second task
+   timeout, a 20-second task-offer timeout, and a 15-second heartbeat. On this
+   single-host macOS launchd deployment, keep schedules inactive after every
+   n8n upgrade until a disposable scheduled Code workflow succeeds four
+   consecutive times; then deactivate and delete the disposable workflow.
+   For Cloud or queue mode,
    record the plan/worker controls and create a separately reviewed profile
    rather than claiming this one.
 10. Keep every old Scraper, Generator, Alerter, Reviewer, Archiver, Analytics,
