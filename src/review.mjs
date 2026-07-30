@@ -513,7 +513,8 @@ function groupSourceRecords(rows, schema, now, location) {
   for (const raw of rows) {
     const record = normalizeLegacyRecord(raw, schema, now);
     const identity = String(record.canonical_job_id || "").trim();
-    const entry = { raw, record, location };
+    const identityKey = canonicalIdentityKey(identity);
+    const entry = { raw, record, location, identity_key: identityKey };
     if (!validCanonicalIdentity(identity)) {
       if (record.application_decision === "applied") {
         invalid.push({
@@ -527,19 +528,19 @@ function groupSourceRecords(rows, schema, now, location) {
     }
     const guard = verifiedStateGuard(record);
     if (!guard.valid) {
-      tainted.add(identity);
+      tainted.add(identityKey);
       invalid.push({
         ...entry,
         error: "source record has stale state guard"
       });
       continue;
     }
-    const entries = groups.get(identity) || [];
+    const entries = groups.get(identityKey) || [];
     entries.push({
       ...entry,
       record: { ...record, state_guard: guard.computed }
     });
-    groups.set(identity, entries);
+    groups.set(identityKey, entries);
   }
   return { groups, invalid, tainted };
 }
@@ -579,12 +580,11 @@ function selectAppliedJobSources(
     ...archive.tainted
   ]);
 
-  for (const identity of identities) {
-    const activeEntries = active.groups.get(identity) || [];
-    const archiveEntries = archive.groups.get(identity) || [];
+  for (const identityKey of identities) {
+    const activeEntries = active.groups.get(identityKey) || [];
+    const archiveEntries = archive.groups.get(identityKey) || [];
     const invalidEntries = allInvalid.filter(
-      (entry) =>
-        String(entry.record?.canonical_job_id || "").trim() === identity
+      (entry) => entry.identity_key === identityKey
     );
     const includesApplied = [
       ...activeEntries,
@@ -595,20 +595,31 @@ function selectAppliedJobSources(
         entry.record.application_decision === appliedJobs.application_decision
     );
     if (!includesApplied) continue;
-    if (active.tainted.has(identity) || archive.tainted.has(identity)) {
+    if (
+      active.tainted.has(identityKey) ||
+      archive.tainted.has(identityKey)
+    ) {
       invalidRecords.push(
         ...invalidEntries.map((entry) => ({
           location: entry.location,
-          canonical_job_id: safeReviewText(identity, 128),
+          canonical_job_id: safeReviewText(
+            entry.record?.canonical_job_id || identityKey,
+            128
+          ),
           error: entry.error
         }))
       );
       continue;
     }
     if (activeEntries.length > 1 || archiveEntries.length > 1) {
+      const representative =
+        activeEntries[0]?.record || archiveEntries[0]?.record;
       invalidRecords.push({
         location: activeEntries.length > 1 ? "active" : "archive",
-        canonical_job_id: safeReviewText(identity, 128),
+        canonical_job_id: safeReviewText(
+          representative?.canonical_job_id || identityKey,
+          128
+        ),
         error: "eligible applied record has duplicate canonical identity"
       });
       continue;

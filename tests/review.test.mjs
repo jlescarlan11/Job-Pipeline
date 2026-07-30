@@ -431,6 +431,14 @@ test("Applied Jobs fails closed for ambiguous identities and neutralizes formula
   invalidActiveArchiveFallback.state_guard = stateGuard(
     invalidActiveArchiveFallback
   );
+  const caseVariant = job({
+    row_number: 14,
+    source_job_id: "applied-case-variant",
+    canonical_job_id: "onlinejobs.ph:applied-case-variant",
+    pipeline_status: "archived",
+    archived_from_status: "applied",
+    application_decision: "applied"
+  });
   const projection = buildAppliedJobsProjection(
     [staleGuard],
     [
@@ -439,7 +447,13 @@ test("Applied Jobs fails closed for ambiguous identities and neutralizes formula
       missingIdentity,
       formulaLike,
       invalidIdentity,
-      invalidActiveArchiveFallback
+      invalidActiveArchiveFallback,
+      caseVariant,
+      {
+        ...caseVariant,
+        row_number: 15,
+        canonical_job_id: "ONLINEJOBS.PH:APPLIED-CASE-VARIANT"
+      }
     ],
     schema,
     view,
@@ -453,6 +467,7 @@ test("Applied Jobs fails closed for ambiguous identities and neutralizes formula
   assert.deepEqual(
     projection.invalid_records.map((entry) => entry.error).sort(),
     [
+      "eligible applied record has duplicate canonical identity",
       "eligible applied record has duplicate canonical identity",
       "eligible applied record has invalid canonical identity",
       "eligible applied record is missing canonical identity",

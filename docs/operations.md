@@ -305,6 +305,7 @@ Slack HTTP node must remain an explicit JSON `POST`.
   outcome. Confirm Applied Jobs maintenance uses canonical-identity upserts and
   an append-only projection lease, never maps `Action` in a generated cell
   update, collapses a multi-row upsert before one final authoritative reread,
+  rejects case-variant duplicate applied sources before projection,
   and retires a blank stale row only when it still matches its
   identity-specific blank template inside the final atomic batch. Enter an
   Action after the final reread but before that batch and verify the row remains

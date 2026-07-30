@@ -394,7 +394,9 @@ active/archive overlap. Its eight visible columns are Applied at, Job title,
 Company, Generated message, Job link, Current outcome, Outcome updated at, and
 Action. Hidden canonical identity and source-state guards bind the projection
 to the source. Missing or duplicate identity fails closed and is logged instead
-of showing an ambiguous row.
+of showing an ambiguous row. Source grouping uses the same case-folded identity
+semantics as Sheets maintenance, so case variants cannot become separate
+operator rows.
 
 Friendly follow-up actions map to the existing explicit outcome transitions.
 The Reviewer rereads both sources, gives direct `Sheet1`/`Archive`
