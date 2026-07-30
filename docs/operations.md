@@ -436,6 +436,9 @@ compatible and reconcile on the next run.
   pack, and makes no Slack request.
 - Re-run the alerter and confirm the same canonical job/policy version does not
   receive a second initial alert.
+- Seed two eligible rows with case-variant canonical IDs and distinct URLs;
+  confirm neither reaches claim creation or Slack until the identity conflict
+  is repaired.
 - On the copied workbook, retain one prior-policy sent row and one
   prior-policy retryable row at attempt 2 with a future due time. Confirm the
   current Generator/Alerter do not requeue the sent row or move the retry

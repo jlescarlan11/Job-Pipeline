@@ -323,6 +323,23 @@ test("eligible committed packs are immediately queued with one idempotency key",
   const selected = selectAlertCandidates([queued], schema, policy, now);
   assert.equal(selected.candidates.length, 1);
   assert.equal(selected.candidates[0].delivery_mode, "deliver");
+
+  const ambiguous = selectAlertCandidates(
+    [
+      queued,
+      {
+        ...queued,
+        row_number: 3,
+        canonical_job_id: queued.canonical_job_id.toUpperCase(),
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/duplicate-alert-7001"
+      }
+    ],
+    schema,
+    policy,
+    now
+  );
+  assert.deepEqual(ambiguous.candidates, []);
 });
 
 test("rendered Slack alert preserves the complete copyable message and non-mutating actions", () => {

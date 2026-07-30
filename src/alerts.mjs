@@ -38,6 +38,13 @@ function cleanText(value, maximum = 500) {
     .slice(0, maximum);
 }
 
+function canonicalIdentityKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
+}
+
 export function alertIdempotencyKey(record, policy) {
   const canonicalId = String(record?.canonical_job_id || "").trim();
   return canonicalId && policy?.policy_version
@@ -390,8 +397,24 @@ export function selectAlertCandidates(
   messageSafetyContext
 ) {
   const selected = [];
-  for (const raw of rawRows) {
-    const record = normalizeLegacyRecord(raw, schema, now);
+  const normalizedRows = rawRows.map((raw) => ({
+    raw,
+    record: normalizeLegacyRecord(raw, schema, now)
+  }));
+  const identityCounts = new Map();
+  for (const { record } of normalizedRows) {
+    const identityKey = canonicalIdentityKey(record.canonical_job_id);
+    if (!identityKey) continue;
+    identityCounts.set(
+      identityKey,
+      (identityCounts.get(identityKey) || 0) + 1
+    );
+  }
+  for (const { raw, record } of normalizedRows) {
+    const identityKey = canonicalIdentityKey(record.canonical_job_id);
+    if (identityKey && identityCounts.get(identityKey) !== 1) {
+      continue;
+    }
     const safetyEligibility = evaluateAlertEligibility(
       record,
       policy,

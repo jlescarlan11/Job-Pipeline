@@ -287,7 +287,10 @@ delivery queue.
 The alerter claims at most the configured per-run cap through
 `ProcessingClaims`, marks a deliverable record `sending`, validates the
 environment-bound Slack webhook and authorized HTTPS review URL, and sends a
-length-bounded alert. The alert places the complete validated application
+length-bounded alert. Candidate identities must be case-fold unique across the
+fresh active snapshot; every case variant is withheld before claim creation so
+logically duplicate rows cannot produce separate provider deliveries. The alert
+places the complete validated application
 message in one copyable Slack code block and keeps one required `Open Review
 Queue` link plus the source link outside that block. Optional context uses explicit
 `Unknown`/`None detected` labels and includes scores, confidence, employer,
