@@ -307,6 +307,7 @@ Slack HTTP node must remain an explicit JSON `POST`.
   an append-only projection lease, never maps `Action` in a generated cell
   update, collapses a multi-row upsert before one final authoritative reread,
   rejects case-variant duplicate applied sources before projection,
+  fails closed if a case-variant duplicate appears during final reconciliation,
   and retires a blank stale row only when it still matches its
   identity-specific blank template inside the final atomic batch. Enter an
   Action after the final reread but before that batch and verify the row remains

@@ -414,7 +414,9 @@ stale guard data taints the whole identity instead of allowing Archive
 fallback. Archive actions use the same
 compare-and-commit sequence as active actions. The Reviewer then rereads both
 sources and both operator surfaces before reconciling them. Applied Jobs
-maintenance never deletes or updates by `row_number`: desired records are
+action snapshots, last-minute protection, and maintenance planning all group
+case variants as one identity. Maintenance never deletes or updates by
+`row_number`: desired records are
 upserted by `canonical_job_id`, and every cell update omits `Action`, so a user
 selection made during any workflow step cannot be erased. An append-written
 `applied_jobs_projection` claim in `ProcessingClaims` selects one maintenance

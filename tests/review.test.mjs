@@ -2758,6 +2758,26 @@ test("Applied Jobs final cleanup protects an Action entered after reconciliation
   assert.equal(unchanged.applied_rows.length, 1);
   assert.deepEqual(unchanged.applied_rebase_rows, []);
   assert.equal(unchanged.applied_last_minute_protected_actions, 0);
+
+  const ambiguous = finalizeAppliedJobsCleanup(
+    planned,
+    [projected],
+    [
+      latest,
+      {
+        ...projected,
+        row_number: 3,
+        canonical_job_id: projected.canonical_job_id.toUpperCase()
+      }
+    ]
+  );
+  assert.deepEqual(ambiguous.applied_clear_rows, []);
+  assert.deepEqual(ambiguous.applied_rows, []);
+  assert.deepEqual(ambiguous.applied_rebase_rows, []);
+  assert.match(
+    ambiguous.invalid_records.map((record) => record.error).join("\n"),
+    /duplicate canonical identity/
+  );
 });
 
 test("Applied Jobs action snapshots fail closed for missing and duplicate identities", () => {
@@ -2779,7 +2799,8 @@ test("Applied Jobs action snapshots fail closed for missing and duplicate identi
   const duplicateAction = {
     ...blank,
     row_number: 3,
-    Action: "Offer"
+    Action: "Offer",
+    canonical_job_id: source.canonical_job_id.toUpperCase()
   };
   const missingIdentityAction = {
     ...blank,

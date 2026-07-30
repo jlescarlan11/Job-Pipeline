@@ -1860,40 +1860,45 @@ function projectionActionSnapshot(rows, location = "applied_jobs") {
       }
       continue;
     }
-    const entries = grouped.get(identity) || [];
+    const identityKey = canonicalIdentityKey(identity);
+    const entries = grouped.get(identityKey) || [];
     entries.push({ row, action });
-    grouped.set(identity, entries);
+    grouped.set(identityKey, entries);
   }
 
   const byIdentity = new Map();
   const duplicates = new Set();
-  for (const [identity, entries] of grouped) {
+  for (const [identityKey, entries] of grouped) {
     if (entries.length !== 1) {
-      duplicates.add(identity);
+      duplicates.add(identityKey);
       if (entries.some((entry) => entry.action)) {
         invalidRecords.push({
           location,
-          canonical_job_id: safeReviewText(identity, 128),
+          canonical_job_id: safeReviewText(
+            entries[0]?.row?.canonical_job_id || identityKey,
+            128
+          ),
           error: "projection action has duplicate canonical identity"
         });
       }
       continue;
     }
-    byIdentity.set(identity, entries[0]);
+    byIdentity.set(identityKey, entries[0]);
   }
   return { byIdentity, duplicates, invalid_records: invalidRecords };
 }
 
 function projectionActionChanged(previousSnapshot, currentSnapshot, identity) {
+  const identityKey = canonicalIdentityKey(identity);
   if (
     !validCanonicalIdentity(identity) ||
-    previousSnapshot.duplicates.has(identity) ||
-    currentSnapshot.duplicates.has(identity)
+    previousSnapshot.duplicates.has(identityKey) ||
+    currentSnapshot.duplicates.has(identityKey)
   ) {
     return false;
   }
-  const previous = previousSnapshot.byIdentity.get(identity);
-  const current = currentSnapshot.byIdentity.get(identity);
+  const previous = previousSnapshot.byIdentity.get(identityKey);
+  const current = currentSnapshot.byIdentity.get(identityKey);
   return Boolean(
     previous &&
       current &&
@@ -2032,13 +2037,13 @@ export function reconcileAppliedJobs(
       reviewConfig,
       now
     ).sources.map(({ record }) => [
-      String(record.canonical_job_id || "").trim(),
+      canonicalIdentityKey(record.canonical_job_id),
       record
     ])
   );
   const projectedByIdentity = new Map(
     projection.rows.map((row) => [
-      String(row.canonical_job_id || "").trim(),
+      canonicalIdentityKey(row.canonical_job_id),
       row
     ])
   );
@@ -2049,13 +2054,14 @@ export function reconcileAppliedJobs(
     const action = String(row?.Action || "").trim();
     if (!action) continue;
     const identity = String(row.canonical_job_id || "").trim();
+    const identityKey = canonicalIdentityKey(identity);
     const actionAppearedAfterRead = projectionActionChanged(
       initialSnapshot,
       currentSnapshot,
       identity
     );
     const command = appliedJobsConfiguration(reviewConfig).actions?.[action];
-    const currentSource = currentSources.get(identity);
+    const currentSource = currentSources.get(identityKey);
     const sourceWriteConfirmed =
       currentSource &&
       Array.isArray(currentSource.outcome_events) &&
@@ -2066,11 +2072,11 @@ export function reconcileAppliedJobs(
     const rowNumber = Number(row.row_number);
     if (Number.isInteger(rowNumber) && rowNumber > 1) {
       protectedRows.add(rowNumber);
-      const projected = projectedByIdentity.get(identity);
+      const projected = projectedByIdentity.get(identityKey);
       if (
         actionAppearedAfterRead &&
         projected &&
-        !currentSnapshot.duplicates.has(identity)
+        !currentSnapshot.duplicates.has(identityKey)
       ) {
         rebaseRows.push({
           ...projected,
@@ -2078,7 +2084,7 @@ export function reconcileAppliedJobs(
         });
       }
     }
-    if (identity) protectedIdentities.add(identity);
+    if (identity) protectedIdentities.add(identityKey);
   }
   const appliedJobs = appliedJobsConfiguration(reviewConfig);
   const clearFields = (appliedJobs.fields || []).filter(
@@ -2086,24 +2092,30 @@ export function reconcileAppliedJobs(
       !["Action", "canonical_job_id"].includes(field)
   );
   const clearRows = [];
-  for (const [identity, entry] of currentSnapshot.byIdentity) {
+  for (const [identityKey, entry] of currentSnapshot.byIdentity) {
     if (
-      projectedByIdentity.has(identity) ||
-      protectedIdentities.has(identity) ||
+      projectedByIdentity.has(identityKey) ||
+      protectedIdentities.has(identityKey) ||
       entry.action
     ) {
       continue;
     }
     clearRows.push({
-      canonical_job_id: identity,
+      canonical_job_id: String(
+        entry.row?.canonical_job_id || ""
+      ).trim(),
       ...Object.fromEntries(clearFields.map((field) => [field, ""]))
     });
   }
   return {
     applied_rows: projection.rows.filter(
-      (row) =>
-        !protectedIdentities.has(row.canonical_job_id) &&
-        !currentSnapshot.duplicates.has(row.canonical_job_id)
+      (row) => {
+        const identityKey = canonicalIdentityKey(row.canonical_job_id);
+        return (
+          !protectedIdentities.has(identityKey) &&
+          !currentSnapshot.duplicates.has(identityKey)
+        );
+      }
     ),
     desired_rows: projection.rows,
     rebase_rows: rebaseRows,
@@ -2132,13 +2144,13 @@ export function finalizeAppliedJobsCleanup(
       ...(planned.applied_rows || []),
       ...(planned.applied_rebase_rows || []),
       ...(planned.applied_desired_rows || [])
-    ].map((row) => [String(row?.canonical_job_id || "").trim(), row])
+    ].map((row) => [canonicalIdentityKey(row?.canonical_job_id), row])
   );
   const protectedIdentities = new Set();
   const ambiguousIdentities = latestSnapshot.duplicates;
   const plannedRebaseByIdentity = new Map(
     (planned.applied_rebase_rows || []).map((row) => [
-      String(row?.canonical_job_id || "").trim(),
+      canonicalIdentityKey(row?.canonical_job_id),
       row
     ])
   );
@@ -2146,21 +2158,22 @@ export function finalizeAppliedJobsCleanup(
   for (const row of latest) {
     const action = String(row?.Action || "").trim();
     const identity = String(row?.canonical_job_id || "").trim();
+    const identityKey = canonicalIdentityKey(identity);
     if (action) {
       if (
         validCanonicalIdentity(identity) &&
-        !latestSnapshot.duplicates.has(identity)
+        !latestSnapshot.duplicates.has(identityKey)
       ) {
-        protectedIdentities.add(identity);
-        const desired = desiredByIdentity.get(identity);
-        const plannedRebase = plannedRebaseByIdentity.get(identity);
+        protectedIdentities.add(identityKey);
+        const desired = desiredByIdentity.get(identityKey);
+        const plannedRebase = plannedRebaseByIdentity.get(identityKey);
         const actionChangedSinceReconciliation = projectionActionChanged(
           previousSnapshot,
           latestSnapshot,
           identity
         );
         if (desired && (plannedRebase || actionChangedSinceReconciliation)) {
-          rebaseRows.set(identity, {
+          rebaseRows.set(identityKey, {
             ...(plannedRebase || desired),
             Action: action
           });
@@ -2174,15 +2187,15 @@ export function finalizeAppliedJobsCleanup(
     applied_rows: (planned.applied_rows || []).filter(
       (row) =>
         !ambiguousIdentities.has(
-          String(row?.canonical_job_id || "").trim()
+          canonicalIdentityKey(row?.canonical_job_id)
         )
     ),
     applied_clear_rows: (planned.applied_clear_rows || []).filter(
       (row) => {
-        const identity = String(row?.canonical_job_id || "").trim();
+        const identityKey = canonicalIdentityKey(row?.canonical_job_id);
         return (
-          !ambiguousIdentities.has(identity) &&
-          !protectedIdentities.has(identity)
+          !ambiguousIdentities.has(identityKey) &&
+          !protectedIdentities.has(identityKey)
         );
       }
     ),
