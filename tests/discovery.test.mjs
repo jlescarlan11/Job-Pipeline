@@ -192,15 +192,35 @@ test("active and archive legacy records prevent rediscovery without losing manua
   const active = [
     {
       row_number: 4,
-      job_url: "https://www.onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-1001",
+      canonical_job_id: "ONLINEJOBS.PH:1001",
+      job_url:
+        "https://www.onlinejobs.ph/jobseekers/job/legacy-slug-1001",
       status: "ready",
       generated_message: "Keep this message",
       search_queries: "legacy query"
     }
   ];
-  const reconciled = reconcileDiscovery([parsed], active, [], schema, now);
+  const archive = [
+    {
+      ...active[0],
+      row_number: 9,
+      canonical_job_id: "onlinejobs.ph:1001",
+      job_url:
+        "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-1001",
+      status: "archived",
+      archived_from_status: "ready"
+    }
+  ];
+  const reconciled = reconcileDiscovery(
+    [parsed],
+    active,
+    archive,
+    schema,
+    now
+  );
   assert.equal(reconciled.new_jobs.length, 0);
   assert.equal(reconciled.existing_updates.length, 1);
+  assert.equal(reconciled.existing_updates[0].location, "active");
   const update = reconciled.existing_updates[0].record;
   assert.equal(update.pipeline_status, "ready");
   assert.equal(update.generated_message, "Keep this message");

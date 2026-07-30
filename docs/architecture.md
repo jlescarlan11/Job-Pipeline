@@ -160,7 +160,9 @@ page cap while a next page exists is `partial`, never `complete`.
 Discovery reconciliation combines query and role-family provenance, updates
 `last_seen_at`, and preserves existing evaluation, message, manual decision,
 and outcome fields. Active and Archive legacy URLs participate in
-deduplication. Concurrent new rows pass through append-only discovery claims
+deduplication. Canonical IDs are compared case-folded, and an active record
+explicitly wins recoverable active/Archive overlap even when Archive has the
+newer URL slug. Concurrent new rows pass through append-only discovery claims
 before insertion. Discovery claim, active insert, and seen-update Sheet writes
 are single-attempt and fail closed: any reported write error fails the
 execution instead of escaping through an unconnected error output. The next

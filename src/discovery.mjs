@@ -401,6 +401,13 @@ function cloneDiscoveryJob(job) {
   };
 }
 
+function discoveryIdentityKey(value) {
+  return String(value || "")
+    .trim()
+    .normalize("NFKC")
+    .toLocaleLowerCase("en-US");
+}
+
 export function reconcileDiscovery(
   pageResults,
   activeRows,
@@ -409,6 +416,15 @@ export function reconcileDiscovery(
   now = new Date().toISOString()
 ) {
   const existing = new Map();
+  const registerExisting = (key, entry) => {
+    const current = existing.get(key);
+    if (
+      !current ||
+      (entry.location === "active" && current.location !== "active")
+    ) {
+      existing.set(key, entry);
+    }
+  };
   for (const [location, rows] of [
     ["active", activeRows],
     ["archive", archiveRows]
@@ -416,10 +432,18 @@ export function reconcileDiscovery(
     for (const raw of rows) {
       const normalized = normalizeLegacyRecord(raw, schema, now);
       if (normalized.canonical_job_id) {
-        existing.set(normalized.canonical_job_id, { location, raw, normalized });
+        registerExisting(discoveryIdentityKey(normalized.canonical_job_id), {
+          location,
+          raw,
+          normalized
+        });
       }
       if (normalized.canonical_url) {
-        existing.set(`url:${normalized.canonical_url}`, { location, raw, normalized });
+        registerExisting(`url:${normalized.canonical_url}`, {
+          location,
+          raw,
+          normalized
+        });
       }
     }
   }
@@ -431,12 +455,13 @@ export function reconcileDiscovery(
     malformedCount += page.malformed.length;
     excludedCount += page.excluded.length;
     for (const job of page.jobs) {
-      const current = discovered.get(job.canonical_job_id);
+      const identityKey = discoveryIdentityKey(job.canonical_job_id);
+      const current = discovered.get(identityKey);
       if (current) {
         current.search_queries = unionValues(current.search_queries, job.search_queries);
         current.role_families = unionValues(current.role_families, job.role_families);
       } else {
-        discovered.set(job.canonical_job_id, cloneDiscoveryJob(job));
+        discovered.set(identityKey, cloneDiscoveryJob(job));
       }
     }
   }
@@ -445,7 +470,7 @@ export function reconcileDiscovery(
   const existingUpdates = [];
   for (const job of discovered.values()) {
     const match =
-      existing.get(job.canonical_job_id) ||
+      existing.get(discoveryIdentityKey(job.canonical_job_id)) ||
       existing.get(`url:${job.canonical_url}`);
     if (match) {
       const updated = {

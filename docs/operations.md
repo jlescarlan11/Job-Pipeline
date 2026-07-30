@@ -348,6 +348,9 @@ compatible and reconcile on the next run.
   discovered rows, while the explicit empty-result fixture remains `empty`.
 - Record per-query complete/empty/partial/failed counts, unique jobs, active/archive duplicates, malformed cards, seniority exclusions, and discovery-claim losses.
 - Run the same fixture/input again and confirm canonical identity prevents a second row.
+- Seed a case-variant active identity with an older URL slug plus an overlapping
+  Archive copy; confirm rediscovery updates the active row by row number,
+  normalizes its identity/URL, and does not append or update Archive.
 - On the workbook copy, force each critical Sheet mutation to fail once:
   discovery-claim append, active-row append, active seen update, and Archive
   seen update. Confirm every case fails the n8n execution rather than reporting
