@@ -1,461 +1,254 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-
 import {
-  confirmArchiveDeletions,
-  prepareArchiveCandidates
-} from "../src/archive.mjs";
+  applySlackProviderResult,
+  markAlertSending,
+  renderSlackAlert,
+  selectFreshAlertCandidates
+} from "../src/alerter-mover.mjs";
 import {
+  createDiscoveryWindow,
   parseSearchResults,
-  reconcileDiscovery,
-  summarizeCoverage
+  reconcileDiscovery
 } from "../src/discovery.mjs";
+import { parseJobDetail } from "../src/evaluation.mjs";
 import {
-  applyEvaluation,
-  applyGeneratedApplicationPack,
-  buildApplicationPack,
-  buildApplicationRepairMessage,
-  evaluateJob,
-  parseJobDetail,
-  recordStageFailure,
-  validateGeneratedMessage
-} from "../src/evaluation.mjs";
+  applyValidatedGeneration,
+  claimGeneratorRecord,
+  commitGeneratorResult,
+  evaluateAndRoute,
+  prepareApplicationGeneration
+} from "../src/generator.mjs";
 import {
-  buildAppliedJobsProjection,
-  buildFunnelSummary,
-  buildReviewQueueProjection,
-  processReviewActions,
-  reconcileAppliedJobs,
-  reconcileReviewQueue
-} from "../src/review.mjs";
+  confirmMoveDeletions,
+  destinationWrites,
+  planQueueActions
+} from "../src/movement.mjs";
+import {
+  normalizeLegacyRecord,
+  stateGuard
+} from "../src/contracts.mjs";
 
-const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
-const loadText = async (path) => readFile(new URL(path, import.meta.url), "utf8");
-
-const profile = await loadJson("../config/candidate-profile.json");
-const policy = await loadJson("../config/application-policy.json");
-const rankingPolicy = await loadJson("../config/ranking-policy.json");
-const packPolicy = await loadJson("../config/application-pack-policy.json");
+const loadJson = async (path) =>
+  JSON.parse(await readFile(new URL(path, import.meta.url)));
 const schema = await loadJson("../config/pipeline-schema.json");
-const review = await loadJson("../config/review-sheet.json");
-const plan = await loadJson("../config/search-plan.json");
-const searchHtml = await loadText("./fixtures/search-page-1.html");
-const detailHtml = await loadText("./fixtures/job-direct.html");
+const profile = await loadJson("../config/candidate-profile.json");
+const rankingPolicy = await loadJson("../config/ranking-policy.json");
+const applicationPolicy = await loadJson("../config/application-policy.json");
+const packPolicy = await loadJson("../config/application-pack-policy.json");
+const runtime = (await loadJson("../config/runtime.json")).generator;
+const alertPolicy = await loadJson("../config/alert-policy.json");
+const directHtml = await readFile(
+  new URL("./fixtures/job-direct.html", import.meta.url),
+  "utf8"
+);
+const now = "2026-07-31T12:00:00.000Z";
+const window = createDiscoveryWindow(now);
+const safetyContext = { profile, applicationPolicy, packPolicy };
+const validMessage = `Hi there,
 
-const discoveredAt = "2026-07-28T04:00:00.000Z";
-const evaluatedAt = "2026-07-28T05:00:00.000Z";
-const generatedAt = "2026-07-28T05:05:00.000Z";
-const appliedAt = "2026-07-28T06:00:00.000Z";
-const archivedAt = "2026-07-28T06:45:00.000Z";
-const outcomeAt = "2026-07-30T03:00:00.000Z";
+I reduced API response time from 800 milliseconds to 150 milliseconds by fixing query and schema bottlenecks, and I have shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase. Rent N Roll also gave me experience building marketplace and PayMongo webhook workflows.
 
-const validMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
-
-Hi there,
-
-I reduced API response time from 800 milliseconds to 150 milliseconds by fixing N+1 query and schema bottlenecks, and I have shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase. Rent N Roll also gave me direct experience building marketplace and PayMongo webhook workflows.
-
-I can walk through the relevant implementation decisions in a short call.
+I would welcome a conversation about how my experience fits this role.
 
 LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
 
-test("one job traverses discovery through archived outcome with one canonical identity", () => {
-  const page = parseSearchResults(
-    searchHtml,
-    {
-      query_id: "typescript",
-      query: "typescript developer",
-      role_family: "full-stack",
-      evidence_refs: ["skills.languages:TypeScript"],
-      page_number: 1,
-      request_url: "https://www.onlinejobs.ph/jobseekers/jobsearch?jobkeyword=typescript+developer"
-    },
-    { now: discoveredAt, lookbackDays: plan.lookback_days }
-  );
-  const discovery = reconcileDiscovery([page], [], [], schema, discoveredAt);
-  assert.equal(discovery.new_jobs.length, 1);
-  const discovered = { ...discovery.new_jobs[0], row_number: 2 };
-  assert.equal(discovered.pipeline_status, "discovered");
+function searchCard(id, postedAt) {
+  return `<a href="/jobseekers/job/full-stack-${id}">
+    <div class="jobpost-cat-box">
+      <h4>Full-Stack TypeScript Developer</h4>
+      <em data-temp="${postedAt}">Posted on ${postedAt}</em>
+      <dd class="col">PHP 70,000 / month</dd>
+      <div class="desc">Build production TypeScript applications.</div>
+    </div>
+  </a>`;
+}
 
-  const parsedDetail = parseJobDetail(
-    detailHtml.replaceAll("2001", "1001"),
-    discovered
-  );
-  const enriched = {
-    ...parsedDetail,
-    job_description: `${parsedDetail.job_description} Choose any language: TypeScript, PHP, or Ruby.`
+test("fresh lifecycle reaches alert, manual applied move, outcome store, and dedup suppression", () => {
+  const request = {
+    keyword_id: "full-stack",
+    keyword: "full stack developer",
+    page_number: 1,
+    request_url: "https://www.onlinejobs.ph/jobseekers/jobsearch",
+    ...window
   };
-  assert.equal(enriched.canonical_job_id, discovered.canonical_job_id);
-  const evaluation = evaluateJob(enriched, profile, rankingPolicy, evaluatedAt);
-  assert.equal(
-    evaluation.requirement_gap_details.some((gap) =>
-      /PHP|Ruby/.test(gap.requirement)
-    ),
-    false
+  const page = parseSearchResults(
+    searchCard(6001, "2026-07-31T11:00:00.000Z"),
+    request
   );
-  const recommended = applyEvaluation(enriched, evaluation, evaluatedAt);
-  assert.equal(recommended.pipeline_status, "recommended");
-  assert.equal(recommended.canonical_job_id, discovered.canonical_job_id);
+  const discovery = reconcileDiscovery(
+    [page],
+    [],
+    [],
+    [],
+    schema,
+    now
+  );
+  assert.equal(discovery.new_jobs.length, 1);
+  let active = {
+    ...discovery.new_jobs[0],
+    row_number: 2
+  };
+  assert.equal(active.pipeline_status, "new");
 
-  assert.deepEqual(
-    validateGeneratedMessage(validMessage, { job: recommended, profile, policy }),
-    { valid: true, errors: [] }
-  );
-  const generating = { ...recommended, pipeline_status: "generating" };
-  const pack = buildApplicationPack(
-    generating,
+  active = parseJobDetail(directHtml, active);
+  active.source_job_id = "6001";
+  active.canonical_job_id = "onlinejobs.ph:6001";
+  active.canonical_url =
+    "https://onlinejobs.ph/jobseekers/job/full-stack-6001";
+  const claimed = claimGeneratorRecord(
+    active,
+    "evaluation",
+    "generator-e2e",
+    now,
+    runtime.claim_lease_ms
+  ).record;
+  const evaluated = evaluateAndRoute(
+    claimed,
     profile,
-    policy,
-    packPolicy,
-    generatedAt
+    rankingPolicy,
+    now
   );
-  const ready = applyGeneratedApplicationPack(
-    generating,
-    pack,
+  assert.equal(evaluated.pipeline_status, "processing");
+  const prepared = prepareApplicationGeneration(
+    evaluated,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  assert.equal(prepared.provider_required, true);
+  const proposedReady = applyValidatedGeneration(
+    evaluated,
+    prepared.pack,
     validMessage,
     profile,
-    policy,
+    applicationPolicy,
     packPolicy,
-    generatedAt
+    now
   );
-  assert.equal(ready.pipeline_status, "ready");
-  assert.equal(ready.application_pack_status, "ready");
-  assert.ok(ready.selected_proof_refs.length >= 2);
-  assert.equal(ready.canonical_job_id, discovered.canonical_job_id);
+  const ready = commitGeneratorResult(
+    claimed,
+    claimed,
+    proposedReady,
+    schema,
+    now
+  );
+  assert.equal(ready.pipeline_status, "ready_to_apply");
 
-  const activeReady = {
-    ...ready,
-    row_number: 2,
-    apply_points_input: 10,
-    application_message_strategy_input: "instruction-aware/v1"
-  };
-  const queue = buildReviewQueueProjection(
-    [activeReady],
+  const alerts = selectFreshAlertCandidates(
+    [ready],
     schema,
-    review,
-    appliedAt
+    alertPolicy,
+    now,
+    safetyContext
   );
-  assert.equal(queue.rows.length, 1);
-  assert.equal(queue.rows[0].Status, "ready");
-  const queueAction = {
-    ...queue.rows[0],
-    row_number: 2,
-    Action: "I Applied"
-  };
-  const reviewPlan = processReviewActions(
-    [activeReady],
-    [],
-    schema,
-    appliedAt,
-    {
-      profile,
-      applicationPolicy: policy,
-      packPolicy
-    },
-    {
-      queueRows: [queueAction],
-      reviewConfig: review,
-      executionId: "e2e-review"
-    }
+  assert.equal(alerts.candidates.length, 1);
+  const sending = markAlertSending(
+    ready,
+    alertPolicy,
+    "alerter-e2e",
+    now
   );
-  assert.equal(reviewPlan.invalid_actions.length, 0);
-  assert.equal(reviewPlan.active_updates.length, 1);
-  const activeApplied = reviewPlan.active_updates[0];
-  assert.equal(activeApplied.application_decision, "applied");
-  assert.equal(activeApplied.apply_points_used, 10);
-  assert.equal(activeApplied.application_snapshot_at, appliedAt);
-  assert.equal(
-    activeApplied.application_qualification_score,
-    ready.qualification_score
+  const payload = renderSlackAlert(sending, alertPolicy, {
+    reviewUrl:
+      "https://docs.google.com/spreadsheets/d/fresh-workbook/edit",
+    messageSafetyContext: safetyContext
+  });
+  assert.match(payload.text, /Application message — copy exactly/);
+  const sent = applySlackProviderResult(
+    sending,
+    sending,
+    { ok: true, reference: "e2e-slack" },
+    alertPolicy,
+    now
   );
-  const reconciledQueue = reconcileReviewQueue(
-    [activeApplied],
-    [queueAction],
-    [queueAction],
-    schema,
-    review,
-    appliedAt
-  );
-  assert.deepEqual(reconciledQueue.queue_rows, []);
-  assert.deepEqual(reconciledQueue.delete_rows, [{ row_number: 2 }]);
+  assert.equal(sent.alert_status, "sent");
 
-  const archivePlan = prepareArchiveCandidates([activeApplied], [], schema, { now: archivedAt });
-  assert.equal(archivePlan.candidates.length, 1);
-  const archiveRecord = archivePlan.candidates[0].archive_record;
-  assert.equal(archiveRecord.canonical_job_id, discovered.canonical_job_id);
-  const confirmation = confirmArchiveDeletions(
-    archivePlan.candidates,
-    [activeApplied],
-    [archiveRecord],
-    schema,
-    archivedAt
-  );
-  assert.deepEqual(confirmation.confirmed, [
-    { row_number: 2, canonical_job_id: discovered.canonical_job_id }
-  ]);
-
-  const appliedJobs = buildAppliedJobsProjection(
+  const actioned = { ...sent, user_action: "I Applied", row_number: 2 };
+  actioned.state_guard = stateGuard(actioned);
+  const movement = planQueueActions(
+    [actioned],
     [],
-    [{ ...archiveRecord, row_number: 2 }],
-    schema,
-    review,
-    outcomeAt
-  );
-  assert.equal(appliedJobs.rows.length, 1);
-  const appliedAction = {
-    ...appliedJobs.rows[0],
-    row_number: 2,
-    Action: "Offer"
-  };
-  const outcomePlan = processReviewActions(
     [],
-    [{ ...archiveRecord, row_number: 2 }],
     schema,
-    outcomeAt,
-    {
-      profile,
-      applicationPolicy: policy,
-      packPolicy
-    },
-    {
-      appliedJobsRows: [appliedAction],
-      reviewConfig: review,
-      executionId: "e2e-outcome"
-    }
+    now
   );
-  assert.equal(outcomePlan.invalid_actions.length, 0);
-  assert.equal(outcomePlan.archive_updates.length, 1);
-  const outcomeRecord = outcomePlan.archive_updates[0];
-  assert.equal(outcomeRecord.outcome, "offer");
-  assert.equal(outcomeRecord.application_decision, "applied");
-  assert.equal(outcomeRecord.generated_message, validMessage);
-  assert.deepEqual(
-    outcomeRecord.outcome_events.map((event) => event.type),
-    ["offer"]
-  );
-  const appliedReconciliation = reconcileAppliedJobs(
+  const writes = destinationWrites(movement);
+  assert.equal(writes.applied.length, 1);
+  const applied = { ...writes.applied[0], row_number: 2 };
+  const confirmation = confirmMoveDeletions(
+    movement,
+    [actioned],
+    [applied],
     [],
-    [outcomeRecord],
-    [appliedAction],
-    [appliedAction],
-    schema,
-    review,
-    outcomeAt,
-    {
-      processedActions: outcomePlan.processed_applied_actions,
-      confirmedCommitGuards: [
-        outcomePlan.archive_updates[0].processing_commit_guard
-      ]
-    }
+    schema
   );
-  assert.deepEqual(appliedReconciliation.clear_rows, []);
-  assert.equal(appliedReconciliation.applied_rows[0]["Current outcome"], "offer");
+  assert.equal(confirmation.deletions.length, 1);
 
   const rediscovered = reconcileDiscovery(
     [page],
     [],
-    [outcomeRecord],
+    [applied],
+    [],
     schema,
-    outcomeAt
+    "2026-07-31T13:00:00.000Z"
   );
   assert.equal(rediscovered.new_jobs.length, 0);
-  assert.equal(rediscovered.existing_updates.length, 1);
-  assert.equal(rediscovered.existing_updates[0].record.outcome, "offer");
-
-  const funnel = buildFunnelSummary([], [outcomeRecord], schema, outcomeAt);
-  assert.equal(funnel.total_unique_jobs, 1);
-  assert.equal(funnel.recommended, 1);
-  assert.equal(funnel.ready, 1);
-  assert.equal(funnel.applied, 1);
-  assert.equal(funnel.offer, 1);
+  assert.equal(rediscovered.terminal_suppressed, 1);
 });
 
-test("partial discovery and invalid generation remain visibly incomplete", () => {
-  const failedPage = {
-    query_id: "react",
-    query: "react developer",
-    role_family: "frontend",
-    page_number: 1,
-    ok: false,
-    jobs: [],
-    excluded: [],
-    malformed: [],
-    error_category: "rate_limit"
-  };
-  const localPlan = {
-    ...plan,
-    queries: [
-      {
-        id: "react",
-        query: "react developer",
-        role_family: "frontend",
-        enabled: true
-      }
-    ]
-  };
-  assert.equal(summarizeCoverage([failedPage], localPlan).status, "partial");
-
-  const job = parseJobDetail(detailHtml, {
-    canonical_url: "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001",
-    pipeline_status: "generating",
-    processing_stage: "generation",
-    processing_token: "claim"
-  });
-  const invalid = validateGeneratedMessage(
-    "I built FireCheck with WordPress. https://example.invalid",
-    { job, profile, policy }
-  );
-  assert.equal(invalid.valid, false);
-  const failed = recordStageFailure(
-    { ...job, generated_message: "" },
-    new Error(`validation: ${invalid.errors.join("; ")}`),
-    {
-      stage: "generation",
-      now: generatedAt,
-      maxAttempts: 3,
-      backoffMs: 300000
-    }
-  );
-  assert.equal(failed.pipeline_status, "terminal_error");
-  assert.equal(failed.generated_message, "");
-  assert.notEqual(failed.message_validation_status, "valid");
-});
-
-test("one bounded repair can recover an invalid draft without storing it or adding an attempt", () => {
-  const job = parseJobDetail(detailHtml, {
+test("review approval never bypasses generation and denial archives once", () => {
+  const reviewRecord = {
+    source: "onlinejobs.ph",
+    source_job_id: "6010",
+    canonical_job_id: "onlinejobs.ph:6010",
     canonical_url:
-      "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001",
-    pipeline_status: "generating",
-    processing_stage: "generation",
-    processing_token: "repair-claim",
-    attempt_count: 1
-  });
-  const pack = buildApplicationPack(
-    job,
-    profile,
-    policy,
-    packPolicy,
-    generatedAt
-  );
-  assert.equal(pack.application_pack_status, "ready");
-
-  const rejectedDraft =
-    "I can work 8:00–11:00 a.m. Pacific Time while learning Expo.";
-  const initialValidation = validateGeneratedMessage(rejectedDraft, {
-    job,
-    profile,
-    policy,
-    pack
-  });
-  assert.equal(initialValidation.valid, false);
-  const repairPrompt = buildApplicationRepairMessage(
-    rejectedDraft,
-    initialValidation.errors
-  );
-  assert.ok(repairPrompt.includes(rejectedDraft));
-  for (const error of initialValidation.errors) {
-    assert.ok(repairPrompt.includes(error));
-  }
-
-  assert.deepEqual(
-    validateGeneratedMessage(validMessage, {
-      job,
-      profile,
-      policy,
-      pack
-    }),
-    { valid: true, errors: [] }
-  );
-  const ready = applyGeneratedApplicationPack(
-    job,
-    pack,
-    validMessage,
-    profile,
-    policy,
-    packPolicy,
-    generatedAt
-  );
-  assert.equal(ready.pipeline_status, "ready");
-  assert.equal(ready.attempt_count, 1);
-  assert.equal(ready.generated_message, validMessage);
-  assert.notEqual(ready.generated_message, rejectedDraft);
-});
-
-test("a terminal generation failure stays reviewable until an explicit skip archives it", () => {
-  const failure = {
-    ...parseJobDetail(detailHtml, {
-      canonical_url:
-        "https://onlinejobs.ph/jobseekers/job/full-stack-typescript-developer-2001"
-    }),
-    row_number: 2,
-    pipeline_status: "terminal_error",
-    failed_stage: "generation",
-    attempt_count: 3,
-    error_category: "processing_failure",
-    error_summary:
-      "message_validation: unsupported availability or schedule commitment",
-    generated_message: "",
-    application_decision: ""
+      "https://onlinejobs.ph/jobseekers/job/application-support-6010",
+    row_number: 4,
+    record_version: 1,
+    pipeline_status: "review_needed",
+    user_action: "Approve",
+    source_availability: "active",
+    attempt_count: 0,
+    matched_keywords: ["application support engineer"],
+    match_reasons: ["Promising support experience"],
+    requirement_gaps: ["PHP"],
+    selected_proof_refs: [],
+    application_instructions: [],
+    screening_questions: [],
+    application_warnings: [],
+    decision_reason: "Promising with one preference gap",
+    required_input: "Confirm PHP is optional",
+    created_at: now,
+    updated_at: now
   };
-  const queue = buildReviewQueueProjection(
-    [failure],
-    schema,
-    review,
-    generatedAt
-  );
-  assert.equal(queue.rows.length, 1);
-  assert.equal(queue.rows[0].Status, "terminal_error");
-  assert.equal(queue.rows[0]["Generated message"], "");
+  const approved = normalizeLegacyRecord(reviewRecord, schema, now);
+  approved.state_guard = stateGuard(approved);
+  const approvalPlan = planQueueActions([approved], [], [], schema, now);
+  assert.equal(approvalPlan.moves.length, 0);
+  assert.equal(approvalPlan.generation_requests.length, 1);
 
-  const queueAction = {
-    ...queue.rows[0],
-    row_number: 2,
-    Action: "Skip"
+  const denied = {
+    ...approved,
+    user_action: "Deny",
+    record_version: approved.record_version + 1
   };
-  const reviewPlan = processReviewActions(
-    [failure],
+  denied.state_guard = stateGuard(denied);
+  const denialPlan = planQueueActions([denied], [], [], schema, now);
+  const archive = destinationWrites(denialPlan).archive[0];
+  assert.equal(archive.archive_reason, "review_denied");
+  assert.equal(archive.decision_reason, denied.decision_reason);
+  assert.deepEqual(archive.requirement_gaps, denied.requirement_gaps);
+  const confirmed = confirmMoveDeletions(
+    denialPlan,
+    [denied],
     [],
-    schema,
-    appliedAt,
-    {
-      profile,
-      applicationPolicy: policy,
-      packPolicy
-    },
-    {
-      queueRows: [queueAction],
-      reviewConfig: review,
-      executionId: "e2e-generation-recovery"
-    }
+    [{ ...archive, row_number: 2 }],
+    schema
   );
-  assert.deepEqual(reviewPlan.invalid_actions, []);
-  assert.equal(reviewPlan.active_updates.length, 1);
-  const skipped = reviewPlan.active_updates[0];
-  assert.equal(skipped.pipeline_status, "skipped");
-  assert.equal(skipped.application_decision, "skipped");
-
-  const reconciled = reconcileReviewQueue(
-    [skipped],
-    [queueAction],
-    [queueAction],
-    schema,
-    review,
-    appliedAt
-  );
-  assert.deepEqual(reconciled.queue_rows, []);
-
-  const archivePlan = prepareArchiveCandidates(
-    [skipped],
-    [],
-    schema,
-    { now: archivedAt }
-  );
-  assert.equal(archivePlan.candidates.length, 1);
-  assert.equal(
-    archivePlan.candidates[0].archive_record.archived_from_status,
-    "skipped"
-  );
+  assert.equal(confirmed.deletions.length, 1);
 });

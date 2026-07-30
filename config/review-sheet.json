@@ -1,261 +1,194 @@
 {
-  "schema_version": 1,
-  "view_version": "2026-07-29",
-  "schedule_minutes": 15,
-  "schedule_offset_minutes": 13,
-  "execution_timeout_seconds": 180,
-  "projection_claim_lease_ms": 240000,
-  "active_sheet": "Sheet1",
-  "archive_sheet": "Archive",
-  "claims_sheet": "ProcessingClaims",
-  "dashboard_sheet": "Dashboard",
-  "review_queue": {
-    "version": "2026-07-29/v2",
-    "sheet": "Review Queue",
-    "visible_columns": [
-      "Status",
-      "Job title",
-      "Company",
-      "Score",
-      "Reason for review",
-      "Generated message",
-      "Job link",
-      "Action"
-    ],
-    "hidden_columns": [
-      "canonical_job_id",
-      "source_state_guard"
-    ],
-    "fields": [
-      "Status",
-      "Job title",
-      "Company",
-      "Score",
-      "Reason for review",
-      "Generated message",
-      "Job link",
-      "Action",
-      "canonical_job_id",
-      "source_state_guard"
-    ],
-    "statuses": [
-      "ready",
-      "recommended",
-      "review_required"
-    ],
-    "generation_recovery": {
-      "statuses": [
-        "retryable_error",
-        "terminal_error"
-      ],
-      "failed_stage": "generation"
+  "schema_version": 2,
+  "view_version": "2026-07-31/v1",
+  "timezone": "Asia/Manila",
+  "sheets": {
+    "review_queue": {
+      "name": "Review Queue",
+      "visible": true,
+      "authoritative_for": "active",
+      "visible_columns": [
+        "pipeline_status",
+        "user_action",
+        "job_title",
+        "company",
+        "opportunity_score",
+        "decision_reason",
+        "required_input",
+        "generated_message",
+        "canonical_url",
+        "posted_at",
+        "matched_keywords",
+        "error_summary",
+        "notes"
+      ]
     },
-    "actions": {
-      "Generate Application": "promote",
-      "I Applied": "mark_applied",
-      "Skip": "mark_skipped"
+    "applied_jobs": {
+      "name": "Applied Jobs",
+      "visible": true,
+      "authoritative_for": "applied",
+      "visible_columns": [
+        "applied_at",
+        "job_title",
+        "company",
+        "generated_message",
+        "canonical_url",
+        "outcome",
+        "outcome_at",
+        "notes"
+      ]
     },
-    "reason_maximum_length": 500
+    "archive": {
+      "name": "Archive",
+      "visible": true,
+      "authoritative_for": "archived",
+      "visible_columns": [
+        "archived_at",
+        "archive_reason",
+        "job_title",
+        "company",
+        "decision_reason",
+        "canonical_url",
+        "notes"
+      ]
+    },
+    "system": {
+      "name": "_System",
+      "visible": false,
+      "authoritative_for": "short_lived_claims",
+      "fields": [
+        "claim_key",
+        "canonical_job_id",
+        "stage",
+        "token",
+        "created_at",
+        "expires_at"
+      ]
+    }
   },
-  "applied_jobs": {
-    "version": "2026-07-29/v1",
-    "sheet": "Applied Jobs",
-    "visible_columns": [
-      "Applied at",
-      "Job title",
-      "Company",
-      "Generated message",
-      "Job link",
-      "Current outcome",
-      "Outcome updated at",
-      "Action"
-    ],
-    "hidden_columns": [
-      "canonical_job_id",
-      "source_state_guard"
-    ],
-    "fields": [
-      "Applied at",
-      "Job title",
-      "Company",
-      "Generated message",
-      "Job link",
-      "Current outcome",
-      "Outcome updated at",
-      "Action",
-      "canonical_job_id",
-      "source_state_guard"
-    ],
-    "application_decision": "applied",
-    "actions": {
-      "No Response": "outcome_no_response",
-      "Replied": "outcome_replied",
-      "Interview": "outcome_interview",
-      "Offer": "outcome_offer",
-      "Rejected": "outcome_rejected",
-      "Clear Outcome": "clear_outcome"
-    },
-    "sort": [
-      {
-        "field": "application_decided_at",
-        "direction": "desc"
-      },
-      {
-        "field": "canonical_job_id",
-        "direction": "asc"
-      }
-    ]
-  },
-  "review_columns": [
+  "all_record_columns": [
+    "source",
+    "source_job_id",
+    "canonical_job_id",
+    "record_version",
+    "state_guard",
+    "canonical_url",
     "job_title",
     "company",
-    "canonical_url",
-    "posted_at",
+    "job_description",
     "salary_text",
-    "role_families",
-    "search_queries",
+    "posted_at",
+    "discovered_at",
+    "last_seen_at",
+    "matched_keywords",
+    "source_availability",
+    "pipeline_status",
+    "user_action",
+    "decision_reason",
+    "required_input",
     "qualification_score",
     "opportunity_score",
     "ranking_confidence",
-    "apply_points_recommendation",
-    "match_score",
-    "match_tier",
     "match_reasons",
     "requirement_gaps",
-    "requirement_gap_details",
-    "ranking_missing_signals",
-    "source_availability",
-    "pipeline_status",
+    "profile_version",
+    "policy_version",
+    "evaluated_at",
     "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "attempt_count",
+    "next_retry_at",
+    "error_category",
     "error_summary",
     "generated_message",
-    "manual_action",
-    "canonical_job_id",
-    "state_guard",
-    "processing_commit_guard",
-    "processing_token",
-    "apply_points_input",
-    "application_message_strategy_input",
-    "application_pack_status",
+    "message_validation_status",
+    "message_profile_version",
+    "message_policy_version",
+    "generated_at",
     "application_instructions",
     "screening_questions",
     "selected_proof_refs",
     "application_warnings",
+    "application_pack_status",
     "application_pack_version",
     "application_pack_profile_version",
     "application_pack_policy_version",
     "application_pack_generated_at",
-    "message_profile_version",
-    "application_decision",
-    "application_decided_at",
+    "alert_status",
+    "alert_idempotency_key",
+    "alert_attempt_count",
+    "alert_last_attempt_at",
+    "alert_next_retry_at",
+    "alert_sent_at",
+    "alert_provider_reference",
+    "alert_error_category",
+    "alert_error_summary",
+    "applied_at",
+    "archived_at",
+    "archive_reason",
     "outcome",
     "outcome_at",
-    "ranking_factors",
-    "scoring_policy_version",
-    "profile_version",
+    "notes",
     "created_at",
-    "last_seen_at",
     "updated_at"
   ],
-  "editable_columns": [
-    "apply_points_input",
-    "application_message_strategy_input",
-    "manual_action",
-    "notes"
-  ],
-  "hidden_columns": [
-    "state_guard",
-    "processing_commit_guard",
-    "processing_token"
-  ],
-  "manual_action_dropdown": [
+  "editable_columns": {
+    "Review Queue": [
+      "user_action",
+      "notes"
+    ],
+    "Applied Jobs": [
+      "outcome",
+      "notes"
+    ],
+    "Archive": [
+      "notes"
+    ]
+  },
+  "action_validation": {
+    "ready_to_apply": [
+      "",
+      "I Applied",
+      "Skip"
+    ],
+    "review_needed": [
+      "",
+      "Approve",
+      "Deny"
+    ],
+    "default": [
+      ""
+    ]
+  },
+  "outcome_validation": [
     "",
-    "mark_reviewed",
-    "promote",
-    "mark_applied",
-    "mark_skipped",
-    "retry",
-    "regenerate",
-    "outcome_no_response",
-    "outcome_replied",
-    "outcome_interview",
-    "outcome_offer",
-    "outcome_rejected",
-    "clear_outcome"
-  ],
-  "views": [
-    {
-      "name": "Priority Queue",
-      "statuses": [
-        "ready",
-        "recommended",
-        "review_required"
-      ],
-      "sort": [
-        {
-          "field": "opportunity_score",
-          "direction": "desc"
-        },
-        {
-          "field": "ranking_confidence",
-          "direction": "desc"
-        },
-        {
-          "field": "posted_at",
-          "direction": "desc"
-        }
-      ]
-    },
-    {
-      "name": "Needs Recovery",
-      "statuses": [
-        "retryable_error",
-        "terminal_error",
-        "unscorable",
-        "unavailable"
-      ],
-      "sort": [
-        {
-          "field": "updated_at",
-          "direction": "desc"
-        }
-      ]
-    },
-    {
-      "name": "Outcome Follow-up",
-      "application_decisions": [
-        "applied"
-      ],
-      "outcomes": [
-        "",
-        "no_response",
-        "replied",
-        "interview"
-      ],
-      "sort": [
-        {
-          "field": "application_decided_at",
-          "direction": "desc"
-        }
-      ]
-    }
-  ],
-  "dashboard_fields": [
-    "metric_key",
-    "generated_at",
-    "total_unique_jobs",
-    "discovered",
-    "recommended",
-    "review_required",
-    "ready",
-    "applied",
-    "skipped",
+    "no_response",
     "replied",
     "interview",
     "offer",
-    "rejected",
-    "retryable_error",
-    "terminal_error",
-    "unavailable"
-  ]
+    "rejected"
+  ],
+  "protection": {
+    "warning_only": true,
+    "generated_columns_protected": true,
+    "identity_columns_hidden": true
+  },
+  "fresh_start": {
+    "required_empty_data_sheets": [
+      "Review Queue",
+      "Applied Jobs",
+      "Archive"
+    ],
+    "forbidden_legacy_sheets": [
+      "Sheet1",
+      "Dashboard",
+      "Analytics",
+      "AnalyticsReports",
+      "Recommendations",
+      "RecommendationReports",
+      "ProcessingClaims"
+    ],
+    "imports_legacy_rows": false
+  }
 }

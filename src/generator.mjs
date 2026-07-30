@@ -1,0 +1,413 @@
+import {
+  buildApplicationPack,
+  buildApplicationSystemMessage,
+  buildApplicationUserMessage,
+  evaluateJob,
+  validateApplicationPack,
+  validateGeneratedMessage
+} from "./evaluation.mjs";
+import {
+  stateGuard,
+  validateRecordContract
+} from "./contracts.mjs";
+
+const MAX_REASON_LENGTH = 500;
+const MAX_ERROR_LENGTH = 240;
+
+function boundedText(value, maximum = MAX_REASON_LENGTH) {
+  return String(value || "")
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .replace(/\bauthorization\s*[:=]\s*(?:bearer\s+)?\S+/gi, "authorization=[redacted]")
+    .replace(/(?:authorization|api[-_ ]?key|token|secret|webhook)\s*[:=]\s*\S+/gi, "$1=[redacted]")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maximum);
+}
+
+function dueAt(record, nowMs) {
+  const parsed = Date.parse(record?.next_retry_at || "");
+  return !record?.next_retry_at || !Number.isFinite(parsed) || parsed <= nowMs;
+}
+
+function stageForCandidate(record) {
+  if (record.pipeline_status === "new") return "evaluation";
+  if (record.pipeline_status === "error") {
+    return record.processing_stage === "generation" ? "generation" : "evaluation";
+  }
+  if (
+    record.pipeline_status === "review_needed" &&
+    record.user_action === "Approve"
+  ) {
+    return "generation";
+  }
+  return "";
+}
+
+export function selectGeneratorCandidate(
+  rows,
+  schema,
+  runtime,
+  now = new Date().toISOString()
+) {
+  if (!Array.isArray(rows)) throw new Error("Review Queue rows must be an array");
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(nowMs)) throw new Error("Generator selection requires valid now");
+  const candidates = [];
+  const identities = new Set();
+  for (const record of rows) {
+    const errors = validateRecordContract(record, schema);
+    if (errors.length > 0) {
+      throw new Error(`Generator rejected invalid Review Queue row: ${boundedText(errors.join("; "))}`);
+    }
+    const identity = String(record.canonical_job_id)
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US");
+    if (identities.has(identity)) {
+      throw new Error("Generator rejected ambiguous duplicate Review Queue identity");
+    }
+    identities.add(identity);
+    if (record.processing_token) {
+      const startedAt = Date.parse(record.processing_started_at || "");
+      if (
+        Number.isFinite(startedAt) &&
+        nowMs - startedAt < runtime.claim_lease_ms
+      ) {
+        continue;
+      }
+    }
+    const stage = stageForCandidate(record);
+    if (!stage) continue;
+    if (record.pipeline_status === "error" && !dueAt(record, nowMs)) continue;
+    candidates.push({
+      record,
+      stage,
+      timestamp:
+        Date.parse(record.next_retry_at || record.created_at || record.discovered_at || "") ||
+        Number.POSITIVE_INFINITY
+    });
+  }
+  candidates.sort(
+    (left, right) =>
+      left.timestamp - right.timestamp ||
+      String(left.record.canonical_job_id).localeCompare(
+        String(right.record.canonical_job_id)
+      )
+  );
+  return candidates.slice(0, runtime.per_run_cap);
+}
+
+export function claimGeneratorRecord(
+  record,
+  stage,
+  executionId,
+  now,
+  leaseMs
+) {
+  if (!["evaluation", "generation"].includes(stage)) {
+    throw new Error("Generator claim stage is invalid");
+  }
+  if (!executionId || !Number.isInteger(leaseMs) || leaseMs < 1) {
+    throw new Error("Generator claim requires execution ID and positive lease");
+  }
+  if (record.processing_token) {
+    const started = Date.parse(record.processing_started_at || "");
+    if (Number.isFinite(started) && Date.parse(now) - started < leaseMs) {
+      return { claimed: false, record };
+    }
+  }
+  const token = `${executionId}:${record.canonical_job_id}:${stage}`;
+  const claimed = {
+    ...record,
+    // An approved review row stays review_needed while claimed. This keeps a
+    // last-moment Deny valid and visible; the commit guard will then abort.
+    pipeline_status:
+      record.pipeline_status === "review_needed"
+        ? "review_needed"
+        : "processing",
+    processing_stage: stage,
+    processing_token: token,
+    processing_started_at: now,
+    record_version: record.record_version + 1,
+    updated_at: now
+  };
+  claimed.state_guard = stateGuard(claimed);
+  return { claimed: true, record: claimed };
+}
+
+function evaluationReason(evaluation) {
+  const parts = [];
+  if (evaluation.match_reasons?.length) {
+    parts.push(evaluation.match_reasons.slice(0, 3).join("; "));
+  }
+  if (evaluation.requirement_gaps?.length) {
+    parts.push(`Gaps: ${evaluation.requirement_gaps.slice(0, 3).join("; ")}`);
+  }
+  return boundedText(parts.join(" | ") || "Evaluation completed");
+}
+
+function requiredInputForEvaluation(evaluation) {
+  if (evaluation.match_decision === "unscorable") {
+    return "A complete, available job description is required.";
+  }
+  if (evaluation.match_decision === "unavailable") {
+    return "The source listing must become available before reevaluation.";
+  }
+  if (evaluation.match_decision === "review_required") {
+    return boundedText(
+      evaluation.requirement_gaps?.length
+        ? `Review these gaps: ${evaluation.requirement_gaps.join("; ")}`
+        : "Confirm whether this promising listing should proceed."
+    );
+  }
+  return "";
+}
+
+export function evaluateAndRoute(
+  claimedRecord,
+  profile,
+  rankingPolicy,
+  now = new Date().toISOString()
+) {
+  if (
+    claimedRecord.processing_stage !== "evaluation" ||
+    !claimedRecord.processing_token
+  ) {
+    throw new Error("Evaluation requires a persisted evaluation claim");
+  }
+  const evaluation = evaluateJob(claimedRecord, profile, rankingPolicy, now);
+  const statusByDecision = {
+    recommended: "processing",
+    review_required: "review_needed",
+    not_recommended: "skip",
+    unscorable: "unavailable",
+    unavailable: "unavailable"
+  };
+  const pipelineStatus = statusByDecision[evaluation.match_decision];
+  if (!pipelineStatus) throw new Error("Evaluation returned an unsupported decision");
+
+  return {
+    ...claimedRecord,
+    qualification_score: evaluation.qualification_score,
+    opportunity_score: evaluation.opportunity_score,
+    ranking_confidence: evaluation.ranking_confidence,
+    match_reasons: evaluation.match_reasons,
+    requirement_gaps: evaluation.requirement_gaps,
+    profile_version: evaluation.profile_version,
+    policy_version: evaluation.scoring_policy_version,
+    evaluated_at: evaluation.evaluated_at,
+    decision_reason: evaluationReason(evaluation),
+    required_input: requiredInputForEvaluation(evaluation),
+    generated_message: claimedRecord.generated_message || "",
+    message_validation_status:
+      claimedRecord.message_validation_status || "",
+    pipeline_status: pipelineStatus,
+    processing_stage:
+      evaluation.match_decision === "recommended" ? "generation" : "",
+    error_category: "",
+    error_summary: "",
+    next_retry_at: "",
+    updated_at: now
+  };
+}
+
+function packRequiredInput(pack) {
+  const questions = (pack.screening_questions ?? [])
+    .map((question) => question.text)
+    .filter(Boolean);
+  const warnings = (pack.application_warnings ?? [])
+    .map((warning) => warning.summary)
+    .filter(Boolean);
+  return boundedText([...questions, ...warnings].join("; "));
+}
+
+export function prepareApplicationGeneration(
+  claimedRecord,
+  profile,
+  applicationPolicy,
+  packPolicy,
+  now = new Date().toISOString()
+) {
+  if (
+    claimedRecord.processing_stage !== "generation" ||
+    !claimedRecord.processing_token
+  ) {
+    throw new Error("Generation requires a persisted generation claim");
+  }
+  const pack = buildApplicationPack(
+    claimedRecord,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  const packErrors = validateApplicationPack(pack, profile, packPolicy);
+  if (packErrors.length > 0) {
+    throw new Error(`Application pack validation failed: ${boundedText(packErrors.join("; "))}`);
+  }
+  if (pack.application_pack_status !== "ready") {
+    return {
+      provider_required: false,
+      pack,
+      record: {
+        ...claimedRecord,
+        application_instructions: pack.application_instructions,
+        screening_questions: pack.screening_questions,
+        selected_proof_refs: pack.selected_proof_refs,
+        application_warnings: pack.application_warnings,
+        application_pack_status: pack.application_pack_status,
+        application_pack_version: pack.application_pack_version,
+        application_pack_profile_version:
+          pack.application_pack_profile_version,
+        application_pack_policy_version: pack.application_pack_policy_version,
+        application_pack_generated_at: pack.application_pack_generated_at,
+        generated_message: claimedRecord.generated_message || "",
+        message_validation_status:
+          claimedRecord.message_validation_status || "",
+        pipeline_status: "review_needed",
+        decision_reason: "Application requirements need human review.",
+        required_input: packRequiredInput(pack),
+        processing_stage: "",
+        error_category: "",
+        error_summary: "",
+        next_retry_at: "",
+        updated_at: now
+      }
+    };
+  }
+  return {
+    provider_required: true,
+    pack,
+    system_message: buildApplicationSystemMessage(profile, applicationPolicy),
+    user_message: buildApplicationUserMessage(claimedRecord, pack, {
+      maximumCharacters: packPolicy.maximum_description_characters,
+      maximumProofs: packPolicy.maximum_proofs
+    })
+  };
+}
+
+export function applyValidatedGeneration(
+  claimedRecord,
+  pack,
+  message,
+  profile,
+  applicationPolicy,
+  packPolicy,
+  now = new Date().toISOString()
+) {
+  const packErrors = validateApplicationPack(pack, profile, packPolicy);
+  const messageValidation = validateGeneratedMessage(message, {
+    job: claimedRecord,
+    profile,
+    policy: applicationPolicy,
+    pack
+  });
+  if (
+    pack.application_pack_status !== "ready" ||
+    packErrors.length > 0 ||
+    !messageValidation.valid
+  ) {
+    throw new Error(
+      `Generated application is not ready: ${boundedText(
+        [...packErrors, ...messageValidation.errors].join("; ")
+      )}`
+    );
+  }
+  return {
+    ...claimedRecord,
+    application_instructions: pack.application_instructions,
+    screening_questions: pack.screening_questions,
+    selected_proof_refs: pack.selected_proof_refs,
+    application_warnings: pack.application_warnings,
+    application_pack_status: "ready",
+    application_pack_version: pack.application_pack_version,
+    application_pack_profile_version: pack.application_pack_profile_version,
+    application_pack_policy_version: pack.application_pack_policy_version,
+    application_pack_generated_at: pack.application_pack_generated_at,
+    pipeline_status: "ready_to_apply",
+    generated_message: String(message || "").trim(),
+    message_profile_version: profile.profile_version,
+    message_policy_version: applicationPolicy.policy_version,
+    message_validation_status: "valid",
+    generated_at: now,
+    decision_reason: boundedText(
+      claimedRecord.decision_reason || "Validated application message is ready."
+    ),
+    required_input: "",
+    processing_stage: "",
+    error_category: "",
+    error_summary: "",
+    next_retry_at: "",
+    updated_at: now
+  };
+}
+
+function classifyFailure(error) {
+  const value = String(error?.message || error || "").toLowerCase();
+  if (/timeout|timed out|econnreset|network/.test(value)) return "provider_timeout";
+  if (/429|rate.?limit|quota/.test(value)) return "provider_rate_limit";
+  if (/401|403|unauthor|forbidden/.test(value)) return "provider_auth";
+  if (/validation|not ready|invalid|unsupported/.test(value)) return "validation_failure";
+  return "provider_failure";
+}
+
+export function recordGeneratorFailure(
+  claimedRecord,
+  error,
+  runtime,
+  now = new Date().toISOString()
+) {
+  const attemptCount = Number(claimedRecord.attempt_count || 0) + 1;
+  const retryable = attemptCount < runtime.retry.max_attempts;
+  return {
+    ...claimedRecord,
+    pipeline_status: "error",
+    processing_token: "",
+    processing_started_at: "",
+    attempt_count: attemptCount,
+    next_retry_at: retryable
+      ? new Date(Date.parse(now) + runtime.retry.backoff_ms).toISOString()
+      : "",
+    error_category: retryable
+      ? classifyFailure(error)
+      : `${classifyFailure(error)}_exhausted`,
+    error_summary: boundedText(error?.message || error, MAX_ERROR_LENGTH),
+    updated_at: now
+  };
+}
+
+export function commitGeneratorResult(
+  freshRecord,
+  claimedRecord,
+  proposedRecord,
+  schema,
+  now = new Date().toISOString()
+) {
+  if (
+    freshRecord.canonical_job_id !== claimedRecord.canonical_job_id ||
+    freshRecord.processing_token !== claimedRecord.processing_token ||
+    freshRecord.record_version !== claimedRecord.record_version ||
+    freshRecord.state_guard !== claimedRecord.state_guard ||
+    freshRecord.user_action !== claimedRecord.user_action
+  ) {
+    throw new Error("Generator commit rejected stale or changed Review Queue state");
+  }
+  const committed = {
+    ...freshRecord,
+    ...proposedRecord,
+    canonical_job_id: freshRecord.canonical_job_id,
+    canonical_url: freshRecord.canonical_url,
+    source_job_id: freshRecord.source_job_id,
+    user_action: "",
+    processing_token: "",
+    processing_started_at: "",
+    record_version: freshRecord.record_version + 1,
+    updated_at: now
+  };
+  committed.state_guard = stateGuard(committed);
+  const errors = validateRecordContract(committed, schema);
+  if (errors.length > 0) {
+    throw new Error(`Generator commit failed contract validation: ${boundedText(errors.join("; "))}`);
+  }
+  return committed;
+}

@@ -103,12 +103,16 @@ export function stateGuard(record) {
   const state = [
     canonicalId,
     String(record.pipeline_status || ""),
-    String(record.application_decision || ""),
-    String(record.first_reviewed_at || ""),
-    String(record.apply_points_used || ""),
-    String(record.application_message_strategy || ""),
+    String(record.user_action || ""),
+    String(record.record_version || ""),
+    String(record.processing_stage || ""),
+    String(record.processing_token || ""),
+    String(record.generated_at || ""),
+    String(record.alert_status || ""),
     String(record.outcome || ""),
-    JSON.stringify(Array.isArray(record.outcome_events) ? record.outcome_events : [])
+    String(record.applied_at || ""),
+    String(record.archived_at || ""),
+    String(record.archive_reason || "")
   ].join("\u001f");
   let hash = 2166136261;
   for (let index = 0; index < state.length; index += 1) {
@@ -229,12 +233,12 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   const legacyStatus = String(record.pipeline_status || "").trim().toLowerCase();
   record.pipeline_status =
     schema.legacy_status_mapping?.[legacyStatus] ||
-    (schema.pipeline_statuses.includes(legacyStatus) ? legacyStatus : "discovered");
+    (schema.pipeline_statuses.includes(legacyStatus) ? legacyStatus : "new");
   record.source = String(record.source || "onlinejobs.ph").trim().toLowerCase();
   record.canonical_url = normalizeCanonicalUrl(record.canonical_url || record.job_url);
   record.source_job_id = String(record.source_job_id || extractOnlineJobsId(record.canonical_url) || "");
   record.canonical_job_id = String(record.canonical_job_id || canonicalJobId(record));
-  for (const field of schema.string_list_fields ?? ["search_queries", "role_families"]) {
+  for (const field of schema.string_list_fields ?? ["matched_keywords"]) {
     record[field] = parseList(record[field]);
   }
   for (const field of schema.json_array_fields ?? []) {
@@ -246,21 +250,25 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   record.attempt_count = Number.isFinite(Number(record.attempt_count))
     ? Number(record.attempt_count)
     : 0;
+  record.record_version = Number.isInteger(Number(record.record_version)) && Number(record.record_version) > 0
+    ? Number(record.record_version)
+    : 1;
   record.alert_attempt_count = Number.isFinite(Number(record.alert_attempt_count))
     ? Number(record.alert_attempt_count)
     : 0;
   record.created_at = record.created_at || now;
   record.updated_at = record.updated_at || now;
-  record.source_availability = record.source_availability || "unknown";
-  record.profile_version = record.profile_version || "legacy/unknown";
+  record.source_availability = record.source_availability || "active";
+  record.profile_version =
+    record.profile_version ||
+    (schema.schema_version === 1 ? "legacy/unknown" : "");
   record.message_profile_version =
     record.message_profile_version ||
-    (record.generated_message ? "legacy/unknown" : "");
-  record.application_decision =
-    record.application_decision ||
-    (record.pipeline_status === "applied" ? "applied" : record.pipeline_status === "skipped" ? "skipped" : "");
+    (schema.schema_version === 1 && record.generated_message
+      ? "legacy/unknown"
+      : "");
   record.outcome = record.outcome || "";
-  record.manual_action = record.manual_action || "";
+  record.user_action = record.user_action || "";
   record.state_guard = record.state_guard || stateGuard(record);
   return record;
 }
@@ -373,6 +381,20 @@ export function validateRecordContract(record, schema) {
       errors.push(`${field} must be a valid timestamp`);
     }
   }
+  const canonicalUrl = normalizeCanonicalUrl(record?.canonical_url);
+  const expectedIdentity = canonicalJobId(record ?? {});
+  if (!canonicalUrl) errors.push("canonical_url is invalid");
+  if (!String(record?.source_job_id || "").trim()) {
+    errors.push("source_job_id is required");
+  }
+  if (!expectedIdentity || record?.canonical_job_id !== expectedIdentity) {
+    errors.push("canonical_job_id does not match the canonical source identity");
+  }
+  const allowedActions =
+    schema?.actions_by_status?.[record?.pipeline_status] ?? [];
+  if (!allowedActions.includes(record?.user_action ?? "")) {
+    errors.push("user_action is not supported for pipeline_status");
+  }
   return errors;
 }
 
@@ -387,7 +409,7 @@ export function applyValidatedRecordUpdate(record, updates, schema) {
 
 export function validatePipelineSchema(schema) {
   const errors = [];
-  if (schema?.schema_version !== 1) errors.push("schema_version must be 1");
+  if (schema?.schema_version !== 2) errors.push("schema_version must be 2");
   if (!Array.isArray(schema?.fields) || schema.fields.length === 0) errors.push("fields are required");
   if (!Array.isArray(schema?.pipeline_statuses) || schema.pipeline_statuses.length === 0) {
     errors.push("pipeline_statuses are required");
@@ -422,6 +444,32 @@ export function validatePipelineSchema(schema) {
   }
 
   const statuses = new Set(schema?.pipeline_statuses ?? []);
+  const businessResults = new Set(schema?.business_results ?? []);
+  const operationalConditions = new Set(schema?.operational_conditions ?? []);
+  if (businessResults.size !== 3 ||
+      !["ready_to_apply", "review_needed", "skip"].every((status) => businessResults.has(status))) {
+    errors.push("business_results must contain only ready_to_apply, review_needed, and skip");
+  }
+  if ([...businessResults].some((status) => operationalConditions.has(status))) {
+    errors.push("business results and operational conditions must be disjoint");
+  }
+  if (
+    [...businessResults, ...operationalConditions].some(
+      (status) => !statuses.has(status)
+    ) ||
+    statuses.size !== businessResults.size + operationalConditions.size
+  ) {
+    errors.push("pipeline_statuses must be exactly the business results and operational conditions");
+  }
+  const actions = new Set(schema?.user_actions ?? []);
+  if (
+    actions.size !== 5 ||
+    !["", "I Applied", "Skip", "Approve", "Deny"].every((action) =>
+      actions.has(action)
+    )
+  ) {
+    errors.push("user_actions must contain only the supported operator actions");
+  }
   for (const [from, destinations] of Object.entries(schema?.transitions ?? {})) {
     if (!statuses.has(from)) errors.push(`transition source is not a status: ${from}`);
     for (const to of destinations) {
@@ -430,6 +478,42 @@ export function validatePipelineSchema(schema) {
   }
   for (const status of statuses) {
     if (!(status in (schema?.transitions ?? {}))) errors.push(`missing transitions for status: ${status}`);
+    const supportedActions = schema?.actions_by_status?.[status];
+    if (!Array.isArray(supportedActions) || supportedActions.length === 0) {
+      errors.push(`missing actions_by_status for status: ${status}`);
+    } else if (supportedActions.some((action) => !actions.has(action))) {
+      errors.push(`actions_by_status contains an unsupported action for status: ${status}`);
+    }
+  }
+  return errors;
+}
+
+export function validateUniqueIdentityAcrossStores(stores, schema, now = new Date().toISOString()) {
+  const errors = [];
+  const identities = new Map();
+  for (const [store, rows] of Object.entries(stores ?? {})) {
+    if (!Array.isArray(rows)) {
+      errors.push(`${store} rows must be an array`);
+      continue;
+    }
+    for (const [index, raw] of rows.entries()) {
+      const record = normalizeLegacyRecord(raw, schema, now);
+      const identity = String(record.canonical_job_id || "")
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US");
+      if (!identity) {
+        errors.push(`${store} row ${index + 2} has invalid identity`);
+        continue;
+      }
+      const previous = identities.get(identity);
+      if (previous) {
+        errors.push(
+          `duplicate canonical identity at ${previous.store} row ${previous.row} and ${store} row ${index + 2}`
+        );
+      } else {
+        identities.set(identity, { store, row: index + 2 });
+      }
+    }
   }
   return errors;
 }

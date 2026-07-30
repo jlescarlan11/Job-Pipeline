@@ -1,25 +1,19 @@
 {
-  "schema_version": 1,
-  "policy_version": "2026-07-30/v9",
+  "schema_version": 2,
+  "policy_version": "2026-07-31/v1",
   "deployment_scope": "self_hosted_regular",
-  "verified_on": "2026-07-30",
+  "verified_on": "2026-07-31",
   "official_sources": [
-    "https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/executions",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
     "https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/monitor-n8n",
-    "https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/enable-prometheus-metrics",
-    "https://docs.n8n.io/hosting/configuration/task-runners/",
-    "https://docs.n8n.io/hosting/configuration/environment-variables/task-runners/",
-    "https://docs.n8n.io/build/flow-logic/handle-errors-gracefully",
-    "https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.scheduletrigger/",
     "https://docs.n8n.io/api/api-reference/",
     "https://docs.n8n.io/api/pagination/"
   ],
   "environment": {
     "GENERIC_TIMEZONE": "Asia/Manila",
-    "EXECUTIONS_TIMEOUT": "1800",
-    "EXECUTIONS_TIMEOUT_MAX": "1800",
+    "EXECUTIONS_TIMEOUT": "900",
+    "EXECUTIONS_TIMEOUT_MAX": "900",
     "EXECUTIONS_DATA_SAVE_ON_ERROR": "all",
     "EXECUTIONS_DATA_SAVE_ON_SUCCESS": "none",
     "EXECUTIONS_DATA_SAVE_ON_PROGRESS": "false",
@@ -27,7 +21,6 @@
     "EXECUTIONS_DATA_PRUNE": "true",
     "EXECUTIONS_DATA_MAX_AGE": "336",
     "EXECUTIONS_DATA_PRUNE_MAX_COUNT": "10000",
-    "EXECUTIONS_DATA_HARD_DELETE_BUFFER": "1",
     "N8N_CONCURRENCY_PRODUCTION_LIMIT": "3",
     "N8N_METRICS": "true",
     "N8N_METRICS_INCLUDE_DEFAULT_METRICS": "true",
@@ -36,35 +29,21 @@
     "N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT": "20000",
     "N8N_RUNNERS_MODE": "internal",
     "N8N_RUNNERS_MAX_CONCURRENCY": "3",
-    "N8N_RUNNERS_TASK_TIMEOUT": "300",
-    "N8N_RUNNERS_TASK_REQUEST_TIMEOUT": "20",
-    "N8N_RUNNERS_HEARTBEAT_INTERVAL": "15"
-  },
-  "task_runner": {
-    "mode": "internal",
-    "maximum_concurrency": 3,
-    "task_timeout_seconds": 300,
-    "task_request_timeout_seconds": 20,
-    "heartbeat_interval_seconds": 15,
-    "deployment_reason": "This single-host launchd deployment uses the current stable n8n internal runner because the official external task-runner launcher is Linux-only. The runner is explicitly bounded and must pass four consecutive scheduled Code-node smoke executions after every n8n upgrade."
-  },
-  "http_requests": {
-    "response_body_read_timeout_ms": 20000,
-    "maximum_google_sheets_read_retry_window_ms": 70000
+    "N8N_RUNNERS_TASK_TIMEOUT": "300"
   },
   "capacity": {
     "production_concurrency_limit": 3,
-    "maximum_timeout_weighted_concurrency": 1.5,
-    "maximum_utilization_ratio": 0.5,
+    "maximum_timeout_weighted_concurrency": 1,
+    "maximum_utilization_ratio": 0.67,
     "maximum_simultaneous_scheduled_executions": 2,
     "minimum_scheduled_burst_headroom": 1,
-    "queue_wait_alert_seconds": 300
+    "timeout_weighted_concurrency": 0.4625
   },
   "execution_retention": {
     "maximum_age_hours": 336,
     "maximum_count": 10000,
-    "hard_delete_buffer_hours": 1,
-    "scheduled_failure_count_at_maximum_age": 3460
+    "scheduled_runs_per_week": 1050,
+    "scheduled_failure_count_at_maximum_age": 2100
   },
   "monitoring": {
     "metrics_internal_only": true,
@@ -72,126 +51,73 @@
     "metrics_path": "/metrics",
     "poll_seconds": 60,
     "log_ingestion_required": true,
-    "workflow_events": {
-      "backlog_event": "operational_backlog",
-      "provider_result_events": [
-        "generator_result",
-        "alert_delivery"
-      ],
-      "event_timestamp_field": "timestamp",
-      "provider_result_commit_pending_field": "state_commit_pending",
-      "manual_action_age_mode": "first_seen_fingerprint",
-      "manual_action_absence_resets_age": true
-    },
-    "thresholds": {
-      "readiness_consecutive_failures": 2,
-      "failed_executions_in_15_minutes": 1,
-      "production_queue_wait_seconds": 300,
-      "operational_backlog_event_stale_minutes": 20,
-      "oldest_due_generation_minutes": 120,
-      "oldest_due_evaluation_minutes": 120,
-      "oldest_pending_alert_minutes": 45,
-      "oldest_manual_action_minutes": 30,
-      "active_claim_past_lease_count": 1,
-      "provider_rate_limit_events_in_15_minutes": 3
-    }
+    "required_events": [
+      "discovery_run",
+      "generator_result",
+      "movement_plan",
+      "movement_confirmation",
+      "alert_selection",
+      "alert_delivery"
+    ]
   },
-  "failure_detection": {
-    "mode": "external_metrics_and_saved_failures",
-    "central_error_workflow_bound": false,
-    "reason": "Error-workflow selection stores an instance-assigned workflow binding and error executions bypass the production concurrency limit. Portable exports instead retain failed executions and require external metrics and durable-state alerts."
+  "workbook_binding": {
+    "spreadsheet_environment_variable": "JOB_PIPELINE_SPREADSHEET_ID",
+    "review_url_environment_variable": "JOB_PIPELINE_REVIEW_URL",
+    "old_workbook_must_differ": true,
+    "new_workbook_must_start_empty": true
   },
   "workflow_cutover": {
-    "schema_version": 1,
+    "schema_version": 2,
     "public_api_path": "/api/v1",
     "inventory_page_limit": 250,
     "inventory_scope_required": "instance_wide",
     "exclude_pinned_data": true,
-    "pipeline_name_marker": "Job Application Pipeline",
+    "pipeline_name_marker": "Job Pipeline",
     "runtime_restart_required": true,
-    "pre_activation_execution_statuses": [
-      "new",
-      "running",
-      "waiting"
-    ],
     "roles": [
       {
         "role": "scraper",
         "name_markers": [
           "Scraper",
-          "Resume-Driven Discovery"
+          "Rolling 24-Hour Keywords"
         ],
         "required_node_names": [
-          "Fetch Search Page",
-          "Append Discovered Jobs"
+          "Capture Fixed Window and Keywords",
+          "Append New Review Queue Rows"
         ]
       },
       {
-        "role": "generator",
+        "role": "evaluator_generator",
         "name_markers": [
-          "Generator",
-          "Evaluation and Generation"
+          "Evaluator & Generator",
+          "Safe Routing"
         ],
         "required_node_names": [
-          "Evaluate Job",
-          "Commit Generation Result"
+          "Evaluate and Prepare Application",
+          "Guard and Commit Generator Result"
         ]
       },
       {
-        "role": "alerter",
+        "role": "alerter_mover",
         "name_markers": [
-          "Alerter",
-          "High-Match Alerts"
+          "Alerter & Mover",
+          "Slack and Terminal Moves"
         ],
         "required_node_names": [
+          "Plan Independent Moves",
           "Send Slack Alert",
-          "Commit Alert Result"
-        ]
-      },
-      {
-        "role": "reviewer",
-        "name_markers": [
-          "Reviewer",
-          "Review Actions and Outcomes"
-        ],
-        "required_node_names": [
-          "Prepare Review Plan",
-          "Update Active Review Actions"
-        ]
-      },
-      {
-        "role": "archiver",
-        "name_markers": [
-          "Archiver",
-          "Idempotent Archive"
-        ],
-        "required_node_names": [
-          "Prepare Archive Candidates",
-          "Delete Confirmed Active Rows"
-        ]
-      },
-      {
-        "role": "analytics",
-        "name_markers": [
-          "Analytics",
-          "Conversion Analytics"
-        ],
-        "required_node_names": [
-          "Build Analytics Report",
-          "Publish Complete Analytics Report"
-        ]
-      },
-      {
-        "role": "recommender",
-        "name_markers": [
-          "Recommender",
-          "Weekly Recommendations"
-        ],
-        "required_node_names": [
-          "Build Weekly Recommendations",
-          "Publish Recommendation Report"
+          "Delete Confirmed Review Queue Rows"
         ]
       }
+    ],
+    "retired_role_markers": [
+      "Resume-Driven Discovery",
+      "Evaluation and Generation",
+      "High-Match Alerts",
+      "Review Actions and Outcomes",
+      "Idempotent Archive",
+      "Conversion Analytics",
+      "Weekly Recommendations"
     ]
   }
 }

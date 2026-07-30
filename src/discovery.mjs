@@ -3,12 +3,12 @@ import {
   extractOnlineJobsId,
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
-  stateGuard
+  stateGuard,
+  validateUniqueIdentityAcrossStores
 } from "./contracts.mjs";
 import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 
-const SENIORITY_PATTERN =
-  /\b(?:senior|sr\.?|lead|principal|staff|architect|head of|director|tech lead|engineering lead)\b|(?:5|6|7|8|9|10)\+?\s*(?:years?|yrs?)/i;
+const WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function decodeHtml(value = "") {
   const named = {
@@ -24,9 +24,16 @@ function decodeHtml(value = "") {
     "#8230": "…"
   };
   return String(value)
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, decimal) => String.fromCodePoint(Number.parseInt(decimal, 10)))
-    .replace(/&([a-z]+|#\d+);/gi, (entity, name) => named[name.toLowerCase()] ?? entity);
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCodePoint(Number.parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, decimal) =>
+      String.fromCodePoint(Number.parseInt(decimal, 10))
+    )
+    .replace(
+      /&([a-z]+|#\d+);/gi,
+      (entity, name) => named[name.toLowerCase()] ?? entity
+    );
 }
 
 function textFromHtml(value = "") {
@@ -40,49 +47,49 @@ function textFromHtml(value = "") {
 }
 
 function parsePostedAt(value) {
-  if (!value) return "";
-  const normalized = value.includes("T") ? value : `${value.trim().replace(" ", "T")}+08:00`;
+  const input = String(value || "").trim();
+  if (!input) return "";
+  const normalized = input.includes("T")
+    ? input
+    : `${input.replace(" ", "T")}+08:00`;
   const timestamp = Date.parse(normalized);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "";
 }
 
-function evidenceExists(reference, profile) {
-  if (reference === "summary") return Boolean(profile.summary);
-  if (reference.startsWith("experience:")) {
-    const id = reference.slice("experience:".length);
-    return profile.experience?.some((experience) => experience.id === id);
+export function createDiscoveryWindow(now = new Date().toISOString()) {
+  const windowEndMs = Date.parse(now);
+  if (!Number.isFinite(windowEndMs)) {
+    throw new Error("Discovery window requires a valid execution timestamp");
   }
-  if (reference.startsWith("projects:")) {
-    const id = reference.slice("projects:".length);
-    return profile.projects?.some((project) => project.id === id);
-  }
-  const skillMatch = reference.match(/^skills\.([^:]+):(.+)$/);
-  if (skillMatch) {
-    return profile.skills?.[skillMatch[1]]?.includes(skillMatch[2]) ?? false;
-  }
-  return false;
+  return Object.freeze({
+    window_start: new Date(windowEndMs - WINDOW_MS).toISOString(),
+    window_end: new Date(windowEndMs).toISOString(),
+    window_hours: 24
+  });
 }
 
-export function validateSearchPlan(plan, profile) {
+export function validateSearchPlan(plan) {
   const errors = [];
-  if (plan?.schema_version !== 1) errors.push("search plan schema_version must be 1");
+  if (plan?.schema_version !== 2) {
+    errors.push("search plan schema_version must be 2");
+  }
   if (!/^\d{4}-\d{2}-\d{2}\/v\d+$/.test(plan?.plan_version || "")) {
     errors.push("search plan plan_version must use YYYY-MM-DD/vN");
   }
-  if (plan?.candidate_profile_version !== profile?.profile_version) {
-    errors.push("search plan candidate_profile_version must match the candidate profile");
+  if (plan?.source !== "onlinejobs.ph") {
+    errors.push("search plan source must be onlinejobs.ph");
+  }
+  if (plan?.window_hours !== 24) {
+    errors.push("window_hours must be exactly 24");
   }
   if (plan?.pagination_mode !== "adaptive_source_exhaustion") {
-    errors.push(
-      "pagination_mode must be adaptive_source_exhaustion"
-    );
+    errors.push("pagination_mode must be adaptive_source_exhaustion");
   }
   for (const field of [
-    "schedule_hours",
+    "schedule_minutes",
     "execution_timeout_seconds",
-    "lookback_days",
     "page_size",
-    "max_pages_per_query",
+    "max_pages_per_keyword",
     "request_interval_ms",
     "request_timeout_ms",
     "claim_lease_ms"
@@ -93,8 +100,8 @@ export function validateSearchPlan(plan, profile) {
   }
   if (
     Number.isInteger(plan?.execution_timeout_seconds) &&
-    Number.isInteger(plan?.schedule_hours) &&
-    plan.execution_timeout_seconds >= plan.schedule_hours * 60 * 60
+    Number.isInteger(plan?.schedule_minutes) &&
+    plan.execution_timeout_seconds >= plan.schedule_minutes * 60
   ) {
     errors.push("execution timeout must be shorter than the discovery schedule");
   }
@@ -103,77 +110,67 @@ export function validateSearchPlan(plan, profile) {
     Number.isInteger(plan?.execution_timeout_seconds) &&
     plan.request_timeout_ms >= plan.execution_timeout_seconds * 1000
   ) {
-    errors.push("request timeout must be shorter than the execution timeout");
+    errors.push("request timeout must be shorter than execution timeout");
   }
-  errors.push(
-    ...validateMinuteIntervalSchedule(
-      {
-        schedule_minutes: Number.isInteger(plan?.schedule_hours)
-          ? plan.schedule_hours * 60
-          : undefined,
-        schedule_offset_minutes: plan?.schedule_offset_minutes
-      },
-      "discovery"
-    )
-  );
-  if (!Array.isArray(plan?.queries) || plan.queries.length === 0) {
-    errors.push("at least one search query is required");
+  errors.push(...validateMinuteIntervalSchedule(plan, "discovery"));
+
+  if (!Array.isArray(plan?.keywords) || plan.keywords.length === 0) {
+    errors.push("at least one keyword is required");
     return errors;
   }
-
   const ids = new Set();
-  const queryTexts = new Set();
-  for (const query of plan.queries) {
-    if (!query.id || !query.role_family || !query.query) {
-      errors.push("every search query requires id, role_family, and query");
+  const values = new Set();
+  for (const entry of plan.keywords) {
+    const id = String(entry?.id || "").trim();
+    const keyword = String(entry?.keyword || "").trim();
+    if (!id || !keyword || typeof entry?.enabled !== "boolean") {
+      errors.push("every keyword requires id, keyword, and enabled");
       continue;
     }
-    if (ids.has(query.id)) errors.push(`duplicate search query id: ${query.id}`);
-    ids.add(query.id);
-    const normalizedText = query.query.trim().toLowerCase();
-    if (queryTexts.has(normalizedText)) errors.push(`duplicate search query text: ${query.query}`);
-    queryTexts.add(normalizedText);
-    if (!Array.isArray(query.evidence_refs) || query.evidence_refs.length === 0) {
-      errors.push(`search query ${query.id} requires evidence_refs`);
+    const normalized = keyword.normalize("NFKC").toLocaleLowerCase("en-US");
+    if (ids.has(id)) errors.push(`duplicate keyword id: ${id}`);
+    if (values.has(normalized)) errors.push(`duplicate keyword: ${keyword}`);
+    ids.add(id);
+    values.add(normalized);
+    if ("evidence_refs" in entry || "role_family" in entry) {
+      errors.push(`keyword ${id} must not contain resume or adjacent-role metadata`);
     }
-    for (const reference of query.evidence_refs ?? []) {
-      if (!evidenceExists(reference, profile)) {
-        errors.push(`search query ${query.id} has unsupported evidence reference: ${reference}`);
-      }
-    }
+  }
+  if (!plan.keywords.some((entry) => entry.enabled)) {
+    errors.push("at least one keyword must be enabled");
   }
   return errors;
 }
 
-export function buildSearchRequests(plan) {
-  return plan.queries
-    .filter((entry) => entry.enabled)
-    .map((query) => searchRequest(query, 1, plan));
-}
-
-function searchRequest(query, pageNumber, plan) {
+function searchRequest(keyword, pageNumber, plan, window) {
   const offset = (pageNumber - 1) * plan.page_size;
   const path =
     pageNumber === 1
       ? "/jobseekers/jobsearch"
       : `/jobseekers/jobsearch/${offset}`;
   return {
-    query_id: query.id,
-    query: query.query,
-    role_family: query.role_family,
-    evidence_refs: query.evidence_refs,
+    keyword_id: keyword.id,
+    keyword: keyword.keyword,
     page_number: pageNumber,
     request_url:
       `https://www.onlinejobs.ph${path}?jobkeyword=` +
-      encodeURIComponent(query.query)
+      encodeURIComponent(keyword.keyword),
+    window_start: window.window_start,
+    window_end: window.window_end
   };
 }
 
+export function buildSearchRequests(
+  plan,
+  window = createDiscoveryWindow()
+) {
+  return plan.keywords
+    .filter((entry) => entry.enabled)
+    .map((keyword) => searchRequest(keyword, 1, plan, window));
+}
+
 function sourceResultCardCount(page) {
-  if (
-    Number.isInteger(page?.result_card_count) &&
-    page.result_card_count >= 0
-  ) {
+  if (Number.isInteger(page?.result_card_count) && page.result_card_count >= 0) {
     return page.result_card_count;
   }
   return ["jobs", "excluded", "malformed"].reduce(
@@ -193,14 +190,29 @@ export function buildNextSearchRequest(page, plan) {
     sourcePageExhausted(page) ||
     !Number.isInteger(page.page_number) ||
     page.page_number < 1 ||
-    page.page_number >= plan.max_pages_per_query
+    page.page_number >= plan.max_pages_per_keyword
   ) {
     return null;
   }
-  return searchRequest(page, page.page_number + 1, plan);
+  return searchRequest(
+    { id: page.keyword_id, keyword: page.keyword },
+    page.page_number + 1,
+    plan,
+    {
+      window_start: page.window_start,
+      window_end: page.window_end
+    }
+  );
 }
 
 export function advanceSearchPagination(state, page, plan) {
+  if (
+    state?.window_start &&
+    (state.window_start !== page?.window_start ||
+      state.window_end !== page?.window_end)
+  ) {
+    throw new Error("Discovery page changed the immutable execution window");
+  }
   const nextRequest = buildNextSearchRequest(page, plan);
   return {
     ...state,
@@ -213,22 +225,23 @@ export function advanceSearchPagination(state, page, plan) {
   };
 }
 
-export function parseSearchResults(
-  html,
-  request,
-  {
-    now = new Date().toISOString(),
-    lookbackDays = 7
-  } = {}
-) {
+export function parseSearchResults(html, request) {
   const jobs = [];
   const excluded = [];
   const malformed = [];
+  const windowStartMs = Date.parse(request?.window_start || "");
+  const windowEndMs = Date.parse(request?.window_end || "");
+  if (
+    !Number.isFinite(windowStartMs) ||
+    !Number.isFinite(windowEndMs) ||
+    windowEndMs - windowStartMs !== WINDOW_MS
+  ) {
+    throw new Error("Search parsing requires one valid fixed 24-hour window");
+  }
+
   const pageText = String(html || "");
   const cardRegex =
     /<a\s+href=["'](\/jobseekers\/job\/[^"']+)["'][^>]*>\s*<div[^>]*class=["'][^"']*jobpost-cat-box[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<\/a>/gi;
-  const cutoff = Date.parse(now) - lookbackDays * 24 * 60 * 60 * 1000;
-
   let resultCardCount = 0;
   let match;
   while ((match = cardRegex.exec(pageText)) !== null) {
@@ -239,25 +252,55 @@ export function parseSearchResults(
     const dateMatch =
       cardHtml.match(/data-temp=["']([^"']+)["']/i) ||
       cardHtml.match(/<em>\s*Posted on\s+([^<]+)<\/em>/i);
-    if (!titleMatch || !dateMatch) {
-      malformed.push({ url_path: urlPath, reason: !titleMatch ? "missing_title" : "missing_posted_at" });
+    if (!titleMatch) {
+      malformed.push({ url_path: urlPath, reason: "missing_title" });
+      continue;
+    }
+    if (!dateMatch) {
+      malformed.push({ url_path: urlPath, reason: "missing_posted_at" });
       continue;
     }
 
     const title = textFromHtml(
-      titleMatch[1].replace(/<span[^>]*class=["'][^"']*badge[^"']*["'][^>]*>[\s\S]*?<\/span>/gi, "")
+      titleMatch[1].replace(
+        /<span[^>]*class=["'][^"']*badge[^"']*["'][^>]*>[\s\S]*?<\/span>/gi,
+        ""
+      )
     );
     const postedAt = parsePostedAt(dateMatch[1]);
-    if (!title || !postedAt) {
-      malformed.push({ url_path: urlPath, reason: !title ? "empty_title" : "invalid_posted_at" });
+    if (!title) {
+      malformed.push({ url_path: urlPath, reason: "empty_title" });
       continue;
     }
-    if (Date.parse(postedAt) < cutoff) continue;
+    if (!postedAt) {
+      malformed.push({ url_path: urlPath, reason: "invalid_posted_at" });
+      continue;
+    }
+    const postedAtMs = Date.parse(postedAt);
+    if (postedAtMs < windowStartMs) {
+      excluded.push({
+        url_path: urlPath,
+        posted_at: postedAt,
+        reason: "outside_window_old"
+      });
+      continue;
+    }
+    if (postedAtMs > windowEndMs) {
+      excluded.push({
+        url_path: urlPath,
+        posted_at: postedAt,
+        reason: "future_dated"
+      });
+      continue;
+    }
 
-    const salaryMatch = cardHtml.match(/<dd\s+class=["']col["'][^>]*>([\s\S]*?)<\/dd>/i);
-    const descriptionMatch = cardHtml.match(/<div[^>]*class=["'][^"']*\bdesc\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+    const salaryMatch = cardHtml.match(
+      /<dd\s+class=["']col["'][^>]*>([\s\S]*?)<\/dd>/i
+    );
+    const descriptionMatch = cardHtml.match(
+      /<div[^>]*class=["'][^"']*\bdesc\b[^"']*["'][^>]*>([\s\S]*?)<\/div>/i
+    );
     const canonicalUrl = normalizeCanonicalUrl(urlPath);
-    const summary = textFromHtml(descriptionMatch?.[1] ?? "");
     const job = {
       source: "onlinejobs.ph",
       source_job_id: extractOnlineJobsId(canonicalUrl),
@@ -265,10 +308,9 @@ export function parseSearchResults(
       job_title: title,
       company: "",
       salary_text: textFromHtml(salaryMatch?.[1] ?? ""),
+      search_summary: textFromHtml(descriptionMatch?.[1] ?? ""),
       posted_at: postedAt,
-      search_summary: summary,
-      search_queries: [request.query],
-      role_families: [request.role_family],
+      matched_keywords: [request.keyword],
       source_availability: "active"
     };
     job.canonical_job_id = canonicalJobId(job);
@@ -276,18 +318,15 @@ export function parseSearchResults(
       malformed.push({ url_path: urlPath, reason: "invalid_identity" });
       continue;
     }
-    if (SENIORITY_PATTERN.test(`${title} ${summary} ${canonicalUrl}`)) {
-      excluded.push({ ...job, exclusion_reason: "seniority" });
-      continue;
-    }
     jobs.push(job);
   }
 
   const hasNext = /<a[^>]+rel=["']next["'][^>]*>/i.test(pageText);
-  const pageNumbers = [...pageText.matchAll(/data-ci-pagination-page=["'](\d+)["']/gi)].map((entry) =>
-    Number(entry[1])
-  );
-  const reportedLastPage = pageNumbers.length > 0 ? Math.max(...pageNumbers) : request.page_number;
+  const pageNumbers = [
+    ...pageText.matchAll(/data-ci-pagination-page=["'](\d+)["']/gi)
+  ].map((entry) => Number(entry[1]));
+  const reportedLastPage =
+    pageNumbers.length > 0 ? Math.max(...pageNumbers) : request.page_number;
   const explicitEmpty =
     /\bno\s+(?:job\s+posts?|jobs?)\s+(?:matched|found|available)\b/i.test(
       textFromHtml(pageText)
@@ -307,13 +346,13 @@ export function parseSearchResults(
       : {
           error_category: "unexpected_search_page",
           error_summary:
-            "The search response did not contain recognizable result-page evidence."
+            "Search response lacked recognizable result-page evidence."
         })
   };
 }
 
-function effectivePagesForQuery(pages) {
-  const sorted = [...pages].sort((a, b) => a.page_number - b.page_number);
+function effectivePagesForKeyword(pages) {
+  const sorted = [...pages].sort((left, right) => left.page_number - right.page_number);
   const effective = [];
   for (const page of sorted) {
     effective.push(page);
@@ -323,17 +362,16 @@ function effectivePagesForQuery(pages) {
 }
 
 export function summarizeCoverage(pageResults, plan) {
-  const queries = [];
-  for (const query of plan.queries.filter((entry) => entry.enabled)) {
-    const pages = effectivePagesForQuery(
-      pageResults.filter((result) => result.query_id === query.id)
+  const keywords = [];
+  for (const keyword of plan.keywords.filter((entry) => entry.enabled)) {
+    const pages = effectivePagesForKeyword(
+      pageResults.filter((result) => result.keyword_id === keyword.id)
     );
     const successes = pages.filter((page) => page.ok);
     const failures = pages.filter((page) => !page.ok);
     const lastSuccess = successes.at(-1);
     let status = "failed";
     let stopReason = failures.length > 0 ? "request_failure" : "no_page_result";
-
     if (successes.length > 0 && failures.length > 0) {
       status = "partial";
     } else if (
@@ -346,18 +384,18 @@ export function summarizeCoverage(pageResults, plan) {
     } else if (lastSuccess && sourcePageExhausted(lastSuccess)) {
       status = "complete";
       stopReason = "source_exhausted";
-    } else if (lastSuccess?.page_number >= plan.max_pages_per_query) {
+    } else if (
+      lastSuccess?.page_number >= plan.max_pages_per_keyword
+    ) {
       status = "partial";
       stopReason = "page_limit";
     } else if (successes.length > 0) {
       status = "partial";
       stopReason = "incomplete_pages";
     }
-
-    queries.push({
-      query_id: query.id,
-      query: query.query,
-      role_family: query.role_family,
+    keywords.push({
+      keyword_id: keyword.id,
+      keyword: keyword.keyword,
       status,
       stop_reason: stopReason,
       pages_succeeded: successes.length,
@@ -366,42 +404,51 @@ export function summarizeCoverage(pageResults, plan) {
         (total, page) => total + sourceResultCardCount(page),
         0
       ),
-      jobs_found: successes.reduce((total, page) => total + page.jobs.length, 0),
-      malformed_count: successes.reduce((total, page) => total + page.malformed.length, 0),
-      excluded_count: successes.reduce((total, page) => total + page.excluded.length, 0)
+      jobs_found: successes.reduce(
+        (total, page) => total + page.jobs.length,
+        0
+      ),
+      malformed_count: successes.reduce(
+        (total, page) => total + page.malformed.length,
+        0
+      ),
+      excluded_count: successes.reduce(
+        (total, page) => total + page.excluded.length,
+        0
+      )
     });
   }
   return {
-    status: queries.some((query) => query.status === "failed" || query.status === "partial")
+    status: keywords.some(
+      (entry) => entry.status === "failed" || entry.status === "partial"
+    )
       ? "partial"
-      : queries.every((query) => query.status === "empty")
+      : keywords.every((entry) => entry.status === "empty")
         ? "empty"
         : "complete",
-    pages_requested: queries.reduce(
-      (total, query) =>
-        total + query.pages_succeeded + query.pages_failed,
+    pages_requested: keywords.reduce(
+      (total, entry) => total + entry.pages_succeeded + entry.pages_failed,
       0
     ),
     maximum_page_requests:
-      plan.queries.filter((query) => query.enabled).length *
-      plan.max_pages_per_query,
-    queries
+      plan.keywords.filter((entry) => entry.enabled).length *
+      plan.max_pages_per_keyword,
+    keywords
   };
 }
 
 function unionValues(...collections) {
-  return [...new Set(collections.flat().filter(Boolean))];
+  return [
+    ...new Set(
+      collections
+        .flat()
+        .filter(Boolean)
+        .map((value) => String(value).trim())
+    )
+  ];
 }
 
-function cloneDiscoveryJob(job) {
-  return {
-    ...job,
-    search_queries: [...(job.search_queries ?? [])],
-    role_families: [...(job.role_families ?? [])]
-  };
-}
-
-function discoveryIdentityKey(value) {
+function identityKey(value) {
   return String(value || "")
     .trim()
     .normalize("NFKC")
@@ -410,105 +457,120 @@ function discoveryIdentityKey(value) {
 
 export function reconcileDiscovery(
   pageResults,
-  activeRows,
+  reviewRows,
+  appliedRows,
   archiveRows,
   schema,
   now = new Date().toISOString()
 ) {
+  const identityErrors = validateUniqueIdentityAcrossStores(
+    {
+      "Review Queue": reviewRows,
+      "Applied Jobs": appliedRows,
+      Archive: archiveRows
+    },
+    schema,
+    now
+  );
+  if (identityErrors.length > 0) {
+    throw new Error(`Discovery store identity check failed: ${identityErrors.join("; ")}`);
+  }
+
   const existing = new Map();
-  const registerExisting = (key, entry) => {
-    const current = existing.get(key);
-    if (
-      !current ||
-      (entry.location === "active" && current.location !== "active")
-    ) {
-      existing.set(key, entry);
-    }
-  };
   for (const [location, rows] of [
-    ["active", activeRows],
+    ["review", reviewRows],
+    ["applied", appliedRows],
     ["archive", archiveRows]
   ]) {
     for (const raw of rows) {
       const normalized = normalizeLegacyRecord(raw, schema, now);
-      if (normalized.canonical_job_id) {
-        registerExisting(discoveryIdentityKey(normalized.canonical_job_id), {
-          location,
-          raw,
-          normalized
-        });
-      }
-      if (normalized.canonical_url) {
-        registerExisting(`url:${normalized.canonical_url}`, {
-          location,
-          raw,
-          normalized
-        });
-      }
+      const entry = { location, raw, normalized };
+      existing.set(identityKey(normalized.canonical_job_id), entry);
+      existing.set(`url:${identityKey(normalized.canonical_url)}`, entry);
     }
   }
 
   const discovered = new Map();
   let malformedCount = 0;
-  let excludedCount = 0;
+  const exclusionCounts = {};
   for (const page of pageResults.filter((result) => result.ok)) {
     malformedCount += page.malformed.length;
-    excludedCount += page.excluded.length;
+    for (const excluded of page.excluded) {
+      exclusionCounts[excluded.reason] =
+        (exclusionCounts[excluded.reason] || 0) + 1;
+    }
     for (const job of page.jobs) {
-      const identityKey = discoveryIdentityKey(job.canonical_job_id);
-      const current = discovered.get(identityKey);
+      const key = identityKey(job.canonical_job_id);
+      const current = discovered.get(key);
       if (current) {
-        current.search_queries = unionValues(current.search_queries, job.search_queries);
-        current.role_families = unionValues(current.role_families, job.role_families);
+        current.matched_keywords = unionValues(
+          current.matched_keywords,
+          job.matched_keywords
+        );
       } else {
-        discovered.set(identityKey, cloneDiscoveryJob(job));
+        discovered.set(key, {
+          ...job,
+          matched_keywords: [...job.matched_keywords]
+        });
       }
     }
   }
 
   const newJobs = [];
-  const existingUpdates = [];
+  const reviewUpdates = [];
+  let terminalSuppressed = 0;
   for (const job of discovered.values()) {
     const match =
-      existing.get(discoveryIdentityKey(job.canonical_job_id)) ||
-      existing.get(`url:${job.canonical_url}`);
-    if (match) {
+      existing.get(identityKey(job.canonical_job_id)) ||
+      existing.get(`url:${identityKey(job.canonical_url)}`);
+    if (match?.location === "review") {
       const updated = {
         ...match.normalized,
         row_number: match.raw.row_number,
-        canonical_job_id: job.canonical_job_id,
         source_job_id: job.source_job_id,
+        canonical_job_id: job.canonical_job_id,
         canonical_url: job.canonical_url,
-        search_queries: unionValues(match.normalized.search_queries, job.search_queries),
-        role_families: unionValues(match.normalized.role_families, job.role_families),
+        matched_keywords: unionValues(
+          match.normalized.matched_keywords,
+          job.matched_keywords
+        ),
         last_seen_at: now,
         updated_at: now
       };
-      updated.state_guard = stateGuard(updated);
-      existingUpdates.push({ location: match.location, record: updated });
+      reviewUpdates.push(updated);
       continue;
     }
-    const record = {
-      ...job,
-      pipeline_status: "discovered",
-      discovered_at: now,
-      last_seen_at: now,
-      created_at: now,
-      updated_at: now,
-      attempt_count: 0,
-      application_decision: "",
-      outcome: "",
-      manual_action: ""
-    };
+    if (match) {
+      terminalSuppressed += 1;
+      continue;
+    }
+    const record = normalizeLegacyRecord(
+      {
+        ...job,
+        pipeline_status: "new",
+        user_action: "",
+        record_version: 1,
+        discovered_at: now,
+        last_seen_at: now,
+        created_at: now,
+        updated_at: now,
+        attempt_count: 0,
+        alert_attempt_count: 0,
+        outcome: ""
+      },
+      schema,
+      now
+    );
     record.state_guard = stateGuard(record);
     newJobs.push(record);
   }
 
   return {
     new_jobs: newJobs,
-    existing_updates: existingUpdates,
+    review_updates: reviewUpdates,
     discovered_unique: discovered.size,
+    terminal_suppressed: terminalSuppressed,
     malformed_count: malformedCount,
-    excluded_count: excludedCount
+    exclusion_counts: exclusionCounts
   };
 }

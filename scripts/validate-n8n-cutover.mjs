@@ -21,5 +21,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `n8n ${evidence.phase} evidence permits this cutover phase for all seven roles.`
+  `n8n ${evidence.phase} evidence permits this cutover phase for the three replacement roles.`
 );

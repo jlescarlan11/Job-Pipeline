@@ -14,7 +14,8 @@
     "test": "node --test",
     "validate:cutover": "node scripts/validate-n8n-cutover.mjs",
     "validate:deployment": "node scripts/validate-n8n-deployment.mjs",
-    "validate": "npm run check:artifacts && npm test"
+    "validate:policy": "node scripts/validate-n8n-deployment.mjs --policy-only",
+    "validate": "npm run check:artifacts && npm run validate:policy && npm test"
   },
   "engines": {
     "node": ">=20"

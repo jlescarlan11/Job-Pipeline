@@ -36,11 +36,13 @@ evidence and the clause severity. A slash or comma list without an explicit
 alternative marker remains a set of independent requirements. Unrecognized or
 unclear wording remains ambiguous rather than being discarded.
 
-A hard gap, including a seniority mismatch, routes the job to
-`not_recommended` and forces `save_points`. An ambiguous gap routes to
-`review_required` when the remaining qualification score reaches the configured
+A hard gap, including a seniority mismatch, produces the internal
+`not_recommended` decision and maps to visible pipeline result `skip`. An
+ambiguous gap produces internal `review_required` and maps to visible
+`review_needed` when the remaining qualification score reaches the configured
 review threshold. Preference gaps reduce the score but do not independently
-block a recommendation.
+block a recommendation. These internal decision labels are implementation
+details; operators act only on the simplified visible statuses.
 
 Every profile-derived explanation contains a canonical evidence reference.
 Free-form job text may describe the requirement but cannot create candidate
@@ -69,17 +71,13 @@ confidence.
 
 ## Priority and compatibility
 
-Within lifecycle priority, both generator and review queues sort by:
+Within lifecycle priority, the single Evaluator & Generator queue sorts by:
 
 1. `opportunity_score` descending;
 2. `ranking_confidence` (`high`, `medium`, `low`, blank);
 3. posting time descending;
 4. creation time descending;
 5. `canonical_job_id` ascending.
-
-Legacy records with no `opportunity_score` use their unchanged `match_score` as
-a queue fallback until explicit re-evaluation. The fallback does not populate
-either new score.
 
 Apply Points recommendations are `save_points`, `low_allocation`,
 `normal_allocation`, or `high_allocation`. They never represent qualification,

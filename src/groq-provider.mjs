@@ -59,6 +59,7 @@ export function validateGroqProviderPolicy(
     "repair_reserve_characters",
     "maximum_prompt_proofs",
     "character_estimate_divisor",
+    "maximum_requests_per_item",
     "request_interval_ms"
   ]) {
     if (!positiveInteger(generation[field])) {
@@ -78,6 +79,9 @@ export function validateGroqProviderPolicy(
     generation.request_interval_ms <= 60_000
   ) {
     errors.push("Groq request interval must exceed the one-minute rate window");
+  }
+  if (generation.maximum_requests_per_item !== 1) {
+    errors.push("Simplified Generator maximum_requests_per_item must be 1");
   }
   if (generation.reasoning_format !== "hidden") {
     errors.push("Groq generation reasoning_format must be hidden");
@@ -268,8 +272,13 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
   const maximumScheduledExecutionsPerDay =
     Math.ceil((24 * 60) / generatorRuntime.schedule_minutes) + 1;
   const maximumScheduledRequestsPerDay =
-    maximumScheduledExecutionsPerDay * generatorRuntime.per_run_cap * 2;
-  const perItemEstimate = initialRequestEstimate + repairRequestEstimate;
+    maximumScheduledExecutionsPerDay *
+    generatorRuntime.per_run_cap *
+    generation.maximum_requests_per_item;
+  const perItemEstimate =
+    generation.maximum_requests_per_item === 1
+      ? initialRequestEstimate
+      : initialRequestEstimate + repairRequestEstimate;
   return {
     model_id: model.id,
     initial_request_character_token_estimate: initialRequestEstimate,
@@ -283,7 +292,7 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
       generatorRuntime.per_run_cap *
       perItemEstimate,
     maximum_pacing_milliseconds:
-      (2 * generatorRuntime.per_run_cap - 1) *
+      (generation.maximum_requests_per_item * generatorRuntime.per_run_cap - 1) *
       generation.request_interval_ms
   };
 }

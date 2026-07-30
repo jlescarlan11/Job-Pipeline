@@ -1,29 +1,23 @@
 {
-  "schema_version": 1,
-  "policy_version": "2026-07-30/v6",
+  "schema_version": 2,
+  "policy_version": "2026-07-31/v1",
   "channel": "slack",
   "schedule_minutes": 15,
-  "schedule_offset_minutes": 2,
+  "schedule_offset_minutes": 4,
   "per_run_cap": 5,
-  "execution_timeout_seconds": 90,
-  "claim_lease_ms": 120000,
+  "execution_timeout_seconds": 120,
+  "claim_lease_ms": 180000,
   "provider_timeout_ms": 10000,
   "provider_request_interval_ms": 1100,
   "retry": {
     "max_attempts": 3,
-    "backoff_ms": 120000,
+    "backoff_ms": 180000,
     "ambiguous_timeout_terminal": true
   },
   "eligibility": {
-    "maximum_age_days": 3,
-    "minimum_qualification_score": 70,
-    "minimum_opportunity_score": 50,
-    "allowed_confidence": [
-      "high",
-      "medium"
-    ],
+    "pipeline_status": "ready_to_apply",
     "required_pack_status": "ready",
-    "maximum_major_gaps": 0
+    "required_message_status": "valid"
   },
   "environment": {
     "provider_webhook_url": "JOB_PIPELINE_SLACK_WEBHOOK_URL",
@@ -31,5 +25,5 @@
   },
   "maximum_message_characters": 3500,
   "maximum_action_url_characters": 750,
-  "summary_item_characters": 160
+  "summary_item_characters": 180
 }

@@ -1,766 +1,98 @@
-# Architecture
+# Simplified architecture
 
-## System boundary
-
-Job Pipeline is seven disabled-by-default n8n workflows sharing Google Sheets as durable state. OnlineJobs.ph is read-only. Groq is used only after deterministic evaluation routing. Slack receives concise advisory alerts but cannot mutate application state. The candidate remains the only actor authorized to submit an application or record an application decision.
+The replacement contains exactly three scheduled workflows.
 
 ```text
-OnlineJobs.ph search pages
-        |
-        v
-Scraper (4h) -- discovery claims --> ProcessingClaims
-        |
-        v
-Sheet1: discovered jobs
-        |
-        v
-Generator (90m, cap 1) -- evaluation/generation claims --> ProcessingClaims
-        |
-        v
-Sheet1: recommended / review_required / ready / recovery
-        |
-        +--> Alerter (15m, cap 5) -- alert claims --> ProcessingClaims
-        |         |
-        |         v
-        |      Slack: review / confirm skip in Sheet / open source
-        |
-        v
-Reviewer (15m) <-- explicit manual_action
-        |
-        +--> Dashboard: current funnel summary
-        |
-        v
-Archiver (45m) -- archive claims --> ProcessingClaims
-        |
-        v
-Archive: terminal history and employer outcomes
-        |
-        +--> Analytics (24h, read-only source access)
-                  |
-                  +--> Analytics: versioned detail rows
-                  |
-                  +--> AnalyticsReports: complete report metadata
-                             |
-                             v
-                  Recommender (168h, read-only source access)
-                             |
-                             +--> Recommendations: advisory evidence
-                             |
-                             +--> RecommendationReports: run history
+OnlineJobs.ph
+      |
+      v
+Scraper (4h, rolling 24h)
+      |
+      v
+Review Queue  <----- user actions
+      |
+      +--> Evaluator & Generator (30m, one row)
+      |         |
+      |         +--> ready_to_apply
+      |         +--> review_needed
+      |         +--> skip
+      |         +--> error / unavailable
+      |
+      +--> Alerter & Mover (15m)
+                |
+                +--> Slack (copy/open only)
+                +--> Applied Jobs
+                +--> Archive
 ```
 
-Configured schedules are scraper every 4 hours, generator every 90 minutes,
-alerter every 15 minutes, reviewer every 15 minutes, archiver every 45 minutes,
-analytics every 24 hours, and recommender every 168 hours. Analytics uses a
-fixed daily 02:00 start, and Recommender uses a fixed Monday 02:45 start, both
-in `Asia/Manila`. This places the weekly consumer after Analytics' 30-minute
-outer timeout plus a required 15-minute completion buffer instead of depending
-on the workflows' activation-relative interval phases.
+## Trust boundaries
 
-The other five schedules are also phase-fixed in `Asia/Manila`: Scraper starts
-at 01:08 and repeats every four hours; Generator starts at 00:01 and repeats
-every 90 minutes; Alerter runs at :02/:17/:32/:47; Reviewer runs at
-:13/:28/:43/:58; and Archiver starts at 00:19 and repeats every 45
-minutes. The builder emits explicit six-field cron rules. This is necessary
-because an n8n minute-step expression applies within the 0–59 minute field:
-90 is outside the Schedule Trigger v1.3 minute range, while 45 produces
-:00/:45 followed by a 15-minute hour-boundary gap rather than a steady
-45-minute cadence.
+`Review Queue` is authoritative active state. There is no projection owner and no hidden `Sheet1`. `Applied Jobs` and `Archive` are authoritative terminal stores. `_System` contains only expiring claims used to arbitrate overlapping discovery inserts.
 
-All seven exports run in the explicit `Asia/Manila` workflow timezone. Their
-outer execution budgets are Scraper 900-second, Generator 540-second, Alerter
-90-second, Reviewer 180-second, Archiver 540-second, Analytics 1800-second,
-and Recommender 900-second. Each budget is shorter than its schedule; the
-Generator, Reviewer, Alerter, and Archiver budgets are also shorter than the
-claims whose ownership they depend on. The n8n workflow timeout is an outer
-execution budget, not a promise that every node can be interrupted mid-call:
-HTTP/provider nodes retain shorter node-level timeouts, and an
-already-running non-abortable node may finish before n8n records the timed-out
-execution. Recovery therefore continues to rely on append-only claim expiry,
-commit guards, idempotent upserts, and complete-report markers.
+Google Sheet validation improves usability, but workflow-side contract validation is authoritative. Generated fields use warning-only protection; an API or pasted value is still validated again before any status change, alert, or move.
 
-All workflows explicitly retain failed production executions and manual
-executions, but do not retain successful production executions or per-node
-progress snapshots. The schedules produce 1,730 scheduled executions per week
-before failures or manual runs; retaining every normal payload would duplicate
-large Sheet reads in n8n's execution store even though Sheet state, report
-completion rows, claims, and guarded record fields already provide the
-authoritative result. Failed runs remain inspectable, and saved manual runs
-retain rollout evidence. Instance-level age/count pruning remains a deployment
-control and must still be verified independently.
+The old workbook is outside the replacement data plane. Its ID must differ from `JOB_PIPELINE_SPREADSHEET_ID`, no rows are imported from it, no generated workflow contains its ID, and cutover rejects active old/new overlap.
 
-For a self-hosted regular-mode deployment,
-`config/n8n-deployment-policy.json` pins a production concurrency limit of 3,
-execution pruning at 336 hours or 10,000 records, and internal readiness and
-workflow-labeled metrics. The maximum-timeout schedule model consumes 0.685
-slots on average, or 22.8% of the limit. A second, phase-aware one-week model
-proves a maximum of two simultaneous scheduled executions and requires one
-remaining production slot; aligned phase drift that would create five
-simultaneous interval starts is rejected. Even if all 1,730 scheduled weekly
-executions fail, 14 days produces 3,460 saved executions and remains below the
-count cap. Both models assume exactly one active workflow for each of the seven
-roles. The deployment policy therefore classifies complete, instance-wide
-Public API inventories by stable role signatures; the activation runbook
-requires every older copy inactive before activation and exactly the recorded
-seven target IDs active afterward. The template is validated but not claimed
-active until `npm run validate:deployment` succeeds inside the production
-runtime.
+No workflow submits a job application. The user reviews, copies, and submits the message manually.
 
-Unexpected failures use saved execution evidence plus externally scraped
-metrics. A central error-workflow ID is not embedded: it is assigned by the
-target n8n instance, four portable exports have no top-level instance ID, and
-error executions bypass the production concurrency limit. This avoids turning
-a failure storm into an unbounded notification side effect. Any later central
-handler must be bound and smoke-tested after import.
+## Scraper
 
-## Shared contracts
+At execution start, Scraper freezes:
 
-`config/candidate-profile.json` is the only factual resume source. `config/application-policy.json` is separate so writing preferences cannot become candidate facts. Every evaluation and generated message records the profile version used.
+```text
+window_end   = execution reference instant
+window_start = window_end - 24 hours
+```
 
-`config/pipeline-schema.json` defines the logical record. `canonical_job_id` is `onlinejobs.ph:<source_job_id>` when OnlineJobs.ph exposes an ID; otherwise it is a deterministic hash of the normalized canonical URL. Mutable Sheet row numbers are transport metadata only.
+Every keyword, page, retry, parser call, and reconciliation receives those exact values. Timestamps at both boundaries are accepted. Older, future, missing, or unparseable timestamps are excluded with categorized evidence.
 
-`state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Claim marking also writes a hidden `processing_commit_guard` derived from the winning token. Final evaluation, generation, and alert commits match that guard while atomically writing blank `processing_token`, `processing_stage`, and `processing_started_at`. The retained commit guard is not an active claim: a new claim replaces it and a manual lifecycle action clears it, so stale results match zero rows. There is no second canonical-ID cleanup write that could erase a newer claim.
+Search is intentionally plain keyword matching. Pagination is source-exhaustion aware and capped at three pages per keyword; requests are paced, timed out, and retried within configuration. Login, challenge, maintenance, and structurally unrecognized pages never produce jobs.
 
-Generator keeps two distinct guards. Claim acquisition captures the pre-claim
-`state_guard` as ephemeral `claimed_state_guard`, while evaluation or
-generation completion calculates the next durable `state_guard` for the
-completed state. Result construction releases the active fields before
-persistence and carries the original token only as ephemeral `commit_token`.
-The strict pre-commit reread requires exactly one current row with the same
-durable commit guard, token, stage, claimed state guard, manual action, and
-alert state. Zero or duplicate matches, missing ownership metadata, or any
-changed protected value fail the execution before the Sheet update.
+Canonical source ID and canonical URL are compared across Review Queue, Applied Jobs, and Archive. Multi-keyword results merge into one record. Rediscovery may update keyword provenance and `last_seen_at`, but it cannot reset status, action, message, retry, alert, or reviewer state.
 
-The final Sheet update always emits downstream output and is followed by a
-fresh authoritative read. A second verifier requires exactly one committed
-guard/identity and compares every stage-specific commit field after normalizing
-Sheet number, string, and JSON-array round trips. It also requires
-`processing_token`, `processing_stage`, and `processing_started_at` to be
-blank. A zero-row write, duplicate guard, field mismatch, or uncleared
-ownership therefore cannot appear as a green Generator execution.
+## Evaluator & Generator
 
-Groq requests use the HTTP node's native JSON-body mode. The system prompt is
-staged as an ephemeral field and referenced by the request expression instead
-of being embedded inside it; this prevents prompt text such as
-`{{job_title}}` from becoming nested n8n expression delimiters. Raw request
-mode is prohibited because current n8n versions treat it as a streamed
-response path rather than returning parsed provider JSON to the validator.
+The workflow selects one due row, writes a versioned claim, and rereads current state before committing. A stale token, version, state guard, identity, or user action rejects the commit.
 
-`ProcessingClaims` is append-written. For a canonical job and stage, the
-lowest valid, uniquely addressed Sheet row number wins until its configured
-lease expires. Missing, header-range, duplicate, or non-integer row locators
-and inverted, future-dated, or longer-than-configured leases cannot own work.
-This arbitrates concurrent discovery, evaluation, generation, alert, archival,
-Applied Jobs projection, Analytics report-store, and Recommendation
-report-store executions without treating a mutable active-row number as
-identity. Shared arbitration compares canonical identities case-folded and
-emits at most one proposed record for each identity/stage, so case variants or
-repeated same-token proposals cannot fan out duplicate downstream work. The
-projection winner also performs fail-closed retention:
-once 10,000 data rows exist, it can delete at most 1,000 uniquely addressed
-claim rows per run only after 30 days beyond expiry. Active/recent, malformed,
-unknown-stage, and duplicate-locator rows are preserved. Descending ranges are
-sent in one atomic Sheets batch; an uncertain response is not retried against
-shifted row numbers.
+Deterministic evaluation uses the full source description and current candidate/ranking policy:
 
-## Discovery workflow
+- a good fit continues through the application-pack and message gates;
+- a promising gap, required question, or uncertain instruction becomes `review_needed`;
+- a hard disqualifier or low fit becomes `skip`;
+- missing source content becomes `unavailable`;
+- provider, network, or validation failures become `error`, never `skip`.
 
-`config/search-plan.json` defines 22 enabled, evidence-linked queries across full-stack, frontend, backend/API, React/Next.js/TypeScript/Node.js, database, Flutter/mobile, ASP.NET Core/C#, automation/AI integration, production support, and payment integration. Validation rejects duplicate queries and evidence references absent from the profile.
+`Approve` means “reconsider through normal generation.” It does not waive proof selection, instruction sanitization, pack validation, or message validation. Prompt-injection requests, private-data requests, unsupported claims, unsupported automatic actions, and unresolved application requirements cannot become ready.
 
-Each scheduled run starts one page for each of 22 queries and follows the
-source's next-page signal adaptively, up to 3 pages and 66 requests. Requests
-remain globally wave-paced by at least 2 seconds, time out after 15 seconds,
-and retry up to 3 times with 5-second waits. A successful earlier page remains
-in the query's accumulated state if a later page exhausts its retries. Saved
-search pages are parsed as parent cards to keep title, URL, date, description,
-badge, and salary aligned. A seven-day cutoff and seniority exclusion remain
-configured. A 200 response is successful only when it contains at least one
-recognized result card or the explicit empty-result marker; login, challenge,
-maintenance, and structurally unfamiliar pages become `unexpected_search_page`
-failures without producing jobs.
+A failed retry retains an earlier valid message/provenance but the row remains `error`, so it cannot alert or be marked applied until a fresh validated result becomes ready.
 
-Pagination stops when the source no longer advertises a next page, the
-configured cap is reached, or the response lacks recognizable search-page
-evidence. It does not stop merely because every recognized card was old,
-excluded, or malformed. Successful pages are retained when another page/query
-fails. Coverage records `complete`, `empty`, `partial`, or `failed`
-per query, plus actual and maximum page-request counts; reaching the configured
-page cap while a next page exists is `partial`, never `complete`.
+## Alerter & Mover
 
-Discovery reconciliation combines query and role-family provenance, updates
-`last_seen_at`, and preserves existing evaluation, message, manual decision,
-and outcome fields. Active and Archive legacy URLs participate in
-deduplication. Canonical IDs are compared case-folded, and an active record
-explicitly wins recoverable active/Archive overlap even when Archive has the
-newer URL slug. Concurrent new rows pass through append-only discovery claims
-before insertion. Discovery claim, active insert, and seen-update Sheet writes
-are single-attempt and fail closed: any reported write error fails the
-execution instead of escaping through an unconnected error output. The next
-scheduled or manual run reads fresh active, Archive, and claim snapshots before
-reconciling again, so a partially committed run recovers without blindly
-repeating an ambiguous write.
+Movement is planned before Slack work and uses a separate graph branch. A Slack rejection, timeout, invalid URL, or unsafe message therefore cannot cancel an Applied Jobs or Archive move.
 
-## Evaluation and generation workflow
+Alert eligibility requires a fresh, unacted `ready_to_apply` row with a current ready pack and validated message. The idempotency key includes canonical identity, policy version, generation timestamp, and message digest. A successful key is never replayed. An ambiguous timeout is terminal because delivery may have occurred.
 
-Eligible records are split into generation and deterministic-evaluation queues.
-Each 90-minute execution selects at most one from each queue, so a generation
-and evaluation candidate with the same case-folded identity are both withheld
-as ambiguous before claims or external requests. Otherwise, a generation
-backlog cannot consume the evaluation slot and the Groq path remains capped at
-one. Within either queue, fresh work retains opportunity score, confidence,
-posting time, creation time, and canonical-identity priority. Once work has
-waited 120 minutes—or its durable age is malformed or unavailable—it enters a
-fail-closed oldest-due tier ahead of fresh work. This prevents continuous
-higher-scored or newer arrivals from starving a fixed record. A malformed
-legacy retry stage falls back to deterministic evaluation rather than being
-routed to Groq. A legacy record without an opportunity score falls back to its
-unchanged `match_score`; the fallback is a queue value only and does not
-populate either new score. Existing application decisions and historical ready
-messages are not selected.
+Slack contains scores, decision reason, gaps, instructions, questions, proofs, warnings, the exact stored message in a code block, and open-only Review Queue/source links. It contains no action webhook.
 
-Evaluation work uses a stored description when available; otherwise it fetches
-the detail page once and persists parsed metadata for reuse. Deleted/unavailable
-pages route to `unavailable`; recognizable job pages with insufficient content
-route to `unscorable`. A 200 body without any job-page marker becomes an
-evaluation-stage failure and follows the existing bounded retry policy instead
-of creating a manual-review record from a login, challenge, or maintenance
-page. Deterministic evaluation uses full description evidence, known skills,
-role family, unsupported requirements, and seniority. It stores score, tier,
-decision, reasons, gaps, profile version, and timestamp.
+Moves are:
 
-`config/ranking-policy.json` versions the dual-score rules. Qualification uses
-only canonical-profile skills and configured role-family evidence. Opportunity
-combines qualification, posting freshness, reliably parsed PHP-monthly salary,
-listing completeness, allowlisted source employer signals, observable
-application effort, and sufficiently large historical cohorts. Unknown factors
-receive the configured neutral contribution and remain listed as missing; they
-are never fabricated. Hard requirements unsupported by profile evidence route
-to `not_recommended` and `save_points`; ambiguous requirements route to manual
-review when the remaining qualification evidence meets the review threshold.
-Requirement classification distinguishes occurrence-local PHP currency
-evidence from PHP programming requirements. Explicit any-one-of capability
-lists are evaluated once against canonical approved skills; a supported option
-satisfies the group, while an unsatisfied group becomes one deterministic gap.
-Unmarked lists and unclear wording retain the independent/fail-closed behavior.
-Apply Points values are advisory categories only.
+| Source | Action | Destination | Reason |
+| --- | --- | --- | --- |
+| `ready_to_apply` | `I Applied` | Applied Jobs | manual application fact |
+| `ready_to_apply` | `Skip` | Archive | `user_skip` |
+| `review_needed` | `Deny` | Archive | `review_denied` |
+| `skip` | blank | Archive | `automatic_skip` |
 
-Only `recommended` records or explicit supported promotions enter the
-generation branch. Before any provider call, the workflow deterministically
-builds an instruction-aware pack
-using `config/application-pack-policy.json`: safe structured instructions,
-screening questions, up to three canonical proof references, and sanitized
-warnings. Unsafe prompt-bypass/private-data/automatic-action text is excluded
-from both the structured pack and model prompt. Only a `ready` pack reaches
-Groq. A `review_required` or `blocked` pack releases the claim, persists its
-bounded warnings, and returns to `review_required` without a provider call.
+The destination is written first, all non-empty planned fields are confirmed, and only the unchanged source row is then deleted. A write failure keeps Review Queue intact. A delete failure is safe to rerun because an existing complete destination becomes confirmation evidence rather than a second append.
 
-The generated system message is built from a compact canonical identity and
-approved-URL block plus application policy. Per-job prompts provide only
-selected canonical proofs and non-empty bounded role context; they omit the job
-URL. `config/groq-provider-policy.json` selects an artifact-approved,
-non-expired model and bounds temperature, output, initial input, and repair
-reserve. The message targets at most 260 words below the configured 300-word
-hard limit. Post-generation validation rejects empty output, excess length,
-unapproved URLs, obsolete projects, unsupported technologies, transformed or
-unsupported numeric claims, unapproved schedule/availability/salary/start-date
-commitments, phone numbers, completion/submission claims, internal evaluation
-labels, banned phrases, and a missing required subject value. An invalid first
-draft receives one repair call containing the complete rejected draft and all
-deterministic errors. The repair is revalidated under the same profile, policy,
-pack, processing claim, and commit guard; it is not a separate pipeline
-attempt. The repair reuses the exact original evidence packet and is skipped
-with bounded failure evidence when the complete input would exceed the provider
-budget. A successful finalization matches the durable
-`processing_commit_guard` written at claim acquisition and writes the message,
-complete pack, and cleared active-claim fields together. Provider or validation
-failure starts from the pre-generation record, preserving the previous valid
-pack and message. A validated message preserves line breaks and becomes
-`ready` only when its pack is also `ready`; no node submits it.
+## Runtime
 
-Persisted dispatchability is independently revalidated against the current
-candidate profile, application policy, pack policy, provenance fields, pack
-structure, approved URLs, and banned phrases. The same fail-closed decision
-guards `mark_applied`, Slack eligibility, and alert rendering. The eight
-confirmed unsafe legacy active messages are cleared by stable identity and
-evidence, marked `quarantined`, made alert-ineligible, and routed through
-evaluation first when their stored description is missing. Failed or partial
-replacement work remains non-dispatchable.
+All workflows use `Asia/Manila`, remain inactive in source control, retain failed/manual executions, and omit successful production payloads/progress.
 
-The workflow runs every 90 minutes and makes at most 1 generation selection per
-run. The selected model's conservative scheduled ceiling includes one initial
-and one repair request for every selection: 34 requests and 183,056
-character-estimated tokens per day against the documented developer-base
-limits of 1,000 requests and 200,000 tokens. A dedicated Wait node separates a
-repair from its initial request by 65 seconds; both Agent nodes carry the same
-policy-owned batching interval. This is a planning bound, not an exact
-tokenizer count or account entitlement, so activation still requires current
-Console limits, the live benchmark, and a disabled-workflow smoke. Detail HTTP
-calls time out after 15 seconds and retry up to 3 times with 5-second in-node
-waits, which stay below the 10-minute claim lease. Retryable stage failures
-record stage, category, sanitized summary, attempt count, and exponential
-next-retry time starting at 5 minutes. An initial provider failure, an invalid
-repaired draft, or a repair provider failure increments the execution's attempt
-once; the third failed attempt or a non-retryable request becomes
-`terminal_error`. The detail fetch and both Agent error outputs normalize
-n8n's string-shaped error item before classification or validation. An initial
-provider error therefore records one stage failure and never masquerades as an
-empty draft or consumes the repair request; the repair path remains exclusive
-to a real initial draft that failed deterministic validation.
+| Role | Schedule | Timeout | Claim lease |
+| --- | ---: | ---: | ---: |
+| Scraper | 240 min, offset 8 | 900 s | 1,200 s |
+| Evaluator & Generator | 30 min, offset 2 | 480 s | 600 s |
+| Alerter & Mover | 15 min, offset 4 | 120 s | 180 s |
 
-## Alert workflow
-
-The generator evaluates alert eligibility only after the instruction-aware pack
-and message have passed their atomic commit boundary. A ready record meeting
-the current persisted-message gate plus the versioned qualification,
-opportunity, confidence, freshness, and major-gap thresholds is persisted as
-`pending` in the same commit; no reviewer poll is required to enter the
-delivery queue.
-
-The alerter claims at most the configured per-run cap through
-`ProcessingClaims`, marks a deliverable record `sending`, validates the
-environment-bound Slack webhook and authorized HTTPS review URL, and sends a
-length-bounded alert. Candidate identities must be case-fold unique across the
-fresh active snapshot; every case variant is withheld before claim creation so
-logically duplicate rows cannot produce separate provider deliveries. The alert
-places the complete validated application
-message in one copyable Slack code block and keeps one required `Open Review
-Queue` link plus the source link outside that block. Optional context uses explicit
-`Unknown`/`None detected` labels and includes scores, confidence, employer,
-salary, freshness, advisory Apply Points, major gaps, instructions, screening
-questions, selected proofs, and warnings when it fits. Context is trimmed or
-omitted before the application message or required links. The environment-bound
-review URL is the full credential-free Google Sheets deep link for `Review
-Queue`; it carries no job identifier, command, or state-changing token. The
-source link is open-only. Only the Reviewer can persist promotion, skip, or
-application decisions after an explicit in-sheet action.
-
-`canonical_job_id + alert_policy_version` is the idempotency scope. Confirmed
-success stores `sent`, timestamp, attempt count, and any non-sensitive provider
-reference. A policy rollout never resets an existing pending/retryable
-attempt budget or due time and never reopens `sending`, `terminal_failure`, or
-`sent`; current eligibility and rendering still fail closed before delivery.
-The workflow is capped at 90 seconds, below its 2-minute claim
-lease. A known transient rejection uses bounded exponential retry beginning at
-2 minutes, never before the prior append-only claim expires. The next
-15-minute poll is also after expiry. This prevents polls from appending a
-rolling chain of losing claims that can starve the due retry. Six capped
-sweeps per Generator interval can handle 30 alerts, versus the Generator’s
-maximum 1-record output, and the cap keeps the serial provider-timeout budget
-inside the workflow timeout. The generated Slack HTTP node processes one item
-per batch and waits the policy-owned 1.1 seconds between requests, matching
-Slack's documented one-message-per-second incoming-webhook limit. The
-provider-timeout plus pacing budget remains below the workflow timeout. New,
-retryable, and stale ambiguous states are observed within one 15-minute sweep.
-Provider timeouts are
-terminal because Slack cannot reconcile an ambiguous delivery. If a `sending`
-record outlives its claim lease—covering
-delivery followed by a failed acknowledgement commit—it is terminalized as
-`ambiguous_delivery` without automatic resend. Missing configuration, invalid
-URLs, permanent provider rejection, and source unavailability fail or suppress
-visibly without discarding the ready application pack. A message that would
-break the Slack code-block boundary, contains unsupported invisible controls,
-or cannot fit completely with the required links is terminalized before any
-provider request. That deterministic preflight path releases the claim, records
-only a sanitized category and summary, and is never treated as ambiguous
-delivery.
-The Slack response handler normalizes n8n's string-shaped error output before
-classification and recovers an embedded HTTP error status when necessary.
-Rate limits, `5xx`, and connection failures therefore keep bounded retry
-semantics, while a timeout remains terminal `ambiguous_timeout`.
-
-The bounded recovery poll is intentionally independent of the Generator. An
-n8n child-workflow edge would require an import-specific workflow identifier,
-while a webhook handoff would add an authenticated delivery and
-acknowledgement boundary. Neither can be encoded safely in disabled,
-environment-portable exports without adding deployment coupling. Fifteen-minute
-polling preserves recovery and avoids making a successful application-pack
-commit depend on Slack or Alerter availability.
-
-## Review workflow
-
-`Sheet1` remains the active source of truth. `Review Queue` is a derived,
-automatically reconciled review surface containing only Status, Job title,
-Company, Score, Reason for review, Generated message, Job link, and Action.
-Hidden `canonical_job_id` and `source_state_guard` cells bind each displayed
-row to an authoritative source state; row position, title, and visible link
-text are never used as update identity. Only Action is intended for editing in
-this simplified surface. Eligible source identities must match the canonical
-format and be case-fold unique before projection; malformed or ambiguous
-records stay off the operator surface and are reported as invalid.
-
-The queue contains the configured `ready`, `recommended`, and
-`review_required` states plus only retryable or terminal failures from the
-generation stage. Current
-`opportunity_score` is displayed as Score, with the existing `match_score`
-fallback for legacy records. Review reasons are bounded and derived from
-persisted warnings, requirement gaps, match evidence, or safe recovery
-context. A `review_required` row with no evidence explicitly says that no
-reason was recorded. Generation recovery reasons distinguish pending/due
-automatic retries from exhausted attempts and sanitize credentials, URLs,
-provider details, and formula-like text. Recovery projections never display a
-rejected draft.
-
-Friendly queue actions map `Generate Application` to `promote` for normal
-review states and to the existing `retry` transition for generation failures.
-`Skip` records an explicit decision from either boundary. `I Applied` is
-removed from recovery-row dropdowns and remains authoritatively rejected until
-a current validated message is `ready`. The Reviewer rereads `Sheet1`,
-rejects missing, duplicate, stale, unsupported, or conflicting inputs, and
-reuses the same `applyManualAction` transition and message-safety boundary as
-the detailed review path. Action and source arbitration use case-folded
-canonical identity keys, closing the race where a case-variant duplicate
-appears after projection. A compare-and-commit sequence first matches
-`state_guard`, writes an execution-unique `processing_commit_guard`, and then
-commits only the row that still owns that guard. Direct `Sheet1` input wins if
-it conflicts with a queue input.
-
-After the source commit, the Reviewer rereads both source and queue. Applied
-and skipped rows disappear; a promoted record returns as a fresh recommended
-projection while still eligible. If source commit fails, its pending queue
-input remains available for retry. If cleanup fails after a source commit,
-the next run treats the stale action safely and rebuilds the projection.
-Concurrent Action edits made after the initial read are protected from that
-run's rebuild. Duplicate delivery cannot create another application snapshot
-or decision timestamp.
-
-When every configured Review Queue cell and row order already matches the
-canonical projection, reconciliation performs no deletes or appends. Both
-queue reads request formula rendering from Google Sheets, so a formula in any
-owned cell is compared as formula text rather than as its displayed result and
-therefore forces the normal cleanup/rebuild path. A required rebuild is gated
-by the shared projection claim. It inserts content-matched templates and uses
-one ordered, atomic Google Sheets batch to retire only rows whose compared
-values still match under Sheets duplicate semantics. The template's `Action`
-is blank, so a valid last-moment selection is nonblank and survives instead of
-being positionally deleted. Template identities must be nonblank and
-case-fold unique; ambiguous queue identities fail before the batch so duplicate
-comparison cannot shorten the known template range. Reconciliation indexes every
-observed Sheet1 state guard by case-folded identity, so an action remains
-visible when casing differs or divergent duplicate source rows make guarded
-processing ambiguous. The claim winner rereads Review Queue before maintenance
-and excludes late-action or ambiguous identities from both retirement and
-append planning. A run with any retirement candidate performs only the atomic
-retirement phase; missing desired rows are appended by the next claimed run.
-This two-phase convergence ensures an Action entered even after the final
-reread can survive the content check without a blank duplicate being appended
-beside it.
-
-`Applied Jobs` is a second derived operator surface, not a new source of truth.
-It projects every authoritative `application_decision=applied` record from
-`Sheet1` and `Archive`, preferring the active record during recoverable
-active/archive overlap. Its eight visible columns are Applied at, Job title,
-Company, Generated message, Job link, Current outcome, Outcome updated at, and
-Action. Hidden canonical identity and source-state guards bind the projection
-to the source. Missing or duplicate identity fails closed and is logged instead
-of showing an ambiguous row. Source grouping uses the same case-folded identity
-semantics as Sheets maintenance, so case variants cannot become separate
-operator rows.
-
-Friendly follow-up actions map to the existing explicit outcome transitions.
-The Reviewer rereads both sources, gives direct `Sheet1`/`Archive`
-`manual_action` input precedence, claims the authoritative row by
-`state_guard`, and commits by an execution-specific
-identity-embedded `processing_commit_guard`. It rereads the claimed source,
-requires that guard to occur globally exactly once on the expected identity
-with no direct action, and commits by the guard rather than by row position.
-It writes only processing/outcome fields for Applied Jobs actions, so blank
-optional application fields and immutable decision/snapshot data are not
-round-tripped through Google Sheets. Persisted source guards are recomputed;
-stale guard data taints the whole identity instead of allowing Archive
-fallback. Archive actions use the same
-compare-and-commit sequence as active actions. The Reviewer then rereads both
-sources and both operator surfaces before reconciling them. Applied Jobs
-action snapshots, last-minute protection, and maintenance planning all group
-case variants as one identity. Maintenance never deletes or updates by
-`row_number`: desired records are
-upserted by `canonical_job_id`. When one valid projection row already represents
-an identity, maintenance retains that row's exact stored identity spelling as
-the Sheets write key while source matching remains case-folded. This prevents
-an exact-key append-or-update from creating a case-variant duplicate. The final
-pre-maintenance reread refreshes that exact spelling again for upserts, stale
-clears, and protected-action rebases. Every cell update omits `Action`, so a
-user selection made during any workflow step cannot be erased. An append-written
-`applied_jobs_projection` claim in `ProcessingClaims` selects one maintenance
-winner; the workflow's three-minute timeout is shorter than the four-minute
-lease. The winner clears stale generated cells and guards, rereads the sheet,
-then submits one non-retrying Google Sheets `batchUpdate`. For each uniquely
-identified blank stale row, the batch inserts an identity-matched blank template,
-server-side duplicate removal compares every current cell, and only an
-unchanged stale row matches its template. An Action entered after the reread
-therefore makes the row non-duplicate and prevents retirement. The templates
-remain the first rows in the atomic request, are removed by their known inserted
-range, and the survivors are sorted by valid Applied at plus canonical
-identity. Case-folded identity uniqueness prevents Sheets' case-insensitive
-duplicate comparison from collapsing two templates. This avoids an unguarded
-positional delete, keeps late actions visible, and restores a genuinely
-header-only empty state. Invalid application
-timestamps display blank so the physical Sheets sort matches the deterministic
-projection order. Confirmed selections may remain visible and are
-idempotent; the user can select a later outcome or blank the cell. A late
-changed Action is rebased onto the fresh source guard, while an unchanged stale
-Action is never rebased across a direct source update. Missing or duplicate
-projection identity fails closed before action processing. The Archiver's own
-fresh-snapshot comparison prevents an outcome written during an
-active-to-Archive race from being overwritten or deleted.
-
-The detailed `Sheet1` and `Archive` interfaces remain available. Only the
-temporary Apply Points/strategy inputs, `manual_action`, and `notes` are
-intended for direct editing there. Supported internal actions are:
-
-- `mark_reviewed`
-- `promote`, `regenerate`, `retry`
-- `mark_applied`, `mark_skipped`
-- `outcome_no_response`, `outcome_replied`, `outcome_interview`, `outcome_offer`, `outcome_rejected`, `clear_outcome`
-
-No action means no lifecycle change. `mark_reviewed` and the qualifying manual
-review/application actions set the first observable review time once; automated
-work and source-link opens do not. `mark_applied` validates optional Apply
-Points and a bounded versioned strategy identifier, then freezes the ranking,
-recommendation, pack, strategy, and posting-age context. Missing points remain
-unknown. Duplicate apply/skip commands preserve the first decision timestamp
-and application snapshot.
-
-Unsupported actions, invalid inputs, stale queue rows, or conflicting
-transitions are logged in sanitized form and leave the previous durable record
-intact. Application
-decision and employer outcome are separate from processing/error state.
-Distinct outcome milestones and corrections append to `outcome_events`, while
-the latest `outcome` remains for backward compatibility. Duplicate current
-outcomes are consumed without another event. Outcomes can be updated on
-archived applied records without replacing the message, profile/policy
-versions, ranking/application snapshot, pack/alert data, notes, identity, or
-decision.
-
-Before entering its guarded mutation/reconciliation path, the Reviewer reads
-the six durable surfaces it needs: `Sheet1`, `Archive`, `Review Queue`,
-`Applied Jobs`, `Dashboard`, and `ProcessingClaims`. It exits with zero writes
-only when both projections and the funnel metrics match exactly, there are no
-valid or invalid actions, all identities are unambiguous, and claim retention
-has no deletion work. A formula, duplicate, missing row, changed cell, pending
-action, source update, invalid projection, or retention batch fails the gate
-closed. An edit after the snapshot is never cleared and is handled by the next
-15-minute poll. The three-minute execution timeout remains below the
-four-minute projection lease, and both expire before the next scheduled run.
-Actions are processed from the complete snapshot without a per-run action cap,
-so the cadence changes observation latency rather than action throughput. The
-30-minute manual-action threshold allows two scheduled observations, while
-the 20-minute backlog-event freshness threshold covers one cadence plus the
-outer timeout.
-
-The exact stable path therefore falls from at least 14 Sheet/Sheets API
-requests to six reads, avoids one `applied_jobs_projection` claim, and avoids a
-Dashboard mutation. At 96 polls per day, the stable-case upper bound is 768
-avoided requests and 96 avoided claim rows per day (280,320 requests and
-35,040 rows per 365-day year); actual savings are proportional to stable polls.
-Compared with the previous five-minute schedule, the 15-minute sweep avoids
-70,080 Reviewer executions and 420,480 mandatory six-surface reads per year.
-Compared with the immediately previous ten-minute schedule, it avoids 17,520
-executions, 105,120 mandatory reads, and 17,520 bounded backlog log events per
-year. The worst-case projection or manual-action observation time changes from
-under ten to under 15 minutes; durable inputs, action throughput, and
-compare-and-commit guards are unchanged.
-
-When work is required, the Dashboard upserts one current summary deduplicated
-by case-folded canonical identity from the authoritative active/archive reread
-after guarded Reviewer actions finish. A decision or outcome committed by the
-current execution is therefore included in the same execution's summary.
-Content-identical metrics skip the write, so `generated_at` records the last
-material summary publication rather than acting as a workflow-health
-heartbeat. Summary lookup case-folds `metric_key`; a unique stored spelling is
-retained as the exact Sheets upsert key, while folded duplicates fail closed
-before publication. The summary never infers a reply, interview, offer, or
-rejection from `applied`.
-
-## Analytics workflow
-
-The analytics workflow reads both active and archived records and never mutates
-either source. It deduplicates recoverable overlap by case-folded canonical
-identity and normalizes the report cohort to that folded identity, uses the
-earliest immutable application snapshot when overlap conflicts, unions
-cumulative outcome events and multi-touch provenance, and discloses conflicts
-as data-quality metrics. Existing Dashboard funnel behavior remains owned by
-the reviewer.
-
-`config/analytics-policy.json` versions an all-time cohort, `Asia/Manila` day
-boundary and fixed daily 02:00 schedule, score/salary/posting-age bands,
-top-ranked threshold, and multi-touch full-credit attribution. Output includes explicit
-numerator/denominator/sample/window rows for overall and dimensional
-conversion, per-ten outcomes, time to action, Apply Point efficiency,
-instruction/top-rank comparisons, hard-gap non-applications, pack blockers,
-coverage, and ordered score calibration. Unknown or malformed values stay in
-unknown buckets.
-
-Each distinct aggregate result receives a SHA-256 content-addressed report ID
-and deterministic detail IDs. The daily workflow first verifies
-`AnalyticsReports`; an exact compatible complete result is logged as unchanged
-and performs no analytic writes only when it is already the latest complete
-report and its stored semantic detail still has exactly one field-matching
-physical row per expected ID, including refresh timestamps that match the
-stored completion metadata. Missing, older, partial, incompatible, or
-malformed metadata cannot authorize that skip; neither can missing,
-duplicated, case-variant, or mismatched detail. Returning to an older result
-republishes it as current, and even a malformed newer `status=complete` row
-blocks an older-result shortcut while remaining ineligible as authoritative
-metadata. An unavailable metadata or detail-history read also
-disables only the skip and is logged before the same idempotent publication
-path. Concurrent or recovered executions with the same result converge on the
-same IDs. After the writes, the workflow rereads Analytics with formulas
-visible and requires exactly one
-field-matching physical row for every expected detail ID, with no extra row for
-that report, before it publishes `status=complete` metadata. A partial refresh cannot replace
-the last identifiable complete report; duplicated, case-variant, or mismatched
-detail fails the same gate. Analytic text is
-formula-neutralized and excludes descriptions, messages, credentials, provider
-payloads, contact details, and job identifiers.
-
-Before either learning workflow reads or writes its report store, it appends a
-global store claim and proceeds only when it owns the lowest unexpired claim.
-The Analytics lease is 35 minutes for its 30-minute timeout; the Recommender
-lease is 20 minutes for its 15-minute timeout. This serializes scheduled/manual
-overlap without treating a partial report as current.
-
-`config/report-retention.json` bounds normal Analytics history to a 90-day
-window. Cleanup starts only at 120 report rows, preserves at least the newest
-30 complete reports, and removes at most 30 expired reports per batch.
-The workflow rereads report and detail tabs with formulas visible, requires
-unique report/detail identities, exact stored detail counts, and unique row
-addresses, then deletes detail and metadata ranges together in one atomic
-Sheets batch with automatic retry disabled. Malformed, incomplete, duplicate,
-recent, and current history fails closed and remains untouched.
-
-## Weekly recommendation workflow
-
-The recommender reads `AnalyticsReports` and `Analytics` as its evidence
-source. It chooses the
-newest unambiguous complete analytics report, verifies the required all-time
-window and metric/band versions, requires the exact sequential detail identity
-set and matching row metadata, and recomputes the SHA-256 content identity
-before analysis. Missing, substituted, duplicated, case-variant, formula, or
-content-tampered source detail fails closed. A malformed newer completion row
-is ignored in favor of the last structurally valid complete report; it cannot
-authorize same-result reuse. The source analytics and every job/config
-operational tab remain read-only; the only coordination write outside
-recommendation tabs is its report-store claim.
-
-`config/recommendation-policy.json` versions the 168-hour schedule, overall and
-fixed Monday 02:45 start, 15-minute post-timeout source-completion buffer,
-segment sample minimums, explicit-outcome and per-dimension coverage gates,
-comparison delta, ordered score/confidence bands, and output contracts.
-If that day's Analytics execution fails or exceeds its budget, the consumer
-still selects the latest complete report and never treats partial detail as
-current.
-Eligible query and role cohorts are assessed on reply/interview/offer
-conversion rather than discovery volume alone. Ordered qualification,
-opportunity, and confidence cohorts expose possible overconfidence,
-underconfidence, or non-monotonicity. Eligible skill, salary, posting-age,
-actual/recommended Apply Points, instruction, and message-strategy cohorts
-remain observational comparisons. Promising-job missing requirements are
-checked against approved profile skills before an investigate-only suggestion
-is produced.
-
-The workflow writes evidence rows to `Recommendations`, rereads the sheet with
-formulas visible, and publishes a complete `RecommendationReports` row only
-after confirming exactly one field-matching physical row for every expected
-detail ID with no extra row in that run. Missing, duplicated, case-variant, or
-mismatched detail converts the attempt metadata to a non-authoritative
-`detail_write_failure`.
-A successful analysis has a SHA-256 identity derived from its analytics report,
-recommendation policy, and profile version; successful overlap converges on
-that stable run/detail scope. If an exact compatible result is already the
-latest complete report, the weekly execution logs it as unchanged and performs
-no recommendation writes only when its stored semantic detail also has exactly
-one field-matching physical row per expected ID, including generation time
-matching the stored run metadata. A folded duplicate of the newest complete
-run is ambiguous and cannot be current. Structurally malformed complete
-metadata is excluded from the current view but still prevents an older run
-from being mislabeled unchanged. Missing, duplicated, case-variant, or
-mismatched detail disables the shortcut and enters the normal
-repair-and-confirm path. A metadata or detail-history read failure likewise
-disables only the skip. Returning to older evidence republishes it as current.
-
-Recommendation history uses the same fail-closed retention boundary: cleanup
-starts at 80 report rows, keeps at least the newest 12 complete reports and 365
-days of normal history, and deletes at most 12 expired complete/failed runs per
-atomic batch. Recommendation store claims and cleanup claims are ordinary
-bounded `ProcessingClaims`; they do not grant permission to mutate job,
-ranking, profile, application, or outcome state.
-
-The report keeps numerator, denominator, sample, comparison, window, coverage,
-versions, and caveat. Sparse overall input yields a single explicit abstention;
-low dimension coverage yields only an abstention for that dimension; zero
-applications yields a successful empty report. Source, analysis, or detail
-write failures remain attempt-scoped, sanitized, and non-authoritative, so the
-latest identifiable complete report remains available.
-
-No branch changes search configuration, ranking rules, profile facts,
-strategies, applications, outcomes, or Apply Points. The internal Sheet tabs
-are the delivery surface in this version; notification delivery is not an
-authoritative dependency.
-
-## Archive workflow
-
-Archival is eligible only for configured `applied`, `skipped`,
-`not_recommended`, and `terminal_error` records. `retryable_error` remains
-active. An undecided terminal generation failure also remains active for
-Review Queue retry or skip; terminal failures from other stages retain normal
-archival behavior. Any otherwise eligible row with a nonblank
-`processing_token` also remains active: the owning workflow or the centralized
-orphan cleanup must resolve that marker before Archiver can copy or delete the
-record.
-
-For each winning archive claim:
-
-1. Require one active canonical identity and URL, using case-folded canonical
-   ID cardinality plus exact canonical URL cardinality, then merge with one
-   existing archive identity/legacy URL.
-2. Upsert the complete record through a one-item write loop. New identities
-   append by `canonical_job_id`; existing rows use the exact, freshly read
-   stored `canonical_job_id` when it denotes the same folded identity,
-   including case variants. A keyless or mismatched legacy row uses its exact
-   stored `canonical_url` once to repair its canonical ID. A legacy match with
-   no safe physical repair key is rejected rather than appended.
-3. Reread Archive and Sheet1.
-4. Reject deletion if the active row identity changed, any supported source field changed after planning, or the archive copy is missing/stale.
-5. Delete exactly one confirmed Sheet1 row per item in descending row order.
-
-An interrupted run may temporarily leave one copy in both tabs; retry
-reconciliation treats that as recoverable. It cannot authorize deletion merely
-because a minimal archive row exists, or while either the active or Archive
-identity is ambiguous on the final reread.
-
-## Physical storage and compatibility
-
-Arrays such as query provenance, role families, reasons, and gaps are serialized as JSON strings in Sheets and normalized on read. Blank company, salary, outcome, or profile metadata means unknown, not “Not Given.”
-
-`google-apps-script/SheetSetup.gs` is additive: it creates missing tabs/headers,
-including the exact versioned `Review Queue` and `Applied Jobs` contracts, copies legacy
-`created_at ` values into `created_at`, populates canonical
-identity/state guards and legacy versions, orders human review columns,
-applies action validation, and uses warning-only protection for generated
-fields. Each derived surface hides its two helper fields, exposes exactly eight
-operator fields, and leaves Action as the only unprotected input. Existing
-legacy headers remain for rollback compatibility. An existing Review Queue or
-Applied Jobs sheet with unsupported or duplicate headers fails setup before it
-is rewritten and requires manual reconciliation.
-
-## Operational visibility
-
-Workflow execution logs emit structured summaries for discovery coverage,
-claim winners/losses, archive planning/reconciliation, invalid review actions,
-and the `operational_backlog` event. The Reviewer derives due-generation,
-due-evaluation, pending-alert, and canonical active-claim ages from snapshots
-it already reads. Since Sheet Action cells have no edit timestamp, it emits
-bounded, privacy-safe manual-action fingerprints for stateful first-seen
-monitoring.
-The `generator_result` and `alert_delivery` events expose only
-stage/status/category so repeated provider rate limits can be counted from
-`category=rate_limit` without relying on overwritten row state. Their
-`state_commit_pending=true` marker prevents a pre-commit provider result from
-being mistaken for durable Sheet success. Durable
-recovery data lives in `pipeline_status`, `processing_stage`,
-`attempt_count`, `failed_stage`, `next_retry_at`, `error_category`, and
-`error_summary`. Logs must remain sanitized: no API keys, authorization
-headers, raw provider responses, canonical identities, action text, or full
-resume/job-description payloads.
-
-Workflow JSON contains credential and Sheet references inherited from the existing exports but no secret material. Operators must rebind those references to the intended environment after import.
+The timeout-weighted demand is 0.4625 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.

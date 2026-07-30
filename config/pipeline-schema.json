@@ -1,17 +1,24 @@
 {
-  "schema_version": 1,
-  "storage_version": "2026-07-29-generation-recovery",
+  "schema_version": 2,
+  "storage_version": "2026-07-31-fresh-three-workflow",
+  "authoritative_stores": {
+    "active": "Review Queue",
+    "applied": "Applied Jobs",
+    "archived": "Archive",
+    "claims": "_System"
+  },
   "canonical_identity": {
     "source": "onlinejobs.ph",
     "preferred": "source_job_id",
-    "fallback": "canonical_url"
+    "fallback": "canonical_url",
+    "unique_across_stores": true
   },
   "fields": [
     "source",
     "source_job_id",
     "canonical_job_id",
+    "record_version",
     "state_guard",
-    "processing_commit_guard",
     "canonical_url",
     "job_title",
     "company",
@@ -20,37 +27,31 @@
     "posted_at",
     "discovered_at",
     "last_seen_at",
-    "search_queries",
-    "role_families",
+    "matched_keywords",
     "source_availability",
-    "match_score",
-    "match_tier",
-    "match_decision",
-    "match_reasons",
-    "requirement_gaps",
+    "pipeline_status",
+    "user_action",
+    "decision_reason",
+    "required_input",
     "qualification_score",
     "opportunity_score",
     "ranking_confidence",
-    "apply_points_recommendation",
-    "ranking_factors",
-    "ranking_missing_signals",
-    "requirement_gap_details",
-    "scoring_policy_version",
+    "match_reasons",
+    "requirement_gaps",
     "profile_version",
+    "policy_version",
     "evaluated_at",
-    "pipeline_status",
     "processing_stage",
     "processing_token",
     "processing_started_at",
     "attempt_count",
-    "failed_stage",
     "next_retry_at",
     "error_category",
     "error_summary",
     "generated_message",
+    "message_validation_status",
     "message_profile_version",
     "message_policy_version",
-    "message_validation_status",
     "generated_at",
     "application_instructions",
     "screening_questions",
@@ -62,8 +63,6 @@
     "application_pack_policy_version",
     "application_pack_generated_at",
     "alert_status",
-    "alert_channel",
-    "alert_policy_version",
     "alert_idempotency_key",
     "alert_attempt_count",
     "alert_last_attempt_at",
@@ -72,47 +71,25 @@
     "alert_provider_reference",
     "alert_error_category",
     "alert_error_summary",
-    "alert_suppressed_reason",
-    "apply_points_input",
-    "application_message_strategy_input",
-    "manual_action",
-    "first_reviewed_at",
-    "application_decision",
-    "application_decided_at",
-    "apply_points_used",
-    "application_message_strategy",
-    "application_qualification_score",
-    "application_opportunity_score",
-    "application_ranking_confidence",
-    "application_scoring_policy_version",
-    "application_apply_points_recommendation",
-    "application_pack_status_at_apply",
-    "application_posting_age_days",
-    "application_snapshot_at",
+    "applied_at",
+    "archived_at",
+    "archive_reason",
     "outcome",
     "outcome_at",
-    "outcome_events",
+    "notes",
     "created_at",
-    "updated_at",
-    "archived_at",
-    "archived_from_status",
-    "notes"
+    "updated_at"
   ],
   "string_list_fields": [
-    "search_queries",
-    "role_families",
+    "matched_keywords",
     "match_reasons",
     "requirement_gaps",
-    "ranking_missing_signals",
     "selected_proof_refs"
   ],
   "json_array_fields": [
-    "ranking_factors",
-    "requirement_gap_details",
     "application_instructions",
     "screening_questions",
-    "application_warnings",
-    "outcome_events"
+    "application_warnings"
   ],
   "timestamp_fields": [
     "posted_at",
@@ -126,20 +103,48 @@
     "alert_last_attempt_at",
     "alert_next_retry_at",
     "alert_sent_at",
-    "first_reviewed_at",
-    "application_decided_at",
-    "application_snapshot_at",
+    "applied_at",
+    "archived_at",
     "outcome_at",
     "created_at",
-    "updated_at",
-    "archived_at"
+    "updated_at"
   ],
   "field_rules": {
-    "match_score": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 100,
-      "nullable": true
+    "record_version": {
+      "type": "integer",
+      "minimum": 1,
+      "nullable": false
+    },
+    "pipeline_status": {
+      "type": "enum",
+      "values": [
+        "new",
+        "processing",
+        "ready_to_apply",
+        "review_needed",
+        "skip",
+        "error",
+        "unavailable"
+      ],
+      "nullable": false
+    },
+    "user_action": {
+      "type": "enum",
+      "values": [
+        "",
+        "I Applied",
+        "Skip",
+        "Approve",
+        "Deny"
+      ]
+    },
+    "source_availability": {
+      "type": "enum",
+      "values": [
+        "",
+        "active",
+        "unavailable"
+      ]
     },
     "qualification_score": {
       "type": "number",
@@ -153,57 +158,6 @@
       "maximum": 100,
       "nullable": true
     },
-    "application_qualification_score": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 100,
-      "nullable": true
-    },
-    "application_opportunity_score": {
-      "type": "number",
-      "minimum": 0,
-      "maximum": 100,
-      "nullable": true
-    },
-    "application_posting_age_days": {
-      "type": "number",
-      "minimum": 0,
-      "nullable": true
-    },
-    "attempt_count": {
-      "type": "integer",
-      "minimum": 0,
-      "nullable": true
-    },
-    "alert_attempt_count": {
-      "type": "integer",
-      "minimum": 0,
-      "nullable": true
-    },
-    "apply_points_used": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 60,
-      "nullable": true
-    },
-    "apply_points_input": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 60,
-      "nullable": true
-    },
-    "application_message_strategy": {
-      "type": "string",
-      "maximum_length": 64,
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,47}/v[1-9][0-9]{0,5}$",
-      "nullable": true
-    },
-    "application_message_strategy_input": {
-      "type": "string",
-      "maximum_length": 64,
-      "pattern": "^[a-z0-9][a-z0-9._-]{0,47}/v[1-9][0-9]{0,5}$",
-      "nullable": true
-    },
     "ranking_confidence": {
       "type": "enum",
       "values": [
@@ -213,33 +167,17 @@
         "low"
       ]
     },
-    "application_ranking_confidence": {
-      "type": "enum",
-      "values": [
-        "",
-        "high",
-        "medium",
-        "low"
-      ]
+    "attempt_count": {
+      "type": "integer",
+      "minimum": 0,
+      "nullable": false
     },
-    "apply_points_recommendation": {
+    "message_validation_status": {
       "type": "enum",
       "values": [
         "",
-        "save_points",
-        "low_allocation",
-        "normal_allocation",
-        "high_allocation"
-      ]
-    },
-    "application_apply_points_recommendation": {
-      "type": "enum",
-      "values": [
-        "",
-        "save_points",
-        "low_allocation",
-        "normal_allocation",
-        "high_allocation"
+        "valid",
+        "quarantined"
       ]
     },
     "application_pack_status": {
@@ -251,28 +189,10 @@
         "blocked"
       ]
     },
-    "application_pack_status_at_apply": {
-      "type": "enum",
-      "values": [
-        "",
-        "ready",
-        "review_required",
-        "blocked"
-      ]
-    },
-    "message_validation_status": {
-      "type": "enum",
-      "values": [
-        "",
-        "valid",
-        "quarantined"
-      ]
-    },
     "alert_status": {
       "type": "enum",
       "values": [
         "",
-        "not_eligible",
         "pending",
         "sending",
         "sent",
@@ -280,43 +200,110 @@
         "terminal_failure",
         "suppressed"
       ]
+    },
+    "outcome": {
+      "type": "enum",
+      "values": [
+        "",
+        "no_response",
+        "replied",
+        "interview",
+        "offer",
+        "rejected"
+      ]
     }
   },
+  "business_results": [
+    "ready_to_apply",
+    "review_needed",
+    "skip"
+  ],
+  "operational_conditions": [
+    "new",
+    "processing",
+    "error",
+    "unavailable"
+  ],
   "pipeline_statuses": [
-    "discovered",
-    "evaluating",
-    "recommended",
-    "review_required",
-    "not_recommended",
-    "unscorable",
-    "generating",
-    "ready",
-    "retryable_error",
-    "terminal_error",
-    "unavailable",
-    "applied",
-    "skipped",
-    "archived"
+    "new",
+    "processing",
+    "ready_to_apply",
+    "review_needed",
+    "skip",
+    "error",
+    "unavailable"
   ],
-  "manual_actions": [
+  "user_actions": [
     "",
-    "mark_reviewed",
-    "promote",
-    "mark_applied",
-    "mark_skipped",
-    "retry",
-    "regenerate",
-    "outcome_no_response",
-    "outcome_replied",
-    "outcome_interview",
-    "outcome_offer",
-    "outcome_rejected",
-    "clear_outcome"
+    "I Applied",
+    "Skip",
+    "Approve",
+    "Deny"
   ],
-  "application_decisions": [
-    "",
-    "applied",
-    "skipped"
+  "actions_by_status": {
+    "new": [
+      ""
+    ],
+    "processing": [
+      ""
+    ],
+    "ready_to_apply": [
+      "",
+      "I Applied",
+      "Skip"
+    ],
+    "review_needed": [
+      "",
+      "Approve",
+      "Deny"
+    ],
+    "skip": [
+      ""
+    ],
+    "error": [
+      ""
+    ],
+    "unavailable": [
+      ""
+    ]
+  },
+  "transitions": {
+    "new": [
+      "processing",
+      "error",
+      "unavailable"
+    ],
+    "processing": [
+      "ready_to_apply",
+      "review_needed",
+      "skip",
+      "error",
+      "unavailable"
+    ],
+    "ready_to_apply": [
+      "ready_to_apply"
+    ],
+    "review_needed": [
+      "processing",
+      "review_needed"
+    ],
+    "skip": [
+      "skip"
+    ],
+    "error": [
+      "processing",
+      "error",
+      "unavailable"
+    ],
+    "unavailable": [
+      "processing",
+      "unavailable"
+    ]
+  },
+  "archive_reasons": [
+    "automatic_skip",
+    "user_skip",
+    "review_denied"
   ],
   "outcomes": [
     "",
@@ -325,80 +312,5 @@
     "interview",
     "offer",
     "rejected"
-  ],
-  "transitions": {
-    "discovered": [
-      "evaluating"
-    ],
-    "evaluating": [
-      "recommended",
-      "review_required",
-      "not_recommended",
-      "unscorable",
-      "unavailable",
-      "retryable_error",
-      "terminal_error"
-    ],
-    "recommended": [
-      "generating",
-      "skipped"
-    ],
-    "review_required": [
-      "generating",
-      "skipped"
-    ],
-    "not_recommended": [
-      "archived"
-    ],
-    "unscorable": [
-      "evaluating",
-      "generating",
-      "skipped"
-    ],
-    "generating": [
-      "ready",
-      "review_required",
-      "retryable_error",
-      "terminal_error"
-    ],
-    "ready": [
-      "generating",
-      "applied",
-      "skipped"
-    ],
-    "retryable_error": [
-      "evaluating",
-      "generating",
-      "skipped",
-      "terminal_error"
-    ],
-    "terminal_error": [
-      "archived",
-      "skipped"
-    ],
-    "unavailable": [
-      "evaluating",
-      "archived"
-    ],
-    "applied": [
-      "archived"
-    ],
-    "skipped": [
-      "archived"
-    ],
-    "archived": []
-  },
-  "legacy_status_mapping": {
-    "pending": "discovered",
-    "processing": "evaluating",
-    "ready": "ready",
-    "applied": "applied",
-    "skipped": "skipped",
-    "error": "terminal_error"
-  },
-  "legacy_header_mapping": {
-    "created_at ": "created_at",
-    "job_url": "canonical_url",
-    "status": "pipeline_status"
-  }
+  ]
 }

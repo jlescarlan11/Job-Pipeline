@@ -1,0 +1,250 @@
+import assert from "node:assert/strict";
+import { readdir, readFile } from "node:fs/promises";
+import test from "node:test";
+
+const workflowsDirectory = new URL("../workflows/", import.meta.url);
+const files = (await readdir(workflowsDirectory))
+  .filter((name) => name.endsWith(".json"))
+  .sort();
+const workflows = Object.fromEntries(
+  await Promise.all(
+    files.map(async (file) => [
+      file,
+      JSON.parse(await readFile(new URL(file, workflowsDirectory), "utf8"))
+    ])
+  )
+);
+
+function node(workflow, name) {
+  const found = workflow.nodes.find((entry) => entry.name === name);
+  assert.ok(found, `${workflow.name} missing ${name}`);
+  return found;
+}
+
+function allCode(workflow) {
+  return workflow.nodes
+    .filter((entry) => entry.type === "n8n-nodes-base.code")
+    .map((entry) => entry.parameters.jsCode)
+    .join("\n");
+}
+
+test("build emits exactly the three inactive replacement roles", () => {
+  assert.deepEqual(files, [
+    "alerter-mover.json",
+    "generator.json",
+    "scraper.json"
+  ]);
+  assert.deepEqual(
+    Object.values(workflows)
+      .map((workflow) => workflow.meta.workflowRole)
+      .sort(),
+    ["alerter_mover", "evaluator_generator", "scraper"]
+  );
+  for (const workflow of Object.values(workflows)) {
+    assert.equal(workflow.active, false);
+    assert.equal(workflow.settings.timezone, "Asia/Manila");
+    assert.equal(workflow.settings.saveDataSuccessExecution, "none");
+    assert.equal(workflow.settings.saveDataErrorExecution, "all");
+    assert.equal(workflow.settings.saveExecutionProgress, false);
+    assert.equal(workflow.settings.saveManualExecutions, true);
+    assert.equal(workflow.meta.authoritativeActiveSheet, "Review Queue");
+    assert.equal(
+      workflow.settings.executionTimeout,
+      workflow.meta.executionTimeoutSeconds
+    );
+  }
+});
+
+test("all generated Code nodes are syntactically valid", () => {
+  for (const workflow of Object.values(workflows)) {
+    for (const entry of workflow.nodes.filter(
+      (candidate) => candidate.type === "n8n-nodes-base.code"
+    )) {
+      assert.doesNotThrow(
+        () => new Function(entry.parameters.jsCode),
+        `${workflow.name}/${entry.name}`
+      );
+    }
+  }
+});
+
+test("all workflows bind the fresh workbook by environment, never the old workbook", () => {
+  const serialized = JSON.stringify(workflows);
+  assert.match(serialized, /JOB_PIPELINE_SPREADSHEET_ID/);
+  assert.doesNotMatch(serialized, /1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/);
+  for (const legacy of [
+    '"Sheet1"',
+    '"Dashboard"',
+    '"Analytics"',
+    '"AnalyticsReports"',
+    '"Recommendations"',
+    '"RecommendationReports"',
+    '"ProcessingClaims"'
+  ]) {
+    assert.doesNotMatch(serialized, new RegExp(legacy));
+  }
+});
+
+test("Scraper owns one fixed inclusive 24-hour keyword window and three-store reconciliation", () => {
+  const workflow = workflows["scraper.json"];
+  const code = allCode(workflow);
+  assert.match(code, /createDiscoveryWindow/);
+  assert.match(code, /window_start/);
+  assert.match(code, /window_end/);
+  assert.match(code, /window_hours:\s*24|windowHours/);
+  assert.match(code, /future_dated/);
+  assert.match(code, /outside_window_old/);
+  assert.match(code, /missing_posted_at/);
+  assert.match(code, /max_pages_per_keyword/);
+  assert.doesNotMatch(
+    node(workflow, "Capture Fixed Window and Keywords").parameters.jsCode,
+    /"evidence_refs"\s*:|"role_family"\s*:|"lookback_days"\s*:|"queries"\s*:/
+  );
+  for (const name of [
+    "Get Review Queue",
+    "Get Applied Jobs",
+    "Get Archive",
+    "Append New Review Queue Rows",
+    "Update Review Queue Seen"
+  ]) {
+    node(workflow, name);
+  }
+  assert.equal(
+    node(workflow, "Append New Review Queue Rows").parameters.sheetName.value,
+    "Review Queue"
+  );
+  const seenUpdate = node(workflow, "Update Review Queue Seen");
+  assert.deepEqual(seenUpdate.parameters.columns.matchingColumns, [
+    "canonical_job_id"
+  ]);
+  assert.equal("pipeline_status" in seenUpdate.parameters.columns.value, false);
+  assert.equal("user_action" in seenUpdate.parameters.columns.value, false);
+  assert.equal("notes" in seenUpdate.parameters.columns.value, false);
+  node(workflow, "Append Discovery Claims");
+  node(workflow, "Keep Winning Discovery Claims");
+  node(workflow, "Select Expired Discovery Claims");
+  node(workflow, "Delete Expired Discovery Claims");
+  assert.match(
+    node(workflow, "Keep Winning Discovery Claims").parameters.jsCode,
+    /Emit Discovery Claims/
+  );
+});
+
+test("Evaluator & Generator persists claims and gates readiness after pack and message validation", () => {
+  const workflow = workflows["generator.json"];
+  const code = allCode(workflow);
+  for (const symbol of [
+    "selectGeneratorCandidate",
+    "claimGeneratorRecord",
+    "evaluateAndRoute",
+    "prepareApplicationGeneration",
+    "applyValidatedGeneration",
+    "commitGeneratorResult",
+    "recordGeneratorFailure"
+  ]) {
+    assert.match(code, new RegExp(symbol));
+  }
+  node(workflow, "Persist Generator Claim");
+  node(workflow, "Get Review Queue Before Commit");
+  node(workflow, "Guard and Commit Generator Result");
+  assert.equal(workflow.meta.manualSubmissionOnly, true);
+  assert.equal(
+    node(workflow, "Generate Application with Groq").parameters.url,
+    "https://api.groq.com/openai/v1/chat/completions"
+  );
+  assert.match(
+    JSON.stringify(node(workflow, "Generate Application with Groq")),
+    /JOB_PIPELINE_GROQ_API_KEY/
+  );
+  assert.equal(
+    node(workflow, "Generate Application with Groq").maxTries,
+    1
+  );
+  assert.equal(node(workflow, "Fetch Job Detail").maxTries, 3);
+  const claimUpdate = node(workflow, "Persist Generator Claim");
+  assert.deepEqual(claimUpdate.parameters.columns.matchingColumns, [
+    "canonical_job_id"
+  ]);
+  assert.equal("user_action" in claimUpdate.parameters.columns.value, false);
+  assert.equal("notes" in claimUpdate.parameters.columns.value, false);
+
+  const resultUpdate = node(workflow, "Update Review Queue Result");
+  assert.deepEqual(resultUpdate.parameters.columns.matchingColumns, [
+    "canonical_job_id"
+  ]);
+  assert.equal("user_action" in resultUpdate.parameters.columns.value, true);
+  assert.equal("notes" in resultUpdate.parameters.columns.value, false);
+});
+
+test("Alerter & Mover plans terminal copies independently of Slack and confirms before delete", () => {
+  const workflow = workflows["alerter-mover.json"];
+  const code = allCode(workflow);
+  assert.equal(workflow.meta.movementIndependentOfSlack, true);
+  for (const name of [
+    "Plan Independent Moves",
+    "Append Applied Jobs",
+    "Append Archive",
+    "Get Review Queue After Copies",
+    "Get Applied Jobs After Copies",
+    "Get Archive After Copies",
+    "Confirm Destination Copies",
+    "Delete Confirmed Review Queue Rows",
+    "Select Fresh Alerts",
+    "Persist Alert Claims",
+    "Get Review Queue After Alert Claims",
+    "Confirm and Render Alerts",
+    "Send Slack Alert",
+    "Get Review Queue Before Alert Commit",
+    "Guard and Commit Slack Results"
+  ]) {
+    node(workflow, name);
+  }
+  assert.match(code, /planQueueActions/);
+  assert.match(code, /confirmMoveDeletions/);
+  assert.match(code, /selectFreshAlertCandidates/);
+  assert.match(code, /renderSlackAlert/);
+  assert.match(code, /applySlackProviderResult/);
+  assert.match(
+    node(workflow, "Send Slack Alert").parameters.url,
+    /JOB_PIPELINE_SLACK_WEBHOOK_URL/
+  );
+  for (const updateName of ["Persist Alert Claims", "Update Alert Results"]) {
+    const update = node(workflow, updateName);
+    assert.deepEqual(update.parameters.columns.matchingColumns, [
+      "canonical_job_id"
+    ]);
+    assert.equal("user_action" in update.parameters.columns.value, false);
+    assert.equal("notes" in update.parameters.columns.value, false);
+  }
+});
+
+test("network calls and critical Sheet writes remain bounded and fail closed", () => {
+  for (const workflow of Object.values(workflows)) {
+    for (const entry of workflow.nodes) {
+      if (entry.type === "n8n-nodes-base.httpRequest") {
+        assert.ok(entry.parameters.options.timeout > 0, entry.name);
+        if (entry.retryOnFail) {
+          assert.ok(entry.maxTries > 0, entry.name);
+          assert.ok(entry.waitBetweenTries > 0, entry.name);
+        }
+      }
+      if (
+        entry.type === "n8n-nodes-base.googleSheets" &&
+        ["append", "update", "delete"].includes(entry.parameters.operation)
+      ) {
+        assert.equal(entry.retryOnFail, undefined, entry.name);
+        assert.equal(entry.onError, undefined, entry.name);
+        assert.equal(entry.continueOnFail, undefined, entry.name);
+      }
+    }
+  }
+});
+
+test("no workflow automates OnlineJobs application or spends Apply Points", () => {
+  const serialized = JSON.stringify(workflows).toLowerCase();
+  assert.doesNotMatch(
+    serialized,
+    /onlinejobs\.ph\/(?:apply|jobseekers\/apply)|submitapplication|mark_applied|apply_points_used/
+  );
+  assert.match(serialized, /manualsubmissiononly/);
+});

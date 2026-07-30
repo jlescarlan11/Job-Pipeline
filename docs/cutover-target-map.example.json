@@ -1,0 +1,90 @@
+{
+  "target_workflow_ids": {
+    "scraper": "REPLACE_WITH_SCRAPER_WORKFLOW_ID",
+    "evaluator_generator": "REPLACE_WITH_GENERATOR_WORKFLOW_ID",
+    "alerter_mover": "REPLACE_WITH_ALERTER_MOVER_WORKFLOW_ID"
+  },
+  "workflow_bindings": {
+    "REPLACE_WITH_SCRAPER_WORKFLOW_ID": {
+      "spreadsheet_id": "REPLACE_WITH_FRESH_WORKBOOK_ID"
+    },
+    "REPLACE_WITH_GENERATOR_WORKFLOW_ID": {
+      "spreadsheet_id": "REPLACE_WITH_FRESH_WORKBOOK_ID"
+    },
+    "REPLACE_WITH_ALERTER_MOVER_WORKFLOW_ID": {
+      "spreadsheet_id": "REPLACE_WITH_FRESH_WORKBOOK_ID"
+    }
+  },
+  "fresh_workbook": {
+    "id": "REPLACE_WITH_FRESH_WORKBOOK_ID",
+    "verified_empty_before_activation": true,
+    "setup_runs": 2,
+    "old_rows_imported": false,
+    "initial_data_rows": {
+      "Review Queue": 0,
+      "Applied Jobs": 0,
+      "Archive": 0
+    }
+  },
+  "old_workbook": {
+    "id": "REPLACE_WITH_OLD_WORKBOOK_ID",
+    "backup_id": "REPLACE_WITH_BACKUP_REFERENCE",
+    "retained": true,
+    "active_binding_count": 0
+  },
+  "workflow_backup": {
+    "reference": "REPLACE_WITH_ENCRYPTED_BACKUP_REFERENCE",
+    "complete": true
+  },
+  "smoke": {
+    "blank_setup_zero_rows": false,
+    "setup_rerun_idempotent": false,
+    "no_old_row_import": false,
+    "fixed_window_single_clock": false,
+    "window_start_inclusive": false,
+    "window_end_inclusive": false,
+    "old_listing_excluded": false,
+    "future_listing_excluded": false,
+    "missing_timestamp_excluded": false,
+    "unique_and_duplicate_discovery": false,
+    "ready_route": false,
+    "review_needed_route": false,
+    "approval_route": false,
+    "denial_move": false,
+    "automatic_skip_move": false,
+    "user_skip_move": false,
+    "i_applied_move": false,
+    "empty_queues": false,
+    "source_page_failure": false,
+    "provider_failure": false,
+    "stale_action": false,
+    "destination_write_failure": false,
+    "source_delete_failure": false,
+    "slack_rejection": false,
+    "slack_timeout": false,
+    "repeated_scheduler_runs": false,
+    "safe_recovery": false,
+    "slack_copy_fidelity": false,
+    "links_open_only": false,
+    "no_automatic_submission": false,
+    "secret_scan_clean": false
+  },
+  "observations": {
+    "no_out_of_window_jobs": false,
+    "no_duplicate_jobs": false,
+    "no_duplicate_alerts": false,
+    "no_duplicate_applied_rows": false,
+    "no_duplicate_archive_rows": false,
+    "no_stuck_claims": false,
+    "no_old_workbook_writes": false,
+    "old_workbook_unchanged": false
+  },
+  "rollback": {
+    "documented": true,
+    "verified": false,
+    "prior_workflow_ids": [
+      "REPLACE_WITH_PRIOR_WORKFLOW_IDS"
+    ],
+    "old_workbook_id": "REPLACE_WITH_OLD_WORKBOOK_ID"
+  }
+}

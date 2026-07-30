@@ -1,178 +1,63 @@
 # Job Pipeline
 
-A resume-driven OnlineJobs.ph discovery and application-review pipeline built with n8n, Google Sheets, and Groq. It discovers direct and credible adjacent roles, evaluates each listing against one versioned candidate profile, generates only evidence-supported application messages, and keeps application submission manual.
+A small, manual-application job pipeline for OnlineJobs.ph:
 
-All checked-in n8n exports have `active: false`. Importing this repository does not scrape, write to Sheets, call Groq, archive data, or submit an application until an operator explicitly configures and activates the workflows.
+```text
+Scraper → Evaluator & Generator → Alerter & Mover
+```
 
-## Workflows
+The replacement starts with a new Google workbook. `Review Queue` is the active source of truth, `Applied Jobs` owns applications the user says they submitted, and `Archive` owns automatic skips, user skips, and review denials. The retained old workbook is a backup/reference and is never imported.
 
-| Export | Schedule | Responsibility |
-| --- | --- | --- |
-| `workflows/scraper.json` | Every 4 hours | Start 22 evidence-linked queries, follow source pagination only while a next page exists up to the 3-page cap, preserve result-card alignment, reconcile active/archive history, and append only the winning discovery claim. |
-| `workflows/generator.json` | Every 90 minutes | Select at most one generation candidate and one deterministic evaluation candidate, confirm each durable Sheet marker before provider work and again before commit, enforce a 120-minute maximum priority wait, gate at most one Groq request path on a ready application pack, and persist ready, review, retry, or terminal state. |
-| `workflows/alerter.json` | Every 15 minutes | Claim newly ready high-opportunity jobs, send one Slack alert with the complete copy-ready message and safe links through an environment-bound webhook, and persist delivery or bounded failure evidence. |
-| `workflows/reviewer.json` | Every 15 minutes | Exit after six reads when the complete review snapshot is unchanged, otherwise reconcile Review Queue and Applied Jobs, safely commit guarded decisions/outcomes, and publish a post-action funnel summary only when its metrics change. |
-| `workflows/analytics.json` | Every 24 hours | Read deduplicated active/archive state, skip a content-identical complete result, otherwise publish versioned conversion/calibration detail and mark it complete only after all detail rows persist. |
-| `workflows/recommender.json` | Every 168 hours | Read the latest complete analytics report, skip an already-current equivalent successful result, otherwise publish guarded evidence-backed recommendations or explicit abstentions, and leave all source behavior unchanged. |
-| `workflows/archiver.json` | Every 45 minutes | Upsert eligible terminal records into Archive, reread both tabs, verify the source snapshot and archive copy, then delete confirmed rows from bottom to top. |
+## Workflow behavior
 
-The daily Analytics run has a fixed 02:00 start in `Asia/Manila`. The weekly
-Recommender starts Mondays at 02:45, after Analytics' 30-minute outer timeout
-and a required 15-minute completion buffer. If the daily refresh fails or
-overruns, the Recommender remains safe by selecting the latest complete
-analytics report rather than partial output.
+1. **Scraper** runs every four hours. It searches the enabled plain keywords in `config/search-plan.json`, captures one fixed execution timestamp, and accepts only source postings in the inclusive range `[window_end - 24 hours, window_end]`. It deduplicates against all three stores.
+2. **Evaluator & Generator** runs every 30 minutes, one row per execution. It routes to `ready_to_apply`, `review_needed`, or `skip`. Provider and source failures become observable `error`/`unavailable` conditions. A ready row requires a current, validated application pack and message.
+3. **Alerter & Mover** runs every 15 minutes. It sends an idempotent Slack copy for fresh ready rows and independently processes terminal moves with copy-confirm-delete.
 
-Every export uses the `Asia/Manila` workflow timezone and an explicit outer
-execution budget: Scraper 900-second, Generator 540-second, Alerter 90-second,
-Reviewer 180-second, Archiver 540-second, Analytics 1800-second, and
-Recommender 900-second. These workflow budgets complement the shorter
-provider and HTTP node timeouts; they do not authorize automatic application
-submission or unsafe retry.
+Applications are never submitted automatically. Slack and Sheet links only open review/source pages. The user applies manually and then selects `I Applied`.
 
-The same generated settings retain failed production executions and manual
-smoke tests, but do not retain successful production executions or per-node
-progress snapshots. At the configured cadences this avoids saving payloads for
-1,730 normally successful scheduled executions per week; the authoritative
-success state remains in Google Sheets.
+## Fresh workbook
 
-The Generator's 90-minute cadence and generation cap of 1 are the checked-in
-conservative baseline for the selected model's documented 200,000-token
-developer-base daily allowance. A separate deterministic-evaluation cap of one
-keeps discovery moving without increasing Groq capacity. Its character-based
-planning ceiling is 183,056 tokens and 34 requests per day, including one
-repair for every generation candidate. The initial and repair calls are
-separated by 65 seconds. Exact account limits and provider token measurements
-must still pass the live activation gate.
+Run the generated `setupFreshJobPipeline()` Apps Script in a blank workbook. It creates:
 
-The five interval workflows use explicit six-field cron rules with fixed
-`Asia/Manila` phases, rather than relying on n8n's per-field
-`minutesInterval` step conversion. Generator therefore runs a true 90-minute
-sequence across hour boundaries, Archiver runs a true 45-minute sequence, and
-all five cadences remain exact across midnight. A full week of
-maximum-timeout windows peaks at two simultaneous scheduled executions, so
-the production concurrency limit of 3 retains one scheduled-burst headroom
-slot.
+- `Review Queue`
+- `Applied Jobs`
+- `Archive`
+- `_System` (hidden, short-lived claims only)
 
-The Alerter's 15-minute recovery sweep runs 96 times per day instead of the
-original 480, avoiding 140,160 scheduled executions and idle `Sheet1` reads per
-year. This cadence alone saves 70,080 per year relative to the prior
-five-minute baseline. Its cap of 5 provides capacity for 30 alerts during each
-90-minute Generator interval, versus at most one new Generator output. Within
-each sweep, Slack requests are spaced 1.1 seconds apart to stay below the
-documented one-message-per-second webhook limit. A new ready alert, due retry,
-or stale ambiguous delivery is observed within 15 minutes without binding
-successful generation to Slack availability.
+An empty default tab is removed. A non-empty unexpected tab or conflicting header stops setup. Rerunning setup preserves valid operator data and does not create rows.
 
-An exact idle Reviewer snapshot performs six Sheet reads and no writes. Before
-the snapshot gate, that same path made at least 14 Sheet/Sheets API requests,
-appended one projection claim, and rewrote Dashboard. Each stable run now
-avoids at least eight requests, one claim row, and one Dashboard mutation;
-actual recurring savings scale with the observed number of stable polls.
-Running that fail-closed snapshot every 15 rather than five minutes avoids
-70,080 executions and 420,480 mandatory Sheet reads per year. Relative to the
-previous ten-minute cadence, it avoids another 17,520 executions, 105,120
-mandatory reads, and 17,520 bounded backlog log events per year. Manual
-actions, projection changes, and concurrent edits remain durable until the
-next sweep, with worst-case observation latency increasing from under ten to
-under 15 minutes. The 30-minute manual-action alert still permits two
-scheduled observations.
-
-Learning-report writers are serialized by timeout-covering store claims.
-Analytics keeps 90 days of normal history, starts cleanup at 120 report rows,
-preserves the newest 30 complete reports, and deletes at most 30 expired
-reports per batch. Recommendations keeps 365 days, starts at 80 report rows,
-preserves the newest 12 complete reports, and deletes at most 12 expired runs.
-Every cleanup fails closed on ambiguous identity, count, or row evidence.
-
-For self-hosted regular-mode n8n, the checked-in deployment template caps
-production concurrency at 3, rejects a scheduled burst above 2, retains a
-full 14-day all-scheduled-failure window (336 hours) within 10,000 execution
-rows, enables internal health/metrics, and pins
-the same execution-data defaults used by every workflow. It also defines
-seven structural workflow-role signatures for a fail-closed version cutover.
-Run
-`npm run validate:deployment` inside the configured runtime before activation;
-repository JSON does not claim those instance-level controls are already live.
-
-The workflows share ten Google Sheet tabs:
-
-- `Sheet1`: active discovery, evaluation, generation, and review records.
-- `Review Queue`: simplified derived review surface; `Sheet1` remains authoritative.
-- `Applied Jobs`: derived outcome-follow-up surface across active and archived applications.
-- `Archive`: idempotent terminal history and post-application outcomes.
-- `ProcessingClaims`: append-written coordination leases with bounded,
-  fail-closed retention of expired history.
-- `Dashboard`: one `metric_key=current` funnel row.
-- `Analytics`: versioned conversion, efficiency, coverage, and calibration detail rows with bounded historical retention.
-- `AnalyticsReports`: complete analytic report identifiers with a guarded rolling history.
-- `Recommendations`: versioned advisory evidence, proposed operator actions, and abstentions.
-- `RecommendationReports`: bounded complete, empty, abstained, and failed weekly run history.
-
-## Source of truth
-
-- `config/candidate-profile.json`: versioned candidate facts and approved public links.
-- `config/application-policy.json`: message style, approved projects/URLs, validation limits, and the manual-submission boundary.
-- `config/ranking-policy.json`: versioned dual-score factors, confidence rules, and advisory Apply Points thresholds.
-- `config/application-pack-policy.json`: instruction extraction, proof selection, limits, and pack readiness rules.
-- `config/alert-policy.json`: versioned Slack eligibility, recovery cadence, retry, message-size, and environment-reference rules.
-- `config/groq-provider-policy.json`: approved Groq model lifecycle, request bounds, pricing evidence, and live benchmark gate.
-- `config/analytics-policy.json`: versioned cohorts, bands, attribution, timezone, cadence, and report fields.
-- `config/recommendation-policy.json`: weekly eligibility, comparison, coverage, version, and output rules.
-- `config/report-retention.json`: guarded Analytics and Recommender history bounds, cleanup batches, and store leases.
-- `config/n8n-deployment-policy.json`: validated self-hosted regular-mode
-  concurrency, pruning, monitoring thresholds, structured workflow-event
-  contract, failure-detection template, and seven-role workflow-cutover gate.
-- `config/pipeline-schema.json`: logical fields, states, transitions, and legacy mappings.
-- `config/search-plan.json`: evidence-linked query catalog, pagination, pacing, and discovery lease.
-- `config/runtime.json`: workflow timezone and execution-data policy plus generator and archiver schedules, timeouts, caps, leases, and retries.
-- `config/review-sheet.json`: source review controls, Review Queue and Applied Jobs contracts, actions, views, and dashboard fields.
-
-Do not edit embedded workflow Code or the Groq request system message directly. Change the relevant source/configuration and regenerate the exports.
-
-## Local validation
-
-Prerequisite: Node.js 20 or newer. The repository has no third-party runtime dependencies.
+## Local commands
 
 ```bash
 npm run build
 npm run validate
+npm run validate:deployment -- --policy-only
 ```
 
-`npm run build` regenerates all workflow JSON and `google-apps-script/SheetSetup.gs`. `npm run validate` fails on generated-artifact drift and runs deterministic profile, schema, discovery, evaluation, message, review, archive, Sheet setup, workflow-structure, and synthetic lifecycle tests. Default validation makes no live OnlineJobs.ph, Google Sheets, Groq, or n8n calls.
+Production-context deployment validation intentionally requires the real n8n settings and fresh/old workbook bindings:
 
-## Safe setup
+```bash
+npm run validate:deployment
+```
 
-1. Follow `docs/operations.md`; back up the current Sheet and n8n workflows first.
-2. On a non-production Sheet copy, attach and run `google-apps-script/SheetSetup.gs`. It adds required tabs/headers including `Review Queue` and `Applied Jobs`, migrates legacy identity and state, retains old columns, orders review fields, and installs controlled actions.
-3. Import all seven workflow JSON files into a non-production or disabled n8n context.
-4. Replace the exported environment-specific Sheet and credential references with test resources.
-5. Run the documented dry-run and smoke checks while every workflow remains disabled.
-6. Activate production workflows only in the documented order after every old
-   Scraper, Generator, Alerter, Reviewer, Archiver, Analytics, and Recommender
-   copy is inactive, the runtime has restarted, and both cutover evidence gates
-   pass.
+Cutover evidence is captured and validated separately:
 
-No workflow applies to jobs. A candidate must copy/review the validated message,
-submit it on OnlineJobs.ph, and explicitly choose `I Applied` or `Skip` in
-`Review Queue` (or the corresponding legacy action in `Sheet1`). Optional
-actual Apply Points and a versioned message-strategy identifier remain
-available and validated through the detailed `Sheet1` path; blank values
-remain unknown.
+```bash
+npm run capture:cutover -- pre_activation target-map.json evidence.json
+npm run validate:cutover -- evidence.json
+```
 
-## Documentation
+All three workflow exports are checked in under `workflows/` and remain inactive after build. Importing an export does not authorize activation or deployment.
 
-- `docs/architecture.md`: data flow, ownership, concurrency, retries, and state model.
-- `docs/candidate-profile.md`: profile and application-policy versioning.
-- `docs/data-contract.md`: identity, compatibility, migration, and state semantics.
-- `docs/ranking.md`: qualification, opportunity, missing-signal, queue, and Apply Points rules.
-- `docs/application-pack.md`: structured instructions, approved proofs, warnings, readiness, and retry safety.
-- `docs/alerts.md`: eligibility, provider setup, idempotency, safe actions, failure handling, and rollback.
-- `docs/analytics.md`: cohort definitions, dimensions, attribution, metrics, coverage, and complete-report publishing.
-- `docs/recommendations.md`: weekly eligibility, evidence, abstention, versioning, failure, and no-mutation rules.
-- `docs/n8n-deployment.md`: instance-level concurrency, pruning, metrics, alert thresholds, rollout, and rollback.
-- `docs/sheet-schema.md`: complete tab, field, action, and view reference.
-- `docs/master-prompt.md`: how the generated Groq prompt is assembled and validated.
-- `docs/groq-provider-policy.md`: model lifecycle, prompt/request bounds, live benchmark, cost evidence, and rollback.
-- `docs/operations.md`: backup, migration, dry run, activation, production checks, and rollback.
-- `docs/acceptance-matrix.md`: issue-by-issue acceptance evidence.
-- `docs/review-report.md`: final security, data-integrity, and operational-readiness review.
+## Configuration
+
+- `config/pipeline-schema.json` — versioned record, status, action, transition, and store contract.
+- `config/review-sheet.json` — fresh Sheet ownership, columns, validation, protection, and retired tabs.
+- `config/search-plan.json` — enabled keywords, exact 24-hour window, pagination, pacing, timeout, and retries.
+- `config/runtime.json` — the three schedules, execution budgets, claims, and retry bounds.
+- `config/alert-policy.json` — Slack eligibility, idempotency, timeout, and environment bindings.
+- `config/n8n-deployment-policy.json` — exact three-role signatures, capacity, retention, monitoring, and cutover gates.
+- Candidate, ranking, application, pack, and Groq policies remain versioned because truthful generation and provenance are safety requirements, not extra workflows.
+
+See `docs/architecture.md`, `docs/data-contract.md`, `docs/sheet-schema.md`, and `docs/operations.md`.

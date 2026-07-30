@@ -7,10 +7,11 @@ artifact. Its compact identity and approved-URL block comes only from
 same profile. `scripts/build-workflows.mjs` validates those inputs plus
 `config/groq-provider-policy.json` and rebuilds the export.
 
-The generated HTTPS request authenticates with n8n's encrypted Groq credential
-and sends the reviewed model, output cap, temperature, reasoning effort, and
-hidden-reasoning format from the provider policy. The request node exposes
-those API controls consistently with the live benchmark.
+The generated HTTPS request reads the Groq API key from
+`JOB_PIPELINE_GROQ_API_KEY` and the optional model override from
+`JOB_PIPELINE_GROQ_MODEL`. The export contains neither secret and remains
+inactive. The request sends the reviewed model, output cap, and temperature
+from the provider policy.
 
 The system message instructs Groq to:
 
@@ -36,9 +37,9 @@ third. It omits the job URL and empty sections and does not expose match tiers,
 scores, or evaluation reasons as copyable evidence. Unsafe instructions are
 excluded. It does not add new candidate facts.
 
-Only a deterministically `ready` application pack reaches Groq. A
-`review_required` or `blocked` pack returns to human review with its sanitized
-warnings and makes no provider call.
+Only a deterministically `ready` application pack reaches Groq. Internal pack
+results named `review_required` or `blocked` make no provider call and map to
+the visible `review_needed` or `skip` result as appropriate.
 
 Generation output is untrusted until deterministic validation passes.
 Validation enforces a non-empty message under the configured 300-word hard
@@ -49,14 +50,11 @@ banned phrase; and required-subject compliance. Schedule text is classified
 before generic numeric evidence so time fragments are not reported as the
 primary error.
 
-An invalid first draft receives exactly one repair call in the same workflow
-execution when the exact original evidence packet, complete rejected draft,
-and every deterministic error remain inside the canonical provider input
-budget. An oversized repair is rejected before a second provider call. The
-repaired message passes through the same validator and durable commit guard. A
-failed repair increments the pipeline attempt once, follows the existing
-bounded retry/terminal policy, never stores the rejected text, and does not
-erase a previous valid pack/message.
+The simplified Generator makes at most one model request per selected row.
+Invalid output becomes bounded `error` evidence and returns through the normal
+retry schedule; it never stores rejected text or erases a previous valid
+pack/message. A retry is a later claimed execution and must pass the same
+validation and stale-state commit guard.
 
 To change candidate facts, update the candidate profile and its version. To change tone or validation policy, update the application policy and its version. Run:
 

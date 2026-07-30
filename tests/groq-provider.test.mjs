@@ -113,11 +113,11 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
     model_id: "openai/gpt-oss-120b",
     initial_request_character_token_estimate: 4024,
     repair_request_character_token_estimate: 6024,
-    per_item_character_token_estimate: 10048,
-    maximum_scheduled_executions_per_day: 17,
-    maximum_scheduled_requests_per_day: 34,
-    maximum_scheduled_character_token_estimate_per_day: 170816,
-    maximum_pacing_milliseconds: 65000
+    per_item_character_token_estimate: 4024,
+    maximum_scheduled_executions_per_day: 49,
+    maximum_scheduled_requests_per_day: 49,
+    maximum_scheduled_character_token_estimate_per_day: 197176,
+    maximum_pacing_milliseconds: 0
   });
   assert.deepEqual(
     validateGroqRuntimeCapacity(groqPolicy, runtime.generator),

@@ -1,12 +1,13 @@
 import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 
 const REQUIRED_TIMEZONE = "Asia/Manila";
+const WORKFLOW_ROLES = ["scraper", "generator", "alerter_mover"];
 
 function positiveInteger(value) {
   return Number.isInteger(value) && value > 0;
 }
 
-function validateScheduledClaimWorkflow(config, name) {
+function validateScheduledWorkflow(config, name) {
   const errors = [];
   for (const field of [
     "schedule_minutes",
@@ -17,6 +18,7 @@ function validateScheduledClaimWorkflow(config, name) {
       errors.push(`${name}.${field} must be a positive integer`);
     }
   }
+  errors.push(...validateMinuteIntervalSchedule(config, name));
   if (
     positiveInteger(config?.execution_timeout_seconds) &&
     positiveInteger(config?.schedule_minutes) &&
@@ -39,8 +41,8 @@ export function validateRuntimeConfig(runtime) {
   if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) {
     return ["runtime configuration must be an object"];
   }
-  if (runtime.schema_version !== 1) {
-    errors.push("runtime schema_version must be 1");
+  if (runtime.schema_version !== 2) {
+    errors.push("runtime schema_version must be 2");
   }
   if (runtime.timezone !== REQUIRED_TIMEZONE) {
     errors.push(`runtime timezone must be ${REQUIRED_TIMEZONE}`);
@@ -48,64 +50,32 @@ export function validateRuntimeConfig(runtime) {
   if (
     runtime.execution_data?.save_successful_production_executions !== "none"
   ) {
-    errors.push(
-      "execution_data.save_successful_production_executions must be none"
-    );
+    errors.push("successful production execution payloads must not be retained");
   }
   if (runtime.execution_data?.save_failed_production_executions !== "all") {
-    errors.push(
-      "execution_data.save_failed_production_executions must be all"
-    );
+    errors.push("failed production executions must be retained");
   }
   if (runtime.execution_data?.save_execution_progress !== false) {
-    errors.push("execution_data.save_execution_progress must be false");
+    errors.push("execution progress retention must be disabled");
   }
   if (runtime.execution_data?.save_manual_executions !== true) {
-    errors.push("execution_data.save_manual_executions must be true");
+    errors.push("manual smoke executions must be retained");
   }
   for (const field of ["max_attempts", "backoff_ms"]) {
     if (!positiveInteger(runtime.google_sheets?.read_retry?.[field])) {
       errors.push(`google_sheets.read_retry.${field} must be a positive integer`);
     }
   }
-  errors.push(
-    ...validateScheduledClaimWorkflow(runtime.generator, "generator"),
-    ...validateMinuteIntervalSchedule(runtime.generator, "generator"),
-    ...validateScheduledClaimWorkflow(runtime.archiver, "archiver"),
-    ...validateMinuteIntervalSchedule(runtime.archiver, "archiver")
-  );
-  for (const field of [
-    "per_run_cap",
-    "evaluation_per_run_cap",
-    "maximum_priority_wait_minutes",
-    "request_retry_backoff_ms",
-    "http_timeout_ms"
-  ]) {
+  for (const role of WORKFLOW_ROLES) {
+    errors.push(...validateScheduledWorkflow(runtime[role], role));
+  }
+  if (runtime.generator?.per_run_cap !== 1) {
+    errors.push("generator.per_run_cap must be 1");
+  }
+  for (const field of ["request_retry_backoff_ms", "http_timeout_ms"]) {
     if (!positiveInteger(runtime.generator?.[field])) {
       errors.push(`generator.${field} must be a positive integer`);
     }
-  }
-  if (
-    runtime.generator?.per_run_cap !== 1 ||
-    runtime.generator?.evaluation_per_run_cap !== 1
-  ) {
-    errors.push(
-      "generator generation and evaluation per-run caps must both be 1"
-    );
-  }
-  if (
-    positiveInteger(runtime.generator?.maximum_priority_wait_minutes) &&
-    positiveInteger(runtime.generator?.schedule_minutes) &&
-    (
-      runtime.generator.maximum_priority_wait_minutes <
-        runtime.generator.schedule_minutes ||
-      runtime.generator.maximum_priority_wait_minutes >
-        runtime.generator.schedule_minutes * 2
-    )
-  ) {
-    errors.push(
-      "generator maximum priority wait must be between one and two schedules"
-    );
   }
   for (const field of ["max_attempts", "backoff_ms"]) {
     if (!positiveInteger(runtime.generator?.retry?.[field])) {
@@ -114,25 +84,42 @@ export function validateRuntimeConfig(runtime) {
   }
   if (
     positiveInteger(runtime.generator?.http_timeout_ms) &&
-    positiveInteger(runtime.generator?.execution_timeout_seconds) &&
     runtime.generator.http_timeout_ms >=
       runtime.generator.execution_timeout_seconds * 1000
   ) {
-    errors.push(
-      "generator HTTP timeout must be shorter than its execution timeout"
-    );
+    errors.push("generator HTTP timeout must be shorter than workflow timeout");
   }
-  if (
-    !Array.isArray(runtime.archiver?.eligible_statuses) ||
-    runtime.archiver.eligible_statuses.length === 0 ||
-    runtime.archiver.eligible_statuses.some(
-      (status, index, all) =>
-        typeof status !== "string" ||
-        !status ||
-        all.indexOf(status) !== index
+  for (const field of ["movement_per_run_cap", "alert_per_run_cap"]) {
+    if (!positiveInteger(runtime.alerter_mover?.[field])) {
+      errors.push(`alerter_mover.${field} must be a positive integer`);
+    }
+  }
+  const scheduleMinuteSets = WORKFLOW_ROLES.map((role) => ({
+    role,
+    minutes: new Set(
+      Array.from(
+        {
+          length:
+            1440 / runtime[role].schedule_minutes
+        },
+        (_, index) =>
+          runtime[role].schedule_offset_minutes +
+          index * runtime[role].schedule_minutes
+      )
     )
-  ) {
-    errors.push("archiver.eligible_statuses must be unique non-empty strings");
+  }));
+  for (let left = 0; left < scheduleMinuteSets.length; left += 1) {
+    for (let right = left + 1; right < scheduleMinuteSets.length; right += 1) {
+      if (
+        [...scheduleMinuteSets[left].minutes].some((minute) =>
+          scheduleMinuteSets[right].minutes.has(minute)
+        )
+      ) {
+        errors.push(
+          `${scheduleMinuteSets[left].role} and ${scheduleMinuteSets[right].role} schedules must not start together`
+        );
+      }
+    }
   }
   return errors;
 }
@@ -158,4 +145,17 @@ export function workflowExecutionDataSettings(runtime) {
     saveExecutionProgress: runtime.execution_data.save_execution_progress,
     saveManualExecutions: runtime.execution_data.save_manual_executions
   };
+}
+
+export function scheduledRunsPerWeek(runtime) {
+  const errors = validateRuntimeConfig(runtime);
+  if (errors.length > 0) {
+    throw new Error(`Invalid runtime configuration:\n- ${errors.join("\n- ")}`);
+  }
+  return Object.fromEntries(
+    WORKFLOW_ROLES.map((role) => [
+      role,
+      (7 * 24 * 60) / runtime[role].schedule_minutes
+    ])
+  );
 }

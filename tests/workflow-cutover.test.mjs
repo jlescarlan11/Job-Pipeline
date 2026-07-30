@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-
 import {
   captureWorkflowCutoverEvidence,
   validateWorkflowCutoverEvidence,
@@ -10,417 +9,256 @@ import {
 
 const policy = JSON.parse(
   await readFile(
-    new URL("../config/n8n-deployment-policy.json", import.meta.url),
-    "utf8"
+    new URL("../config/n8n-deployment-policy.json", import.meta.url)
   )
 );
-const roles = policy.workflow_cutover.roles;
-const targets = Object.fromEntries(
-  roles.map(({ role }) => [role, `${role}-target`])
-);
-
-function workflowRecord(definition, { id, active = false } = {}) {
-  return {
-    id: id || `${definition.role}-target`,
-    name: `Job Application Pipeline - ${definition.name_markers[0]}`,
-    active,
-    isArchived: false,
-    triggerCount: active ? 1 : 0,
+const roleWorkflows = [
+  {
+    id: "scraper-new",
+    name: "(Scraper) Job Pipeline - Rolling 24-Hour Keywords",
+    active: false,
+    nodes: ["Capture Fixed Window and Keywords", "Append New Review Queue Rows"],
+    spreadsheet_id: "new-book"
+  },
+  {
+    id: "generator-new",
+    name: "(Evaluator & Generator) Job Pipeline - Safe Routing",
+    active: false,
     nodes: [
-      { name: "Schedule Trigger", type: "n8n-nodes-base.scheduleTrigger" },
-      ...definition.required_node_names.map((name) => ({
-        name,
-        type: "n8n-nodes-base.code"
-      }))
-    ]
-  };
-}
+      "Evaluate and Prepare Application",
+      "Guard and Commit Generator Result"
+    ],
+    spreadsheet_id: "new-book"
+  },
+  {
+    id: "mover-new",
+    name: "(Alerter & Mover) Job Pipeline - Slack and Terminal Moves",
+    active: false,
+    nodes: [
+      "Plan Independent Moves",
+      "Send Slack Alert",
+      "Delete Confirmed Review Queue Rows"
+    ],
+    spreadsheet_id: "new-book"
+  },
+  {
+    id: "reviewer-old",
+    name: "(Reviewer) Job Application Pipeline - Review Actions and Outcomes",
+    active: false,
+    nodes: [],
+    spreadsheet_id: "old-book"
+  }
+];
 
-function inventorySource(endpoint, records) {
+const trueSmoke = {
+  blank_setup_zero_rows: true,
+  setup_rerun_idempotent: true,
+  no_old_row_import: true,
+  fixed_window_single_clock: true,
+  window_start_inclusive: true,
+  window_end_inclusive: true,
+  old_listing_excluded: true,
+  future_listing_excluded: true,
+  missing_timestamp_excluded: true,
+  unique_and_duplicate_discovery: true,
+  ready_route: true,
+  review_needed_route: true,
+  approval_route: true,
+  denial_move: true,
+  automatic_skip_move: true,
+  user_skip_move: true,
+  i_applied_move: true,
+  empty_queues: true,
+  source_page_failure: true,
+  provider_failure: true,
+  stale_action: true,
+  destination_write_failure: true,
+  source_delete_failure: true,
+  slack_rejection: true,
+  slack_timeout: true,
+  repeated_scheduler_runs: true,
+  safe_recovery: true,
+  slack_copy_fidelity: true,
+  links_open_only: true,
+  no_automatic_submission: true,
+  secret_scan_clean: true
+};
+const trueObservations = {
+  no_out_of_window_jobs: true,
+  no_duplicate_jobs: true,
+  no_duplicate_alerts: true,
+  no_duplicate_applied_rows: true,
+  no_duplicate_archive_rows: true,
+  no_stuck_claims: true,
+  no_old_workbook_writes: true,
+  old_workbook_unchanged: true
+};
+
+function evidence(phase = "pre_activation") {
   return {
-    endpoint,
-    limit: 250,
-    pages: 1,
-    records,
-    pagination_complete: true
-  };
-}
-
-function evidenceFor(phase) {
-  const workflows = roles.map((definition) =>
-    workflowRecord(definition, {
-      active: phase === "post_activation"
-    })
-  );
-  const evidence = {
-    schema_version: 1,
+    schema_version: 2,
+    policy_version: policy.policy_version,
     phase,
-    captured_at: "2026-07-30T02:01:00.000Z",
-    source: {
-      public_api_path: "/api/v1",
-      workflow_inventory: {
-        ...inventorySource("/workflows", workflows.length),
-        exclude_pinned_data: true
+    captured_at: "2026-07-31T12:00:00.000Z",
+    inventory_scope: "instance_wide",
+    inventory_complete: true,
+    workflows: roleWorkflows.map((workflow) => ({
+      ...workflow,
+      active: phase === "post_activation"
+        ? workflow.id.endsWith("-new")
+        : false
+    })),
+    target_workflow_ids: {
+      scraper: "scraper-new",
+      evaluator_generator: "generator-new",
+      alerter_mover: "mover-new"
+    },
+    fresh_workbook: {
+      id: "new-book",
+      verified_empty_before_activation: true,
+      setup_runs: 2,
+      old_rows_imported: false,
+      initial_data_rows: {
+        "Review Queue": 0,
+        "Applied Jobs": 0,
+        Archive: 0
       }
     },
-    runtime_restart: {
-      method: "process_restart",
-      completed_at: "2026-07-30T02:00:00.000Z",
-      readiness_checked_at: "2026-07-30T02:00:30.000Z",
-      readiness_recovered: true
+    old_workbook: {
+      id: "old-book",
+      backup_id: "old-book-backup-20260731",
+      retained: true,
+      active_binding_count: 0
     },
-    inventory_scope: {
-      instance_wide_workflow_list_confirmed: true,
-      instance_wide_execution_list_confirmed: true
+    workflow_backup: {
+      reference: "encrypted-backup/workflows-20260731",
+      complete: true
     },
-    targets,
-    workflows
-  };
-  if (phase === "pre_activation") {
-    evidence.source.execution_inventories = {};
-    evidence.executions = {};
-    for (const status of ["new", "running", "waiting"]) {
-      evidence.source.execution_inventories[status] = inventorySource(
-        `/executions?status=${status}`,
-        0
-      );
-      evidence.source.execution_inventories[status].include_data = false;
-      evidence.source.execution_inventories[status].response_records = 0;
-      evidence.source.execution_inventories[status].requested_status = status;
-      evidence.source.execution_inventories[
-        status
-      ].server_status_filter_verified = true;
-      evidence.executions[status] = [];
+    smoke: { ...trueSmoke },
+    observations: { ...trueObservations },
+    rollback: {
+      documented: true,
+      verified: true,
+      prior_workflow_ids: ["scraper-old", "generator-old", "reviewer-old"],
+      old_workbook_id: "old-book"
     }
-  }
-  return evidence;
+  };
 }
 
-test("cutover policy and both seven-role phase gates are valid", () => {
+test("cutover policy and complete pre/post evidence accept exactly three roles", () => {
   assert.deepEqual(validateWorkflowCutoverPolicy(policy), []);
   assert.deepEqual(
-    validateWorkflowCutoverEvidence(policy, evidenceFor("pre_activation")),
+    validateWorkflowCutoverEvidence(policy, evidence("pre_activation")),
     []
   );
   assert.deepEqual(
-    validateWorkflowCutoverEvidence(policy, evidenceFor("post_activation")),
+    validateWorkflowCutoverEvidence(policy, evidence("post_activation")),
     []
   );
 });
 
-test("cutover role signatures remain present in every generated export", async () => {
-  for (const definition of roles) {
-    const workflow = JSON.parse(
-      await readFile(
-        new URL(`../workflows/${definition.role}.json`, import.meta.url),
-        "utf8"
-      )
-    );
-    const nodeNames = new Set(workflow.nodes.map(({ name }) => name));
-    assert.ok(
-      definition.required_node_names.every((name) => nodeNames.has(name)),
-      `${definition.role} structural cutover signature drifted`
-    );
-    assert.match(workflow.name, /Job Application Pipeline/i);
+test("missing, duplicate, old-active, wrong-workbook, and mixed inventories fail", () => {
+  const cases = [
+    (() => {
+      const value = evidence();
+      value.workflows = value.workflows.filter(
+        (workflow) => workflow.id !== "mover-new"
+      );
+      return value;
+    })(),
+    (() => {
+      const value = evidence();
+      value.target_workflow_ids.alerter_mover = "generator-new";
+      return value;
+    })(),
+    (() => {
+      const value = evidence();
+      value.workflows.find((workflow) => workflow.id === "reviewer-old").active = true;
+      return value;
+    })(),
+    (() => {
+      const value = evidence();
+      value.workflows[0].spreadsheet_id = "old-book";
+      return value;
+    })(),
+    (() => {
+      const value = evidence("post_activation");
+      value.workflows[1].active = false;
+      return value;
+    })()
+  ];
+  for (const value of cases) {
+    assert.ok(validateWorkflowCutoverEvidence(policy, value).length > 0);
   }
 });
 
-test("post-activation gate rejects an older active workflow copy", () => {
-  const evidence = evidenceFor("post_activation");
-  evidence.workflows.push(
-    workflowRecord(roles.find(({ role }) => role === "alerter"), {
-      id: "alerter-old",
-      active: true
+test("fresh workbook, smoke, rollback, and secret evidence are mandatory", () => {
+  const value = evidence();
+  value.fresh_workbook.initial_data_rows.Archive = 1;
+  value.smoke.source_delete_failure = false;
+  value.rollback.verified = false;
+  value.notes = "Authorization: Bearer leaked-token";
+  const errors = validateWorkflowCutoverEvidence(policy, value).join(";");
+  assert.match(errors, /zero initial rows/);
+  assert.match(errors, /source_delete_failure/);
+  assert.match(errors, /rollback/);
+  assert.match(errors, /sensitive/);
+});
+
+test("capture paginates and stores only sanitized inventory fields", async () => {
+  const pages = [
+    {
+      data: roleWorkflows.slice(0, 2).map((workflow) => ({
+        ...workflow,
+        nodes: workflow.nodes.map((name) => ({
+          name,
+          parameters: { authorization: "must-not-be-captured" }
+        }))
+      })),
+      nextCursor: "page-2"
+    },
+    {
+      data: roleWorkflows.slice(2).map((workflow) => ({
+        ...workflow,
+        nodes: workflow.nodes.map((name) => ({ name }))
+      })),
+      nextCursor: ""
+    }
+  ];
+  let request = 0;
+  const captured = await captureWorkflowCutoverEvidence({
+    policy,
+    phase: "pre_activation",
+    apiBaseUrl: "https://n8n.example/api/v1",
+    apiKey: "private-key",
+    targetMap: {
+      target_workflow_ids: evidence().target_workflow_ids,
+      workflow_bindings: Object.fromEntries(
+        roleWorkflows.map((workflow) => [
+          workflow.id,
+          { spreadsheet_id: workflow.spreadsheet_id }
+        ])
+      ),
+      fresh_workbook: evidence().fresh_workbook,
+      old_workbook: evidence().old_workbook,
+      workflow_backup: evidence().workflow_backup,
+      smoke: trueSmoke,
+      observations: trueObservations,
+      rollback: evidence().rollback
+    },
+    fetchImpl: async () => ({
+      ok: true,
+      json: async () => pages[request++]
     })
-  );
-  evidence.source.workflow_inventory.records = evidence.workflows.length;
-  const errors = validateWorkflowCutoverEvidence(policy, evidence).join("\n");
-  assert.match(
-    errors,
-    /post-activation alerter must have exactly its target workflow active/
-  );
-});
-
-test("cutover gate rejects an archived target workflow", () => {
-  const evidence = evidenceFor("post_activation");
-  evidence.workflows[0].isArchived = true;
-  const errors = validateWorkflowCutoverEvidence(policy, evidence).join("\n");
-  assert.match(errors, /cutover target scraper is archived/);
-});
-
-test("inventory gate fails closed on incomplete or unclassified pipeline copies", () => {
-  const evidence = evidenceFor("pre_activation");
-  evidence.source.workflow_inventory.pagination_complete = false;
-  evidence.inventory_scope.instance_wide_workflow_list_confirmed = false;
-  evidence.workflows.push({
-    id: "unknown-pipeline-copy",
-    name: "Job Application Pipeline - Legacy Worker",
-    active: false,
-    isArchived: false,
-    triggerCount: 0,
-    nodes: [
-      { name: "Schedule Trigger", type: "n8n-nodes-base.scheduleTrigger" }
-    ]
   });
-  evidence.source.workflow_inventory.records = evidence.workflows.length;
-  const errors = validateWorkflowCutoverEvidence(policy, evidence).join("\n");
-  assert.match(errors, /inventory pagination must be complete/);
-  assert.match(errors, /instance-wide workflow-list access/);
-  assert.match(errors, /unrecognized or ambiguous role/);
-});
-
-test("pre-activation gate rejects stale registration and in-flight work", () => {
-  const evidence = evidenceFor("pre_activation");
-  evidence.runtime_restart.method = "api_unpublish";
-  evidence.workflows[0].active = true;
-  evidence.executions.running.push({
-    id: "9001",
-    workflowId: evidence.workflows[0].id,
-    status: "running",
-    startedAt: "2026-07-30T01:59:00.000Z",
-    waitTill: null
-  });
-  evidence.source.execution_inventories.running.records = 1;
-  const errors = validateWorkflowCutoverEvidence(policy, evidence).join("\n");
-  assert.match(errors, /requires a completed runtime restart/);
-  assert.match(errors, /is still active/);
-  assert.match(errors, /still has a running execution/);
-});
-
-test("capture paginates GET inventories and removes workflow parameters", async () => {
-  const rawWorkflows = roles.map((definition) => ({
-    ...workflowRecord(definition),
-    nodes: [
-      {
-        name: "Schedule Trigger",
-        type: "n8n-nodes-base.scheduleTrigger",
-        parameters: { hidden: "sensitive-node-value" },
-        credentials: { googleSheetsOAuth2Api: { id: "sensitive-id" } }
-      },
-      ...definition.required_node_names.map((name) => ({
-        name,
-        type: "n8n-nodes-base.code",
-        parameters: { jsCode: "sensitive-code" }
-      }))
-    ]
-  }));
-  const requested = [];
-  const fetchImpl = async (url, options) => {
-    requested.push({
-      url: url.toString(),
-      apiKey: options.headers["X-N8N-API-KEY"]
-    });
-    if (url.pathname.endsWith("/workflows")) {
-      if (!url.searchParams.has("cursor")) {
-        return {
-          ok: true,
-          json: async () => ({
-            data: rawWorkflows.slice(0, 4),
-            nextCursor: "workflow-page-2"
-          })
-        };
-      }
-      return {
-        ok: true,
-        json: async () => ({
-          data: rawWorkflows.slice(4),
-          nextCursor: null
-        })
-      };
-    }
-    return {
-      ok: true,
-      json: async () => ({ data: [], nextCursor: null })
-    };
-  };
-  const evidence = await captureWorkflowCutoverEvidence({
-    policy,
-    phase: "pre_activation",
-    apiBaseUrl: "https://n8n.example.test/api/v1/",
-    apiKey: "secret-api-key",
-    targetMap: {
-      schema_version: 1,
-      targets,
-      inventory_scope: {
-        instance_wide_workflow_list_confirmed: true,
-        instance_wide_execution_list_confirmed: true
-      },
-      runtime_restart: {
-        method: "process_restart",
-        completed_at: "2026-07-30T02:00:00.000Z",
-        readiness_checked_at: "2026-07-30T02:00:30.000Z",
-        readiness_recovered: true
-      }
-    },
-    capturedAt: new Date("2026-07-30T02:01:00.000Z"),
-    fetchImpl
-  });
-
-  assert.equal(requested.length, 5);
-  assert.ok(requested.every(({ apiKey }) => apiKey === "secret-api-key"));
-  assert.equal(evidence.source.workflow_inventory.pages, 2);
-  assert.equal(evidence.workflows.length, 7);
-  assert.deepEqual(validateWorkflowCutoverEvidence(policy, evidence), []);
-  const serialized = JSON.stringify(evidence);
-  assert.doesNotMatch(serialized, /secret-api-key/);
-  assert.doesNotMatch(serialized, /sensitive-node-value|sensitive-id|sensitive-code/);
-  assert.doesNotMatch(serialized, /parameters|credentials/);
-});
-
-test("capture locally filters a complete execution inventory when n8n ignores new status", async () => {
-  const rawWorkflows = roles.map((definition) => workflowRecord(definition));
-  const fetchImpl = async (url) => {
-    if (url.pathname.endsWith("/workflows")) {
-      return {
-        ok: true,
-        json: async () => ({ data: rawWorkflows, nextCursor: null })
-      };
-    }
-    if (
-      url.pathname.endsWith("/executions") &&
-      url.searchParams.get("status") === "new"
-    ) {
-      return {
-        ok: true,
-        json: async () => ({
-          data: [
-            {
-              id: "historical-success",
-              workflowId: "scraper-target",
-              status: "success",
-              startedAt: "2026-07-30T01:00:00.000Z",
-              waitTill: null
-            }
-          ],
-          nextCursor: null
-        })
-      };
-    }
-    return {
-      ok: true,
-      json: async () => ({ data: [], nextCursor: null })
-    };
-  };
-  const evidence = await captureWorkflowCutoverEvidence({
-    policy,
-    phase: "pre_activation",
-    apiBaseUrl: "https://n8n.example.test/api/v1/",
-    apiKey: "secret-api-key",
-    targetMap: {
-      schema_version: 1,
-      targets,
-      inventory_scope: {
-        instance_wide_workflow_list_confirmed: true,
-        instance_wide_execution_list_confirmed: true
-      },
-      runtime_restart: {
-        method: "process_restart",
-        completed_at: "2026-07-30T02:00:00.000Z",
-        readiness_checked_at: "2026-07-30T02:00:30.000Z",
-        readiness_recovered: true
-      }
-    },
-    capturedAt: new Date("2026-07-30T02:01:00.000Z"),
-    fetchImpl
-  });
-
-  assert.deepEqual(evidence.executions.new, []);
-  assert.equal(evidence.source.execution_inventories.new.records, 0);
-  assert.equal(evidence.source.execution_inventories.new.response_records, 1);
-  assert.equal(
-    evidence.source.execution_inventories.new.server_status_filter_verified,
-    false
+  assert.equal(request, 2);
+  assert.deepEqual(
+    captured.workflows[0].nodes,
+    roleWorkflows[0].nodes
   );
-  assert.deepEqual(validateWorkflowCutoverEvidence(policy, evidence), []);
-});
-
-test("capture rejects non-TLS remote API endpoints", async () => {
-  await assert.rejects(
-    captureWorkflowCutoverEvidence({
-      policy,
-      phase: "post_activation",
-      apiBaseUrl: "http://n8n.example.test/api/v1/",
-      apiKey: "secret-api-key",
-      targetMap: {
-        schema_version: 1,
-        targets,
-        inventory_scope: {
-          instance_wide_workflow_list_confirmed: true,
-          instance_wide_execution_list_confirmed: true
-        },
-        runtime_restart: {}
-      },
-      fetchImpl: async () => {
-        throw new Error("must not be called");
-      }
-    }),
-    /must use HTTPS or loopback HTTP/
+  assert.doesNotMatch(JSON.stringify(captured), /must-not-be-captured|private-key/);
+  assert.deepEqual(
+    validateWorkflowCutoverEvidence(policy, captured),
+    []
   );
-});
-
-test("capture rejects credentials and a noncanonical Public API path", async () => {
-  const input = {
-    policy,
-    phase: "post_activation",
-    apiKey: "secret-api-key",
-    targetMap: {
-      schema_version: 1,
-      targets,
-      inventory_scope: {
-        instance_wide_workflow_list_confirmed: true,
-        instance_wide_execution_list_confirmed: true
-      },
-      runtime_restart: {}
-    },
-    fetchImpl: async () => {
-      throw new Error("must not be called");
-    }
-  };
-  await assert.rejects(
-    captureWorkflowCutoverEvidence({
-      ...input,
-      apiBaseUrl: "https://user:password@n8n.example.test/api/v1/"
-    }),
-    /must not contain credentials/
-  );
-  await assert.rejects(
-    captureWorkflowCutoverEvidence({
-      ...input,
-      apiBaseUrl: "https://n8n.example.test/"
-    }),
-    /must end with \/api\/v1\//
-  );
-});
-
-test("capture rejects incomplete scope assertions before any API request", async () => {
-  let requests = 0;
-  await assert.rejects(
-    captureWorkflowCutoverEvidence({
-      policy,
-      phase: "pre_activation",
-      apiBaseUrl: "https://n8n.example.test/api/v1/",
-      apiKey: "secret-api-key",
-      targetMap: {
-        schema_version: 1,
-        targets,
-        inventory_scope: {
-          instance_wide_workflow_list_confirmed: true,
-          instance_wide_execution_list_confirmed: false
-        },
-        runtime_restart: {
-          method: "process_restart",
-          completed_at: "2026-07-30T02:00:00.000Z",
-          readiness_checked_at: "2026-07-30T02:00:30.000Z",
-          readiness_recovered: true
-        }
-      },
-      capturedAt: new Date("2026-07-30T02:01:00.000Z"),
-      fetchImpl: async () => {
-        requests += 1;
-        throw new Error("must not be called");
-      }
-    }),
-    /required instance-wide inventory scopes/
-  );
-  assert.equal(requests, 0);
 });

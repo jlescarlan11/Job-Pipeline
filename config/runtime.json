@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "timezone": "Asia/Manila",
   "execution_data": {
     "save_successful_production_executions": "none",
@@ -13,13 +13,17 @@
       "backoff_ms": 5000
     }
   },
+  "scraper": {
+    "schedule_minutes": 240,
+    "schedule_offset_minutes": 8,
+    "execution_timeout_seconds": 900,
+    "claim_lease_ms": 1200000
+  },
   "generator": {
-    "schedule_minutes": 90,
-    "schedule_offset_minutes": 1,
-    "execution_timeout_seconds": 540,
+    "schedule_minutes": 30,
+    "schedule_offset_minutes": 2,
+    "execution_timeout_seconds": 480,
     "per_run_cap": 1,
-    "evaluation_per_run_cap": 1,
-    "maximum_priority_wait_minutes": 120,
     "claim_lease_ms": 600000,
     "request_retry_backoff_ms": 5000,
     "retry": {
@@ -28,16 +32,12 @@
     },
     "http_timeout_ms": 15000
   },
-  "archiver": {
-    "schedule_minutes": 45,
-    "schedule_offset_minutes": 19,
-    "execution_timeout_seconds": 540,
-    "claim_lease_ms": 600000,
-    "eligible_statuses": [
-      "applied",
-      "skipped",
-      "not_recommended",
-      "terminal_error"
-    ]
+  "alerter_mover": {
+    "schedule_minutes": 15,
+    "schedule_offset_minutes": 4,
+    "execution_timeout_seconds": 120,
+    "claim_lease_ms": 180000,
+    "movement_per_run_cap": 25,
+    "alert_per_run_cap": 5
   }
 }

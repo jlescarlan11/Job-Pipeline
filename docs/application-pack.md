@@ -23,20 +23,21 @@ generation; only references are persisted with the job.
 
 ## Readiness
 
-`ready` means the message passed existing deterministic validation and the pack
-has no unresolved extraction warning. `review_required` means the candidate
-must interpret an ambiguous instruction, answer a screening question, resolve
-conflicting subject requirements, inspect truncated input, or accept a proof
-shortfall. `blocked` means a required attachment/test or unsupported evidence
-cannot be completed by the pipeline, the posting is unavailable/insufficient,
-or an unsafe instruction was rejected.
+The pack statuses are internal safety results. `ready` means the message passed
+deterministic validation and the pack has no unresolved extraction warning.
+`review_required` means the candidate must interpret an ambiguous instruction,
+answer a screening question, resolve conflicting subject requirements, inspect
+truncated input, or accept a proof shortfall. `blocked` means a required
+attachment/test or unsupported evidence cannot be completed by the pipeline,
+the posting is unavailable/insufficient, or an unsafe instruction was rejected.
 
-A generation commit can enter lifecycle `ready` only when the pack status is
-also `ready` and the persisted message passes the current shared content and
-provenance gate. A `review_required` or `blocked` pack remains non-copyable and
-cannot be marked applied or alerted. The candidate remains responsible for
-questions, attachments, tests, external navigation, submission, and Apply
-Points.
+A generation commit can enter visible lifecycle `ready_to_apply` only when the
+pack status is `ready` and the persisted message passes the current shared
+content and provenance gate. Internal `review_required` maps to
+`review_needed`; a blocking result maps to `skip` unless the source itself is
+unavailable. Neither is copyable, applicable, or alert-eligible. The candidate
+remains responsible for questions, attachments, tests, external navigation,
+and submission.
 
 ## Trust boundary
 

@@ -42,7 +42,7 @@ commitment.
 The v6 release benchmark measured all three fixtures on both candidates.
 GPT-OSS passed 3/3 with nonzero usage and no output-limit finishes. Qwen was
 fully measured but passed only 1/3 after repeating schedule/availability
-language and one unsupported project. Version `2026-07-30/v7` marks the
+language and one unsupported project. Version `2026-07-31/v8` marks the
 selected, artifact-approved GPT-OSS model ready. Comparison candidates must
 still complete every measured case, but an unapproved preview model's quality
 does not override the selected production model's activation result.
@@ -74,16 +74,15 @@ policy are 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute, and
 200,000 tokens/day. With the character-estimate divisor of 3:
 
 - maximum initial request: `ceil((15,000 - 6,000) / 3) + 1,024 = 4,024`;
-- maximum repair request: `ceil(15,000 / 3) + 1,024 = 6,024`;
-- maximum per selected record: `10,048` character-estimated tokens;
-- conservative 90-minute trigger count: `ceil(1,440 / 90) + 1 = 17` per day;
-- maximum scheduled use: 34 requests and 170,816 character-estimated tokens
-  per day, leaving 29,184 tokens, or 14.6%, below the planning limit.
+- offline repair-budget ceiling: `ceil(15,000 / 3) + 1,024 = 6,024`;
+- maximum per scheduled selected record: `4,024` character-estimated tokens;
+- conservative 30-minute trigger count: `ceil(1,440 / 30) + 1 = 49` per day;
+- maximum scheduled use: 49 requests and 197,176 character-estimated tokens
+  per day, leaving 2,824 tokens, or 1.4%, below the planning limit.
 
-Both single-request estimates are below 8,000. The workflow waits 65 seconds
-between an initial call and its possible repair, so two worst-case calls do not
-share the same one-minute planning window. The Generator cap is 1 and the
-maximum pacing delay is 65 seconds, inside its 540-second execution timeout.
+Both estimates are below 8,000, but the simplified scheduled workflow permits
+only the initial request. Invalid output retries in a later scheduled
+execution. The Generator cap is 1 and its execution timeout is 480 seconds.
 The build fails if policy or runtime edits exceed the selected model's
 per-minute, daily, or execution-time envelope.
 
@@ -106,10 +105,9 @@ employer context, and a bounded description. The durable pack may retain a
 third approved proof for review and validation, but it is not repeated to the
 provider. Only each prompt proof's canonical reference and evidence are sent;
 the internal relevance score and duplicate display label are omitted. Job URLs
-and empty sections are omitted. A repair reuses the exact initial evidence
-packet and adds the complete rejected draft plus deterministic errors; if that
-combined input exceeds the provider budget, the workflow records a bounded
-generation failure instead of making an oversized repair call.
+and empty sections are omitted. The checked-in scheduled workflow makes one
+model request per selected record; invalid output records a bounded generation
+failure for a later claimed retry.
 
 Offline measurements on the three representative ready fixtures:
 

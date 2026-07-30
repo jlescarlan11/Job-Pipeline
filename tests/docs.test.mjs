@@ -1,521 +1,225 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const loadText = async (path) => readFile(new URL(path, import.meta.url), "utf8");
 const loadJson = async (path) => JSON.parse(await loadText(path));
 
-const readme = await loadText("../README.md");
-const architecture = await loadText("../docs/architecture.md");
-const analyticsDoc = await loadText("../docs/analytics.md");
-const sheetSchema = await loadText("../docs/sheet-schema.md");
-const operations = await loadText("../docs/operations.md");
-const recoveryEvidence = await loadText(
-  "../docs/smoke-test-2026-07-30-report-recovery.md"
-);
-const recommendationsDoc = await loadText("../docs/recommendations.md");
-const deploymentDoc = await loadText("../docs/n8n-deployment.md");
-const prompt = await loadText("../docs/master-prompt.md");
-const groqProviderDoc = await loadText("../docs/groq-provider-policy.md");
-const alertsDoc = await loadText("../docs/alerts.md");
-const schema = await loadJson("../config/pipeline-schema.json");
-const searchPlan = await loadJson("../config/search-plan.json");
-const runtime = await loadJson("../config/runtime.json");
-const review = await loadJson("../config/review-sheet.json");
-const analytics = await loadJson("../config/analytics-policy.json");
-const recommendations = await loadJson(
-  "../config/recommendation-policy.json"
-);
-const groqProvider = await loadJson("../config/groq-provider-policy.json");
-const alertPolicy = await loadJson("../config/alert-policy.json");
-const claimRetention = await loadJson("../config/claim-retention.json");
-const reportRetention = await loadJson(
-  "../config/report-retention.json"
-);
-const deploymentPolicy = await loadJson(
-  "../config/n8n-deployment-policy.json"
-);
+const [
+  readme,
+  architecture,
+  dataContract,
+  sheetSchema,
+  operations,
+  deployment,
+  alerts,
+  acceptance,
+  schema,
+  searchPlan,
+  runtime,
+  review,
+  alertPolicy,
+  deploymentPolicy
+] = await Promise.all([
+  loadText("../README.md"),
+  loadText("../docs/architecture.md"),
+  loadText("../docs/data-contract.md"),
+  loadText("../docs/sheet-schema.md"),
+  loadText("../docs/operations.md"),
+  loadText("../docs/n8n-deployment.md"),
+  loadText("../docs/alerts.md"),
+  loadText("../docs/acceptance-matrix.md"),
+  loadJson("../config/pipeline-schema.json"),
+  loadJson("../config/search-plan.json"),
+  loadJson("../config/runtime.json"),
+  loadJson("../config/review-sheet.json"),
+  loadJson("../config/alert-policy.json"),
+  loadJson("../config/n8n-deployment-policy.json")
+]);
 
-test("README and architecture document the checked-in schedules, bounds, and manual boundary", () => {
-  for (const document of [readme, architecture]) {
-    assert.match(document, new RegExp(`${searchPlan.schedule_hours}\\s*hours?`, "i"));
-    assert.match(document, new RegExp(`${runtime.generator.schedule_minutes}\\s*minutes?`, "i"));
-    assert.match(
-      document,
-      new RegExp(`${alertPolicy.schedule_minutes}\\s*minutes?`, "i")
-    );
-    assert.match(document, new RegExp(`${review.schedule_minutes}\\s*minutes?`, "i"));
-    assert.match(document, new RegExp(`${runtime.archiver.schedule_minutes}\\s*minutes?`, "i"));
-    assert.match(document, new RegExp(`${analytics.schedule_hours}\\s*hours?`, "i"));
-    assert.match(
-      document,
-      new RegExp(`${recommendations.schedule_hours}\\s*hours?`, "i")
-    );
+const visibleSheets = Object.values(review.sheets)
+  .filter((sheet) => sheet.visible)
+  .map((sheet) => sheet.name);
+
+test("primary docs describe the exact simplified workflow and manual boundary", () => {
+  for (const document of [readme, architecture, operations, deployment]) {
+    assert.match(document, /Scraper/i);
+    assert.match(document, /Evaluator\s*&\s*Generator|Evaluator and Generator/i);
+    assert.match(document, /Alerter\s*&\s*Mover|Alerter and Mover/i);
+    assert.match(document, /Review Queue/i);
+  }
+  for (const document of [readme, architecture, operations]) {
     assert.match(document, /manual/i);
-    assert.doesNotMatch(document, /three independent n8n workflows|cap(?:ped)? (?:at|of) 10/i);
-  }
-  assert.match(readme, /all checked-in n8n exports have `active: false`/i);
-  assert.match(architecture, /at most 1/i);
-  assert.match(architecture, /3 times with 5-second/i);
-  assert.match(architecture, /10-minute claim lease/i);
-  assert.match(architecture, /partial refresh cannot replace/i);
-  assert.match(architecture, /multi-touch full-credit/i);
-  assert.match(architecture, /latest identifiable\s+complete report/i);
-  assert.match(architecture, /no branch changes search configuration/i);
-  for (const document of [readme, architecture]) {
-    assert.match(document, /six-field cron/i);
     assert.match(
       document,
-      /(?:peak|maximum)[\s\S]{0,40}(?:two|2) simultaneous scheduled executions/i
+      /never (?:submitted|submits?)|no (?:step|workflow) (?:authorizes|submits?)[\s\S]{0,30}application/i
     );
   }
-  for (const document of [architecture, operations, deploymentDoc]) {
-    assert.match(document, /01:08/i);
-    assert.match(document, /00:01/i);
-    assert.match(document, /00:19/i);
-  }
-  for (const document of [architecture, operations]) {
-    assert.match(document, /:13\/:28\/:43\/:58/i);
-  }
+  assert.match(readme, /exactly three workflow exports|all three workflow exports/i);
+  assert.match(architecture, /exactly three/i);
 });
 
-test("runtime documentation matches every workflow timeout and Manila timezone", () => {
-  const timeoutSeconds = [
-    searchPlan.execution_timeout_seconds,
-    runtime.generator.execution_timeout_seconds,
-    alertPolicy.execution_timeout_seconds,
-    review.execution_timeout_seconds,
-    runtime.archiver.execution_timeout_seconds,
-    analytics.execution_timeout_seconds,
-    recommendations.execution_timeout_seconds
-  ];
-  for (const document of [readme, architecture, operations]) {
+test("docs match all schedules, timeouts, and the Manila timezone", () => {
+  const configs = [runtime.scraper, runtime.generator, runtime.alerter_mover];
+  for (const document of [architecture, operations, deployment]) {
     assert.match(document, new RegExp(runtime.timezone, "i"));
-    for (const seconds of timeoutSeconds) {
-      assert.match(document, new RegExp(`${seconds}[- ]second`, "i"));
+    for (const config of configs) {
+      assert.match(
+        document,
+        new RegExp(`${config.schedule_minutes}(?:[-\\s]minutes?|\\s+min\\b)`, "i")
+      );
+      assert.match(
+        document,
+        new RegExp(`${config.execution_timeout_seconds}(?:[- ]seconds?|\\s+s\\b)`, "i")
+      );
     }
   }
-  assert.match(architecture, /outer execution budget/i);
-  assert.match(operations, /node-level timeout/i);
+  assert.equal(searchPlan.schedule_minutes, runtime.scraper.schedule_minutes);
+  assert.equal(alertPolicy.schedule_minutes, runtime.alerter_mover.schedule_minutes);
 });
 
-test("runtime documentation preserves failure evidence without successful execution churn", () => {
-  for (const document of [readme, architecture, operations]) {
-    assert.match(document, /failed production executions/i);
-    assert.match(
-      document,
-      /manual\s+(?:smoke\s+)?executions|manual\s+smoke\s+tests/i
-    );
-    assert.match(
-      document,
-      /(?:do|does)\s+not\s+(?:retain|save)\s+successful\s+production\s+executions/i
-    );
-    assert.match(document, /per-node\s+(?:execution\s+)?progress/i);
+test("Sheet docs cover every store, field, status, action, and terminal reason", () => {
+  for (const name of [...visibleSheets, review.sheets.system.name]) {
+    assert.match(sheetSchema, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
-  for (const document of [readme, architecture]) {
-    assert.match(document, /1,730 (?:normally successful )?scheduled executions per week/i);
-  }
-  assert.match(operations, /instance-level pruning/i);
-});
-
-test("deployment documentation pins bounded self-hosted controls without claiming activation", () => {
-  for (const document of [readme, architecture, operations, deploymentDoc]) {
-    assert.match(document, /production concurrency[\s\S]{0,100}\b3\b/i);
-    assert.match(document, /336 hours/i);
-    assert.match(document, /10,000/i);
-    assert.match(document, /validate:deployment/i);
-  }
-  assert.match(deploymentDoc, /0\.685 execution slots/i);
-  assert.match(
-    deploymentDoc,
-    /at least one slot\s+of scheduled-burst headroom/i
-  );
-  assert.match(deploymentDoc, /3,460 records/i);
-  assert.match(deploymentDoc, /metrics endpoint[\s\S]{0,100}internal/i);
-  assert.match(deploymentDoc, /instance-assigned workflow/i);
-  assert.match(deploymentDoc, /error executions[\s\S]{0,100}bypass/i);
-  assert.match(
-    operations,
-    /oldest due\s+generation or deterministic evaluation exceeds 120 minutes/i
-  );
-  assert.match(operations, /pending alert\s+exceeds 45 minutes/i);
-  assert.match(operations, /manual action exceeds 30 minutes/i);
-});
-
-test("Generator documentation preserves separate capacity and bounded fairness", () => {
-  for (const document of [readme, architecture, operations]) {
-    assert.match(
-      document,
-      /(?:separate|split)[\s\S]{0,100}(?:deterministic[- ]evaluation|evaluation)/i
-    );
-    assert.match(document, /evaluation[\s\S]{0,160}(?:cap|slot|at most one)/i);
-    assert.match(document, /120-minute maximum\s+priority wait|waited 120 minutes/i);
-  }
-  assert.match(
-    architecture,
-    /generation\s+backlog cannot consume the evaluation slot/i
-  );
-  assert.match(architecture, /oldest-due tier/i);
-  assert.match(operations, /due-generation, due-evaluation/i);
-});
-
-test("Reviewer idle-path documentation preserves the fail-closed operation bound", () => {
-  for (const document of [readme, architecture]) {
-    assert.match(document, /six (?:Sheet )?reads/i);
-    assert.match(document, /at least 14 Sheet\/Sheets API\s+requests/i);
-    assert.match(document, /one[\s\S]{0,40}claim/i);
-    assert.match(document, /Dashboard mutation/i);
-  }
-  assert.match(architecture, /768\s+avoided\s+requests/i);
-  assert.match(architecture, /35,040\s+rows/i);
-  assert.match(architecture, /70,080 Reviewer executions/i);
-  assert.match(architecture, /420,480 mandatory six-surface reads/i);
-  assert.match(architecture, /17,520\s+executions/i);
-  assert.match(architecture, /105,120\s+mandatory reads/i);
-  assert.match(operations, /review_snapshot_unchanged/i);
-  assert.match(operations, /exactly\s+six Sheet reads/i);
-  assert.match(
-    operations,
-    /generated_at[\s\S]{0,80}last\s+material summary publication/i
-  );
-});
-
-test("learning schedule documentation preserves fixed ordering and safe fallback", () => {
-  for (const document of [readme, architecture, operations]) {
-    assert.match(document, /02:00/i);
-    assert.match(document, /Monday(?:s)?[\s\S]{0,80}02:45/i);
-    assert.match(document, /15-minute\s+completion buffer/i);
-  }
-  assert.match(analyticsDoc, /fixed 02:00 start/i);
-  assert.match(recommendationsDoc, /Mondays at 02:45/i);
-  assert.match(recommendationsDoc, /15-minute completion buffer/i);
-  assert.match(recommendationsDoc, /latest complete[\s\S]{0,80}report/i);
-});
-
-test("Sheet schema documentation covers every persisted field, status, and manual action", () => {
   for (const field of schema.fields) {
-    assert.match(sheetSchema, new RegExp(`\\\`${field}\\\``), `missing field documentation: ${field}`);
+    assert.match(sheetSchema, new RegExp(`\\\`${field}\\\``), `missing field: ${field}`);
   }
   for (const status of schema.pipeline_statuses) {
-    assert.match(sheetSchema, new RegExp(`\\b${status}\\b`), `missing status documentation: ${status}`);
+    assert.match(
+      `${dataContract}\n${sheetSchema}`,
+      new RegExp(`\\b${status}\\b`),
+      `missing status: ${status}`
+    );
   }
-  for (const action of schema.manual_actions.filter(Boolean)) {
-    const documented = action.startsWith("outcome_") ? "outcome_" : action;
-    assert.match(sheetSchema, new RegExp(`\\b${documented}\\b`), `missing action documentation: ${action}`);
+  for (const action of schema.user_actions.filter(Boolean)) {
+    assert.match(
+      `${dataContract}\n${sheetSchema}`,
+      new RegExp(action.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+      `missing action: ${action}`
+    );
+  }
+  for (const reason of schema.archive_reasons) {
+    assert.match(dataContract, new RegExp(`\\b${reason}\\b`));
   }
 });
 
-test("runbook contains every release and rollback safety gate", () => {
+test("fresh-start documentation is explicit and preserves the old workbook", () => {
+  for (const document of [readme, architecture, operations]) {
+    assert.match(document, /fresh|new workbook/i);
+    assert.match(document, /old workbook/i);
+    assert.match(document, /(?:never|no|does not)[\s\S]{0,100}import/i);
+  }
+  for (const name of visibleSheets) {
+    assert.match(operations, new RegExp(name));
+  }
+  assert.match(operations, /run setup a second time/i);
+  assert.match(operations, /zero data rows/i);
+  assert.match(operations, /non-empty unexpected sheet/i);
+});
+
+test("runbook contains the release, observation, Slack, and rollback gates", () => {
   for (const required of [
-    "Backup",
-    "Schema migration on a copy",
-    "Disabled import and rebinding",
-    "Dry run and smoke checks",
-    "Production activation",
-    "Production verification",
-    "Rollback",
-    "disable every old",
-    "canonical identity",
-    "ready messages",
-    "application decisions",
-    "Archive"
+    "Freeze and back up",
+    "blank non-production workbook",
+    "Import replacements inactive",
+    "Non-production smoke matrix",
+    "issue #22 evidence gate",
+    "blank production workbook",
+    "Pre-activation inventory gate",
+    "Activation",
+    "Initial scheduled observation",
+    "Rollback"
   ]) {
-    assert.match(operations, new RegExp(required, "i"), `runbook is missing: ${required}`);
+    assert.match(operations, new RegExp(required, "i"), `missing runbook gate: ${required}`);
   }
-  assert.match(operations, /all seven exports/i);
-  assert.match(operations, /weekly recommendations/i);
-  assert.match(operations, /separately reviewed approval/i);
-  assert.match(operations, /Groq benchmark/i);
-  assert.match(operations, /model permission/i);
+  assert.match(operations, /byte-for-byte/i);
+  assert.match(operations, /exactly three recognized pipeline workflows/i);
+  assert.match(operations, /Never run old and replacement workflows/i);
+  assert.match(operations, /live provider acceptance is not satisfied by unit tests alone/i);
 });
 
-test("runbook gates old and new versions for all seven workflow roles", () => {
-  for (const role of [
-    "Scraper",
-    "Generator",
-    "Alerter",
-    "Reviewer",
-    "Archiver",
-    "Analytics",
-    "Recommender"
-  ]) {
-    assert.match(
-      operations,
-      new RegExp(`old[\\s\\S]{0,160}${role}|${role}[\\s\\S]{0,160}old`, "i"),
-      `cutover omits old ${role} copies`
-    );
-  }
-  assert.match(operations, /capture:cutover -- pre_activation/i);
-  assert.match(operations, /capture:cutover -- post_activation/i);
+test("deployment docs and policy agree on capacity, retention, and bindings", () => {
   assert.match(
-    operations,
-    /restart[\s\S]{0,100}cached\s+schedule\s+registrations?/i
-  );
-  assert.match(operations, /new`, `running`,\s+or `waiting`/i);
-  assert.match(
-    operations,
-    /Exactly the recorded target ID[\s\S]{0,100}seven roles/i
-  );
-  assert.match(deploymentDoc, /unrecognized or multiply matching/i);
-  assert.match(
-    architecture,
-    /exactly one active workflow[\s\S]{0,100}seven\s+roles/i
-  );
-  assert.equal(deploymentPolicy.workflow_cutover.roles.length, 7);
-});
-
-test("runbook preserves fail-closed learning-report recovery", () => {
-  assert.match(operations, /Recovery after a post-write report preparation failure/i);
-  assert.match(operations, /do not delete or rewrite it manually/i);
-  assert.match(operations, /35 minutes after the\s+Analytics claim/i);
-  assert.match(operations, /20 minutes after the Recommender claim/i);
-  assert.match(
-    operations,
-    /stable\s+`analytics_row_id`, `report_id`, `recommendation_id`, and\s+`run_id`/i
-  );
-  assert.match(operations, /failed Recommender attempt[\s\S]{0,100}execution-scoped/i);
-  assert.match(
-    operations,
-    /Execute Analytics first[\s\S]{0,300}execute Recommender/i
-  );
-  assert.match(operations, /remain blank rather than being coerced to zero/i);
-  assert.match(operations, /action=unchanged/);
-  assert.match(
-    operations,
-    /Analytics must publish no completion metadata;[\s\S]{0,120}detail_write_failure/i
-  );
-  assert.match(operations, /helper-resolution `ReferenceError`/i);
-  assert.match(
-    operations,
-    /every old Analytics and Recommender copy is\s+inactive/i
-  );
-});
-
-test("report recovery evidence is sanitized and covers every live gate", () => {
-  for (const executionId of [
-    6469,
-    6470,
-    6472,
-    6474,
-    6476,
-    6478,
-    6480,
-    6481,
-    6484,
-    6485
-  ]) {
-    assert.match(recoveryEvidence, new RegExp(`\\b${executionId}\\b`));
-  }
-  assert.match(recoveryEvidence, /unchanged-input reuse verification/i);
-  assert.match(recoveryEvidence, /Production cutover/i);
-  assert.doesNotMatch(
-    recoveryEvidence,
-    /docs\.google\.com|spreadsheets\/d\/|hooks\.slack\.com|credential id/i
-  );
-});
-
-test("weekly recommendation documentation preserves evidence and no-mutation boundaries", () => {
-  assert.match(
-    recommendationsDoc,
-    new RegExp(`${recommendations.schedule_hours}\\s*hours?`, "i")
-  );
-  assert.match(
-    recommendationsDoc,
-    new RegExp(`${recommendations.minimums.overall_applications}\\s+applied`, "i")
-  );
-  assert.match(recommendationsDoc, /reply, interview, and offer rates/i);
-  assert.match(recommendationsDoc, /newest `status=complete`/i);
-  assert.match(recommendationsDoc, /explicit abstention/i);
-  assert.match(recommendationsDoc, /never adds a claim/i);
-  assert.match(recommendationsDoc, /future automatic calibration requires/i);
-  assert.match(recommendationsDoc, /does not write `Sheet1`/i);
-});
-
-test("prompt documentation points to generated canonical inputs without embedding obsolete facts", () => {
-  assert.match(prompt, /config\/candidate-profile\.json/);
-  assert.match(prompt, /config\/application-policy\.json/);
-  assert.match(prompt, /deterministic validation/i);
-  assert.doesNotMatch(prompt, /netlify|FireCheck|PriceCraft|HEALTH/);
-});
-
-test("Groq documentation preserves the model lifecycle, measurement, and activation gates", () => {
-  assert.match(groqProviderDoc, /2026-08-16/);
-  assert.match(groqProviderDoc, new RegExp(groqProvider.selected_model));
-  assert.match(groqProviderDoc, /character-based estimate/i);
-  assert.match(groqProviderDoc, /exact provider input/i);
-  assert.match(groqProviderDoc, /two highest-ranked selected profile proofs/i);
-  assert.match(groqProviderDoc, /170,816 character-estimated tokens/i);
-  assert.match(groqProviderDoc, /34 requests/i);
-  assert.match(groqProviderDoc, /65 seconds/i);
-  assert.match(groqProviderDoc, /no cache hits/i);
-  assert.match(groqProviderDoc, /account-specific limits/i);
-  assert.match(groqProviderDoc, /--live/);
-  assert.match(groqProviderDoc, /never prints prompts/i);
-  assert.match(groqProviderDoc, /rollback/i);
-});
-
-test("claim-retention documentation preserves cleanup bounds and rollback safety", () => {
-  for (const document of [architecture, sheetSchema, operations]) {
-    assert.match(
-      document,
-      new RegExp(
-        `${claimRetention.minimum_rows_before_cleanup.toLocaleString("en-US")}(?:(?:\\s+data)?\\s+rows?|[- ]row)`,
-        "i"
-      )
-    );
-    assert.match(
-      document,
-      new RegExp(
-        `${claimRetention.maximum_rows_per_cleanup.toLocaleString("en-US")}(?:\\s+uniquely\\s+addressed)?(?:\\s+claim)?\\s+rows`,
-        "i"
-      )
-    );
-    assert.match(
-      document,
-      new RegExp(`${claimRetention.retention_days}(?:-|\\s+)days?`, "i")
-    );
-  }
-  assert.match(architecture, /fail-closed retention/i);
-  assert.match(sheetSchema, /no automatic retry/i);
-  assert.match(operations, /recoverable only from the\s+timestamped workbook backup/i);
-});
-
-test("report-retention documentation preserves leases, bounds, and fail-closed recovery", () => {
-  const analyticsRetention = reportRetention.analytics;
-  const recommendationRetention = reportRetention.recommendations;
-  for (const document of [
-    readme,
-    architecture,
-    analyticsDoc,
-    sheetSchema,
-    operations
-  ]) {
-    assert.match(
-      document,
-      new RegExp(`${analyticsRetention.retention_days}(?:-|\\s+)days?`, "i")
-    );
-    assert.match(
-      document,
-      new RegExp(
-        `${analyticsRetention.minimum_reports_before_cleanup}(?:\\s+\\w+){0,3}\\s+rows`,
-        "i"
-      )
-    );
-    assert.match(
-      document,
-      new RegExp(
-        `${analyticsRetention.maximum_reports_per_cleanup}\\s+expired\\s+reports`,
-        "i"
-      )
-    );
-  }
-  for (const document of [
-    readme,
-    architecture,
-    recommendationsDoc,
-    sheetSchema,
-    operations
-  ]) {
-    assert.match(
-      document,
-      new RegExp(
-        `${recommendationRetention.retention_days}(?:-|\\s+)days?`,
-        "i"
-      )
-    );
-    assert.match(
-      document,
-      new RegExp(
-        `${recommendationRetention.minimum_reports_before_cleanup}(?:\\s+\\w+){0,3}\\s+rows`,
-        "i"
-      )
-    );
-    assert.match(
-      document,
-      new RegExp(
-        `${recommendationRetention.maximum_reports_per_cleanup}\\s+expired`,
-        "i"
-      )
-    );
-  }
-  assert.match(analyticsDoc, /analytics_report_store/);
-  assert.match(recommendationsDoc, /recommendation_report_store/);
-  assert.match(architecture, /formulas visible/i);
-  assert.match(operations, /response-\s*ambiguous batch/i);
-  assert.match(
-    operations,
-    /report groups[\s\S]{0,120}recoverable only from the timestamped workbook backup/i
-  );
-});
-
-test("alert documentation keeps retries behind claim expiry and execution timeout", () => {
-  for (const document of [alertsDoc, architecture, operations]) {
-    assert.match(
-      document,
-      new RegExp(`${alertPolicy.execution_timeout_seconds}[- ]second`, "i")
-    );
-    assert.match(
-      document,
-      new RegExp(`${alertPolicy.claim_lease_ms / 60000}[- ]minute`, "i")
-    );
-  }
-  assert.match(alertsDoc, /backoff\s+to be no\s+shorter than the lease/i);
-  assert.match(
-    alertsDoc,
-    new RegExp(`cap of ${alertPolicy.per_run_cap}\\b`, "i")
-  );
-  assert.match(alertsDoc, /480 to 96 per day/i);
-  assert.match(alertsDoc, /140,160\s+scheduled\s+executions/i);
-  assert.match(alertsDoc, /capacity for 30\s+alerts/i);
-  for (const document of [readme, alertsDoc, architecture, operations]) {
-    assert.match(document, /1\.1\s+seconds?/i);
-  }
-  assert.match(alertsDoc, /one message per second/i);
-  assert.match(
-    operations,
-    /request\s+starts are at least 1\.1\s+seconds apart/i
-  );
-  assert.match(
-    alertsDoc,
-    /retain their attempt\s+count, due time, and original delivery key/i
-  );
-  assert.match(
-    alertsDoc,
-    /never\s+reopened merely because a policy version changed/i
-  );
-  assert.match(alertsDoc, /deployment-stable n8n\s+workflow ID/i);
-  assert.match(architecture, /starve\s+the\s+due retry/i);
-  assert.match(operations, /appends no retry\s+claim/i);
-});
-
-test("operational monitoring documentation defines observable backlog clocks", () => {
-  const thresholds = deploymentPolicy.monitoring.thresholds;
-  for (const document of [architecture, operations, deploymentDoc]) {
-    assert.match(document, /operational_backlog/);
-    assert.match(document, /manual[\s-]+action[\s\S]{0,100}fingerprint/i);
-    assert.match(document, /generator_result/);
-    assert.match(document, /alert_delivery/);
-    assert.match(document, /category=rate_limit/);
-  }
-  assert.match(
-    deploymentDoc,
+    deployment,
     new RegExp(
-      `${thresholds.operational_backlog_event_stale_minutes}\\s+minutes`,
+      `concurrency[^\\n]*${deploymentPolicy.capacity.production_concurrency_limit}`,
       "i"
     )
   );
   assert.match(
-    deploymentDoc,
-    new RegExp(`${thresholds.oldest_due_generation_minutes}\\s+minutes`, "i")
+    deployment,
+    new RegExp(`${deploymentPolicy.execution_retention.maximum_age_hours}\\s+hours`, "i")
   );
   assert.match(
-    deploymentDoc,
-    new RegExp(`${thresholds.oldest_pending_alert_minutes}\\s+minutes`, "i")
+    deployment,
+    new RegExp(
+      deploymentPolicy.workbook_binding.spreadsheet_environment_variable.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      )
+    )
   );
-  assert.match(
-    deploymentDoc,
-    new RegExp(`${thresholds.oldest_manual_action_minutes}\\s+minutes`, "i")
-  );
-  assert.match(deploymentDoc, /does not count expired append-only/i);
-  assert.match(deploymentDoc, /remove it when absent/i);
+  assert.match(architecture, /concurrency limit of three/i);
+  assert.match(operations, /JOB_PIPELINE_SPREADSHEET_ID/);
+  assert.match(deployment, /complete instance-wide inventory/i);
+  assert.match(deployment, /unrecognized|duplicate/i);
+  assert.match(deployment, /policy-only/i);
+});
+
+test("alert docs preserve safe eligibility, fidelity, idempotency, and independence", () => {
+  for (const required of [
+    "ready_to_apply",
+    "application_pack_status",
+    "message_validation_status",
+    "idempotency",
+    "code block",
+    "byte",
+    "timeout",
+    "movement"
+  ]) {
+    assert.match(alerts, new RegExp(required, "i"), `missing alert behavior: ${required}`);
+  }
+  assert.match(alerts, /does not submit|never submits/i);
+  assert.match(alerts, /independent/i);
+});
+
+test("acceptance accounting covers every criterion and labels live gates honestly", () => {
+  const expectedCounts = new Map([
+    [39, 13],
+    [40, 20],
+    [41, 14],
+    [42, 16],
+    [43, 16],
+    [44, 14],
+    [45, 20]
+  ]);
+  for (const [issue, expected] of expectedCounts) {
+    const start = acceptance.indexOf(`## Issue #${issue}`);
+    const next = acceptance.indexOf("\n## Issue #", start + 1);
+    const section = acceptance.slice(start, next === -1 ? undefined : next);
+    assert.notEqual(start, -1, `missing issue #${issue}`);
+    assert.equal(
+      [...section.matchAll(/^\d+\.\s/mg)].length,
+      expected,
+      `issue #${issue} criterion count`
+    );
+  }
+  assert.match(acceptance, /Issue #45 remains operationally open/i);
+  assert.match(acceptance, /No production or provider action is represented as completed/i);
+});
+
+test("retired workflow documents and smoke snapshots are removed", async () => {
+  const retired = [
+    "../docs/analytics.md",
+    "../docs/recommendations.md",
+    "../docs/review-report.md",
+    "../docs/smoke-test-2026-07-28.md",
+    "../docs/smoke-test-2026-07-29-applied-jobs.md",
+    "../docs/smoke-test-2026-07-30-generator-recovery.md",
+    "../docs/smoke-test-2026-07-30-report-recovery.md"
+  ];
+  for (const path of retired) {
+    await assert.rejects(access(new URL(path, import.meta.url)));
+  }
 });
