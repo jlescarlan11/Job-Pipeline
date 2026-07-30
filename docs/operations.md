@@ -402,6 +402,9 @@ compatible and reconcile on the next run.
 - Present case-variant canonical IDs and a repeated same-token proposal to the
   shared claim arbiter. Confirm the earliest unexpired row still wins and only
   one record for that folded identity/stage reaches downstream work.
+- Add missing, header-range, duplicate, and non-integer claim row locators plus
+  an inverted lease on the workbook copy. Confirm none can own work and the
+  lowest valid uniquely addressed row still wins.
 - On a disposable ready regeneration, pause after Generator marker
   confirmation, then let Alerter persist `sending`. Confirm Generator's
   pre-commit check rejects its stale alert snapshot and cannot restore

@@ -122,14 +122,15 @@ handler must be bound and smoke-tested after import.
 `state_guard` is a deterministic composite of canonical identity, pipeline status, application decision, and outcome. Generator claim marking matches this guard, so a manual lifecycle update completed before the claim write prevents the stale automation from acquiring the row. Claim marking also writes a hidden `processing_commit_guard` derived from the winning token. Final evaluation, generation, and alert commits match that guard while atomically writing blank `processing_token`, `processing_stage`, and `processing_started_at`. The retained commit guard is not an active claim: a new claim replaces it and a manual lifecycle action clears it, so stale results match zero rows. There is no second canonical-ID cleanup write that could erase a newer claim.
 
 `ProcessingClaims` is append-written. For a canonical job and stage, the
-lowest valid Sheet row number wins until its configured lease expires. This
-arbitrates concurrent discovery, evaluation, generation, alert, archival,
-Applied Jobs projection, Analytics report-store, and Recommendation
-report-store executions without treating a mutable active-row number as
-identity. Shared arbitration compares canonical identities case-folded and
-emits at most one proposed record for each identity/stage, so case variants or
-repeated same-token proposals cannot fan out duplicate downstream work. The
-projection winner also performs fail-closed retention:
+lowest valid, uniquely addressed Sheet row number wins until its configured
+lease expires. Missing, header-range, duplicate, or non-integer row locators
+and inverted leases cannot own work. This arbitrates concurrent discovery,
+evaluation, generation, alert, archival, Applied Jobs projection, Analytics
+report-store, and Recommendation report-store executions without treating a
+mutable active-row number as identity. Shared arbitration compares canonical
+identities case-folded and emits at most one proposed record for each
+identity/stage, so case variants or repeated same-token proposals cannot fan
+out duplicate downstream work. The projection winner also performs fail-closed retention:
 once 10,000 data rows exist, it can delete at most 1,000 uniquely addressed
 claim rows per run only after 30 days beyond expiry. Active/recent, malformed,
 unknown-stage, and duplicate-locator rows are preserved. Descending ranges are

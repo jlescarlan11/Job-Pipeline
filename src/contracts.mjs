@@ -517,27 +517,38 @@ export function chooseWinningClaims(proposedRecords, allClaims, now = new Date()
       record?.processing_stage || record?.work_stage || ""
     ).trim()}`;
   const nowMs = Date.parse(now);
+  const rowNumberCounts = new Map();
+  for (const claim of allClaims) {
+    const rowNumber = Number(claim?.row_number);
+    if (!Number.isInteger(rowNumber) || rowNumber < 2) continue;
+    rowNumberCounts.set(
+      rowNumber,
+      (rowNumberCounts.get(rowNumber) || 0) + 1
+    );
+  }
   const validClaims = allClaims.filter((claim) => {
     const createdAt = Date.parse(claim.created_at);
     const expiresAt = Date.parse(claim.expires_at);
-    return claim.canonical_job_id && claim.processing_stage && claim.processing_token &&
-      Number.isFinite(createdAt) && Number.isFinite(expiresAt) && expiresAt > nowMs;
+    const rowNumber = Number(claim.row_number);
+    return (
+      claim.canonical_job_id &&
+      claim.processing_stage &&
+      claim.processing_token &&
+      Number.isFinite(createdAt) &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > createdAt &&
+      expiresAt > nowMs &&
+      Number.isInteger(rowNumber) &&
+      rowNumber >= 2 &&
+      rowNumberCounts.get(rowNumber) === 1
+    );
   });
   const winners = new Map();
   for (const claim of validClaims) {
     const key = claimKey(claim);
     const current = winners.get(key);
     const claimRow = Number(claim.row_number);
-    const currentRow = Number(current?.row_number);
-    const bothHaveRows = Number.isFinite(claimRow) && Number.isFinite(currentRow);
-    if (
-      !current ||
-      (bothHaveRows && claimRow < currentRow) ||
-      (!bothHaveRows && Date.parse(claim.created_at) < Date.parse(current.created_at)) ||
-      (!bothHaveRows &&
-        claim.created_at === current.created_at &&
-        claim.processing_token < current.processing_token)
-    ) {
+    if (!current || claimRow < Number(current.row_number)) {
       winners.set(key, claim);
     }
   }
