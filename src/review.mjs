@@ -1918,15 +1918,15 @@ export function reconcileReviewQueue(
       .filter((row) => String(row?.Action || "").trim())
       .map(queueSnapshotKey)
   );
-  const currentSourceGuards = new Map(
-    activeRows
-      .map((row) => normalizeLegacyRecord(row, schema, now))
-      .map((record) => [
-        String(record.canonical_job_id || "").trim(),
-        String(record.state_guard || stateGuard(record))
-      ])
-      .filter(([identity]) => identity)
-  );
+  const currentSourceGuards = new Map();
+  for (const row of activeRows) {
+    const record = normalizeLegacyRecord(row, schema, now);
+    const identity = String(record.canonical_job_id || "").trim();
+    if (!identity) continue;
+    const guards = currentSourceGuards.get(identity) || new Set();
+    guards.add(String(record.state_guard || stateGuard(record)));
+    currentSourceGuards.set(identity, guards);
+  }
   const protectedRows = new Set();
   const protectedIdentities = new Set();
   for (const row of currentQueueRows) {
@@ -1938,7 +1938,7 @@ export function reconcileReviewQueue(
     const sourceWriteIsUnconfirmed =
       identity &&
       sourceGuard &&
-      currentSourceGuards.get(identity) === sourceGuard;
+      currentSourceGuards.get(identity)?.has(sourceGuard);
     if (!actionAppearedAfterRead && !sourceWriteIsUnconfirmed) continue;
     const rowNumber = Number(row.row_number);
     if (Number.isInteger(rowNumber) && rowNumber > 1) {

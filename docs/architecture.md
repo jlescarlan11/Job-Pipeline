@@ -381,7 +381,9 @@ values still match under Sheets duplicate semantics. The template's `Action`
 is blank, so a valid last-moment selection is nonblank and survives instead of
 being positionally deleted. Template identities must be nonblank and
 case-fold unique; ambiguous queue identities fail before the batch so duplicate
-comparison cannot shorten the known template range.
+comparison cannot shorten the known template range. Reconciliation indexes every
+observed Sheet1 state guard per identity, so an action remains visible when
+divergent duplicate source rows make guarded processing ambiguous.
 
 `Applied Jobs` is a second derived operator surface, not a new source of truth.
 It projects every authoritative `application_decision=applied` record from

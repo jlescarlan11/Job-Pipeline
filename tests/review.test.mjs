@@ -2291,6 +2291,34 @@ test("queue reconciliation retains an action until its guarded source write is c
   assert.deepEqual(unconfirmed.queue_rows, []);
   assert.equal(unconfirmed.protected_action_count, 1);
 
+  const divergentDuplicate = {
+    ...ready,
+    row_number: 9,
+    job_title: "Divergent duplicate"
+  };
+  divergentDuplicate.state_guard = stateGuard(divergentDuplicate);
+  const duplicateSource = reconcileReviewQueue(
+    [divergentDuplicate, ready],
+    [
+      {
+        ...pending,
+        source_state_guard: divergentDuplicate.state_guard
+      }
+    ],
+    [
+      {
+        ...pending,
+        source_state_guard: divergentDuplicate.state_guard
+      }
+    ],
+    schema,
+    view,
+    now
+  );
+  assert.deepEqual(duplicateSource.delete_rows, []);
+  assert.deepEqual(duplicateSource.queue_rows, []);
+  assert.equal(duplicateSource.protected_action_count, 1);
+
   const committed = {
     ...ready,
     pipeline_status: "applied",
