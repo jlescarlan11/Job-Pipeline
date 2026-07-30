@@ -509,6 +509,13 @@ export function createProcessingClaim(record, executionId, now, leaseMs) {
 }
 
 export function chooseWinningClaims(proposedRecords, allClaims, now = new Date().toISOString()) {
+  const claimKey = (record) =>
+    `${String(record?.canonical_job_id || "")
+      .trim()
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US")}:${String(
+      record?.processing_stage || record?.work_stage || ""
+    ).trim()}`;
   const nowMs = Date.parse(now);
   const validClaims = allClaims.filter((claim) => {
     const createdAt = Date.parse(claim.created_at);
@@ -518,7 +525,7 @@ export function chooseWinningClaims(proposedRecords, allClaims, now = new Date()
   });
   const winners = new Map();
   for (const claim of validClaims) {
-    const key = `${claim.canonical_job_id}:${claim.processing_stage}`;
+    const key = claimKey(claim);
     const current = winners.get(key);
     const claimRow = Number(claim.row_number);
     const currentRow = Number(current?.row_number);
@@ -534,8 +541,16 @@ export function chooseWinningClaims(proposedRecords, allClaims, now = new Date()
       winners.set(key, claim);
     }
   }
+  const emitted = new Set();
   return proposedRecords.filter((record) => {
-    const key = `${record.canonical_job_id}:${record.work_stage}`;
-    return winners.get(key)?.processing_token === record.processing_token;
+    const key = claimKey(record);
+    if (
+      emitted.has(key) ||
+      winners.get(key)?.processing_token !== record.processing_token
+    ) {
+      return false;
+    }
+    emitted.add(key);
+    return true;
   });
 }

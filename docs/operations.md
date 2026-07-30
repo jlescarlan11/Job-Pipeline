@@ -394,6 +394,9 @@ compatible and reconcile on the next run.
   separately confirmed generation claim, change `manual_action` while the
   provider call is in flight and confirm the pre-commit read discards the stale
   result without clearing the newer action.
+- Present case-variant canonical IDs and a repeated same-token proposal to the
+  shared claim arbiter. Confirm the earliest unexpired row still wins and only
+  one record for that folded identity/stage reaches downstream work.
 - On a disposable ready regeneration, pause after Generator marker
   confirmation, then let Alerter persist `sending`. Confirm Generator's
   pre-commit check rejects its stale alert snapshot and cannot restore

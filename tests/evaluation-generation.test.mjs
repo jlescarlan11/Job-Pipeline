@@ -1026,6 +1026,45 @@ test("append-only claims choose one concurrent owner deterministically", () => {
   );
   assert.equal(winners.length, 1);
   assert.equal(winners[0].processing_token, first.processing_token);
+
+  const caseVariant = {
+    canonical_job_id: record.canonical_job_id.toUpperCase(),
+    work_stage: record.work_stage
+  };
+  const variantClaim = createProcessingClaim(
+    caseVariant,
+    "exec-c",
+    "2026-07-28T08:00:02.000Z",
+    600000
+  );
+  const foldedWinner = chooseWinningClaims(
+    [
+      { ...record, processing_token: first.processing_token },
+      {
+        ...caseVariant,
+        processing_token: variantClaim.processing_token
+      }
+    ],
+    [
+      { ...variantClaim, row_number: 8 },
+      { ...first, row_number: 7 }
+    ],
+    now
+  );
+  assert.deepEqual(
+    foldedWinner.map((candidate) => candidate.processing_token),
+    [first.processing_token]
+  );
+
+  const repeatedProposal = chooseWinningClaims(
+    [
+      { ...record, processing_token: first.processing_token },
+      { ...record, processing_token: first.processing_token }
+    ],
+    [{ ...first, row_number: 7 }],
+    now
+  );
+  assert.equal(repeatedProposal.length, 1);
 });
 
 test("temporary errors retry with sanitized evidence and terminalize at the cap", () => {
