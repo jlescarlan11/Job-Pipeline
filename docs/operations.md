@@ -630,6 +630,58 @@ delivered.
 - Confirm no weekly notification is expected in this version. Stored report
   validity is independent of alert delivery.
 
+#### Recovery after a post-write report preparation failure
+
+Use this procedure when `Analytics` or `Recommendations` contains detail for a
+run whose metadata was not published because `Prepare Analytics Completion` or
+`Prepare Recommendation Report` failed. Treat the detail as non-authoritative
+but potentially recoverable; do not delete or rewrite it manually merely
+because its metadata is absent.
+
+1. Do not rerun either workflow until the failing execution and its workflow
+   version are identified. Record only the execution ID, workflow ID, failed
+   node, bounded error category, and affected report/run identity; do not copy
+   detail rows, credentials, or workbook URLs into release evidence.
+2. Export the currently deployed Analytics and Recommender workflows and make
+   a timestamped backup of `Analytics`, `AnalyticsReports`,
+   `Recommendations`, and `RecommendationReports` before changing workflow or
+   Sheet state.
+3. With both learning workflows inactive on a workbook copy, audit the
+   affected report/run identity. Require one exact metadata identity when
+   present, the declared detail count, unique case-folded detail identities,
+   and exact configured-field content. Stop for reconciliation when a
+   duplicate, case variant, conflicting row, formula identity, or unexpected
+   metadata record makes ownership ambiguous.
+4. Preserve unambiguous orphan detail. Successful Analytics and Recommender
+   results use stable `analytics_row_id`, `report_id`, `recommendation_id`, and
+   `run_id` matching, so an idempotent upsert and authoritative post-write
+   reread can repair their publication without appending a second logical row.
+   A failed Recommender attempt intentionally uses an execution-scoped
+   `run_id`; its orphan detail remains non-authoritative history and is not
+   expected to be overwritten by a later attempt.
+5. Wait until the failed store claim cannot own work: 35 minutes after the
+   Analytics claim and 20 minutes after the Recommender claim. Confirm the
+   fresh run wins arbitration rather than clearing `ProcessingClaims` history
+   or bypassing the lease.
+6. Validate the corrected repository with `npm run build`,
+   `npm run validate`, and `git diff --check`. Import or update disposable
+   copies inactive, bind them only to the approved workbook copy, and replace
+   their Schedule Triggers with Manual Triggers for the smoke run.
+7. Execute Analytics first. Confirm exact detail plus one valid
+   `status=complete` Analytics report, then execute Recommender and confirm it
+   consumes that report and publishes exact detail plus matching report
+   metadata. Repeat both unchanged inputs and require `action=unchanged` with
+   no detail or metadata write.
+8. On the workbook copy, exercise a missing row, configured-field mismatch,
+   and case-variant duplicate. Analytics must publish no completion metadata;
+   Recommender must publish only `detail_write_failure`. Neither path may
+   produce a helper-resolution `ReferenceError`.
+9. Only after the copied-workbook gates pass, follow Sections 7 and 8 for the
+   normal production cutover and verification. Portable imports can create
+   new workflow records, so prove every old Analytics and Recommender copy is
+   inactive before activating exactly one corrected Analytics target and then
+   one corrected Recommender target.
+
 ### Archive
 
 - Use disposable applied, skipped, terminal-error, and retryable-error rows.

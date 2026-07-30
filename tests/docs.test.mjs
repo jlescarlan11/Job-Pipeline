@@ -261,6 +261,32 @@ test("runbook gates old and new versions for all seven workflow roles", () => {
   assert.equal(deploymentPolicy.workflow_cutover.roles.length, 7);
 });
 
+test("runbook preserves fail-closed learning-report recovery", () => {
+  assert.match(operations, /Recovery after a post-write report preparation failure/i);
+  assert.match(operations, /do not delete or rewrite it manually/i);
+  assert.match(operations, /35 minutes after the\s+Analytics claim/i);
+  assert.match(operations, /20 minutes after the Recommender claim/i);
+  assert.match(
+    operations,
+    /stable\s+`analytics_row_id`, `report_id`, `recommendation_id`, and\s+`run_id`/i
+  );
+  assert.match(operations, /failed Recommender attempt[\s\S]{0,100}execution-scoped/i);
+  assert.match(
+    operations,
+    /Execute Analytics first[\s\S]{0,300}execute Recommender/i
+  );
+  assert.match(operations, /action=unchanged/);
+  assert.match(
+    operations,
+    /Analytics must publish no completion metadata;[\s\S]{0,120}detail_write_failure/i
+  );
+  assert.match(operations, /helper-resolution `ReferenceError`/i);
+  assert.match(
+    operations,
+    /every old Analytics and Recommender copy is\s+inactive/i
+  );
+});
+
 test("weekly recommendation documentation preserves evidence and no-mutation boundaries", () => {
   assert.match(
     recommendationsDoc,
