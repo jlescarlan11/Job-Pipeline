@@ -285,6 +285,8 @@ Slack HTTP node must remain an explicit JSON `POST`.
   the idle gate closed. Restore one valid current row, run without metric
   changes, and confirm no Dashboard upsert occurs; `generated_at` is the last
   material summary publication, not a 15-minute health signal.
+- Seed active/Archive overlap whose canonical IDs differ only by case and
+  confirm Dashboard counts one job with Archive precedence.
 - Enter one valid action immediately after a completed Reviewer run. Confirm it
   remains intact until the next sweep, is observed within 15 minutes, and is
   committed exactly once. Confirm a second concurrent edit still survives the

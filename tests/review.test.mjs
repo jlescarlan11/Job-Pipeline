@@ -2915,7 +2915,8 @@ test("Applied Jobs clears stale display fields without positional deletion or Ac
 test("funnel summary deduplicates active/archive and never infers outcomes", () => {
   const activeRows = [
     job({ source_job_id: "6201", canonical_job_id: "onlinejobs.ph:6201", pipeline_status: "ready" }),
-    job({ source_job_id: "6202", canonical_job_id: "onlinejobs.ph:6202", pipeline_status: "review_required", generated_message: "" })
+    job({ source_job_id: "6202", canonical_job_id: "onlinejobs.ph:6202", pipeline_status: "review_required", generated_message: "" }),
+    job({ source_job_id: "6204", canonical_job_id: "onlinejobs.ph:6204", pipeline_status: "ready" })
   ];
   const archiveRows = [
     job({
@@ -2930,7 +2931,7 @@ test("funnel summary deduplicates active/archive and never infers outcomes", () 
     job({
       row_number: 11,
       source_job_id: "6204",
-      canonical_job_id: "onlinejobs.ph:6204",
+      canonical_job_id: "ONLINEJOBS.PH:6204",
       pipeline_status: "archived",
       archived_from_status: "applied",
       application_decision: "applied",

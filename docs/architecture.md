@@ -522,13 +522,14 @@ year. The worst-case projection or manual-action observation time changes from
 under ten to under 15 minutes; durable inputs, action throughput, and
 compare-and-commit guards are unchanged.
 
-When work is required, the Dashboard upserts one deduplicated current summary
-from the authoritative active/archive reread after guarded Reviewer actions
-finish. A decision or outcome committed by the current execution is therefore
-included in the same execution's summary. Content-identical metrics skip the
-write, so `generated_at` records the last material summary publication rather
-than acting as a workflow-health heartbeat. The summary never infers a reply,
-interview, offer, or rejection from `applied`.
+When work is required, the Dashboard upserts one current summary deduplicated
+by case-folded canonical identity from the authoritative active/archive reread
+after guarded Reviewer actions finish. A decision or outcome committed by the
+current execution is therefore included in the same execution's summary.
+Content-identical metrics skip the write, so `generated_at` records the last
+material summary publication rather than acting as a workflow-health
+heartbeat. The summary never infers a reply, interview, offer, or rejection
+from `applied`.
 
 ## Analytics workflow
 

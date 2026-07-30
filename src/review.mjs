@@ -2243,10 +2243,11 @@ export function buildFunnelSummary(activeRows, archiveRows, schema, now = new Da
   const recordsById = new Map();
   for (const raw of [...activeRows, ...archiveRows]) {
     const record = normalizeLegacyRecord(raw, schema, now);
-    if (!record.canonical_job_id) continue;
-    const current = recordsById.get(record.canonical_job_id);
+    const identityKey = canonicalIdentityKey(record.canonical_job_id);
+    if (!identityKey) continue;
+    const current = recordsById.get(identityKey);
     if (!current || record.pipeline_status === "archived") {
-      recordsById.set(record.canonical_job_id, record);
+      recordsById.set(identityKey, record);
     }
   }
   const records = [...recordsById.values()];
