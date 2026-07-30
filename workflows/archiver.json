@@ -1,5 +1,5 @@
 {
-  "name": "Job Application Pipeline - Idempotent Archive",
+  "name": "(Archiver) Job Application Pipeline - Idempotent Archive",
   "nodes": [
     {
       "parameters": {

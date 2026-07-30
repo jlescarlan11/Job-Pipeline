@@ -1,5 +1,5 @@
 {
-  "name": "Job Application Pipeline - Weekly Recommendations",
+  "name": "(Recommender) Job Application Pipeline - Weekly Recommendations",
   "nodes": [
     {
       "parameters": {

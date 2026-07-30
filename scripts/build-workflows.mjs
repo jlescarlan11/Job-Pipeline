@@ -783,7 +783,7 @@ return winners.map((record) => ({ json: record }));`
     path,
     workflow: {
       ...current,
-      name: "Job Application Pipeline - Resume-Driven Discovery",
+      name: "(Scraper) Job Application Pipeline - Resume-Driven Discovery",
       nodes,
       connections,
       active: false,
@@ -1963,7 +1963,7 @@ return {
     path,
     workflow: {
       ...current,
-      name: "Job Application Pipeline - Evaluation and Generation",
+      name: "(Generator) Job Application Pipeline - Evaluation and Generation",
       nodes,
       connections,
       active: false,
@@ -2345,7 +2345,7 @@ return confirmation.confirmed.map((entry) => ({ json: entry }));`;
     path,
     workflow: {
       ...current,
-      name: "Job Application Pipeline - Idempotent Archive",
+      name: "(Archiver) Job Application Pipeline - Idempotent Archive",
       nodes,
       connections,
       active: false,
@@ -4395,7 +4395,7 @@ return [{ json: {
   return {
     path,
     workflow: {
-      name: "Job Application Pipeline - Review Actions and Outcomes",
+      name: "(Reviewer) Job Application Pipeline - Review Actions and Outcomes",
       nodes,
       connections,
       active: false,
@@ -4884,7 +4884,7 @@ return {
   return {
     path,
     workflow: {
-      name: "Job Application Pipeline - High-Match Alerts",
+      name: "(Alerter) Job Application Pipeline - High-Match Alerts",
       nodes,
       connections,
       active: false,
@@ -5624,7 +5624,7 @@ return [{ json: completion }];`;
   return {
     path,
     workflow: {
-      name: "Job Application Pipeline - Conversion Analytics",
+      name: "(Analytics) Job Application Pipeline - Conversion Analytics",
       nodes,
       connections,
       active: false,
@@ -6446,7 +6446,7 @@ return [{ json: report }];`;
   return {
     path,
     workflow: {
-      name: "Job Application Pipeline - Weekly Recommendations",
+      name: "(Recommender) Job Application Pipeline - Weekly Recommendations",
       nodes,
       connections,
       active: false,

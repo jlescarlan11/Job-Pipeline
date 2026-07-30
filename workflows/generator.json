@@ -1,5 +1,5 @@
 {
-  "name": "Job Application Pipeline - Evaluation and Generation",
+  "name": "(Generator) Job Application Pipeline - Evaluation and Generation",
   "nodes": [
     {
       "parameters": {

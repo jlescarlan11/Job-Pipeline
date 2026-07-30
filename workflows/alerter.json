@@ -1,5 +1,5 @@
 {
-  "name": "Job Application Pipeline - High-Match Alerts",
+  "name": "(Alerter) Job Application Pipeline - High-Match Alerts",
   "nodes": [
     {
       "parameters": {

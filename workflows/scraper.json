@@ -1,5 +1,5 @@
 {
-  "name": "Job Application Pipeline - Resume-Driven Discovery",
+  "name": "(Scraper) Job Application Pipeline - Resume-Driven Discovery",
   "nodes": [
     {
       "parameters": {
