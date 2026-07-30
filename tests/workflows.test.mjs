@@ -2428,6 +2428,9 @@ test("analytics export publishes completion only after every idempotent detail w
   assert.match(build, /multi_touch_full_credit/);
   assert.match(build, /reusableAnalyticsReport/);
   assert.match(build, /analyticsDetailPersistenceErrors/);
+  assert.match(build, /reusableExpectedRows/);
+  assert.match(build, /generated_at: reusableMetadata/);
+  assert.match(build, /window_end_at: reusableMetadata/);
   assert.match(build, /reportHistoryReadFailed/);
   assert.match(build, /detailHistoryReadFailed/);
   assert.match(build, /detail_integrity_errors: reusableDetailErrors/);
@@ -2715,6 +2718,8 @@ test("weekly recommender consumes only complete analytics and publishes versione
   assert.match(build, /buildRecommendationFailure/);
   assert.match(build, /reusableRecommendationReport/);
   assert.match(build, /recommendationDetailPersistenceErrors/);
+  assert.match(build, /reusableExpectedRows/);
+  assert.match(build, /generated_at: reusableMetadata/);
   assert.match(build, /recommendationDetailReadFailed/);
   assert.match(build, /detail_integrity_errors: reusableDetailErrors/);
   assert.match(build, /history_read_failed: recommendationReportReadFailed/);

@@ -575,7 +575,8 @@ and deterministic detail IDs. The daily workflow first verifies
 `AnalyticsReports`; an exact compatible complete result is logged as unchanged
 and performs no analytic writes only when it is already the latest complete
 report and its stored semantic detail still has exactly one field-matching
-physical row per expected ID. Missing, older, partial, incompatible, or
+physical row per expected ID, including refresh timestamps that match the
+stored completion metadata. Missing, older, partial, incompatible, or
 malformed metadata cannot authorize that skip; neither can missing,
 duplicated, case-variant, or mismatched detail. Returning to an older result
 republishes it as current. An unavailable metadata or detail-history read also
@@ -644,8 +645,10 @@ recommendation policy, and profile version; successful overlap converges on
 that stable run/detail scope. If an exact compatible result is already the
 latest complete report, the weekly execution logs it as unchanged and performs
 no recommendation writes only when its stored semantic detail also has exactly
-one field-matching physical row per expected ID. Missing, duplicated,
-case-variant, or mismatched detail disables the shortcut and enters the normal
+one field-matching physical row per expected ID, including generation time
+matching the stored run metadata. A folded duplicate of the newest complete
+run is ambiguous and cannot be current. Missing, duplicated, case-variant, or
+mismatched detail disables the shortcut and enters the normal
 repair-and-confirm path. A metadata or detail-history read failure likewise
 disables only the skip. Returning to older evidence republishes it as current.
 

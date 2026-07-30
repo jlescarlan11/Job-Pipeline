@@ -503,6 +503,36 @@ test("analytics result identity is content-addressed and safely reusable", () =>
     [],
     "volatile refresh timestamps must not invalidate intact reusable detail"
   );
+  const reusableExpectedRows = unchangedLater.rows.map((row) => ({
+    ...row,
+    generated_at: existing.generated_at,
+    window_end_at: existing.window_end_at
+  }));
+  assert.deepEqual(
+    analyticsDetailPersistenceErrors(
+      reusableExpectedRows,
+      first.rows,
+      existing,
+      policy.detail_fields
+    ),
+    [],
+    "stored refresh timestamps must exactly match reusable metadata"
+  );
+  assert.match(
+    analyticsDetailPersistenceErrors(
+      reusableExpectedRows,
+      [
+        {
+          ...first.rows[0],
+          generated_at: "2026-07-27T00:00:00.000Z"
+        },
+        ...first.rows.slice(1)
+      ],
+      existing,
+      policy.detail_fields
+    ).join("\n"),
+    /content/
+  );
   assert.equal(
     reusableAnalyticsReport(
       [

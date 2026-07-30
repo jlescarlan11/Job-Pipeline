@@ -1061,7 +1061,8 @@ export function buildRecommendationReport(
 }
 
 export function latestCompleteRecommendationReport(reportRows) {
-  return [...reportRows]
+  const rows = Array.isArray(reportRows) ? reportRows : [];
+  const latest = [...rows]
     .filter(
       (row) =>
         row?.status === "complete" &&
@@ -1073,6 +1074,16 @@ export function latestCompleteRecommendationReport(reportRows) {
         Date.parse(right.generated_at) - Date.parse(left.generated_at) ||
         String(right.run_id).localeCompare(String(left.run_id))
     )[0];
+  if (!latest) return undefined;
+  const fold = (value) =>
+    String(value ?? "")
+      .trim()
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US");
+  const latestKey = fold(latest.run_id);
+  return rows.filter((row) => fold(row?.run_id) === latestKey).length === 1
+    ? latest
+    : undefined;
 }
 
 export function reusableRecommendationReport(reportRows, report) {

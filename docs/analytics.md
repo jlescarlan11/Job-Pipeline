@@ -20,8 +20,9 @@ ID, generation time, and moving all-time window end. Before publishing, the
 workflow reads `AnalyticsReports`; an exact compatible complete result ends as
 a successful unchanged refresh with no detail or completion writes only when
 that result is already the latest complete report and every expected stored
-semantic detail row is uniquely present and field-matching. A missing, older,
-partial, incompatible, or malformed prior row never authorizes the skip;
+detail row is uniquely present and field-matching, with stored refresh
+timestamps matching its completion metadata. A missing, older, partial,
+incompatible, or malformed prior row never authorizes the skip;
 neither does missing, duplicated, case-variant, or mismatched detail. If either
 history read is unavailable, the workflow logs that condition and safely
 disables only the optimization: content-addressed detail and completion upserts

@@ -529,8 +529,9 @@ delivered.
   content-addressed report ID is selected, the execution logs
   `action=unchanged`, and neither `Analytics` nor `AnalyticsReports` receives a
   write. Delete or alter one existing detail row, then add a case-variant
-  duplicate; each condition must disable the shortcut and enter the
-  repair-and-confirm path instead of logging unchanged. Simulate an unavailable
+  duplicate; also change only its generated/window-end timestamp while leaving
+  semantic values intact. Each condition must disable the shortcut and enter
+  the repair-and-confirm path instead of logging unchanged. Simulate an unavailable
   `AnalyticsReports` or `Analytics` history read and confirm it logs the
   corresponding read failure, disables only the unchanged optimization, and
   republishes idempotently. Change one outcome and confirm a new result
@@ -583,8 +584,10 @@ delivered.
 - Rerun the same complete fixture at a later time and confirm the SHA-256
   `analysis_key`/successful `run_id` are stable, the execution logs
   `action=unchanged`, and neither recommendation tab receives a write. Delete
-  or alter one existing detail row, then add a case-variant duplicate; each
-  condition must disable the shortcut and enter the repair-and-confirm path.
+  or alter one existing detail row, change only its generation timestamp, add a
+  case-variant detail duplicate, and add a folded duplicate of the newest
+  complete run metadata. Each condition must disable the shortcut and enter
+  the repair-and-confirm path.
   Change the source analytics report and confirm a new successful run
   publishes.
 - Simulate a failed attempt and confirm its execution-scoped run remains

@@ -554,6 +554,35 @@ test("successful reruns converge while failures retain attempt evidence", () => 
     [],
     "volatile generation time must not invalidate intact reusable detail"
   );
+  const reusableExpectedRows = superseding.rows.map((row) => ({
+    ...row,
+    generated_at: first.report.generated_at
+  }));
+  assert.deepEqual(
+    recommendationDetailPersistenceErrors(
+      reusableExpectedRows,
+      first.rows,
+      first.report,
+      recommendationPolicy.recommendation_fields
+    ),
+    [],
+    "stored generation time must exactly match reusable metadata"
+  );
+  assert.match(
+    recommendationDetailPersistenceErrors(
+      reusableExpectedRows,
+      [
+        {
+          ...first.rows[0],
+          generated_at: "2026-07-27T00:00:00.000Z"
+        },
+        ...first.rows.slice(1)
+      ],
+      first.report,
+      recommendationPolicy.recommendation_fields
+    ).join("\n"),
+    /content/
+  );
   assert.equal(
     reusableRecommendationReport(
       [
@@ -569,6 +598,17 @@ test("successful reruns converge while failures retain attempt evidence", () => 
     ),
     undefined,
     "a return to older evidence must republish it as current"
+  );
+  assert.equal(
+    latestCompleteRecommendationReport([
+      first.report,
+      {
+        ...first.report,
+        run_id: first.report.run_id.toUpperCase()
+      }
+    ]),
+    undefined,
+    "a folded duplicate of the latest complete run is ambiguous"
   );
 
   const changedPolicy = testPolicy({

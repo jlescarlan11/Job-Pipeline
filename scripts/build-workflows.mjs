@@ -5312,16 +5312,18 @@ const report = buildAnalyticsReport(
 const reusableMetadata = reportHistoryReadFailed
   ? undefined
   : reusableAnalyticsReport(reportRows, report.completion);
-const reusableDetailFields = POLICY.detail_fields.filter(
-  (field) => !['generated_at', 'window_end_at'].includes(field)
-);
+const reusableExpectedRows = report.rows.map((row) => ({
+  ...row,
+  generated_at: reusableMetadata?.generated_at ?? row.generated_at,
+  window_end_at: reusableMetadata?.window_end_at ?? row.window_end_at
+}));
 const reusableDetailErrors =
   reusableMetadata && !detailHistoryReadFailed
     ? analyticsDetailPersistenceErrors(
-        report.rows,
+        reusableExpectedRows,
         detailRows,
-        report.completion,
-        reusableDetailFields
+        reusableMetadata,
+        POLICY.detail_fields
       )
     : [];
 const reusable =
@@ -6110,16 +6112,17 @@ try {
 const reusableMetadata = recommendationReportReadFailed
   ? undefined
   : reusableRecommendationReport(recommendationReportRows, result.report);
-const reusableDetailFields = POLICY.recommendation_fields.filter(
-  (field) => field !== 'generated_at'
-);
+const reusableExpectedRows = result.rows.map((row) => ({
+  ...row,
+  generated_at: reusableMetadata?.generated_at ?? row.generated_at
+}));
 const reusableDetailErrors =
   reusableMetadata && !recommendationDetailReadFailed
     ? recommendationDetailPersistenceErrors(
-        result.rows,
+        reusableExpectedRows,
         recommendationDetailRows,
-        result.report,
-        reusableDetailFields
+        reusableMetadata,
+        POLICY.recommendation_fields
       )
     : [];
 const reusable =
