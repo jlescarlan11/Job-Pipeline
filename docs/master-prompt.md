@@ -1,11 +1,16 @@
 # Generated application prompt
 
-The AI Agent system message in `workflows/generator.json` is a generated
+The Groq request system message in `workflows/generator.json` is a generated
 artifact. Its compact identity and approved-URL block comes only from
 `config/candidate-profile.json`; its writing and safety rules come only from
 `config/application-policy.json`. The per-job selected proofs resolve from that
 same profile. `scripts/build-workflows.mjs` validates those inputs plus
 `config/groq-provider-policy.json` and rebuilds the export.
+
+The generated HTTPS request authenticates with n8n's encrypted Groq credential
+and sends the reviewed model, output cap, temperature, reasoning effort, and
+hidden-reasoning format from the provider policy. The request node exposes
+those API controls consistently with the live benchmark.
 
 The system message instructs Groq to:
 

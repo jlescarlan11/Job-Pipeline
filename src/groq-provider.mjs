@@ -79,6 +79,9 @@ export function validateGroqProviderPolicy(
   ) {
     errors.push("Groq request interval must exceed the one-minute rate window");
   }
+  if (generation.reasoning_format !== "hidden") {
+    errors.push("Groq generation reasoning_format must be hidden");
+  }
 
   if (!Array.isArray(policy.models) || policy.models.length === 0) {
     errors.push("Groq models must be a non-empty array");
@@ -95,6 +98,27 @@ export function validateGroqProviderPolicy(
     modelIds.add(model.id);
     if (!["production", "preview", "deprecated"].includes(model.lifecycle)) {
       errors.push(`Groq model ${model.id} has an invalid lifecycle`);
+    }
+    if (
+      model.id.startsWith("openai/gpt-oss-") &&
+      !["low", "medium", "high"].includes(model.reasoning_effort)
+    ) {
+      errors.push(`Groq GPT-OSS model ${model.id} has an invalid reasoning effort`);
+    }
+    if (
+      model.id.startsWith("qwen/") &&
+      !["none", "default"].includes(model.reasoning_effort)
+    ) {
+      errors.push(`Groq Qwen model ${model.id} has an invalid reasoning effort`);
+    }
+    if (
+      !model.id.startsWith("openai/gpt-oss-") &&
+      !model.id.startsWith("qwen/") &&
+      model.reasoning_effort !== null
+    ) {
+      errors.push(
+        `Groq model ${model.id} must not declare an unsupported reasoning effort`
+      );
     }
     if (typeof model.artifact_approved !== "boolean") {
       errors.push(`Groq model ${model.id} must declare artifact approval`);
@@ -194,9 +218,15 @@ export function validateGroqProviderPolicy(
   if (
     !Array.isArray(gate.candidate_models) ||
     gate.candidate_models.length < 2 ||
-    gate.candidate_models.some((modelId) => !modelIds.has(modelId))
+    gate.candidate_models.some((modelId) => !modelIds.has(modelId)) ||
+    !gate.candidate_models.includes(policy.selected_model)
   ) {
-    errors.push("Groq benchmark candidates must name at least two policy models");
+    errors.push(
+      "Groq benchmark candidates must name the selected model and at least one comparison policy model"
+    );
+  }
+  if (gate.comparison_models_must_be_measured !== true) {
+    errors.push("Groq benchmark comparison models must be measured");
   }
   return [...new Set(errors)];
 }
@@ -360,24 +390,30 @@ export function estimateGroqCostUsd(model, usage = {}) {
 export function evaluateGroqBenchmark(modelResults, policy) {
   const requiredCases = policy.activation_gate.minimum_cases_per_model;
   const requiredRate = policy.activation_gate.required_valid_rate;
-  return (modelResults ?? []).map((result) => {
+  const resultsByModel = new Map(
+    (modelResults ?? []).map((result) => [result.model, result])
+  );
+  return policy.activation_gate.candidate_models.map((modelId) => {
+    const result = resultsByModel.get(modelId) ?? { model: modelId, cases: [] };
     const cases = Array.isArray(result.cases) ? result.cases : [];
     const valid = cases.filter((entry) => entry.valid === true).length;
     const validRate = cases.length === 0 ? 0 : valid / cases.length;
+    const measured =
+      cases.length >= requiredCases &&
+      cases.every(
+        (entry) =>
+          finiteNonNegative(entry.latency_ms) &&
+          positiveInteger(entry.input_tokens) &&
+          positiveInteger(entry.output_tokens)
+      );
     return {
       model: result.model,
       case_count: cases.length,
       valid_count: valid,
       valid_rate: validRate,
-      passes:
-        cases.length >= requiredCases &&
-        validRate >= requiredRate &&
-        cases.every(
-          (entry) =>
-            finiteNonNegative(entry.latency_ms) &&
-            positiveInteger(entry.input_tokens) &&
-            positiveInteger(entry.output_tokens)
-        )
+      measured,
+      required_for_activation: result.model === policy.selected_model,
+      passes: measured && validRate >= requiredRate
     };
   });
 }

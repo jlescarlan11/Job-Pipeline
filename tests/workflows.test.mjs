@@ -326,12 +326,43 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
     generator.meta.groqRequestIntervalMilliseconds,
     groqPolicy.generation.request_interval_ms
   );
-  for (const agentName of ["AI Agent", "Repair AI Agent"]) {
-    assert.equal(
-      nodeByName(generator, agentName).parameters.options.batching
-        .delayBetweenBatches,
-      groqPolicy.generation.request_interval_ms
+  for (const requestName of [
+    "Request Groq Completion",
+    "Request Groq Repair"
+  ]) {
+    const request = nodeByName(generator, requestName);
+    assert.equal(request.type, "n8n-nodes-base.httpRequest");
+    assert.equal(request.parameters.nodeCredentialType, "groqApi");
+    assert.equal(request.parameters.url, "https://api.groq.com/openai/v1/chat/completions");
+    assert.equal(request.parameters.options.timeout, runtime.generator.http_timeout_ms);
+    assert.ok(request.credentials.groqApi);
+    assert.match(request.parameters.body, new RegExp(groqPolicy.selected_model));
+    assert.match(
+      request.parameters.body,
+      new RegExp(`max_tokens:\\s*${groqPolicy.generation.maximum_output_tokens}`)
     );
+    assert.match(
+      request.parameters.body,
+      new RegExp(`reasoning_effort:\\s*"${groqPolicy.models.find(
+        (model) => model.id === groqPolicy.selected_model
+      ).reasoning_effort}"`)
+    );
+    assert.match(
+      request.parameters.body,
+      new RegExp(`reasoning_format:\\s*"${groqPolicy.generation.reasoning_format}"`)
+    );
+    const expression = request.parameters.body.slice(4, -3);
+    const payload = JSON.parse(
+      Function("$json", `"use strict"; return (${expression});`)({
+        application_prompt: "initial prompt",
+        repair_prompt: "repair prompt"
+      })
+    );
+    assert.equal(payload.model, groqPolicy.selected_model);
+    assert.equal(payload.max_tokens, groqPolicy.generation.maximum_output_tokens);
+    assert.equal(payload.reasoning_format, groqPolicy.generation.reasoning_format);
+    assert.equal(payload.messages[0].role, "system");
+    assert.equal(payload.messages[1].role, "user");
   }
   const repairWait = nodeByName(generator, "Wait Before Repair");
   assert.equal(repairWait.parameters.resume, "timeInterval");
@@ -346,17 +377,7 @@ test("workflow schedules, caps, pacing, retries, and versions match configuratio
   );
   assert.deepEqual(
     generator.connections["Wait Before Repair"].main[0],
-    [{ node: "Repair AI Agent", type: "main", index: 0 }]
-  );
-  const groq = nodeByName(generator, "Groq Chat Model");
-  assert.equal(groq.parameters.model, groqPolicy.selected_model);
-  assert.equal(
-    groq.parameters.options.maxTokensToSample,
-    groqPolicy.generation.maximum_output_tokens
-  );
-  assert.equal(
-    groq.parameters.options.temperature,
-    groqPolicy.generation.temperature
+    [{ node: "Request Groq Repair", type: "main", index: 0 }]
   );
   const detailFetch = nodeByName(generator, "Fetch Job Detail");
   assert.equal(detailFetch.maxTries, runtime.generator.retry.max_attempts);
@@ -592,10 +613,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Prepare Application Pack",
     "Is Application Pack Ready",
     "Persist Non-Ready Pack",
-    "AI Agent",
+    "Request Groq Completion",
     "Validate Initial Draft",
     "Needs Repair",
-    "Repair AI Agent",
+    "Request Groq Repair",
     "Validate Repaired Message",
     "Stage Generation Result For Commit",
     "Get Active Before Generation Commit",
@@ -693,7 +714,11 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Prepare Application Pack",
     "Is Application Pack Ready"
   );
-  assertDirectConnection(workflow, "Is Application Pack Ready", "AI Agent");
+  assertDirectConnection(
+    workflow,
+    "Is Application Pack Ready",
+    "Request Groq Completion"
+  );
   assertDirectConnection(
     workflow,
     "Is Application Pack Ready",
@@ -704,14 +729,22 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Persist Non-Ready Pack",
     "Stage Generation Result For Commit"
   );
-  assertDirectConnection(workflow, "AI Agent", "Validate Initial Draft");
+  assertDirectConnection(
+    workflow,
+    "Request Groq Completion",
+    "Validate Initial Draft"
+  );
   assert.match(
     nodeByName(workflow, "Parse Job Detail").parameters.jsCode,
     /externalResultErrorMessage\(payload\)/
   );
   assertDirectConnection(workflow, "Validate Initial Draft", "Needs Repair");
   assertDirectConnection(workflow, "Needs Repair", "Wait Before Repair");
-  assertDirectConnection(workflow, "Wait Before Repair", "Repair AI Agent");
+  assertDirectConnection(
+    workflow,
+    "Wait Before Repair",
+    "Request Groq Repair"
+  );
   assertDirectConnection(
     workflow,
     "Needs Repair",
@@ -719,7 +752,7 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
   );
   assertDirectConnection(
     workflow,
-    "Repair AI Agent",
+    "Request Groq Repair",
     "Validate Repaired Message"
   );
   assertDirectConnection(
@@ -762,7 +795,10 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "a canonical-id cleanup write could erase a newer processing claim"
   );
 
-  const systemMessage = nodeByName(workflow, "AI Agent").parameters.options.systemMessage;
+  const systemMessage = nodeByName(
+    workflow,
+    "Request Groq Completion"
+  ).parameters.body;
   assert.match(systemMessage, /johnlesterescarlan\.pro/);
   assert.match(systemMessage, /manual review/i);
   assert.match(systemMessage, /selected approved proofs are the only candidate facts/i);
@@ -880,7 +916,7 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     "Persist Non-Ready Pack"
   ).parameters.jsCode;
   assert.match(nonReadyCode, /applyNonReadyApplicationPack/);
-  assert.doesNotMatch(nonReadyCode, /AI Agent|Groq Chat Model/);
+  assert.doesNotMatch(nonReadyCode, /Request Groq|Groq Chat Model/);
   for (const nodeName of [
     "Parse Job Detail",
     "Prepare Application Pack",
@@ -912,12 +948,12 @@ test("generator export gates Groq behind evaluation, claim arbitration, and vali
     );
   }
   assert.equal(
-    workflow.nodes.filter((node) => node.name === "Repair AI Agent").length,
+    workflow.nodes.filter((node) => node.name === "Request Groq Repair").length,
     1
   );
-  assert.equal(
-    nodeByName(workflow, "Repair AI Agent").parameters.text,
-    "={{ $json.repair_prompt }}"
+  assert.match(
+    nodeByName(workflow, "Request Groq Repair").parameters.body,
+    /\$json\.repair_prompt/
   );
   const generationCommit = nodeByName(
     workflow,

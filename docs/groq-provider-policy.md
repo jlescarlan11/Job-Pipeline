@@ -14,10 +14,38 @@ developer tiers on 2026-08-16. Its official replacements are
 
 The repository selects `openai/gpt-oss-120b` for the generated, disabled
 artifact because Groq labels it production, while `qwen/qwen3.6-27b` is
-preview. This is not evidence that the production account permits the model or
-that live message quality has passed. The policy therefore keeps
-`production_activation=benchmark_required`, and operations must not activate
-the Generator until the live gate below passes.
+preview. Artifact approval alone was not evidence that the production account
+permitted the model or that live message quality had passed, so the policy
+initially kept `production_activation=benchmark_required`. The first
+authorized live run on 2026-07-30 showed that the reasoning-model defaults
+consumed the original 384-token cap: every initial and repair response ended at
+the cap and all deterministic validations failed. Version `2026-07-30/v4`
+therefore raises the output cap to 1,024 tokens and reduces the combined input
+bound to 15,000 characters so complete drafts and model reasoning fit without
+weakening the conservative daily token ceiling. A second live run passed two
+of three GPT-OSS cases but still reached the cap on the failed direct case;
+Qwen's default thinking mode reached the cap on every initial and repair
+response.
+Version `2026-07-30/v5` therefore makes provider behavior explicit:
+GPT-OSS uses low reasoning, Qwen uses non-thinking mode, and both return hidden
+reasoning. The generated workflow uses a Groq-credential-bound HTTPS request
+because the installed n8n Groq Chat Model node does not expose these API
+controls.
+
+The repeated v5 comparison failure was not truncation: Qwen's first drafts
+echoed employer schedule or availability language, and one of three repairs
+retained it. Version `2026-07-30/v6` hardens the shared prompt contract by
+requiring a reviewed neutral closing and instructing repairs to delete the
+entire sentence containing a schedule, shift, time-zone, start, or join
+commitment.
+
+The v6 release benchmark measured all three fixtures on both candidates.
+GPT-OSS passed 3/3 with nonzero usage and no output-limit finishes. Qwen was
+fully measured but passed only 1/3 after repeating schedule/availability
+language and one unsupported project. Version `2026-07-30/v7` marks the
+selected, artifact-approved GPT-OSS model ready. Comparison candidates must
+still complete every measured case, but an unapproved preview model's quality
+does not override the selected production model's activation result.
 
 Official evidence, last verified 2026-07-30:
 
@@ -27,6 +55,7 @@ Official evidence, last verified 2026-07-30:
 - [Llama 3.3 70B model](https://console.groq.com/docs/model/llama-3.3-70b-versatile)
 - [Groq rate limits](https://console.groq.com/docs/rate-limits)
 - [Groq prompt caching](https://console.groq.com/docs/prompt-caching)
+- [Groq reasoning controls](https://console.groq.com/docs/reasoning)
 - [Groq model permissions](https://console.groq.com/docs/model-permissions)
 
 The checked-in developer limits are a planning baseline, not an account
@@ -44,12 +73,12 @@ For `openai/gpt-oss-120b`, the documented developer-base limits used by the
 policy are 30 requests/minute, 1,000 requests/day, 8,000 tokens/minute, and
 200,000 tokens/day. With the character-estimate divisor of 3:
 
-- maximum initial request: `ceil((18,000 - 6,000) / 3) + 384 = 4,384`;
-- maximum repair request: `ceil(18,000 / 3) + 384 = 6,384`;
-- maximum per selected record: `10,768` character-estimated tokens;
+- maximum initial request: `ceil((15,000 - 6,000) / 3) + 1,024 = 4,024`;
+- maximum repair request: `ceil(15,000 / 3) + 1,024 = 6,024`;
+- maximum per selected record: `10,048` character-estimated tokens;
 - conservative 90-minute trigger count: `ceil(1,440 / 90) + 1 = 17` per day;
-- maximum scheduled use: 34 requests and 183,056 character-estimated tokens
-  per day, leaving 16,944 tokens, or 8.5%, below the planning limit.
+- maximum scheduled use: 34 requests and 170,816 character-estimated tokens
+  per day, leaving 29,184 tokens, or 14.6%, below the planning limit.
 
 Both single-request estimates are below 8,000. The workflow waits 65 seconds
 between an initial call and its possible repair, so two worst-case calls do not
@@ -69,7 +98,8 @@ less conservative.
 
 ## Request and prompt bounds
 
-The generated Groq node uses temperature `0.2` and a 384-token output cap.
+The generated Groq request uses temperature `0.2`, hidden reasoning, the
+selected model's reviewed reasoning effort, and a 1,024-token output cap.
 The prompt carries only the canonical identity/approved URLs, compact policy
 constraints, the two highest-ranked selected profile proofs, non-empty safe
 employer context, and a bounded description. The durable pack may retain a
@@ -85,11 +115,11 @@ Offline measurements on the three representative ready fixtures:
 
 | Measurement | Before | After |
 | --- | ---: | ---: |
-| Static system message | 10,262 characters | 3,572 characters |
-| Combined direct-job input | 13,559 characters | 5,830 characters |
-| Combined adjacent-job input | 13,395 characters | 5,391 characters |
-| Combined instruction-job input | 14,148 characters | 6,364 characters |
-| Configured worst-case initial input | about 61,088 characters | 12,000 characters |
+| Static system message | 10,262 characters | 3,771 characters |
+| Combined direct-job input | 13,559 characters | 6,029 characters |
+| Combined adjacent-job input | 13,395 characters | 5,590 characters |
+| Combined instruction-job input | 14,148 characters | 6,563 characters |
+| Configured worst-case initial input | about 61,088 characters | 9,000 characters |
 
 Relative to the prior compact three-proof packet, the bounded proof payload
 removes 790, 1,063, and 881 characters respectively (11.9%, 16.5%, and 12.2%).
@@ -118,25 +148,28 @@ GROQ_API_KEY=... npm run benchmark:groq -- --live
 
 The harness runs direct, adjacent, and instruction-bearing fixtures through
 both official replacements, uses the same system/user/repair prompt builders
-and deterministic message validator as the workflow, paces calls against the
-documented token/request limits, and prints only:
+and deterministic message validator as the workflow, applies the same
+model-specific reasoning controls, paces calls against the documented
+token/request limits, and prints only:
 
 - deterministic validity and whether one repair was needed;
 - sanitized failure category and validation-error count;
+- provider finish reasons and whether the configured output limit was reached;
 - latency;
 - exact provider input, cached-input, and output token counts;
 - price-derived cost.
 
 It never prints prompts, generated messages, raw provider responses, or the API
-key. Both models must complete all three cases with a 100% final deterministic
-valid rate and non-zero provider token measurements. Record the sanitized
-report, confirm the production project permits the selected model, and perform
-the disabled n8n smoke test before activation. If the selected model passes,
-change its `production_activation` to `ready`, bump the provider policy
-version, regenerate, and validate; the checked-in `benchmark_required` state
-intentionally blocks activation. Correctness, latency, exact tokens, and cost
-should be compared; preview lifecycle is a reliability disadvantage even if
-Qwen's fixture score is competitive.
+key. Every candidate must complete all three cases with non-zero provider token
+measurements. The selected model must also achieve a 100% final deterministic
+valid rate; comparison-model validity remains visible but does not authorize or
+block an artifact-approved selected model. Record the sanitized report, confirm
+the production project permits the selected model, and perform the disabled
+n8n smoke test before activation. A selected model that remains
+`benchmark_required`, forbidden, deprecated, or shutdown blocks activation.
+Correctness, latency, exact tokens, and cost should be compared; preview
+lifecycle is a reliability disadvantage even if a comparison score is
+competitive.
 
 ## Rollback
 

@@ -127,7 +127,7 @@ The workflows share ten Google Sheet tabs:
 - `config/runtime.json`: workflow timezone and execution-data policy plus generator and archiver schedules, timeouts, caps, leases, and retries.
 - `config/review-sheet.json`: source review controls, Review Queue and Applied Jobs contracts, actions, views, and dashboard fields.
 
-Do not edit embedded workflow Code or the AI Agent system message directly. Change the relevant source/configuration and regenerate the exports.
+Do not edit embedded workflow Code or the Groq request system message directly. Change the relevant source/configuration and regenerate the exports.
 
 ## Local validation
 

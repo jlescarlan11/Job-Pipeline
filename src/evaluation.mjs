@@ -2213,8 +2213,10 @@ after the profile version date as already completed.
 
 Keep the complete message at or below 260 words. Use the configured safe subject
 and greeting, one or two selected proofs, direct evidence-led prose, and a
-professional call to action that invents no availability. Return plain text
-only and only the final message.
+professional call to action that invents no availability. Never offer to work
+employer hours, shifts, schedules, or time zones, and never offer a start or
+join date. End with exactly: "I would welcome a conversation about how my
+experience fits this role." Return plain text only and only the final message.
 
 Before returning, silently verify length, evidence provenance, unsupported
 technologies, numbers, schedules, availability, banned phrases, manual-review
@@ -2309,8 +2311,12 @@ Rewrite the complete message and correct every error. Use only the original
 canonical profile and selected proofs. Do not add evidence. Remove unsupported
 technologies completely, including disclaimers. Remove unsupported metrics,
 schedules, availability, salaries, start dates, URLs, completion claims, and
-banned phrases. Keep the complete message at or below 260 words. Return only
-the repaired message with no explanation or checklist.`;
+banned phrases. For any schedule or availability error, delete every sentence
+that offers to work hours, shifts, schedules, or time zones or offers to start
+or join; do not replace it with another commitment. End with exactly: "I would
+welcome a conversation about how my experience fits this role." Keep the
+complete message at or below 260 words. Return only the repaired message with
+no explanation or checklist.`;
 }
 
 function extractUrls(message) {

@@ -46,7 +46,9 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
   );
   assert.equal(selected.id, "openai/gpt-oss-120b");
   assert.equal(selected.lifecycle, "production");
-  assert.equal(selected.production_activation, "benchmark_required");
+  assert.equal(selected.production_activation, "ready");
+  assert.equal(selected.reasoning_effort, "low");
+  assert.equal(groqPolicy.generation.reasoning_format, "hidden");
 
   const unapproved = structuredClone(groqPolicy);
   unapproved.selected_model = "qwen/qwen3.6-27b";
@@ -89,18 +91,32 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
     ).join("\n"),
     /maximum_prompt_proofs must be a positive integer/
   );
+
+  const unsafeReasoning = structuredClone(groqPolicy);
+  groqModelById(
+    unsafeReasoning,
+    "qwen/qwen3.6-27b"
+  ).reasoning_effort = "high";
+  unsafeReasoning.generation.reasoning_format = "raw";
+  assert.match(
+    validateGroqProviderPolicy(
+      unsafeReasoning,
+      "2026-07-30T00:00:00.000Z"
+    ).join("\n"),
+    /reasoning_format must be hidden|Qwen model .* invalid reasoning effort/
+  );
 });
 
 test("Groq scheduled capacity stays within the conservative developer-base envelope", () => {
   const capacity = groqScheduledCapacity(groqPolicy, runtime.generator);
   assert.deepEqual(capacity, {
     model_id: "openai/gpt-oss-120b",
-    initial_request_character_token_estimate: 4384,
-    repair_request_character_token_estimate: 6384,
-    per_item_character_token_estimate: 10768,
+    initial_request_character_token_estimate: 4024,
+    repair_request_character_token_estimate: 6024,
+    per_item_character_token_estimate: 10048,
     maximum_scheduled_executions_per_day: 17,
     maximum_scheduled_requests_per_day: 34,
-    maximum_scheduled_character_token_estimate_per_day: 183056,
+    maximum_scheduled_character_token_estimate_per_day: 170816,
     maximum_pacing_milliseconds: 65000
   });
   assert.deepEqual(
@@ -170,8 +186,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   assert.ok(system.length < 6000);
   assert.equal(pack.selected_proofs.length, 3);
   assert.equal(groqPolicy.generation.maximum_prompt_proofs, 2);
-  assert.equal(measurement.combined_characters, 5830);
-  assert.equal(measurement.character_based_token_estimate, 1944);
+  assert.equal(measurement.combined_characters, 6029);
+  assert.equal(measurement.character_based_token_estimate, 2010);
   assert.ok(user.includes(pack.selected_proofs[0].reference));
   assert.ok(user.includes(pack.selected_proofs[1].reference));
   assert.equal(user.includes(pack.selected_proofs[2].reference), false);
@@ -230,15 +246,38 @@ test("Groq benchmark assessment requires measured valid cases and calculates pro
     })
   );
   const passing = evaluateGroqBenchmark(
-    [{ model: selected.id, cases }],
+    [
+      { model: selected.id, cases },
+      { model: "qwen/qwen3.6-27b", cases }
+    ],
     groqPolicy
   );
   assert.equal(passing[0].passes, true);
+  assert.equal(passing[0].required_for_activation, true);
+  assert.equal(passing[1].measured, true);
+  assert.equal(passing[1].required_for_activation, false);
 
   cases[0] = { ...cases[0], valid: false };
   const failing = evaluateGroqBenchmark(
-    [{ model: selected.id, cases }],
+    [
+      { model: selected.id, cases },
+      { model: "qwen/qwen3.6-27b", cases }
+    ],
     groqPolicy
   );
   assert.equal(failing[0].passes, false);
+
+  const comparisonOnlyFailure = evaluateGroqBenchmark(
+    [
+      {
+        model: selected.id,
+        cases: cases.map((entry) => ({ ...entry, valid: true }))
+      },
+      { model: "qwen/qwen3.6-27b", cases }
+    ],
+    groqPolicy
+  );
+  assert.equal(comparisonOnlyFailure[0].passes, true);
+  assert.equal(comparisonOnlyFailure[1].passes, false);
+  assert.equal(comparisonOnlyFailure[1].measured, true);
 });

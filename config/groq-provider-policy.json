@@ -1,17 +1,18 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-30/v3",
+  "policy_version": "2026-07-30/v7",
   "provider": "groq",
   "last_verified_on": "2026-07-30",
   "selected_model": "openai/gpt-oss-120b",
   "generation": {
     "temperature": 0.2,
-    "maximum_output_tokens": 384,
-    "maximum_combined_input_characters": 18000,
+    "maximum_output_tokens": 1024,
+    "maximum_combined_input_characters": 15000,
     "repair_reserve_characters": 6000,
     "maximum_prompt_proofs": 2,
     "character_estimate_divisor": 3,
-    "request_interval_ms": 65000
+    "request_interval_ms": 65000,
+    "reasoning_format": "hidden"
   },
   "activation_gate": {
     "live_benchmark_required": true,
@@ -20,14 +21,16 @@
     "candidate_models": [
       "openai/gpt-oss-120b",
       "qwen/qwen3.6-27b"
-    ]
+    ],
+    "comparison_models_must_be_measured": true
   },
   "models": [
     {
       "id": "openai/gpt-oss-120b",
+      "reasoning_effort": "low",
       "lifecycle": "production",
       "artifact_approved": true,
-      "production_activation": "benchmark_required",
+      "production_activation": "ready",
       "shutdown_on": null,
       "context_window_tokens": 131072,
       "provider_maximum_output_tokens": 65536,
@@ -44,6 +47,7 @@
       },
       "official_sources": [
         "https://console.groq.com/docs/model/openai/gpt-oss-120b",
+        "https://console.groq.com/docs/reasoning",
         "https://console.groq.com/docs/rate-limits",
         "https://console.groq.com/docs/prompt-caching",
         "https://console.groq.com/docs/deprecations"
@@ -51,6 +55,7 @@
     },
     {
       "id": "qwen/qwen3.6-27b",
+      "reasoning_effort": "none",
       "lifecycle": "preview",
       "artifact_approved": false,
       "production_activation": "benchmark_required",
@@ -70,12 +75,14 @@
       },
       "official_sources": [
         "https://console.groq.com/docs/model/qwen/qwen3.6-27b",
+        "https://console.groq.com/docs/reasoning",
         "https://console.groq.com/docs/rate-limits",
         "https://console.groq.com/docs/deprecations"
       ]
     },
     {
       "id": "llama-3.3-70b-versatile",
+      "reasoning_effort": null,
       "lifecycle": "deprecated",
       "artifact_approved": false,
       "production_activation": "forbidden",

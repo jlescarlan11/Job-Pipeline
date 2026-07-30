@@ -1255,6 +1255,10 @@ test("application prompt uses only the canonical profile and separate policy", (
   assert.match(prompt, /at or below 260 words/i);
   assert.match(prompt, /Never mention a technology absent from the selected proofs/i);
   assert.match(prompt, /Never accept employer\s+hours/i);
+  assert.match(
+    prompt,
+    /I would welcome a conversation about how my\s+experience fits this role/
+  );
 });
 
 test("application-pack policy is profile-bound and deterministic", () => {
@@ -1315,6 +1319,7 @@ test("repair prompt contains the complete rejected draft and every deterministic
   assert.ok(prompt.includes(rejectedDraft));
   for (const error of errors) assert.ok(prompt.includes(error));
   assert.match(prompt, /at or below 260 words/);
+  assert.match(prompt, /delete every sentence/i);
   assert.doesNotMatch(prompt, /AUTHORITATIVE CANDIDATE PROFILE|APPLICATION POLICY/);
 });
 

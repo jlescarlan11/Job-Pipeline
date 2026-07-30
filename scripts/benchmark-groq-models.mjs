@@ -27,6 +27,42 @@ const readText = async (path) => readFile(new URL(path, root), "utf8");
 const wait = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+function validationErrorCategory(error) {
+  const value = String(error || "");
+  if (value === "message is empty") return "empty_message";
+  if (value.startsWith("message exceeds the processing limit")) {
+    return "processing_limit";
+  }
+  if (value.startsWith("message exceeds ")) return "word_limit";
+  if (value.startsWith("unapproved URL:")) return "unapproved_url";
+  if (value.startsWith("unsupported project:")) return "unsupported_project";
+  if (value.startsWith("unsupported skill:")) return "unsupported_skill";
+  if (value === "unsupported availability or schedule commitment") {
+    return "schedule_or_availability";
+  }
+  if (value === "unsupported salary commitment") return "salary";
+  if (value === "unsupported start-date commitment") return "start_date";
+  if (value.startsWith("unsupported numeric claim:")) {
+    return "unsupported_numeric_claim";
+  }
+  if (value === "phone numbers are not approved") return "phone_number";
+  if (value.startsWith("banned phrase:")) return "banned_phrase";
+  if (value === "unsupported completion or submission claim") {
+    return "completion_or_submission";
+  }
+  if (value === "internal application context is not allowed") {
+    return "internal_context";
+  }
+  if (value.startsWith("required subject value is missing:")) {
+    return "required_subject";
+  }
+  return "other";
+}
+
+function validationErrorCategories(errors) {
+  return [...new Set((errors ?? []).map(validationErrorCategory))];
+}
+
 const benchmarkFixtures = [
   {
     id: "direct",
@@ -78,7 +114,9 @@ async function requestCompletion({
           { role: "user", content: userMessage }
         ],
         temperature: policy.generation.temperature,
-        max_tokens: policy.generation.maximum_output_tokens
+        max_tokens: policy.generation.maximum_output_tokens,
+        reasoning_effort: model.reasoning_effort,
+        reasoning_format: policy.generation.reasoning_format
       })
     }
   );
@@ -96,6 +134,7 @@ async function requestCompletion({
   }
   return {
     message: String(payload?.choices?.[0]?.message?.content || "").trim(),
+    finish_reason: String(payload?.choices?.[0]?.finish_reason || ""),
     usage: usageFromResponse(payload),
     latency_ms: Math.round(performance.now() - started)
   };
@@ -159,6 +198,9 @@ async function benchmarkCase({
     policy: applicationPolicy,
     pack
   });
+  const initialValidationErrorCategories = validationErrorCategories(
+    validation.errors
+  );
   const calls = [initial];
   if (!validation.valid) {
     const repairPrompt = `${initialPrompt}\n\n${buildApplicationRepairMessage(
@@ -172,6 +214,13 @@ async function benchmarkCase({
         repaired: false,
         failure_category: "repair_prompt_budget",
         validation_error_count: validation.errors.length,
+        initial_validation_error_categories:
+          initialValidationErrorCategories,
+        validation_error_categories: validationErrorCategories(
+          validation.errors
+        ),
+        finish_reasons: [initial.finish_reason].filter(Boolean),
+        output_limit_reached: initial.finish_reason === "length",
         latency_ms: initial.latency_ms,
         input_tokens: initial.usage.input_tokens,
         output_tokens: initial.usage.output_tokens,
@@ -211,6 +260,17 @@ async function benchmarkCase({
     repaired: calls.length === 2,
     failure_category: validation.valid ? "" : "deterministic_validation",
     validation_error_count: validation.errors.length,
+    initial_validation_error_categories:
+      initialValidationErrorCategories,
+    validation_error_categories: validationErrorCategories(
+      validation.errors
+    ),
+    finish_reasons: calls
+      .map((call) => call.finish_reason)
+      .filter(Boolean),
+    output_limit_reached: calls.some(
+      (call) => call.finish_reason === "length"
+    ),
     latency_ms: calls.reduce((total, call) => total + call.latency_ms, 0),
     ...usage,
     cost_usd: estimateGroqCostUsd(model, usage)
@@ -225,7 +285,7 @@ function rateLimitDelayMilliseconds(model, inputTokens) {
   return Math.ceil(Math.max(tokenDelay, requestDelay) + 1000);
 }
 
-async function runLiveBenchmark(modelIds) {
+async function runLiveBenchmark(modelIds, caseIds) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     throw new Error("GROQ_API_KEY is required for an explicitly authorized live run");
@@ -256,7 +316,9 @@ async function runLiveBenchmark(modelIds) {
   const results = [];
   for (const model of models) {
     const cases = [];
-    for (const fixture of benchmarkFixtures) {
+    for (const fixture of benchmarkFixtures.filter(
+      (fixture) => !caseIds || caseIds.includes(fixture.id)
+    )) {
       if (cases.length > 0) {
         const previous = cases.at(-1);
         await wait(
@@ -287,6 +349,10 @@ async function runLiveBenchmark(modelIds) {
           repaired: false,
           failure_category: String(error.message || error).split(":")[0],
           validation_error_count: 0,
+          initial_validation_error_categories: [],
+          validation_error_categories: [],
+          finish_reasons: [],
+          output_limit_reached: false,
           latency_ms: 0,
           input_tokens: 0,
           output_tokens: 0,
@@ -310,6 +376,7 @@ function printUsage() {
   console.log(`Usage:
   npm run benchmark:groq -- --live
   node scripts/benchmark-groq-models.mjs --live --models openai/gpt-oss-120b,qwen/qwen3.6-27b
+  node scripts/benchmark-groq-models.mjs --live --models qwen/qwen3.6-27b --cases instructions
 
 This command makes live Groq API calls only when --live is present. It prints
 sanitized correctness, latency, exact provider token usage, and estimated cost;
@@ -320,7 +387,8 @@ const { values } = parseArgs({
   options: {
     live: { type: "boolean", default: false },
     help: { type: "boolean", short: "h", default: false },
-    models: { type: "string" }
+    models: { type: "string" },
+    cases: { type: "string" }
   }
 });
 
@@ -332,9 +400,26 @@ if (values.help || !values.live) {
   const modelIds = values.models
     ? values.models.split(",").map((value) => value.trim()).filter(Boolean)
     : policy.activation_gate.candidate_models;
-  const report = await runLiveBenchmark(modelIds);
+  const caseIds = values.cases
+    ? values.cases.split(",").map((value) => value.trim()).filter(Boolean)
+    : undefined;
+  if (
+    caseIds &&
+    caseIds.some(
+      (caseId) => !benchmarkFixtures.some((fixture) => fixture.id === caseId)
+    )
+  ) {
+    throw new Error("Unknown benchmark case");
+  }
+  const report = await runLiveBenchmark(modelIds, caseIds);
   console.log(JSON.stringify(report, null, 2));
-  if (report.activation_assessment.some((entry) => !entry.passes)) {
+  if (
+    report.activation_assessment.some(
+      (entry) =>
+        !entry.measured ||
+        (entry.required_for_activation && !entry.passes)
+    )
+  ) {
     process.exitCode = 1;
   }
 }

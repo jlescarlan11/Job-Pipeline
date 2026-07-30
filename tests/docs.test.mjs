@@ -291,7 +291,7 @@ test("Groq documentation preserves the model lifecycle, measurement, and activat
   assert.match(groqProviderDoc, /character-based estimate/i);
   assert.match(groqProviderDoc, /exact provider input/i);
   assert.match(groqProviderDoc, /two highest-ranked selected profile proofs/i);
-  assert.match(groqProviderDoc, /183,056 character-estimated tokens/i);
+  assert.match(groqProviderDoc, /170,816 character-estimated tokens/i);
   assert.match(groqProviderDoc, /34 requests/i);
   assert.match(groqProviderDoc, /65 seconds/i);
   assert.match(groqProviderDoc, /no cache hits/i);

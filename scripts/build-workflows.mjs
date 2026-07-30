@@ -992,39 +992,75 @@ async function buildGenerator() {
   fetchDetail.waitBetweenTries = runtime.generator.request_retry_backoff_ms;
   fetchDetail.onError = "continueRegularOutput";
 
-  const agent = nodeByName(current, "AI Agent");
-  agent.position = [1340, 440];
-  agent.parameters = {
-    promptType: "define",
-    text: "={{ $json.application_prompt }}",
-    options: {
-      systemMessage: applicationSystemMessage,
-      batching: {
-        batchSize: 1,
-        delayBetweenBatches: groqPolicy.generation.request_interval_ms
+  const legacyAgent = nodeByAnyName(current, [
+    "AI Agent",
+    "Request Groq Completion"
+  ]);
+  const groqCredentialSource = nodeByAnyName(current, [
+    "Groq Chat Model",
+    "Request Groq Completion"
+  ]);
+  const groqCredentials = structuredClone(groqCredentialSource.credentials);
+  const groqRequestBody = (promptField) =>
+    `={{ JSON.stringify({
+      model: ${JSON.stringify(groqModel.id)},
+      messages: [
+        {
+          role: 'system',
+          content: ${JSON.stringify(applicationSystemMessage)}
+        },
+        {
+          role: 'user',
+          content: $json.${promptField}
+        }
+      ],
+      temperature: ${groqPolicy.generation.temperature},
+      max_tokens: ${groqPolicy.generation.maximum_output_tokens},
+      reasoning_effort: ${JSON.stringify(groqModel.reasoning_effort)},
+      reasoning_format: ${JSON.stringify(
+        groqPolicy.generation.reasoning_format
+      )}
+    }) }}`;
+  const groqRequestNode = ({ id, name, position, promptField }) => ({
+    id,
+    name,
+    position,
+    type: "n8n-nodes-base.httpRequest",
+    typeVersion: 4.4,
+    parameters: {
+      method: "POST",
+      url: "https://api.groq.com/openai/v1/chat/completions",
+      authentication: "predefinedCredentialType",
+      nodeCredentialType: "groqApi",
+      sendBody: true,
+      contentType: "raw",
+      rawContentType: "application/json",
+      body: groqRequestBody(promptField),
+      options: {
+        response: {
+          response: {
+            responseFormat: "json"
+          }
+        },
+        timeout: runtime.generator.http_timeout_ms
       }
-    }
-  };
-  agent.onError = "continueErrorOutput";
-
-  const groq = nodeByName(current, "Groq Chat Model");
-  groq.position = [1580, 760];
-  groq.parameters = {
-    model: groqModel.id,
-    options: {
-      maxTokensToSample: groqPolicy.generation.maximum_output_tokens,
-      temperature: groqPolicy.generation.temperature
-    }
-  };
-
-  const repairAgent = structuredClone(agent);
-  repairAgent.id = "ee12f5d9-c0d5-4586-bf62-000000000020";
-  repairAgent.name = "Repair AI Agent";
-  repairAgent.position = [2300, 560];
-  repairAgent.parameters = {
-    ...repairAgent.parameters,
-    text: "={{ $json.repair_prompt }}"
-  };
+    },
+    retryOnFail: false,
+    onError: "continueRegularOutput",
+    credentials: groqCredentials
+  });
+  const initialGroqRequest = groqRequestNode({
+    id: legacyAgent.id,
+    name: "Request Groq Completion",
+    position: [1340, 440],
+    promptField: "application_prompt"
+  });
+  const repairGroqRequest = groqRequestNode({
+    id: "ee12f5d9-c0d5-4586-bf62-000000000020",
+    name: "Request Groq Repair",
+    position: [2300, 560],
+    promptField: "repair_prompt"
+  });
   const repairWait = intervalWaitNode({
     id: "ee12f5d9-c0d5-4586-bf62-000000000022",
     name: "Wait Before Repair",
@@ -1202,7 +1238,9 @@ if (errorMessage && !payload.output) {
     }
   };
 }
-const message = String(payload.output || '');
+const message = String(
+  payload.output || payload?.choices?.[0]?.message?.content || ''
+);
 const validation = validateGeneratedMessage(message, {
   job: record,
   profile: PROFILE,
@@ -1336,7 +1374,9 @@ if (errorMessage && !payload.output) {
     }
   };
 }
-const message = String(payload.output || '');
+const message = String(
+  payload.output || payload?.choices?.[0]?.message?.content || ''
+);
 const validation = validateGeneratedMessage(message, {
   job: record,
   profile: PROFILE,
@@ -1777,8 +1817,7 @@ return {
       mode: "runOnceForEachItem",
       jsCode: nonReadyPackCode
     }),
-    agent,
-    groq,
+    initialGroqRequest,
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000014",
       name: "Validate Initial Draft",
@@ -1818,7 +1857,7 @@ return {
       name: "Needs Repair"
     },
     repairWait,
-    repairAgent,
+    repairGroqRequest,
     codeNode({
       id: "ee12f5d9-c0d5-4586-bf62-000000000021",
       name: "Validate Repaired Message",
@@ -1902,30 +1941,15 @@ return {
     },
     "Is Application Pack Ready": {
       main: [
-        [connection("AI Agent")],
+        [connection("Request Groq Completion")],
         [connection("Persist Non-Ready Pack")]
       ]
     },
     "Persist Non-Ready Pack": {
       main: [[connection("Stage Generation Result For Commit")]]
     },
-    "Groq Chat Model": {
-      ai_languageModel: [
-        [
-          { node: "AI Agent", type: "ai_languageModel", index: 0 },
-          {
-            node: "Repair AI Agent",
-            type: "ai_languageModel",
-            index: 0
-          }
-        ]
-      ]
-    },
-    "AI Agent": {
-      main: [
-        [connection("Validate Initial Draft")],
-        [connection("Validate Initial Draft")]
-      ]
+    "Request Groq Completion": {
+      main: [[connection("Validate Initial Draft")]]
     },
     "Validate Initial Draft": {
       main: [[connection("Needs Repair")]]
@@ -1937,13 +1961,10 @@ return {
       ]
     },
     "Wait Before Repair": {
-      main: [[connection("Repair AI Agent")]]
+      main: [[connection("Request Groq Repair")]]
     },
-    "Repair AI Agent": {
-      main: [
-        [connection("Validate Repaired Message")],
-        [connection("Validate Repaired Message")]
-      ]
+    "Request Groq Repair": {
+      main: [[connection("Validate Repaired Message")]]
     },
     "Validate Repaired Message": {
       main: [[connection("Stage Generation Result For Commit")]]
