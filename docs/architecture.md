@@ -374,7 +374,9 @@ When every configured Review Queue cell and row order already matches the
 canonical projection, reconciliation performs no deletes or appends. Both
 queue reads request formula rendering from Google Sheets, so a formula in any
 owned cell is compared as formula text rather than as its displayed result and
-therefore forces the normal cleanup/rebuild path.
+therefore forces the normal cleanup/rebuild path. A required rebuild deletes
+unprotected stale rows bottom-up with an explicit one-row operation for each
+confirmed row number.
 
 `Applied Jobs` is a second derived operator surface, not a new source of truth.
 It projects every authoritative `application_decision=applied` record from

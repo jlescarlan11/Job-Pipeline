@@ -1576,7 +1576,9 @@ test("reviewer export safely synchronizes the simplified queue and preserves leg
   );
   assert.equal(deleteRows.parameters.operation, "delete");
   assert.equal(deleteRows.parameters.sheetName.value, review.review_queue.sheet);
+  assert.equal(deleteRows.parameters.toDelete, "rows");
   assert.match(deleteRows.parameters.startIndex, /row_number/);
+  assert.equal(deleteRows.parameters.numberToDelete, 1);
   const appendRows = nodeByName(workflow, "Append Review Queue Rows");
   assert.equal(appendRows.parameters.operation, "append");
   assert.equal(appendRows.parameters.sheetName.value, review.review_queue.sheet);

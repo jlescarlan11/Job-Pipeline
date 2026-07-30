@@ -2765,7 +2765,9 @@ return [{
     operation: "delete",
     documentId: structuredClone(activeRead.parameters.documentId),
     sheetName: structuredClone(queueRead.parameters.sheetName),
-    startIndex: "={{ $json.row_number }}"
+    toDelete: "rows",
+    startIndex: "={{ $json.row_number }}",
+    numberToDelete: 1
   };
 
   const clearAppliedJobsRows = updateSheetByFieldNode({
