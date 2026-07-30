@@ -354,6 +354,30 @@ test("source deletion requires a complete archive copy and unchanged row identit
   ]);
 });
 
+test("source deletion requires exact cleared automation state in Archive", () => {
+  const record = active();
+  const plan = prepareArchiveCandidates([record], [], schema, { now });
+  const candidate = plan.candidates[0];
+  const staleAutomationCopy = {
+    ...candidate.archive_record,
+    alert_error_category: "provider_failure",
+    alert_error_summary: "Stale alert failure",
+    processing_stage: "alert",
+    processing_token: "stale-alert-token",
+    processing_started_at: "2026-07-28T08:00:00.000Z"
+  };
+  const result = confirmArchiveDeletions(
+    [candidate],
+    [record],
+    [staleAutomationCopy],
+    schema,
+    now
+  );
+  assert.equal(result.confirmed.length, 0);
+  assert.equal(result.rejected.length, 1);
+  assert.equal(result.rejected[0].reason, "archive_copy_not_confirmed");
+});
+
 test("a concurrent manual update blocks deletion until the archive copy is refreshed", () => {
   const record = active({ outcome: "" });
   const plan = prepareArchiveCandidates([record], [], schema, { now });

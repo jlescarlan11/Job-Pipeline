@@ -103,7 +103,9 @@ latest outcome view while newer active-owned alert and processing state
 replaces stale partial-copy values. Rebasing starts from the pre-claim durable
 archive record; the append-only archival lease token is never stored in a job
 row. A duplicate canonical identity or URL rejects that upsert; the active
-source remains available for a later reconciled run.
+source remains available for a later reconciled run. Final copy confirmation
+treats active-owned alert and processing fields as exact, including intentional
+blank clears, before authorizing deletion of the active source.
 
 ## Opportunity-learning dimensions
 

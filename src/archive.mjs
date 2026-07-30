@@ -29,14 +29,6 @@ function recordSnapshot(record, schema) {
   );
 }
 
-function archiveMatchesPlanned(current, planned, schema) {
-  return schema.fields.every(
-    (field) =>
-      !hasValue(planned[field]) ||
-      comparableValue(current[field]) === comparableValue(planned[field])
-  );
-}
-
 const ARCHIVE_OWNED_INPUT_FIELDS = new Set([
   "apply_points_input",
   "application_message_strategy_input",
@@ -51,6 +43,21 @@ const ACTIVE_EXACT_PROCESSING_FIELDS = new Set([
   "processing_started_at"
 ]);
 
+function archiveFieldRequiresExactMatch(field) {
+  return (
+    field.startsWith("alert_") ||
+    ACTIVE_EXACT_PROCESSING_FIELDS.has(field)
+  );
+}
+
+function archiveMatchesPlanned(current, planned, schema) {
+  return schema.fields.every(
+    (field) =>
+      (!archiveFieldRequiresExactMatch(field) && !hasValue(planned[field])) ||
+      comparableValue(current[field]) === comparableValue(planned[field])
+  );
+}
+
 function mergeArchiveRecord(active, existing, schema, now) {
   const merged = {};
   for (const field of schema.fields) {
@@ -62,10 +69,7 @@ function mergeArchiveRecord(active, existing, schema, now) {
     ) {
       merged[field] = existing[field];
     }
-    if (
-      field.startsWith("alert_") ||
-      ACTIVE_EXACT_PROCESSING_FIELDS.has(field)
-    ) {
+    if (archiveFieldRequiresExactMatch(field)) {
       merged[field] = active[field] ?? "";
     }
   }
