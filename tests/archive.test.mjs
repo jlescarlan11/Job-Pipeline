@@ -82,6 +82,38 @@ test("retryable and terminal generation failures remain active while other termi
   );
 });
 
+test("eligible rows with unresolved processing claims remain active", () => {
+  const plan = prepareArchiveCandidates(
+    [
+      active({
+        processing_stage: "alert",
+        processing_token: "alert:live",
+        processing_started_at: "2026-07-28T08:59:00.000Z"
+      }),
+      active({
+        row_number: 6,
+        source_job_id: "4002",
+        canonical_job_id: "onlinejobs.ph:4002",
+        canonical_url:
+          "https://onlinejobs.ph/jobseekers/job/example-4002",
+        pipeline_status: "skipped",
+        application_decision: "skipped",
+        processing_stage: "generation",
+        processing_token: "generation:orphan",
+        processing_started_at: "2026-07-27T08:00:00.000Z"
+      })
+    ],
+    [],
+    schema,
+    { now }
+  );
+  assert.equal(plan.candidates.length, 0);
+  assert.deepEqual(
+    plan.retained.map((entry) => entry.reason),
+    ["active_processing_claim", "active_processing_claim"]
+  );
+});
+
 test("archive candidates preserve generated, evaluation, decision, and outcome data", () => {
   const record = active({
     match_score: 82,

@@ -1182,6 +1182,10 @@ test("archiver export upserts by identity and confirms the copy before bottom-up
     nodeByName(workflow, "Prepare Archive Candidates").parameters.jsCode,
     /retained_for_retry/
   );
+  assert.match(
+    nodeByName(workflow, "Prepare Archive Candidates").parameters.jsCode,
+    /active_processing_claim/
+  );
 });
 
 test("reviewer export safely synchronizes the simplified queue and preserves legacy review paths", () => {

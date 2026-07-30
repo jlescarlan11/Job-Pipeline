@@ -154,6 +154,10 @@ export function prepareArchiveCandidates(
       continue;
     }
     if (!allowed.has(record.pipeline_status)) continue;
+    if (String(record.processing_token || "").trim()) {
+      retained.push({ record, reason: "active_processing_claim" });
+      continue;
+    }
     if (!record.canonical_job_id || !record.canonical_url || !record.row_number) {
       retained.push({ record, reason: "invalid_identity_or_row" });
       continue;

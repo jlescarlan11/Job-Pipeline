@@ -545,6 +545,9 @@ delivered.
   active. Confirm a terminal evaluation failure retains normal archival
   behavior, and a skipped generation failure archives once through the
   existing idempotent path.
+- Seed an otherwise eligible row with a disposable live or orphaned
+  `processing_token`; confirm Archiver retains it until the owning workflow or
+  orphan cleanup clears the marker.
 - Interrupt after Archive upsert or simulate source-delete failure; rerun and confirm one archive identity.
 - After Archiver's initial read but before its upsert, enter a disposable
   Archive action, change its note, and add a newer outcome event. Confirm the

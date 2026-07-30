@@ -595,7 +595,10 @@ Archival is eligible only for configured `applied`, `skipped`,
 `not_recommended`, and `terminal_error` records. `retryable_error` remains
 active. An undecided terminal generation failure also remains active for
 Review Queue retry or skip; terminal failures from other stages retain normal
-archival behavior.
+archival behavior. Any otherwise eligible row with a nonblank
+`processing_token` also remains active: the owning workflow or the centralized
+orphan cleanup must resolve that marker before Archiver can copy or delete the
+record.
 
 For each winning archive claim:
 
