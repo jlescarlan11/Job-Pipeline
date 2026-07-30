@@ -1465,9 +1465,95 @@ export function analyticsResultKey(rows, summary) {
   );
 }
 
+export function analyticsCompleteMetadataErrors(report) {
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    return ["analytics completion metadata must be an object"];
+  }
+  const errors = [];
+  const versionPattern = /^\d{4}-\d{2}-\d{2}\/v\d+$/;
+  const metricVersion = String(report.metric_definition_version || "");
+  const reportIdPattern = /^analytics-[a-z0-9-]+-[a-f0-9]{64}$/;
+  const generatedAt = timestamp(report.generated_at);
+  const windowStart = report.window_start_at
+    ? timestamp(report.window_start_at)
+    : undefined;
+  const windowEnd = timestamp(report.window_end_at);
+  const recordCount = Number(report.record_count);
+  const applicationCount = Number(report.application_count);
+  const detailCount = Number(report.detail_row_count);
+  if (report.status !== "complete") {
+    errors.push("analytics completion status must be complete");
+  }
+  if (
+    !versionPattern.test(metricVersion) ||
+    !versionPattern.test(report.band_version || "")
+  ) {
+    errors.push("analytics completion versions are invalid");
+  }
+  if (!reportIdPattern.test(String(report.report_id || ""))) {
+    errors.push("analytics completion report identity is invalid");
+  }
+  if (
+    generatedAt === undefined ||
+    windowEnd === undefined ||
+    generatedAt !== windowEnd ||
+    (report.window_start_at && windowStart === undefined) ||
+    (windowStart !== undefined && windowStart > windowEnd)
+  ) {
+    errors.push("analytics completion window is invalid");
+  }
+  if (report.window_type !== "all_time") {
+    errors.push("analytics completion window type is invalid");
+  }
+  try {
+    if (
+      typeof report.analysis_timezone !== "string" ||
+      !report.analysis_timezone
+    ) {
+      throw new Error("missing timezone");
+    }
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: report.analysis_timezone
+    }).format(new Date());
+  } catch {
+    errors.push("analytics completion timezone is invalid");
+  }
+  if (
+    !Number.isInteger(recordCount) ||
+    recordCount < 0 ||
+    !Number.isInteger(applicationCount) ||
+    applicationCount < 0 ||
+    applicationCount > recordCount ||
+    !Number.isInteger(detailCount) ||
+    detailCount < 1
+  ) {
+    errors.push("analytics completion counts are invalid");
+  }
+  if (
+    typeof report.attribution_policy !== "string" ||
+    !report.attribution_policy ||
+    typeof report.warning_summary !== "string"
+  ) {
+    errors.push("analytics completion summary is invalid");
+  }
+  return errors;
+}
+
 export function reusableAnalyticsReport(reportRows, completion) {
   const latest = latestCompleteAnalyticsReport(reportRows);
+  const rawLatest = (Array.isArray(reportRows) ? [...reportRows] : [])
+    .filter(
+      (row) =>
+        row?.status === "complete" &&
+        timestamp(row.generated_at) !== undefined
+    )
+    .sort(
+      (left, right) =>
+        timestamp(right.generated_at) - timestamp(left.generated_at) ||
+        String(right.report_id).localeCompare(String(left.report_id))
+    )[0];
   return latest &&
+    rawLatest === latest &&
     latest.report_id === completion.report_id &&
     latest.metric_definition_version === completion.metric_definition_version &&
     latest.band_version === completion.band_version &&
@@ -1564,24 +1650,12 @@ export function analyticsSourceIntegrityErrors(detailRows, report) {
   const recordCount = Number(report?.record_count);
   const applicationCount = Number(report?.application_count);
   const errors = [];
-  if (
-    report?.status !== "complete" ||
-    !reportIdKey ||
-    !Number.isInteger(detailCount) ||
-    detailCount < 0 ||
-    !Number.isInteger(recordCount) ||
-    recordCount < 0 ||
-    !Number.isInteger(applicationCount) ||
-    applicationCount < 0 ||
-    !report?.metric_definition_version ||
-    !report?.band_version ||
-    !report?.window_type ||
-    !report?.analysis_timezone ||
-    !report?.attribution_policy ||
-    timestamp(report?.generated_at) === undefined ||
-    timestamp(report?.window_end_at) === undefined
-  ) {
-    return ["analytics source metadata is invalid"];
+  const metadataErrors = analyticsCompleteMetadataErrors(report);
+  if (metadataErrors.length > 0 || !reportIdKey) {
+    return [
+      "analytics source metadata is invalid",
+      ...metadataErrors
+    ];
   }
   const fold = (value) =>
     String(value ?? "")
@@ -1770,12 +1844,7 @@ export function buildAnalyticsReport(
 export function latestCompleteAnalyticsReport(reportRows) {
   const rows = Array.isArray(reportRows) ? reportRows : [];
   const latest = [...rows]
-    .filter(
-      (row) =>
-        row?.status === "complete" &&
-        row.report_id &&
-        timestamp(row.generated_at) !== undefined
-    )
+    .filter((row) => analyticsCompleteMetadataErrors(row).length === 0)
     .sort(
       (left, right) =>
         timestamp(right.generated_at) - timestamp(left.generated_at) ||

@@ -579,7 +579,9 @@ physical row per expected ID, including refresh timestamps that match the
 stored completion metadata. Missing, older, partial, incompatible, or
 malformed metadata cannot authorize that skip; neither can missing,
 duplicated, case-variant, or mismatched detail. Returning to an older result
-republishes it as current. An unavailable metadata or detail-history read also
+republishes it as current, and even a malformed newer `status=complete` row
+blocks an older-result shortcut while remaining ineligible as authoritative
+metadata. An unavailable metadata or detail-history read also
 disables only the skip and is logged before the same idempotent publication
 path. Concurrent or recovered executions with the same result converge on the
 same IDs. After the writes, the workflow rereads Analytics with formulas
@@ -614,9 +616,11 @@ newest unambiguous complete analytics report, verifies the required all-time
 window and metric/band versions, requires the exact sequential detail identity
 set and matching row metadata, and recomputes the SHA-256 content identity
 before analysis. Missing, substituted, duplicated, case-variant, formula, or
-content-tampered source detail fails closed. The source analytics and every
-job/config operational tab remain read-only; the only coordination write
-outside recommendation tabs is its report-store claim.
+content-tampered source detail fails closed. A malformed newer completion row
+is ignored in favor of the last structurally valid complete report; it cannot
+authorize same-result reuse. The source analytics and every job/config
+operational tab remain read-only; the only coordination write outside
+recommendation tabs is its report-store claim.
 
 `config/recommendation-policy.json` versions the 168-hour schedule, overall and
 fixed Monday 02:45 start, 15-minute post-timeout source-completion buffer,
@@ -647,7 +651,9 @@ latest complete report, the weekly execution logs it as unchanged and performs
 no recommendation writes only when its stored semantic detail also has exactly
 one field-matching physical row per expected ID, including generation time
 matching the stored run metadata. A folded duplicate of the newest complete
-run is ambiguous and cannot be current. Missing, duplicated, case-variant, or
+run is ambiguous and cannot be current. Structurally malformed complete
+metadata is excluded from the current view but still prevents an older run
+from being mislabeled unchanged. Missing, duplicated, case-variant, or
 mismatched detail disables the shortcut and enters the normal
 repair-and-confirm path. A metadata or detail-history read failure likewise
 disables only the skip. Returning to older evidence republishes it as current.

@@ -1060,14 +1060,99 @@ export function buildRecommendationReport(
   };
 }
 
+export function recommendationCompleteMetadataErrors(report) {
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    return ["recommendation completion metadata must be an object"];
+  }
+  const errors = [];
+  const versionPattern = /^\d{4}-\d{2}-\d{2}\/v\d+$/;
+  const analysisPattern = /^recommendation-[a-f0-9]{64}$/;
+  const analyticsPattern = /^analytics-[a-z0-9-]+-[a-f0-9]{64}$/;
+  const generatedAt = Date.parse(report.generated_at || "");
+  const windowStart = report.window_start_at
+    ? Date.parse(report.window_start_at)
+    : undefined;
+  const windowEnd = report.window_end_at
+    ? Date.parse(report.window_end_at)
+    : undefined;
+  const overallMinimum = Number(report.minimum_overall_applications);
+  const segmentMinimum = Number(report.minimum_segment_applications);
+  const coverageMinimum = Number(
+    report.minimum_explicit_outcome_coverage
+  );
+  const recommendationCount = Number(report.recommendation_count);
+  const abstentionCount = Number(report.abstention_count);
+  const detailCount = Number(report.detail_row_count);
+  if (report.status !== "complete") {
+    errors.push("recommendation completion status must be complete");
+  }
+  if (
+    !analysisPattern.test(String(report.analysis_key || "")) ||
+    report.run_id !== report.analysis_key
+  ) {
+    errors.push("recommendation completion identity is invalid");
+  }
+  if (
+    !["recommendations", "abstained", "empty"].includes(report.result)
+  ) {
+    errors.push("recommendation completion result is invalid");
+  }
+  if (!versionPattern.test(report.recommendation_policy_version || "")) {
+    errors.push("recommendation completion policy version is invalid");
+  }
+  if (!Number.isFinite(generatedAt)) {
+    errors.push("recommendation completion timestamp is invalid");
+  }
+  if (
+    !Number.isInteger(overallMinimum) ||
+    overallMinimum < 1 ||
+    !Number.isInteger(segmentMinimum) ||
+    segmentMinimum < 1 ||
+    !Number.isFinite(coverageMinimum) ||
+    coverageMinimum < 0 ||
+    coverageMinimum > 1 ||
+    !Number.isInteger(recommendationCount) ||
+    recommendationCount < 0 ||
+    !Number.isInteger(abstentionCount) ||
+    abstentionCount < 0 ||
+    !Number.isInteger(detailCount) ||
+    detailCount < 1 ||
+    recommendationCount + abstentionCount > detailCount
+  ) {
+    errors.push("recommendation completion counts are invalid");
+  }
+  const hasAnalytics = Boolean(report.analytics_report_id);
+  if (hasAnalytics) {
+    if (
+      !analyticsPattern.test(String(report.analytics_report_id)) ||
+      !versionPattern.test(report.metric_definition_version || "") ||
+      !versionPattern.test(report.band_version || "") ||
+      !Number.isFinite(windowEnd) ||
+      (report.window_start_at && !Number.isFinite(windowStart)) ||
+      (Number.isFinite(windowStart) && windowStart > windowEnd)
+    ) {
+      errors.push("recommendation completion analytics scope is invalid");
+    }
+  } else if (
+    report.result !== "empty" ||
+    report.metric_definition_version ||
+    report.band_version ||
+    report.window_start_at ||
+    report.window_end_at
+  ) {
+    errors.push("recommendation completion empty scope is invalid");
+  }
+  if (report.error_category || report.error_summary) {
+    errors.push("recommendation completion failure fields must be blank");
+  }
+  return errors;
+}
+
 export function latestCompleteRecommendationReport(reportRows) {
   const rows = Array.isArray(reportRows) ? reportRows : [];
   const latest = [...rows]
     .filter(
-      (row) =>
-        row?.status === "complete" &&
-        row.run_id &&
-        Number.isFinite(Date.parse(row.generated_at || ""))
+      (row) => recommendationCompleteMetadataErrors(row).length === 0
     )
     .sort(
       (left, right) =>
@@ -1089,7 +1174,19 @@ export function latestCompleteRecommendationReport(reportRows) {
 export function reusableRecommendationReport(reportRows, report) {
   if (report?.status !== "complete") return undefined;
   const latest = latestCompleteRecommendationReport(reportRows);
+  const rawLatest = (Array.isArray(reportRows) ? [...reportRows] : [])
+    .filter(
+      (row) =>
+        row?.status === "complete" &&
+        Number.isFinite(Date.parse(row.generated_at || ""))
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(right.generated_at) - Date.parse(left.generated_at) ||
+        String(right.run_id).localeCompare(String(left.run_id))
+    )[0];
   return latest &&
+    rawLatest === latest &&
     latest.run_id === report.run_id &&
     latest.analysis_key === report.analysis_key &&
     latest.result === report.result &&

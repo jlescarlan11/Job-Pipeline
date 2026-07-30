@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
+  analyticsCompleteMetadataErrors,
   analyticsDetailPersistenceErrors,
   analyticsResultKey,
   analyticsSourceIntegrityErrors,
@@ -423,39 +424,70 @@ test("empty input produces a complete explicit report without divide-by-zero val
 });
 
 test("latest complete report ignores partial and malformed refreshes", () => {
+  const old = buildAnalyticsReport(
+    [],
+    [],
+    schema,
+    policy,
+    "2026-07-27T00:00:00.000Z"
+  ).completion;
+  const completeNew = buildAnalyticsReport(
+    fixture.active,
+    fixture.archive,
+    schema,
+    policy,
+    "2026-07-28T01:00:00.000Z"
+  ).completion;
+  assert.deepEqual(analyticsCompleteMetadataErrors(completeNew), []);
   const reports = [
+    old,
     {
-      report_id: "old",
-      status: "complete",
-      generated_at: "2026-07-27T00:00:00.000Z"
-    },
-    {
-      report_id: "partial-new",
+      ...completeNew,
+      report_id:
+        `analytics-2026-07-28-v1-${"a".repeat(64)}`,
       status: "writing",
       generated_at: "2026-07-28T00:00:00.000Z"
     },
+    completeNew,
     {
-      report_id: "complete-new",
-      status: "complete",
-      generated_at: "2026-07-28T01:00:00.000Z"
-    },
-    {
-      report_id: "bad",
-      status: "complete",
+      ...completeNew,
+      report_id:
+        `analytics-2026-07-28-v1-${"b".repeat(64)}`,
       generated_at: "not-a-date"
     }
   ];
-  assert.equal(latestCompleteAnalyticsReport(reports).report_id, "complete-new");
   assert.equal(
     latestCompleteAnalyticsReport([
       ...reports,
       {
-        ...reports[2],
-        report_id: reports[2].report_id.toUpperCase()
+        ...completeNew,
+        report_id:
+          `analytics-2026-07-28-v1-${"c".repeat(64)}`,
+        generated_at: "2026-07-29T01:00:00.000Z",
+        window_end_at: "2026-07-29T01:00:00.000Z",
+        detail_row_count: "invalid"
+      }
+    ]).report_id,
+    completeNew.report_id,
+    "malformed newer complete metadata must not displace a valid report"
+  );
+  assert.equal(
+    latestCompleteAnalyticsReport([
+      ...reports,
+      {
+        ...completeNew,
+        report_id: completeNew.report_id.toUpperCase()
       }
     ]),
     undefined,
     "a folded duplicate of the newest complete metadata is ambiguous"
+  );
+  assert.match(
+    analyticsCompleteMetadataErrors({
+      ...completeNew,
+      window_end_at: "invalid"
+    }).join("\n"),
+    /window/
   );
   assert.equal(latestCompleteAnalyticsReport([]), undefined);
 });

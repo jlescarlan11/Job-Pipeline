@@ -535,7 +535,10 @@ delivered.
   `AnalyticsReports` or `Analytics` history read and confirm it logs the
   corresponding read failure, disables only the unchanged optimization, and
   republishes idempotently. Change one outcome and confirm a new result
-  publishes normally.
+  publishes normally. Add a newer `status=complete` row with an invalid window
+  or count: the prior structurally valid report remains the readable current
+  report, but the malformed frontier must prevent an older-result
+  `action=unchanged`.
 - Start overlapping manual Analytics runs. Confirm both append
   `analytics_report_store` claims, only the lowest unexpired claim enters the
   report path, and a retry after the 35-minute lease can recover a crashed
@@ -587,7 +590,10 @@ delivered.
   or alter one existing detail row, change only its generation timestamp, add a
   case-variant detail duplicate, and add a folded duplicate of the newest
   complete run metadata. Each condition must disable the shortcut and enter
-  the repair-and-confirm path.
+  the repair-and-confirm path. Add a newer complete row with an invalid
+  identity, timestamp, scope, threshold, or count; it must not replace the last
+  structurally valid current run and must not authorize reuse of that older
+  run.
   Change the source analytics report and confirm a new successful run
   publishes.
 - Simulate a failed attempt and confirm its execution-scoped run remains

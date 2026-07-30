@@ -7,6 +7,7 @@ import {
   buildRecommendationFailure,
   buildRecommendationReport,
   latestCompleteRecommendationReport,
+  recommendationCompleteMetadataErrors,
   recommendationDetailPersistenceErrors,
   reusableRecommendationReport,
   validateRecommendationPolicy
@@ -405,16 +406,17 @@ test("incompatible or incomplete analytics fails visibly and retains the latest 
   assert.equal(failed.report.error_category, "incompatible_analytics_version");
   assert.equal(failed.report.recommendation_count, 0);
 
-  const oldComplete = {
-    ...failed.report,
-    run_id: "old-complete",
-    status: "complete",
-    result: "recommendations",
-    generated_at: "2026-07-27T12:00:00.000Z"
-  };
+  const oldComplete = buildRecommendationReport(
+    analytics.rows,
+    analytics.reports,
+    recommendationPolicy,
+    profile,
+    "2026-07-27T18:00:00.000Z",
+    { attemptId: "weekly-prior-complete" }
+  ).report;
   assert.equal(
     latestCompleteRecommendationReport([oldComplete, failed.report]).run_id,
-    "old-complete"
+    oldComplete.run_id
   );
 
   const sanitized = buildRecommendationFailure(
@@ -452,19 +454,20 @@ test("partial analytics input is a failed run and cannot supersede prior complet
     "incomplete_analytics_report"
   );
 
-  const priorComplete = {
-    ...partialInput.report,
-    run_id: "prior-complete",
-    status: "complete",
-    result: "abstained",
-    generated_at: "2026-07-27T12:00:00.000Z"
-  };
+  const priorComplete = buildRecommendationReport(
+    analytics.rows,
+    analytics.reports,
+    recommendationPolicy,
+    profile,
+    "2026-07-27T18:00:00.000Z",
+    { attemptId: "weekly-prior-complete" }
+  ).report;
   assert.equal(
     latestCompleteRecommendationReport([
       priorComplete,
       partialInput.report
     ]).run_id,
-    "prior-complete"
+    priorComplete.run_id
   );
 });
 
@@ -513,6 +516,7 @@ test("successful reruns converge while failures retain attempt evidence", () => 
     recommendationAt,
     { attemptId: "execution-1" }
   );
+  assert.deepEqual(recommendationCompleteMetadataErrors(first.report), []);
   const repeated = buildRecommendationReport(
     analytics.rows,
     analytics.reports,
@@ -609,6 +613,22 @@ test("successful reruns converge while failures retain attempt evidence", () => 
     ]),
     undefined,
     "a folded duplicate of the latest complete run is ambiguous"
+  );
+  const malformedNewer = {
+    ...first.report,
+    run_id: `recommendation-${"f".repeat(64)}`,
+    analysis_key: `recommendation-${"f".repeat(64)}`,
+    generated_at: "2026-07-29T13:00:00.000Z",
+    detail_row_count: "invalid"
+  };
+  assert.equal(
+    latestCompleteRecommendationReport([first.report, malformedNewer])?.run_id,
+    first.report.run_id,
+    "malformed newer completion metadata must not displace a valid run"
+  );
+  assert.match(
+    recommendationCompleteMetadataErrors(malformedNewer).join("\n"),
+    /counts/
   );
 
   const changedPolicy = testPolicy({

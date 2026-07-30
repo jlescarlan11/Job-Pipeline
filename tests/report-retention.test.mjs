@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { latestCompleteAnalyticsReport } from "../src/analytics.mjs";
 import {
   planReportRetention,
   reportRetentionCandidateStatus,
@@ -219,12 +218,8 @@ test("retention deletes only count-matched identity groups in descending ranges"
       end_index: 9
     }
   ]);
-  assert.equal(
-    latestCompleteAnalyticsReport(
-      reports.filter((row) => !plan.selected_report_ids.includes(row.report_id))
-    ).report_id,
-    "current"
-  );
+  assert.equal(plan.selected_report_ids.includes("current"), false);
+  assert.equal(plan.selected_report_ids.includes("previous"), false);
 });
 
 test("duplicates, malformed rows, and incomplete detail fail closed", () => {

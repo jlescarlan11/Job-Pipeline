@@ -38,6 +38,11 @@ the rows. Folded metadata/detail duplicates, substitutions, formulas, and
 content tampering therefore fail closed even when the physical row count is
 unchanged. Detail rows without complete metadata are from a failed/partial
 refresh and must not replace the previous complete report.
+Complete selectors validate identity shape, versions, timestamps/window,
+timezone, nonnegative cohort/detail counts, attribution, and summary fields
+before ordering candidates. A malformed newer completion is therefore not
+authoritative, while its presence still prevents an older result from being
+misreported as an unchanged current refresh.
 
 ## Store serialization and retention
 
