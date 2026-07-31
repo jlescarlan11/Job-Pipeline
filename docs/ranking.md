@@ -1,8 +1,11 @@
 # Opportunity ranking
 
-`config/ranking-policy.json` is the sole versioned policy for deterministic
-qualification, opportunity, confidence, and Apply Points recommendations.
-`config/candidate-profile.json` remains the only source of candidate facts.
+`config/ranking-policy.json` retains the repository-controlled scoring weights,
+thresholds, confidence rules, and Apply Points logic. At runtime, candidate
+facts come from the six candidate context tabs. `Job Preferences` supplies the
+editable role-family evidence mapping, unsupported-technology catalog, and PHP
+monthly salary bands. The workflow derives a ranking context hash from the
+enabled preference rows.
 
 ## Qualification
 

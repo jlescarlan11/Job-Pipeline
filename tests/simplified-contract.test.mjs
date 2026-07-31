@@ -220,12 +220,28 @@ test("blank setup creates business, configuration, and system sheets", () => {
       "Applied Jobs",
       "Archive",
       "Search Keywords",
+      "Candidate",
+      "Skills",
+      "Experience",
+      "Projects",
+      "Education",
+      "Awards",
+      "Job Preferences",
+      "Application Preferences",
       "_System"
     ]
   );
-  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 6);
+  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 14);
   for (const sheet of planned.sheets.filter(
-    (sheet) => sheet.name !== "Search Keywords"
+    (sheet) =>
+      [
+        "Scraped Jobs",
+        "To Review",
+        "To Apply",
+        "Applied Jobs",
+        "Archive",
+        "_System"
+      ].includes(sheet.name)
   )) {
     assert.equal(sheet.rows.length, 0);
     assert.ok(sheet.headers.length > 0);
@@ -239,6 +255,29 @@ test("blank setup creates business, configuration, and system sheets", () => {
   assert.deepEqual(keywords.validations, { enabled: "checkbox" });
   assert.equal(keywords.protectedHeader, true);
   assert.deepEqual(keywords.protectedColumns, []);
+  for (const key of [
+    "candidate",
+    "skills",
+    "experience",
+    "projects",
+    "education",
+    "awards",
+    "job_preferences",
+    "application_preferences"
+  ]) {
+    const definition = review.sheets[key];
+    const contextSheet = planned.sheets.find(
+      (sheet) => sheet.name === definition.name
+    );
+    assert.deepEqual(contextSheet.headers, definition.fields);
+    assert.deepEqual(contextSheet.rows, definition.initial_rows);
+    assert.equal(contextSheet.protectedHeader, true);
+    assert.deepEqual(contextSheet.protectedColumns, []);
+    assert.deepEqual(
+      contextSheet.validations,
+      definition.fields.includes("enabled") ? { enabled: "checkbox" } : {}
+    );
+  }
   assert.deepEqual(
     planned.sheets.find((sheet) => sheet.name === "To Review").validations,
     {

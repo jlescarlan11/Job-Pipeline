@@ -1,6 +1,6 @@
 {
-  "schema_version": 4,
-  "view_version": "2026-07-31/v4",
+  "schema_version": 5,
+  "view_version": "2026-07-31/v5",
   "timezone": "Asia/Manila",
   "sheets": {
     "scraped_jobs": {
@@ -134,6 +134,192 @@
           "enabled": true,
           "keyword": "application support engineer"
         }
+      ]
+    },
+    "candidate": {
+      "name": "Candidate",
+      "visible": true,
+      "authoritative_for": "candidate_identity",
+      "fields": ["field", "value"],
+      "initial_rows": [
+        { "field": "name", "value": "John Lester Escarlan" },
+        { "field": "location", "value": "Cebu City, Philippines" },
+        { "field": "email", "value": "jlescarlan11@gmail.com" },
+        { "field": "summary", "value": "Software developer with experience building and maintaining production web applications using TypeScript, React, Next.js, Node.js, PostgreSQL, and Supabase. Shipped full-stack features, resolved production incidents, improved API performance and release workflows, and built marketplace, payment, and automation systems. Comfortable working across frontend, backend, databases, testing, monitoring, and remote engineering teams." },
+        { "field": "linkedin", "value": "https://linkedin.com/in/john-lester-escarlan" },
+        { "field": "github", "value": "https://github.com/jlescarlan11" },
+        { "field": "portfolio", "value": "https://johnlesterescarlan.pro" }
+      ]
+    },
+    "skills": {
+      "name": "Skills",
+      "visible": true,
+      "authoritative_for": "candidate_skills",
+      "fields": ["enabled", "category", "skill"],
+      "initial_rows": [
+        { "enabled": true, "category": "languages", "skill": "TypeScript" },
+        { "enabled": true, "category": "languages", "skill": "JavaScript" },
+        { "enabled": true, "category": "languages", "skill": "SQL" },
+        { "enabled": true, "category": "languages", "skill": "Python" },
+        { "enabled": true, "category": "languages", "skill": "C#" },
+        { "enabled": true, "category": "languages", "skill": "Java" },
+        { "enabled": true, "category": "languages", "skill": "Dart" },
+        { "enabled": true, "category": "frontend", "skill": "React" },
+        { "enabled": true, "category": "frontend", "skill": "Next.js" },
+        { "enabled": true, "category": "frontend", "skill": "Tailwind CSS" },
+        { "enabled": true, "category": "frontend", "skill": "Redux" },
+        { "enabled": true, "category": "frontend", "skill": "TanStack Query" },
+        { "enabled": true, "category": "frontend", "skill": "Flutter" },
+        { "enabled": true, "category": "frontend", "skill": "HTML" },
+        { "enabled": true, "category": "frontend", "skill": "CSS" },
+        { "enabled": true, "category": "backend", "skill": "Node.js" },
+        { "enabled": true, "category": "backend", "skill": "Express.js" },
+        { "enabled": true, "category": "backend", "skill": "ASP.NET Core MVC" },
+        { "enabled": true, "category": "backend", "skill": "REST APIs" },
+        { "enabled": true, "category": "backend", "skill": "Prisma" },
+        { "enabled": true, "category": "backend", "skill": "Drizzle" },
+        { "enabled": true, "category": "databases_and_cloud", "skill": "PostgreSQL" },
+        { "enabled": true, "category": "databases_and_cloud", "skill": "Supabase" },
+        { "enabled": true, "category": "databases_and_cloud", "skill": "MySQL" },
+        { "enabled": true, "category": "databases_and_cloud", "skill": "MongoDB" },
+        { "enabled": true, "category": "databases_and_cloud", "skill": "Redis" },
+        { "enabled": true, "category": "databases_and_cloud", "skill": "AWS" },
+        { "enabled": true, "category": "databases_and_cloud", "skill": "Docker" },
+        { "enabled": true, "category": "testing_and_delivery", "skill": "Vitest" },
+        { "enabled": true, "category": "testing_and_delivery", "skill": "Git" },
+        { "enabled": true, "category": "testing_and_delivery", "skill": "GitHub Actions" },
+        { "enabled": true, "category": "testing_and_delivery", "skill": "CI/CD" },
+        { "enabled": true, "category": "testing_and_delivery", "skill": "Postman" },
+        { "enabled": true, "category": "testing_and_delivery", "skill": "production monitoring" },
+        { "enabled": true, "category": "testing_and_delivery", "skill": "code review" },
+        { "enabled": true, "category": "automation_and_integrations", "skill": "n8n" },
+        { "enabled": true, "category": "automation_and_integrations", "skill": "OpenAI API" },
+        { "enabled": true, "category": "automation_and_integrations", "skill": "Groq API" },
+        { "enabled": true, "category": "automation_and_integrations", "skill": "Google Sheets API" },
+        { "enabled": true, "category": "automation_and_integrations", "skill": "Mapbox" },
+        { "enabled": true, "category": "automation_and_integrations", "skill": "PayMongo" }
+      ]
+    },
+    "experience": {
+      "name": "Experience",
+      "visible": true,
+      "authoritative_for": "candidate_experience",
+      "fields": ["enabled", "experience_id", "title", "organization", "location", "start", "end", "highlight"],
+      "initial_rows": [
+        { "enabled": true, "experience_id": "pharmacy-acute-care-university", "title": "Software Engineer (Contract)", "organization": "Pharmacy & Acute Care University", "location": "Remote", "start": "2026-02", "end": "2026-08", "highlight": "Build and maintain full-stack features for an online learning platform, including admin workflows, personalized study programs, eBook and reader access, review reminders, and subscription-based access." },
+        { "enabled": true, "experience_id": "pharmacy-acute-care-university", "title": "Software Engineer (Contract)", "organization": "Pharmacy & Acute Care University", "location": "Remote", "start": "2026-02", "end": "2026-08", "highlight": "Diagnose production issues involving React and TypeScript interfaces, Node.js APIs, PostgreSQL schemas and migrations, content assets, and entitlement rules; implement targeted fixes that restore blocked learner and administrator workflows." },
+        { "enabled": true, "experience_id": "pharmacy-acute-care-university", "title": "Software Engineer (Contract)", "organization": "Pharmacy & Acute Care University", "location": "Remote", "start": "2026-02", "end": "2026-08", "highlight": "Contribute to technical design, code review, automated testing, rollout planning, and reliability improvements across frontend and backend systems." },
+        { "enabled": true, "experience_id": "upwork", "title": "Freelance Software Engineer", "organization": "Upwork", "location": "Remote", "start": "2025-01", "end": "present", "highlight": "Resolved 12+ production-blocking defects with an average turnaround of less than 24 hours, restoring affected client workflows." },
+        { "enabled": true, "experience_id": "upwork", "title": "Freelance Software Engineer", "organization": "Upwork", "location": "Remote", "start": "2025-01", "end": "present", "highlight": "Rebuilt release automation to remove 15+ manual steps and save approximately four engineering hours per week." },
+        { "enabled": true, "experience_id": "upwork", "title": "Freelance Software Engineer", "organization": "Upwork", "location": "Remote", "start": "2025-01", "end": "present", "highlight": "Delivered three client-facing features using React, TypeScript, and Node.js and wrote REST API documentation that reduced contributor onboarding from one week to two days." },
+        { "enabled": true, "experience_id": "winds-gate-philippines", "title": "Software Monitoring Engineer", "organization": "Wind's Gate Philippines", "location": "Cebu City", "start": "2025-06", "end": "present", "highlight": "Identified and escalated 25+ incidents across eight production services before they reached end users." },
+        { "enabled": true, "experience_id": "winds-gate-philippines", "title": "Software Monitoring Engineer", "organization": "Wind's Gate Philippines", "location": "Cebu City", "start": "2025-06", "end": "present", "highlight": "Authored eight recovery runbooks that enabled engineers to resolve Tier 1 issues without escalation and reduced average triage time by 30%." },
+        { "enabled": true, "experience_id": "alliance-software", "title": "Software Engineer Intern", "organization": "Alliance Software Inc.", "location": "Cebu City", "start": "2025-06", "end": "2025-07", "highlight": "Delivered five production features using C# and ASP.NET Core MVC while working within an established client codebase, testing process, and code review workflow." },
+        { "enabled": true, "experience_id": "bayoa-analytics", "title": "Full-Stack Developer Intern", "organization": "Bayoa Analytics", "location": "Remote", "start": "2024-09", "end": "2024-11", "highlight": "Diagnosed N+1 query patterns and database schema bottlenecks, reducing API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints." }
+      ]
+    },
+    "projects": {
+      "name": "Projects",
+      "visible": true,
+      "authoritative_for": "candidate_projects",
+      "fields": ["enabled", "project_id", "name", "description", "url", "technologies", "highlight"],
+      "initial_rows": [
+        { "enabled": true, "project_id": "rent-n-roll", "name": "Rent N Roll", "description": "Camera Rental Marketplace", "url": "https://rentnroll.store", "technologies": "Next.js, React, TypeScript, Tailwind CSS, Supabase, PostgreSQL, Zod, PayMongo", "highlight": "Built a pre-launch two-sided camera rental marketplace with listing and photo management, booking and availability workflows, identity verification, digital contracts, handoff confirmations, and payment and deposit handling through PayMongo webhooks." },
+        { "enabled": true, "project_id": "rent-n-roll", "name": "Rent N Roll", "description": "Camera Rental Marketplace", "url": "https://rentnroll.store", "technologies": "Next.js, React, TypeScript, Tailwind CSS, Supabase, PostgreSQL, Zod, PayMongo", "highlight": "Refactored the data layer to replace 24 untyped database queries with typed Supabase RPC patterns and generated types, improving consistency and maintainability." },
+        { "enabled": true, "project_id": "job-pipeline", "name": "Job Pipeline", "description": "Automated Job Application Workflow", "url": "https://github.com/jlescarlan11/Job-Pipeline", "technologies": "n8n, Groq API, Google Sheets API, JavaScript", "highlight": "Built a three-workflow automation system that collects job listings, generates tailored application messages through the Groq API, and archives processed results in Google Sheets." },
+        { "enabled": true, "project_id": "job-pipeline", "name": "Job Pipeline", "description": "Automated Job Application Workflow", "url": "https://github.com/jlescarlan11/Job-Pipeline", "technologies": "n8n, Groq API, Google Sheets API, JavaScript", "highlight": "Added cross-sheet deduplication, prompt validation, URL and project whitelists, generation limits, and rate-limit-aware batching to prevent repeated processing and unsupported output." }
+      ]
+    },
+    "education": {
+      "name": "Education",
+      "visible": true,
+      "authoritative_for": "candidate_education",
+      "fields": ["enabled", "program", "institution", "start", "end", "honor"],
+      "initial_rows": [
+        { "enabled": true, "program": "Bachelor of Science in Computer Science", "institution": "University of the Philippines Cebu", "start": "2025-08", "end": "present", "honor": "University Scholar" },
+        { "enabled": true, "program": "Bachelor of Science in Mathematics", "institution": "University of the Philippines Cebu", "start": "2022-09", "end": "2025-06", "honor": "College Scholar" }
+      ]
+    },
+    "awards": {
+      "name": "Awards",
+      "visible": true,
+      "authoritative_for": "candidate_awards",
+      "fields": ["enabled", "award"],
+      "initial_rows": [
+        { "enabled": true, "award": "DOST Junior Level Science Scholarship Awardee, 2024" },
+        { "enabled": true, "award": "Semi-Finalist, 1st Naga City Mayoral Hackathon — Top 15 of 200+ teams" },
+        { "enabled": true, "award": "Amazon Junior Software Developer with Generative AI, Coursera, October 2025" }
+      ]
+    },
+    "job_preferences": {
+      "name": "Job Preferences",
+      "visible": true,
+      "authoritative_for": "job_preferences",
+      "fields": ["enabled", "type", "group", "value", "score"],
+      "initial_rows": [
+        { "enabled": true, "type": "role_family_evidence", "group": "full-stack", "value": "summary", "score": "" },
+        { "enabled": true, "type": "role_family_evidence", "group": "frontend", "value": "skills.frontend:React", "score": "" },
+        { "enabled": true, "type": "role_family_evidence", "group": "backend-api", "value": "skills.backend:Node.js", "score": "" },
+        { "enabled": true, "type": "role_family_evidence", "group": "mobile", "value": "skills.frontend:Flutter", "score": "" },
+        { "enabled": true, "type": "role_family_evidence", "group": "automation", "value": "skills.automation_and_integrations:n8n", "score": "" },
+        { "enabled": true, "type": "role_family_evidence", "group": "production-support", "value": "experience:winds-gate-philippines", "score": "" },
+        { "enabled": true, "type": "role_family_evidence", "group": "dotnet", "value": "experience:alliance-software", "score": "" },
+        { "enabled": true, "type": "role_family_evidence", "group": "database-platform", "value": "skills.databases_and_cloud:PostgreSQL", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Angular", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Expo", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "GoHighLevel", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Kubernetes", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "LangChain", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Laravel", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "PHP", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "React Native", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Ruby", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Ruby on Rails", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Shopify", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Svelte", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "Vue", "score": "" },
+        { "enabled": true, "type": "unsupported_technology", "group": "", "value": "WordPress", "score": "" },
+        { "enabled": true, "type": "salary_band", "group": "PHP/month", "value": "80000", "score": 100 },
+        { "enabled": true, "type": "salary_band", "group": "PHP/month", "value": "60000", "score": 80 },
+        { "enabled": true, "type": "salary_band", "group": "PHP/month", "value": "40000", "score": 60 },
+        { "enabled": true, "type": "salary_band", "group": "PHP/month", "value": "20000", "score": 40 },
+        { "enabled": true, "type": "salary_band", "group": "PHP/month", "value": "0", "score": 20 }
+      ]
+    },
+    "application_preferences": {
+      "name": "Application Preferences",
+      "visible": true,
+      "authoritative_for": "application_preferences",
+      "fields": ["enabled", "type", "key", "value"],
+      "initial_rows": [
+        { "enabled": true, "type": "setting", "key": "max_body_words", "value": "300" },
+        { "enabled": true, "type": "setting", "key": "subject_template", "value": "Subject line: {{job_title}} Application — {{candidate_name}}" },
+        { "enabled": true, "type": "setting", "key": "default_greeting", "value": "Hi there," },
+        { "enabled": true, "type": "setting", "key": "employer_format_overrides_default", "value": "true" },
+        { "enabled": true, "type": "required_style", "key": "", "value": "first person" },
+        { "enabled": true, "type": "required_style", "key": "", "value": "direct and evidence-led" },
+        { "enabled": true, "type": "required_style", "key": "", "value": "specific to the job description" },
+        { "enabled": true, "type": "required_style", "key": "", "value": "copy-ready after manual review" },
+        { "enabled": true, "type": "required_style", "key": "", "value": "no unsupported claims" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "solid foundation" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "strong foundation" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "valuable contribution" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "eager to learn" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "eager to apply" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "passionate about" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "I am excited to apply" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "I look forward to" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "confident that I can" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "leverage" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "utilize" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "robust" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "seamless" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "cutting-edge" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "spearheaded" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "Thank you for considering my application" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "FireCheck" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "HEALTH" },
+        { "enabled": true, "type": "banned_phrase", "key": "", "value": "PriceCraft" }
       ]
     },
     "system": {

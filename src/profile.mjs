@@ -1,16 +1,6 @@
 import { parseHttpUrl } from "./contracts.mjs";
 
-const OBSOLETE_PROFILE_TERMS = [
-  "johnlesterescarlan.netlify.app",
-  "FireCheck",
-  "PriceCraft",
-  "github.com/jlescarlan11/health",
-  "React Native",
-  "Kubernetes",
-  "Elasticsearch"
-];
-
-const PROFILE_VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const PROFILE_VERSION_PATTERN = /^(?:\d{4}-\d{2}-\d{2}|sheet\/[a-f0-9]{16})$/;
 const UNRESOLVED_PLACEHOLDER_PATTERN =
   /\[(?:add|insert|month|year|tbd|todo|unknown|not provided)\b[^\]]*\]/i;
 
@@ -80,7 +70,7 @@ export function validateCandidateProfile(profile) {
   if (!isPlainObject(profile)) return ["profile must be an object"];
   if (profile.schema_version !== 1) errors.push("schema_version must be 1");
   if (!PROFILE_VERSION_PATTERN.test(profile.profile_version ?? "")) {
-    errors.push("profile_version must use YYYY-MM-DD");
+    errors.push("profile_version must use YYYY-MM-DD or sheet/<context-hash>");
   }
   if (!profile.candidate?.name) errors.push("candidate.name is required");
   if (!profile.candidate?.email) errors.push("candidate.email is required");
@@ -119,11 +109,6 @@ export function validateCandidateProfile(profile) {
   if (skills.length === 0) errors.push("at least one skill is required");
 
   const profileText = profileEvidenceText(profile);
-  for (const obsolete of OBSOLETE_PROFILE_TERMS) {
-    if (profileText.toLowerCase().includes(obsolete.toLowerCase())) {
-      errors.push(`obsolete or unsupported profile term: ${obsolete}`);
-    }
-  }
   if (UNRESOLVED_PLACEHOLDER_PATTERN.test(profileText)) {
     errors.push("resume placeholders are not allowed");
   }
@@ -136,7 +121,7 @@ export function validateApplicationPolicy(policy, profile) {
   if (!isPlainObject(policy)) return ["policy must be an object"];
   if (policy.schema_version !== 1) errors.push("policy schema_version must be 1");
   if (!PROFILE_VERSION_PATTERN.test(policy.policy_version ?? "")) {
-    errors.push("policy_version must use YYYY-MM-DD");
+    errors.push("policy_version must use YYYY-MM-DD or sheet/<context-hash>");
   }
   if (policy.candidate_profile_version !== profile?.profile_version) {
     errors.push("policy candidate_profile_version must match the candidate profile");

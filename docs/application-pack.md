@@ -2,8 +2,9 @@
 
 `config/application-pack-policy.json` versions deterministic instruction
 extraction, proof selection, limits, and unsafe-instruction categories. The
-canonical candidate profile and application policy remain the only sources of
-candidate facts and writing permissions.
+frozen six-tab candidate context and `Application Preferences` remain the only
+runtime sources of candidate facts and editable writing permissions. Repository
+policies retain non-editable extraction and safety bounds.
 
 ## Pack contents
 

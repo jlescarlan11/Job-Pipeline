@@ -32,8 +32,6 @@ const UNSUPPORTED_TECHNOLOGIES = [
   "WordPress"
 ];
 
-const OBSOLETE_PROJECTS = ["FireCheck", "HEALTH", "PriceCraft"];
-
 const SKILL_ALIASES = {
   "ASP.NET Core MVC": ["asp.net core", ".net core", "asp net core"],
   AWS: ["aws", "amazon web services"],
@@ -558,8 +556,8 @@ export function validateRankingPolicy(policy, profile) {
     return ["ranking policy must be an object"];
   }
   if (policy.schema_version !== 1) errors.push("ranking policy schema_version must be 1");
-  if (!/^\d{4}-\d{2}-\d{2}\/v\d+$/.test(policy.policy_version ?? "")) {
-    errors.push("ranking policy_version must use YYYY-MM-DD/vN");
+  if (!/^(?:\d{4}-\d{2}-\d{2}\/v\d+|sheet\/[a-f0-9]{16})$/.test(policy.policy_version ?? "")) {
+    errors.push("ranking policy_version must use YYYY-MM-DD/vN or sheet/<context-hash>");
   }
   if (policy.candidate_profile_version !== profile?.profile_version) {
     errors.push("ranking policy candidate_profile_version must match the candidate profile");
@@ -2318,6 +2316,9 @@ export function validateApplicationPack(pack, profile, packPolicy) {
 }
 
 export function buildApplicationSystemMessage(profile, policy) {
+  const subjectTemplate = String(policy.subject_template || "")
+    .replaceAll("{{candidate_name}}", profile.candidate.name);
+  const maximumCompleteMessageWords = Math.min(260, policy.max_body_words);
   return `Write one truthful, copy-ready OnlineJobs.ph application message as ${profile.candidate.name}.
 
 AUTHORITATIVE IDENTITY
@@ -2340,11 +2341,12 @@ ${JSON.stringify(
   {
     policy_version: policy.policy_version,
     manual_submission_required: policy.manual_submission_required,
-    maximum_complete_message_words: Math.min(260, policy.max_body_words),
-    subject_template: policy.subject_template,
+    maximum_complete_message_words: maximumCompleteMessageWords,
+    subject_template: subjectTemplate,
     default_greeting: policy.default_greeting,
     employer_format_overrides_default:
       policy.employer_format_overrides_default,
+    required_style: policy.required_style,
     banned_phrases: policy.banned_phrases
   }
 )}
@@ -2364,7 +2366,7 @@ evidence supports them. Do not claim submission, attachments, tests,
 recordings, forms, or manual-review questions are complete. Use only approved
 URLs and no banned phrases.
 
-Keep the complete message at or below 260 words. Use the safe subject and
+Keep the complete message at or below ${maximumCompleteMessageWords} words. Use the safe subject and
 greeting, one or two selected proofs, evidence-led prose, and no schedule,
 availability, shift, time-zone, start, or join commitment. End exactly:
 "I would welcome a conversation about how my experience fits this role."
@@ -2562,11 +2564,6 @@ export function validateGeneratedMessage(message, { job, profile, policy, pack }
     if (!approvedUrls.has(url)) errors.push(`unapproved URL: ${url}`);
   }
 
-  for (const project of OBSOLETE_PROJECTS) {
-    if (new RegExp(`\\b${project}\\b`, "i").test(output)) {
-      errors.push(`unsupported project: ${project}`);
-    }
-  }
   for (const technology of UNSUPPORTED_TECHNOLOGIES) {
     if (
       includesAlias(output, [technology.toLowerCase()]) &&

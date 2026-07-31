@@ -176,12 +176,11 @@ test("profile validation rejects unresolved resume placeholders and duplicate pr
   );
 });
 
-test("profile validation rejects an unsupported URL and obsolete fact", () => {
+test("profile validation rejects an unsupported URL", () => {
   const invalid = structuredClone(profile);
   invalid.candidate.links.portfolio = "http://johnlesterescarlan.netlify.app";
   const errors = validateCandidateProfile(invalid).join("\n");
   assert.match(errors, /must use https/);
-  assert.match(errors, /obsolete or unsupported profile term/);
 });
 
 test("profile and policy validation reject invalid versions", () => {

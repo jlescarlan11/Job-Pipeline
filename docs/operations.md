@@ -31,13 +31,14 @@ Create a separate workbook whose ID is not the old workbook ID.
 
 1. Install the generated `google-apps-script/SheetSetup.gs`.
 2. Run `setupFreshJobPipeline()`.
-3. Confirm exactly `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, `Archive`, and `Search Keywords` are visible and `_System` is hidden.
+3. Confirm exactly `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, `Archive`, `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, and `Application Preferences` are visible and `_System` is hidden.
 4. Confirm the five business tabs have the exact configured headers and zero data rows.
 5. Confirm `To Review` offers only `Approve` and `Deny`, `To Apply` offers only `I Applied` and `Skip`, blank remains valid, and `Scraped Jobs` has no normal action dropdown.
 6. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
-7. Edit, disable, reorder, add, and delete disposable keyword rows, then run setup a second time.
-8. Confirm no duplicate tab, header, validation, protection, keyword row, or record was created and every keyword edit was preserved.
-9. Confirm no old workbook ID, import formula, copied business row, or old data is present.
+7. Confirm all eight context tabs have their exact configured headers, bootstrap rows, checkbox validation where applicable, and warning-protected headers.
+8. Edit disposable copies of candidate, evidence, job-preference, application-preference, and keyword rows, then run setup a second time.
+9. Confirm no duplicate tab, header, validation, protection, context row, keyword row, or record was created and every edit was preserved.
+10. Confirm no old workbook ID, import formula, copied business row, or old data is present.
 
 Setup must stop rather than delete a non-empty unexpected sheet or overwrite conflicting headers.
 
@@ -88,6 +89,12 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 
 ### Evaluator & Generator
 
+- Edit each context tab between executions and confirm the next execution uses
+  one new frozen context hash without rebuilding or reimporting a workflow.
+- Remove a required Candidate field, create conflicting repeated experience or
+  project metadata, use an invalid evidence reference, and corrupt a preference
+  value. Confirm every case stops before queue claims, provider calls, or
+  business-sheet writes.
 - Seed six eligible rows in deterministic queue order. Confirm the first five
   form the fixed batch, the sixth is untouched, and the loop never backfills.
 - Repeat with zero, one, two, three, and four eligible rows. Confirm zero is a

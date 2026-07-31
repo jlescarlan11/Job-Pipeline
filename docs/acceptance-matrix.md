@@ -227,7 +227,7 @@ sanitized permanent record is
 11. **51-AC-11 — Legacy safety retained — SATISFIED:** Unexpected non-empty tabs are rejected before mutation, empty defaults alone are removable, and the generated script contains no open-by-ID, import, copy, placeholder, or legacy-sheet creation surface.
 12. **51-AC-12 — Regression protection — SATISFIED:** `simplified-contract.test.mjs` covers configuration validation, empty creation, seeds, repeated edits, pre-existing empty state, conflicts, preflight ordering, and generated artifact structure.
 13. **51-AC-13 — Build and drift gates — SATISFIED:** `npm run build:sheet-setup`, `npm run check:artifacts`, and the full `npm run validate` pass against the generated artifact.
-14. **51-AC-14 — Documentation taxonomy — SATISFIED:** README, sheet schema, architecture, and operations distinguish three business tabs, one visible configuration tab, and one hidden operational tab.
+14. **51-AC-14 — Documentation taxonomy — SATISFIED:** The 2026-07-31 baseline distinguished the then-current business/configuration tabs. The later Sheet-context extension is documented separately and adds eight visible context tabs without adding a workflow role or business store.
 
 ## Issue #52 — runtime Scraper keyword loading
 
@@ -277,7 +277,7 @@ sanitized permanent record is
 
 ## Issue #55 — segmented job-queue contract and setup
 
-1. **55-AC-01 — Exact seven-tab plan — SATISFIED:** Contract/setup tests assert six visible configured tabs plus hidden `_System`.
+1. **55-AC-01 — Exact seven-tab plan — SATISFIED:** The original cutover used six visible tabs plus hidden `_System`. Current setup tests additionally require eight visible Sheet-context tabs while preserving the same five business stores and hidden claim sheet.
 2. **55-AC-02 — Retired steady-state name — SATISFIED:** Configuration and generated setup exclude `Review Queue`; only the explicit legacy migration boundary recognizes it.
 3. **55-AC-03 — Complete ordered fields — SATISFIED:** Configuration validation and tests compare every one of the five business stores with the same 69-field ordered schema.
 4. **55-AC-04 — To Review dropdown — SATISFIED:** Planner/artifact tests prove exact `Approve`/`Deny` list validation with blank allowed.

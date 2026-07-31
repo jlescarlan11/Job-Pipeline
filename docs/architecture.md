@@ -28,7 +28,7 @@ Scraped Jobs
 
 ## Trust boundaries
 
-The five authoritative business stores are `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. There is no projection owner and no hidden `Sheet1`. `Search Keywords` is visible operator-owned Scraper configuration, not a business-record store. `_System` contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
+The five authoritative business stores are `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. There is no projection owner and no hidden `Sheet1`. `Search Keywords` is visible operator-owned Scraper configuration. `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, and `Application Preferences` are visible operator-owned context stores. None is a business-record store. `_System` contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
 
 Google Sheet validation improves usability, but workflow-side contract validation is authoritative. Generated fields use warning-only protection; an API or pasted value is still validated again before any status change, alert, or move.
 
@@ -64,7 +64,12 @@ The workflow reads only `Scraped Jobs`, freezes the first five due rows, or ever
 
 Each candidate retains its own version, state guard, identity, claim token, user action, and persistence result. A stale token, version, state guard, identity, or user action rejects that candidate's commit without ending the loop. The workflow then rereads the saved row and verifies every committed machine field; a missing, ambiguous, partial, or mismatched write fails closed for that candidate. Provider, validation, Sheet, and stale-write failures are isolated, so later frozen candidates still run.
 
-Deterministic evaluation uses the full source description and current candidate/ranking policy:
+Before reading the queue, Generator reads all eight context tabs and freezes one
+validated profile/ranking/application snapshot. Context hashes are derived from
+the normalized values, so any edit automatically changes provenance. Invalid
+context stops the run before queue claims or provider requests. Deterministic
+evaluation then uses the full source description and frozen candidate/ranking
+policy:
 
 - a good fit continues through the application-pack and message gates;
 - a promising gap, required question, or uncertain instruction becomes `review_needed`;
@@ -80,7 +85,9 @@ A failed retry retains an earlier valid message/provenance but the row remains `
 
 ## Alerter & Mover
 
-Movement reads all five business stores and finishes before alert selection rereads `To Apply`. Each movement and alert first appends a source/destination-scoped `_System` claim; the earliest unexpired sheet row is the only winner. Individual destination, delete, or Slack failures continue as bounded result items, so one failed branch cannot cancel unrelated work. The configured movement cap applies to the combined, deterministically ordered route set.
+Alerter & Mover first freezes the same eight-tab context and fails before moves
+or alerts when it is invalid. Movement then reads all five business stores and
+finishes before alert selection rereads `To Apply`. Each movement and alert first appends a source/destination-scoped `_System` claim; the earliest unexpired sheet row is the only winner. Individual destination, delete, or Slack failures continue as bounded result items, so one failed branch cannot cancel unrelated work. The configured movement cap applies to the combined, deterministically ordered route set.
 
 Alert eligibility requires a fresh, unacted `ready_to_apply` row with a current ready pack and validated message. The idempotency key includes canonical identity, policy version, generation timestamp, and message digest. A successful key is never replayed. An expired `sending` claim and an ambiguous timeout are terminal because delivery may have occurred; neither is automatically resent.
 

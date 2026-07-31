@@ -18,6 +18,12 @@ const fullSha = "a".repeat(40);
 const fullHash = "b".repeat(64);
 
 function validEvidence(phase = "post_activation") {
+  const visibleSheets = Object.values(review.sheets)
+    .filter((sheet) => sheet.visible)
+    .map((sheet) => sheet.name);
+  const hiddenSheets = Object.values(review.sheets)
+    .filter((sheet) => !sheet.visible)
+    .map((sheet) => sheet.name);
   return {
     schema_version: 1,
     contract_version: schema.storage_version,
@@ -50,15 +56,8 @@ function validEvidence(phase = "post_activation") {
       workflow_restore_verified: true
     },
     disposable: {
-      visible_sheets: [
-        "Scraped Jobs",
-        "To Review",
-        "To Apply",
-        "Applied Jobs",
-        "Archive",
-        "Search Keywords"
-      ],
-      hidden_sheets: ["_System"],
+      visible_sheets: visibleSheets,
+      hidden_sheets: hiddenSheets,
       business_headers_exact: true,
       queue_dropdowns_exact: true,
       search_keywords_preserved: true,
@@ -73,15 +72,8 @@ function validEvidence(phase = "post_activation") {
       unexpired_claims: 0
     },
     production: {
-      visible_sheets: [
-        "Scraped Jobs",
-        "To Review",
-        "To Apply",
-        "Applied Jobs",
-        "Archive",
-        "Search Keywords"
-      ],
-      hidden_sheets: ["_System"],
+      visible_sheets: visibleSheets,
+      hidden_sheets: hiddenSheets,
       legacy_review_queue_present: false,
       pre_cutover_identity_count: 42,
       post_cutover_identity_count: 42,

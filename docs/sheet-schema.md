@@ -1,6 +1,6 @@
 # Fresh workbook schema
 
-Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs, one visible configuration tab, and one hidden operational tab:
+Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs, nine visible configuration/context tabs, and one hidden operational tab:
 
 - `Scraped Jobs`
 - `To Review`
@@ -8,6 +8,14 @@ Run the generated `setupFreshJobPipeline()` function from `google-apps-script/Sh
 - `Applied Jobs`
 - `Archive`
 - `Search Keywords` (visible configuration)
+- `Candidate`
+- `Skills`
+- `Experience`
+- `Projects`
+- `Education`
+- `Awards`
+- `Job Preferences`
+- `Application Preferences`
 - `_System` (hidden, short-lived claims only)
 
 An empty default `Sheet1` or another empty unexpected tab is removed. Setup refuses to delete a non-empty unexpected tab or replace conflicting headers. This makes the fresh-start instruction explicit without silently destroying existing data.
@@ -109,3 +117,34 @@ blank and disabled rows, normalizes enabled keyword text with NFKC and trimming,
 and rejects malformed, missing, duplicate, or empty enabled configuration
 before any source request or pipeline write. Internal keyword IDs are derived
 by the workflow and are not operator-managed.
+
+## Candidate context tabs
+
+The Generator and Alerter & Mover read all eight context tabs at the start of
+every execution and freeze one validated snapshot. The workflow automatically
+derives profile, ranking, and application context hashes, so operators do not
+edit version identifiers.
+
+- `Candidate` uses `field` and `value` for name, location, email, summary, and
+  approved LinkedIn, GitHub, and portfolio URLs.
+- `Skills` uses `enabled`, `category`, and `skill`.
+- `Experience` uses `enabled`, `experience_id`, `title`, `organization`,
+  `location`, `start`, `end`, and one `highlight` per row. Repeated rows with
+  the same ID add highlights and must keep the other fields identical.
+- `Projects` uses `enabled`, `project_id`, `name`, `description`, `url`,
+  comma-separated `technologies`, and one `highlight` per row.
+- `Education` uses `enabled`, `program`, `institution`, `start`, `end`, and
+  `honor`.
+- `Awards` uses `enabled` and `award`.
+- `Job Preferences` uses `enabled`, `type`, `group`, `value`, and `score` for
+  role-family evidence, unsupported technologies, and PHP monthly salary bands.
+- `Application Preferences` uses `enabled`, `type`, `key`, and `value` for
+  copy settings, required style, and banned phrases.
+
+Enabled columns use checkboxes and every header is warning-protected. Data rows
+remain editable. Missing required fields, conflicting repeated entities,
+invalid URLs, duplicate skills, invalid evidence references, or malformed
+preferences stop the execution before job claims, moves, alerts, or provider
+requests. A context edit captured after an execution begins applies to the next
+execution. Existing generated messages retain their historical hashes and are
+not alert-eligible after the active context changes.

@@ -12,6 +12,16 @@ const RECORD_SHEET_KEYS = [
   "applied_jobs",
   "archive"
 ];
+const CONTEXT_SHEET_KEYS = [
+  "candidate",
+  "skills",
+  "experience",
+  "projects",
+  "education",
+  "awards",
+  "job_preferences",
+  "application_preferences"
+];
 const STEADY_STATE_SHEETS = [
   "Scraped Jobs",
   "To Review",
@@ -19,6 +29,14 @@ const STEADY_STATE_SHEETS = [
   "Applied Jobs",
   "Archive",
   "Search Keywords",
+  "Candidate",
+  "Skills",
+  "Experience",
+  "Projects",
+  "Education",
+  "Awards",
+  "Job Preferences",
+  "Application Preferences",
   "_System"
 ];
 const MIGRATION_REJECT_CATEGORIES = new Set([
@@ -50,8 +68,8 @@ function cloneRows(rows) {
 
 export function validateFreshSheetConfig(review, schema) {
   const errors = [];
-  if (review?.schema_version !== 4) {
-    errors.push("review-sheet schema_version must be 4");
+  if (review?.schema_version !== 5) {
+    errors.push("review-sheet schema_version must be 5");
   }
   const configuredNames = Object.values(review?.sheets ?? {}).map(
     (sheet) => sheet?.name
@@ -117,6 +135,45 @@ export function validateFreshSheetConfig(review, schema) {
         errors.push("initial Search Keywords rows must be unique");
       }
       normalizedKeywords.add(normalized);
+    }
+  }
+  const expectedContextFields = {
+    candidate: ["field", "value"],
+    skills: ["enabled", "category", "skill"],
+    experience: [
+      "enabled",
+      "experience_id",
+      "title",
+      "organization",
+      "location",
+      "start",
+      "end",
+      "highlight"
+    ],
+    projects: [
+      "enabled",
+      "project_id",
+      "name",
+      "description",
+      "url",
+      "technologies",
+      "highlight"
+    ],
+    education: ["enabled", "program", "institution", "start", "end", "honor"],
+    awards: ["enabled", "award"],
+    job_preferences: ["enabled", "type", "group", "value", "score"],
+    application_preferences: ["enabled", "type", "key", "value"]
+  };
+  for (const key of CONTEXT_SHEET_KEYS) {
+    const definition = review?.sheets?.[key];
+    if (
+      definition?.visible !== true ||
+      JSON.stringify(definition?.fields) !==
+        JSON.stringify(expectedContextFields[key]) ||
+      !Array.isArray(definition?.initial_rows) ||
+      definition.initial_rows.length === 0
+    ) {
+      errors.push(`${key} must be a visible seeded context sheet with exact fields`);
     }
   }
   if (
@@ -194,6 +251,20 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
         seedRows: review.sheets.search_keywords.initial_rows
       }
     ],
+    ...CONTEXT_SHEET_KEYS.map((key) => {
+      const definition = review.sheets[key];
+      return [
+        definition.name,
+        {
+          headers: definition.fields,
+          visible: true,
+          editable: definition.fields,
+          visibleColumns: definition.fields,
+          seedRows: definition.initial_rows,
+          contextSheet: true
+        }
+      ];
+    }),
     [
       review.sheets.system.name,
       {
@@ -246,13 +317,17 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
       hidden: !definition.visible,
       hiddenColumns,
       protectedColumns,
-      protectedHeader: name === review.sheets.search_keywords.name,
+      protectedHeader:
+        name === review.sheets.search_keywords.name ||
+        definition.contextSheet === true,
       validations:
         name === "To Review" || name === "To Apply"
           ? { user_action: structuredClone(review.action_validation[name]) }
           : name === "Applied Jobs"
             ? { outcome: [...review.outcome_validation] }
-            : name === review.sheets.search_keywords.name
+            : name === review.sheets.search_keywords.name ||
+                (definition.contextSheet === true &&
+                  definition.headers.includes("enabled"))
               ? { enabled: "checkbox" }
             : {}
     });

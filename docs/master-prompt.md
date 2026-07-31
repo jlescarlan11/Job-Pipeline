@@ -1,11 +1,12 @@
 # Generated application prompt
 
-The Groq request system message in `workflows/generator.json` is a generated
-artifact. Its compact identity and approved-URL block comes only from
-`config/candidate-profile.json`; its writing and safety rules come only from
-`config/application-policy.json`. The per-job selected proofs resolve from that
-same profile. `scripts/build-workflows.mjs` validates those inputs plus
-`config/groq-provider-policy.json` and rebuilds the export.
+The Groq request system message is assembled at runtime from one frozen Google
+Sheets context snapshot. Its compact identity and approved-URL block come from
+`Candidate`, `Skills`, `Experience`, `Projects`, `Education`, and `Awards`;
+editable copy settings and phrases come from `Application Preferences`. The
+per-job selected proofs resolve from that same snapshot. Repository policies
+retain the non-editable safety, pack, provider, and runtime bounds. Generated
+workflow exports contain no personal profile payload.
 
 The generated HTTPS requests read the Groq API key from
 `JOB_PIPELINE_GROQ_API_KEY`. The export contains no secret and remains
@@ -63,11 +64,10 @@ retry schedule; it never stores rejected text or erases a previous valid
 pack/message. A retry is a later claimed execution and must pass the same
 validation and stale-state commit guard.
 
-To change candidate facts, update the candidate profile and its version. To change tone or validation policy, update the application policy and its version. Run:
+To change candidate facts, role/salary preferences, greeting, subject template,
+required style, or banned phrases, edit the corresponding visible context tab.
+The next execution computes new context hashes automatically; no workflow build
+or import is required.
 
-```bash
-npm run build:workflows
-npm run validate
-```
-
-Do not paste a separate resume into n8n or edit the exported system message; doing so creates configuration drift and bypasses repository validation.
+Do not paste a separate resume into n8n or edit the exported system message;
+doing so creates configuration drift and bypasses Sheet-context validation.

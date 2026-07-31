@@ -104,6 +104,11 @@ const generatorCore = await bundledCore(
   "src/system-claims.mjs",
   "src/generator.mjs"
 );
+const sheetContextCore = await bundledCore(
+  "src/contracts.mjs",
+  "src/profile.mjs",
+  "src/sheet-context.mjs"
+);
 const groqModel = groqPolicy.models.find(
   (model) => model.id === groqPolicy.selected_model
 );
@@ -126,6 +131,84 @@ const alertCore = await bundledCore(
   "src/system-claims.mjs",
   "src/alerter-mover.mjs"
 );
+const contextSources = [
+  ["candidateRows", "candidate", "Candidate", "candidate_rows"],
+  ["skillRows", "skills", "Skills", "skill_rows"],
+  ["experienceRows", "experience", "Experience", "experience_rows"],
+  ["projectRows", "projects", "Projects", "project_rows"],
+  ["educationRows", "education", "Education", "education_rows"],
+  ["awardRows", "awards", "Awards", "award_rows"],
+  [
+    "jobPreferenceRows",
+    "job_preferences",
+    "Job Preferences",
+    "job_preference_rows"
+  ],
+  [
+    "applicationPreferenceRows",
+    "application_preferences",
+    "Application Preferences",
+    "application_preference_rows"
+  ]
+];
+
+function contextSnapshotNodes(startX, y, idPrefix) {
+  const nodes = [];
+  for (const [index, [, sheetKey, label, destination]] of contextSources.entries()) {
+    const x = startX + index * 400;
+    nodes.push(
+      readSheet(`Get ${label} Context`, [x, y], review.sheets[sheetKey].name, {
+        explicitId: `${idPrefix}-${String(index * 2 + 1).padStart(12, "0")}`
+      }),
+      aggregateNode(
+        `Aggregate ${label} Context`,
+        [x + 200, y],
+        destination,
+        `${idPrefix}-${String(index * 2 + 2).padStart(12, "0")}`
+      )
+    );
+  }
+  const rowExpressions = contextSources
+    .map(
+      ([property, , label, destination]) =>
+        `${property}: ($('Aggregate ${label} Context').all()[0]?.json.${destination} || [])\n` +
+        `    .filter((row) => row && Object.keys(row).length)`
+    )
+    .join(",\n  ");
+  nodes.push(
+    codeNode(
+      "Compile Candidate Context",
+      [startX + contextSources.length * 400, y],
+      `${sheetContextCore}
+const rows = {
+  ${rowExpressions}
+};
+return { json: compileSheetContext(rows, {
+  rankingPolicy: ${JSON.stringify(rankingPolicy)},
+  applicationPolicy: ${JSON.stringify(applicationPolicy)},
+  packPolicy: ${JSON.stringify(packPolicy)}
+}) };`,
+      undefined,
+      `${idPrefix}-${String(contextSources.length * 2 + 1).padStart(12, "0")}`
+    )
+  );
+  return nodes;
+}
+
+function connectContextSnapshot(connections, nextNode) {
+  for (const [index, [, , label]] of contextSources.entries()) {
+    const read = `Get ${label} Context`;
+    const aggregate = `Aggregate ${label} Context`;
+    const next = contextSources[index + 1];
+    connections[read] = { main: [[connection(aggregate)]] };
+    connections[aggregate] = {
+      main: [[connection(next ? `Get ${next[2]} Context` : "Compile Candidate Context")]]
+    };
+  }
+  connections["Compile Candidate Context"] = {
+    main: [[connection(nextNode)]]
+  };
+}
 // A successful Generator commit must clear the exact Approve action it
 // consumed. Notes remain user-owned and are never written by the Generator.
 const reviewMachineFields = schema.fields.filter((field) => field !== "notes");
@@ -901,7 +984,12 @@ function buildGenerator() {
   const system = review.sheets.system.name;
   const config = runtime.generator;
   const nodes = [
-    scheduleNode("generator", [-2200, 240], config),
+    scheduleNode("generator", [-6000, 240], config),
+    ...contextSnapshotNodes(
+      -5800,
+      240,
+      "f3ac0000-0000-4000-8000"
+    ),
     readSheet("Get Scraped Jobs", [-2000, 240], queue),
     aggregateNode("Aggregate Scraped Jobs", [-1800, 240], "scraped_rows"),
     codeNode(
@@ -1149,10 +1237,11 @@ try {
       "Evaluate and Prepare Application",
       [2200, -80],
       `${generatorCore}
-const PROFILE = ${JSON.stringify(profile)};
-const RANKING_POLICY = ${JSON.stringify(rankingPolicy)};
-const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
-const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const PROFILE = SHEET_CONTEXT.profile;
+const RANKING_POLICY = SHEET_CONTEXT.ranking_policy;
+const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
+const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const PROVIDER_POLICY = ${JSON.stringify(groqPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
 const context = $('Confirm Generator Claim Persisted').item.json;
@@ -1264,9 +1353,10 @@ try {
       "Validate Initial Draft",
       [3200, -200],
       `${generatorCore}
-const PROFILE = ${JSON.stringify(profile)};
-const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
-const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const PROFILE = SHEET_CONTEXT.profile;
+const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
+const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const PROVIDER_POLICY = ${JSON.stringify(groqPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
 const prepared = $('Evaluate and Prepare Application').item.json;
@@ -1355,9 +1445,10 @@ try {
       "Validate Repaired Draft",
       [4000, -320],
       `${generatorCore}
-const PROFILE = ${JSON.stringify(profile)};
-const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
-const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const PROFILE = SHEET_CONTEXT.profile;
+const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
+const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const RUNTIME = ${JSON.stringify(config)};
 const staged = $('Validate Initial Draft').item.json;
 const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
@@ -1573,7 +1664,7 @@ return { json: {
     )
   ];
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Scraped Jobs")]] },
+    "Schedule Trigger": { main: [[connection("Get Candidate Context")]] },
     "Get Scraped Jobs": { main: [[connection("Aggregate Scraped Jobs")]] },
     "Aggregate Scraped Jobs": {
       main: [[connection("Select Generator Candidates")]]
@@ -1735,6 +1826,7 @@ return { json: {
       main: [[connection("Process Candidates Sequentially")]]
     }
   };
+  connectContextSnapshot(connections, "Get Scraped Jobs");
   return {
     name: "(Evaluator & Generator) Job Pipeline - Safe Routing",
     nodes,
@@ -1747,8 +1839,8 @@ return { json: {
       workflowRole: "evaluator_generator",
       workflowContractVersion: "2026-07-31/v3",
       pipelineSchemaVersion: schema.storage_version,
-      candidateProfileVersion: profile.profile_version,
-      applicationPolicyVersion: applicationPolicy.policy_version,
+      candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
+      preferenceSource: "Job Preferences, Application Preferences",
       applicationPackPolicyVersion: packPolicy.policy_version,
       groqProviderPolicyVersion: groqPolicy.policy_version,
       processingSourceSheet: queue,
@@ -1778,7 +1870,12 @@ function buildAlerterMover() {
   const system = review.sheets.system.name;
   const config = runtime.alerter_mover;
   const nodes = [
-    scheduleNode("alerter_mover", [-2200, 240], config),
+    scheduleNode("alerter_mover", [-6000, 240], config),
+    ...contextSnapshotNodes(
+      -5800,
+      240,
+      "f3ad0000-0000-4000-8000"
+    ),
     readSheet("Get Fresh Scraped Jobs", [-2000, 240], scraped),
     aggregateNode("Aggregate Fresh Scraped Jobs", [-1800, 240], "scraped_rows"),
     readSheet("Get Fresh To Review", [-1700, 400], toReview, {
@@ -1808,9 +1905,10 @@ function buildAlerterMover() {
       [-800, 240],
       `${movementCore}
 const SCHEMA = ${JSON.stringify(schema)};
-const PROFILE = ${JSON.stringify(profile)};
-const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
-const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const PROFILE = SHEET_CONTEXT.profile;
+const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
+const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const RUNTIME = ${JSON.stringify(config)};
 const now = new Date().toISOString();
 const scrapedRows = ($('Aggregate Fresh Scraped Jobs').first().json.scraped_rows || [])
@@ -2252,9 +2350,10 @@ return selected.length
       `${alertCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const POLICY = ${JSON.stringify(alertPolicy)};
-const PROFILE = ${JSON.stringify(profile)};
-const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
-const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const PROFILE = SHEET_CONTEXT.profile;
+const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
+const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const rows = ($('Aggregate To Apply After Moves').first().json.to_apply_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA));
@@ -2390,9 +2489,10 @@ return rows.length
       [9000, 240],
       `${alertCore}
 const POLICY = ${JSON.stringify(alertPolicy)};
-const PROFILE = ${JSON.stringify(profile)};
-const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
-const PACK_POLICY = ${JSON.stringify(packPolicy)};
+const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const PROFILE = SHEET_CONTEXT.profile;
+const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
+const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const proposed = $('Prepare Alert Sending States').all()
   .map((item) => item.json)
   .filter((item) => item._noop !== true);
@@ -2504,7 +2604,7 @@ return staged.flatMap((entry) => {
     )
   ];
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Fresh Scraped Jobs")]] },
+    "Schedule Trigger": { main: [[connection("Get Candidate Context")]] },
     "Get Fresh Scraped Jobs": {
       main: [[connection("Aggregate Fresh Scraped Jobs")]]
     },
@@ -2815,6 +2915,7 @@ return staged.flatMap((entry) => {
       main: [[connection("Update Alert Results")]]
     }
   };
+  connectContextSnapshot(connections, "Get Fresh Scraped Jobs");
   return {
     name: "(Alerter & Mover) Job Pipeline - Slack and Terminal Moves",
     nodes,
@@ -2828,6 +2929,8 @@ return staged.flatMap((entry) => {
       workflowContractVersion: "2026-07-31/v3",
       alertPolicyVersion: alertPolicy.policy_version,
       pipelineSchemaVersion: schema.storage_version,
+      candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
+      preferenceSource: "Job Preferences, Application Preferences",
       sourceSheets: [scraped, toReview, toApply],
       destinationSheets: schema.business_stores,
       alertSourceSheet: toApply,

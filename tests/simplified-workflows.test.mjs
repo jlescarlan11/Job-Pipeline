@@ -104,6 +104,41 @@ test("profile helpers are bundled wherever evaluation code uses them", () => {
   }
 });
 
+test("Generator and Alerter freeze Sheet context without embedded personal facts", () => {
+  for (const file of ["generator.json", "alerter-mover.json"]) {
+    const workflow = workflows[file];
+    assert.equal(
+      workflow.connections["Schedule Trigger"].main[0][0].node,
+      "Get Candidate Context"
+    );
+    for (const name of [
+      "Candidate",
+      "Skills",
+      "Experience",
+      "Projects",
+      "Education",
+      "Awards",
+      "Job Preferences",
+      "Application Preferences"
+    ]) {
+      const read = node(workflow, `Get ${name} Context`);
+      assert.equal(read.parameters.sheetName.value, name);
+    }
+    node(workflow, "Compile Candidate Context");
+    const serialized = JSON.stringify(workflow);
+    for (const personalFact of [
+      "John Lester Escarlan",
+      "johnlesterescarlan",
+      "jlescarlan11@gmail.com",
+      "Pharmacy & Acute Care University",
+      "FireCheck",
+      "PriceCraft"
+    ]) {
+      assert.doesNotMatch(serialized, new RegExp(personalFact));
+    }
+  }
+});
+
 test("Groq requests disable compressed streaming responses", () => {
   const workflow = workflows["generator.json"];
   for (const name of [

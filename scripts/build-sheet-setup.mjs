@@ -19,8 +19,8 @@ const schemaErrors = validatePipelineSchema(schema);
 if (schemaErrors.length > 0) {
   throw new Error(`Invalid pipeline schema:\n- ${schemaErrors.join("\n- ")}`);
 }
-if (review?.schema_version !== 4) {
-  throw new Error("review-sheet schema_version must be 4");
+if (review?.schema_version !== 5) {
+  throw new Error("review-sheet schema_version must be 5");
 }
 if (
   JSON.stringify(review.all_record_columns) !== JSON.stringify(schema.fields)
@@ -49,45 +49,22 @@ function setupFreshJobPipeline() {
   const lock = LockService.getDocumentLock();
   lock.waitLock(30000);
   try {
-    const expected = [
-      JOB_PIPELINE_SETUP.sheets.scraped_jobs.name,
-      JOB_PIPELINE_SETUP.sheets.to_review.name,
-      JOB_PIPELINE_SETUP.sheets.to_apply.name,
-      JOB_PIPELINE_SETUP.sheets.applied_jobs.name,
-      JOB_PIPELINE_SETUP.sheets.archive.name,
-      JOB_PIPELINE_SETUP.sheets.search_keywords.name,
-      JOB_PIPELINE_SETUP.sheets.system.name
-    ];
-    const expectedDefinitions = [
-      {
-        name: JOB_PIPELINE_SETUP.sheets.scraped_jobs.name,
-        headers: JOB_PIPELINE_SETUP.recordFields
-      },
-      {
-        name: JOB_PIPELINE_SETUP.sheets.to_review.name,
-        headers: JOB_PIPELINE_SETUP.recordFields
-      },
-      {
-        name: JOB_PIPELINE_SETUP.sheets.to_apply.name,
-        headers: JOB_PIPELINE_SETUP.recordFields
-      },
-      {
-        name: JOB_PIPELINE_SETUP.sheets.applied_jobs.name,
-        headers: JOB_PIPELINE_SETUP.recordFields
-      },
-      {
-        name: JOB_PIPELINE_SETUP.sheets.archive.name,
-        headers: JOB_PIPELINE_SETUP.recordFields
-      },
-      {
-        name: JOB_PIPELINE_SETUP.sheets.search_keywords.name,
-        headers: JOB_PIPELINE_SETUP.sheets.search_keywords.fields
-      },
-      {
-        name: JOB_PIPELINE_SETUP.sheets.system.name,
-        headers: JOB_PIPELINE_SETUP.sheets.system.fields
-      }
-    ];
+    const recordSheetKeys = new Set([
+      'scraped_jobs',
+      'to_review',
+      'to_apply',
+      'applied_jobs',
+      'archive'
+    ]);
+    const expectedDefinitions = Object.entries(JOB_PIPELINE_SETUP.sheets)
+      .map(([key, definition]) => ({
+        key,
+        name: definition.name,
+        headers: recordSheetKeys.has(key)
+          ? JOB_PIPELINE_SETUP.recordFields
+          : definition.fields
+      }));
+    const expected = expectedDefinitions.map((definition) => definition.name);
     const createdSheets = new Set();
 
     // Preflight every existing tab before the first structural or cell write.
@@ -150,6 +127,23 @@ function setupFreshJobPipeline() {
       workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.search_keywords.name),
       createdSheets.has(JOB_PIPELINE_SETUP.sheets.search_keywords.name)
     );
+    [
+      'candidate',
+      'skills',
+      'experience',
+      'projects',
+      'education',
+      'awards',
+      'job_preferences',
+      'application_preferences'
+    ].forEach((key) => {
+      const definition = JOB_PIPELINE_SETUP.sheets[key];
+      configureContextSheet_(
+        workbook.getSheetByName(definition.name),
+        definition,
+        createdSheets.has(definition.name)
+      );
+    });
     applyQueueActionValidation_(
       workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name)
     );
@@ -292,6 +286,108 @@ function configureSearchKeywordsSheet_(sheet, createdNow) {
     1
   ).setDataValidation(validation);
 
+  if (!sheet.getFilter()) {
+    sheet.getRange(
+      1,
+      1,
+      Math.max(sheet.getLastRow(), 1),
+      definition.fields.length
+    ).createFilter();
+  }
+}
+
+function configureContextSheet_(sheet, definition, createdNow) {
+  ensureSheetCapacity_(
+    sheet,
+    JOB_PIPELINE_SETUP.maximumRows,
+    definition.fields.length
+  );
+  reconcileHeaders_(sheet, definition.fields);
+  if (createdNow && definition.initial_rows.length > 0) {
+    const values = definition.initial_rows.map((row) =>
+      definition.fields.map((field) => row[field] ?? '')
+    );
+    sheet.getRange(2, 1, values.length, definition.fields.length)
+      .setValues(values);
+  }
+
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, definition.fields.length)
+    .setFontWeight('bold')
+    .setFontColor('#ffffff')
+    .setBackground('#274e13');
+  sheet.getRange(1, 1, Math.max(sheet.getMaxRows(), 2), definition.fields.length)
+    .setVerticalAlignment('top');
+
+  definition.fields.forEach((field, offset) => {
+    const column = offset + 1;
+    const widths = {
+      enabled: 85,
+      field: 160,
+      value: 420,
+      category: 220,
+      skill: 220,
+      experience_id: 240,
+      project_id: 180,
+      title: 220,
+      organization: 240,
+      location: 140,
+      start: 110,
+      end: 110,
+      highlight: 420,
+      name: 180,
+      description: 240,
+      url: 320,
+      technologies: 360,
+      program: 300,
+      institution: 280,
+      honor: 180,
+      award: 420,
+      type: 220,
+      group: 220,
+      key: 280,
+      score: 100
+    };
+    sheet.setColumnWidth(column, widths[field] || 150);
+    if ([
+      'value',
+      'highlight',
+      'description',
+      'url',
+      'technologies',
+      'program',
+      'institution',
+      'award'
+    ].includes(field)) {
+      sheet.getRange(2, column, Math.max(sheet.getMaxRows() - 1, 1), 1)
+        .setWrap(true);
+    }
+  });
+
+  sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach((protection) => {
+    if (String(protection.getDescription() || '')
+      .startsWith('Job Pipeline context:' + definition.name + ':')) {
+      protection.remove();
+    }
+  });
+  sheet.getRange(1, 1, 1, definition.fields.length)
+    .protect()
+    .setDescription('Job Pipeline context:' + definition.name + ':header')
+    .setWarningOnly(true);
+
+  const enabledOffset = definition.fields.indexOf('enabled');
+  if (enabledOffset >= 0) {
+    const validation = SpreadsheetApp.newDataValidation()
+      .requireCheckbox()
+      .setAllowInvalid(false)
+      .build();
+    sheet.getRange(
+      2,
+      enabledOffset + 1,
+      Math.max(sheet.getMaxRows() - 1, 1),
+      1
+    ).setDataValidation(validation);
+  }
   if (!sheet.getFilter()) {
     sheet.getRange(
       1,
