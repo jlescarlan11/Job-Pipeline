@@ -718,7 +718,7 @@ test("forged actions and terminal rows never enter generator selection", () => {
   });
   assert.throws(
     () => selectGeneratorCandidate([forged], schema, runtime, now),
-    /rejected invalid Review Queue row/
+    /rejected invalid Scraped Jobs row/
   );
   const duplicate = recordFromDescription(3091);
   assert.throws(
@@ -729,7 +729,7 @@ test("forged actions and terminal rows never enter generator selection", () => {
         runtime,
         now
       ),
-    /duplicate Review Queue identity/
+    /duplicate Scraped Jobs identity/
   );
   for (const status of ["ready_to_apply", "skip", "unavailable"]) {
     const row = recordFromDescription(`31${status.length}`, { status });

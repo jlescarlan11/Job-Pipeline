@@ -31,22 +31,54 @@ const safetyContext = { profile, applicationPolicy, packPolicy };
 const now = "2026-07-31T10:00:00.000Z";
 
 function planQueueActions(
-  reviewRows,
+  sourceRows,
   appliedRows,
   archiveRows,
   selectedSchema,
   selectedNow,
   options
 ) {
+  const stores = businessStores({
+    ...sourceStores(sourceRows),
+    "Applied Jobs": appliedRows,
+    Archive: archiveRows
+  });
   return planQueueActionsRaw(
-    reviewRows,
-    appliedRows,
-    archiveRows,
+    stores,
     selectedSchema,
     selectedNow,
     safetyContext,
     options
   );
+}
+
+function businessStores(overrides = {}) {
+  return {
+    "Scraped Jobs": [],
+    "To Review": [],
+    "To Apply": [],
+    "Applied Jobs": [],
+    Archive: [],
+    ...overrides
+  };
+}
+
+function sourceStores(rows) {
+  const stores = {
+    "Scraped Jobs": [],
+    "To Review": [],
+    "To Apply": []
+  };
+  for (const record of rows) {
+    if (record.pipeline_status === "review_needed") {
+      stores["To Review"].push(record);
+    } else if (record.pipeline_status === "ready_to_apply") {
+      stores["To Apply"].push(record);
+    } else {
+      stores["Scraped Jobs"].push(record);
+    }
+  }
+  return stores;
 }
 
 function row(id, status, action = "", overrides = {}) {
@@ -107,6 +139,18 @@ function row(id, status, action = "", overrides = {}) {
 function destinationAfterWrite(plans) {
   const writes = destinationWrites(plans);
   return {
+    scraped_jobs: writes.scraped_jobs.map((record, index) => ({
+      ...record,
+      row_number: index + 2
+    })),
+    to_review: writes.to_review.map((record, index) => ({
+      ...record,
+      row_number: index + 2
+    })),
+    to_apply: writes.to_apply.map((record, index) => ({
+      ...record,
+      row_number: index + 2
+    })),
     applied: writes.applied.map((record, index) => ({
       ...record,
       row_number: index + 2
@@ -129,28 +173,46 @@ test("ready rows expose only I Applied and Skip; review rows expose only Approve
   for (const invalid of invalidPairs) {
     const plan = planQueueActions([invalid], [], [], schema, now);
     assert.equal(plan.moves.length, 0);
-    assert.equal(plan.generation_requests.length, 0);
     assert.equal(plan.rejected[0].reason, "invalid_source");
   }
 });
 
-test("Approve remains in Review Queue for gated generation with context intact", () => {
+test("Approve moves to Scraped Jobs for gated generation with context intact", () => {
   const approved = row(4010, "review_needed", "Approve", {
     required_input: "Confirm an evidence gap",
     notes: "Reviewer accepts reconsideration"
   });
   const plan = planQueueActions([approved], [], [], schema, now);
-  assert.equal(plan.moves.length, 0);
-  assert.deepEqual(plan.generation_requests, [
-    {
-      canonical_job_id: approved.canonical_job_id,
-      source_row_number: approved.row_number,
-      source_state_guard: approved.state_guard,
-      source_record_version: approved.record_version
-    }
-  ]);
+  assert.equal(plan.moves.length, 1);
+  assert.equal(plan.moves[0].source_sheet, "To Review");
+  assert.equal(plan.moves[0].destination, "Scraped Jobs");
+  const returned = destinationWrites(plan).scraped_jobs[0];
+  assert.equal(returned.pipeline_status, "review_needed");
+  assert.equal(returned.user_action, "Approve");
+  assert.equal(returned.review_approved_at, now);
+  assert.equal(returned.review_approval_note, "Reviewer accepts reconsideration");
   assert.equal(approved.required_input, "Confirm an evidence gap");
   assert.equal(approved.notes, "Reviewer accepts reconsideration");
+});
+
+test("blank generator results route from Scraped Jobs to focused queues", () => {
+  const review = row(4011, "review_needed");
+  const ready = row(4012, "ready_to_apply");
+  const plan = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [review, ready] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.deepEqual(
+    plan.moves.map((move) => [move.source_sheet, move.destination]),
+    [
+      ["Scraped Jobs", "To Review"],
+      ["Scraped Jobs", "To Apply"]
+    ]
+  );
+  assert.equal(destinationWrites(plan).to_review.length, 1);
+  assert.equal(destinationWrites(plan).to_apply.length, 1);
 });
 
 test("Deny and user Skip retain full context in Archive", () => {
@@ -220,14 +282,12 @@ test("I Applied requires current validated pack/message provenance", () => {
   }
 });
 
-test("destination write failure keeps the Review Queue source", () => {
+test("destination write failure keeps the focused-queue source", () => {
   const source = row(4050, "ready_to_apply", "I Applied");
   const plan = planQueueActions([source], [], [], schema, now);
   const confirmation = confirmMoveDeletions(
     plan,
-    [source],
-    [],
-    [],
+    businessStores(sourceStores([source])),
     schema
   );
   assert.deepEqual(confirmation.deletions, []);
@@ -242,21 +302,41 @@ test("destination write failure keeps the Review Queue source", () => {
 test("copy-confirm-delete succeeds once and uses descending source rows", () => {
   const first = row(4060, "ready_to_apply", "I Applied", { row_number: 3 });
   const second = row(4061, "review_needed", "Deny", { row_number: 9 });
+  const third = row(4062, "ready_to_apply", "Skip", { row_number: 12 });
   first.state_guard = stateGuard(first);
   second.state_guard = stateGuard(second);
-  const plan = planQueueActions([first, second], [], [], schema, now);
+  third.state_guard = stateGuard(third);
+  const plan = planQueueActions([first, second, third], [], [], schema, now);
   const written = destinationAfterWrite(plan);
   const confirmation = confirmMoveDeletions(
     plan,
-    [first, second],
-    written.applied,
-    written.archive,
+    businessStores({
+      ...sourceStores([first, second, third]),
+      "Applied Jobs": written.applied,
+      Archive: written.archive
+    }),
     schema
   );
-  assert.deepEqual(
-    confirmation.deletions.map((entry) => entry.row_number),
-    [9, 3]
-  );
+  assert.deepEqual(confirmation.deletions, [
+    {
+      row_number: 12,
+      canonical_job_id: third.canonical_job_id,
+      source_sheet: "To Apply",
+      destination: "Archive"
+    },
+    {
+      row_number: 3,
+      canonical_job_id: first.canonical_job_id,
+      source_sheet: "To Apply",
+      destination: "Applied Jobs"
+    },
+    {
+      row_number: 9,
+      canonical_job_id: second.canonical_job_id,
+      source_sheet: "To Review",
+      destination: "Archive"
+    }
+  ]);
   assert.deepEqual(confirmation.rejected, []);
 });
 
@@ -277,18 +357,17 @@ test("delete failure is idempotent on rerun and does not duplicate destination",
   assert.deepEqual(destinationWrites(rerunPlan).applied, []);
   const confirmation = confirmMoveDeletions(
     rerunPlan,
-    [source],
-    written.applied,
-    [],
+    businessStores({
+      ...sourceStores([source]),
+      "Applied Jobs": written.applied
+    }),
     schema
   );
   assert.equal(confirmation.deletions.length, 1);
 
   const afterDelete = confirmMoveDeletions(
     rerunPlan,
-    [],
-    written.applied,
-    [],
+    businessStores({ "Applied Jobs": written.applied }),
     schema
   );
   assert.deepEqual(afterDelete, { deletions: [], rejected: [] });
@@ -324,7 +403,49 @@ test("a partial destination is repaired by identity without losing destination-o
   );
 });
 
-test("movement cap defers extra moves while retaining approval requests", () => {
+test("active-destination repair preserves a newer action and alert state", () => {
+  const source = row(4075, "ready_to_apply");
+  const initial = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [source] }),
+    schema,
+    now,
+    safetyContext
+  );
+  const complete = destinationAfterWrite(initial).to_apply[0];
+  const partial = {
+    ...complete,
+    job_title: "",
+    user_action: "Skip",
+    alert_status: "sending",
+    alert_idempotency_key: "existing-alert",
+    alert_claim_token: "existing-alert-claim",
+    alert_sent_at: "2026-07-31T10:01:00.000Z"
+  };
+  partial.state_guard = stateGuard(partial);
+  const recovery = planQueueActionsRaw(
+    businessStores({
+      "Scraped Jobs": [source],
+      "To Apply": [partial]
+    }),
+    schema,
+    "2026-07-31T10:05:00.000Z",
+    safetyContext
+  );
+  assert.equal(recovery.moves[0].write_required, true);
+  assert.equal(recovery.moves[0].destination_record.job_title, source.job_title);
+  assert.equal(recovery.moves[0].destination_record.user_action, "Skip");
+  assert.equal(recovery.moves[0].destination_record.alert_status, "sending");
+  assert.equal(
+    recovery.moves[0].destination_record.alert_idempotency_key,
+    "existing-alert"
+  );
+  assert.equal(
+    recovery.moves[0].destination_record.alert_claim_token,
+    "existing-alert-claim"
+  );
+});
+
+test("movement cap applies across every route", () => {
   const first = row(4072, "skip");
   const second = row(4073, "skip");
   const approval = row(4074, "review_needed", "Approve");
@@ -337,7 +458,6 @@ test("movement cap defers extra moves while retaining approval requests", () => 
     { movementPerRunCap: 1 }
   );
   assert.equal(plan.moves.length, 1);
-  assert.equal(plan.generation_requests.length, 1);
   assert.ok(
     plan.rejected.some((entry) => entry.reason === "movement_cap_reached")
   );
@@ -355,9 +475,10 @@ test("last-minute source changes prevent deletion", () => {
   changed.state_guard = stateGuard(changed);
   const confirmation = confirmMoveDeletions(
     plan,
-    [changed],
-    written.applied,
-    [],
+    businessStores({
+      ...sourceStores([changed]),
+      "Applied Jobs": written.applied
+    }),
     schema
   );
   assert.deepEqual(confirmation.deletions, []);
@@ -366,9 +487,10 @@ test("last-minute source changes prevent deletion", () => {
   const noteChanged = { ...source, notes: "operator added context" };
   const noteConfirmation = confirmMoveDeletions(
     plan,
-    [noteChanged],
-    written.applied,
-    [],
+    businessStores({
+      ...sourceStores([noteChanged]),
+      "Applied Jobs": written.applied
+    }),
     schema
   );
   assert.deepEqual(noteConfirmation.deletions, []);
@@ -381,16 +503,31 @@ test("ambiguous or conflicting destination identities fail closed", () => {
     () => planQueueActions([source], [row(4090, "new"), row(4090, "new")], [], schema, now),
     /ambiguous duplicate/
   );
+  const conflict = planQueueActions(
+    [source],
+    [],
+    [row(4090, "skip", "", { archived_at: now, archive_reason: "automatic_skip" })],
+    schema,
+    now
+  );
+  assert.equal(conflict.moves.length, 0);
+  assert.equal(conflict.rejected[0].reason, "identity_conflict");
+
+  const alias = row(4091, "skip", "", {
+    canonical_url: source.canonical_url
+  });
   assert.throws(
     () =>
-      planQueueActions(
-        [source],
-        [],
-        [row(4090, "skip", "", { archived_at: now, archive_reason: "automatic_skip" })],
+      planQueueActionsRaw(
+        businessStores({
+          "To Apply": [source],
+          Archive: [alias]
+        }),
         schema,
-        now
+        now,
+        safetyContext
       ),
-    /conflicting canonical identity/
+    /ambiguous canonical URL/
   );
 });
 

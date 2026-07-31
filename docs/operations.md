@@ -31,12 +31,13 @@ Create a separate workbook whose ID is not the old workbook ID.
 
 1. Install the generated `google-apps-script/SheetSetup.gs`.
 2. Run `setupFreshJobPipeline()`.
-3. Confirm exactly `Review Queue`, `Applied Jobs`, `Archive`, and `Search Keywords` are visible and `_System` is hidden.
-4. Confirm the three business tabs have the exact configured headers and zero data rows.
-5. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
-6. Edit, disable, reorder, add, and delete disposable keyword rows, then run setup a second time.
-7. Confirm no duplicate tab, header, validation, protection, keyword row, or record was created and every keyword edit was preserved.
-8. Confirm no old workbook ID, import formula, copied business row, or old data is present.
+3. Confirm exactly `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, `Archive`, and `Search Keywords` are visible and `_System` is hidden.
+4. Confirm the five business tabs have the exact configured headers and zero data rows.
+5. Confirm `To Review` offers only `Approve` and `Deny`, `To Apply` offers only `I Applied` and `Skip`, blank remains valid, and `Scraped Jobs` has no normal action dropdown.
+6. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
+7. Edit, disable, reorder, add, and delete disposable keyword rows, then run setup a second time.
+8. Confirm no duplicate tab, header, validation, protection, keyword row, or record was created and every keyword edit was preserved.
+9. Confirm no old workbook ID, import formula, copied business row, or old data is present.
 
 Setup must stop rather than delete a non-empty unexpected sheet or overwrite conflicting headers.
 
@@ -56,7 +57,7 @@ Import only:
 - `workflows/generator.json`
 - `workflows/alerter-mover.json`
 
-Keep all three inactive. Bind Google Sheets credentials and `JOB_PIPELINE_SPREADSHEET_ID` only to the disposable non-production workbook. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` for that workbook. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
+Keep all three inactive. Bind Google Sheets credentials and `JOB_PIPELINE_SPREADSHEET_ID` only to the disposable non-production workbook. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to that workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
 
 ## 4. Non-production smoke matrix
 
@@ -78,9 +79,10 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 - Freeze one execution clock and prove every keyword/page uses the same `window_start` and `window_end`.
 - Accept a source timestamp exactly at `window_start`, inside the interval, and exactly at `window_end`.
 - Exclude a timestamp one millisecond older, one millisecond future, missing, and unparseable.
-- Confirm multiple keywords/pages create one Review Queue identity with merged keywords.
-- Run again and confirm allowed discovery fields update without resetting downstream state.
+- Confirm multiple keywords/pages create one `Scraped Jobs` identity with merged keywords.
+- Put separate identities in `Scraped Jobs`, `To Review`, and `To Apply`; run discovery again and confirm only discovery-owned fields update in the current owner without resetting actions, review context, messages, pack state, alerts, or notes.
 - Seed the identity in Applied Jobs, then Archive, and confirm neither is reinserted.
+- Seed a duplicate identity within one store and across two stores and confirm the run fails before append/update writes.
 - Test a recognized empty result and confirm no placeholder row.
 - Test login/challenge/maintenance/unrecognized content and a failed later page. Confirm explicit partial/failure evidence and retention of valid earlier-page rows.
 
@@ -90,8 +92,8 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
   form the fixed batch, the sixth is untouched, and the loop never backfills.
 - Repeat with zero, one, two, three, and four eligible rows. Confirm zero is a
   successful no-op and every available row is processed once.
-- Confirm each selected row gets a distinct just-in-time `_System` claim,
-  Review Queue claim, evaluation, optional generation, guarded commit, and
+- Confirm each selected `Scraped Jobs` row gets a distinct just-in-time `_System` claim,
+  `Scraped Jobs` claim, evaluation, optional generation, guarded commit, and
   exact persistence confirmation before the next row begins.
 - Force one selected row to fail at the provider or persistence boundary and
   confirm the other four continue. The failed row must end in bounded `error`
@@ -102,7 +104,7 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 - Missing/unavailable source: confirm `unavailable`, not `skip`.
 - Provider timeout/rate limit/auth/invalid output: confirm bounded `error` evidence, retries, and no ready status.
 - Unsafe instructions/prompt injection/private-data/auto-action/unsupported claims: confirm no provider path or no ready commit.
-- Select `Approve` and confirm it returns through the same pack/message gates.
+- Select `Approve` in `To Review`, confirm Alerter & Mover first returns it to `Scraped Jobs` with bounded review context, then confirm Generator sends it through the same pack/message gates.
 - Change action/version after a claim and confirm the stale commit is rejected.
 - Fail a retry after a previously valid message and confirm the old message remains stored but the row is not alert-eligible.
 - Exercise one initial rejection and confirm exactly one delayed repair request,
@@ -113,13 +115,15 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 
 ### Actions and moves
 
-- `ready_to_apply`: test only `I Applied` and `Skip`.
-- `review_needed`: test only `Approve` and `Deny`.
+- From `Scraped Jobs`, confirm blank `review_needed` moves to `To Review`, blank `ready_to_apply` moves to `To Apply`, and blank `skip` moves to Archive.
+- In `To Review`, test only `Approve` and `Deny`.
+- In `To Apply`, test only `I Applied` and `Skip`.
 - Paste forged/unsupported values and confirm no mutation.
 - Confirm `I Applied` fails without current pack/message provenance.
 - Confirm automatic `skip`, user `Skip`, and `Deny` use their exact archive reasons.
-- Fail destination write and confirm Review Queue remains.
+- Fail each active and terminal destination write and confirm its source row remains.
 - Succeed destination write, fail source delete, rerun, and confirm one destination row followed by safe deletion.
+- Combine routes from multiple source sheets and confirm the one global cap and per-sheet descending deletion order.
 - Change source state after planning and confirm deletion is rejected.
 - Seed duplicate/ambiguous identities and confirm the run stops.
 - Repeat after successful deletion and confirm no-op.
@@ -131,7 +135,7 @@ In an authorized non-production channel:
 1. Trigger one current safe ready row.
 2. Copy the code-block contents from Slack and compare byte-for-byte with the Sheet’s stored `generated_message`.
 3. Confirm title/company/scores/reason/gaps/instructions/questions/proofs/warnings are present and bounded.
-4. Open Review Queue and source links; confirm they only navigate and do not change state.
+4. Open `To Apply` and source links; confirm they only navigate and do not change state.
 5. Test rejection/rate limit and confirm movement still completes.
 6. Test timeout and confirm terminal ambiguous delivery prevents automatic duplicate send.
 7. Repeat the scheduler and confirm the successful idempotency key is not replayed.
@@ -149,7 +153,7 @@ Only after non-production passes:
 1. Create another new workbook, distinct from old and non-production IDs.
 2. Run setup twice and repeat the exact structure/idempotency/zero-row checks.
 3. Record `verified_empty_before_activation=true`, `setup_runs>=2`, initial row counts of zero, and `old_rows_imported=false`.
-4. Set production `JOB_PIPELINE_SPREADSHEET_ID` and `JOB_PIPELINE_REVIEW_URL`.
+4. Set production `JOB_PIPELINE_SPREADSHEET_ID` and set `JOB_PIPELINE_REVIEW_URL` to the production `To Apply` deep link.
 5. Set `JOB_PIPELINE_OLD_SPREADSHEET_ID` only for validation/rollback comparison; replacement workflows never read it.
 6. Run `npm run validate:deployment` inside the actual production environment.
 
@@ -190,7 +194,7 @@ No step authorizes application submission or deletion of the old workbook.
 
 Observe at least one real schedule boundary for every role. Confirm:
 
-- no out-of-window or duplicate Review Queue jobs;
+- no out-of-window or duplicate jobs across `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`;
 - no duplicate alerts, applied rows, or archive rows;
 - no stuck processing/alert/discovery claim past lease;
 - no unexpected old-workbook modification;
@@ -216,3 +220,5 @@ Because the new pipeline intentionally starts fresh, rollback does not merge new
 ## Evidence status
 
 Repository validation proves deterministic fixtures, generated artifacts, policy consistency, and rejection behavior. Actual workbook backups/provisioning, n8n imports/bindings/activation, a real scheduled boundary, and authorized Slack delivery require external credentials and operator authority. Leave their checkboxes open until captured evidence passes `validate:cutover`.
+
+The in-place migration from the legacy single active queue to the segmented contract is a separate compatibility-unit procedure. Follow `docs/segmented-queue-cutover.md`; do not reuse the historical fresh-workbook evidence as proof of that migration.

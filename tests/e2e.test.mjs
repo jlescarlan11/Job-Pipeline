@@ -52,6 +52,17 @@ const directHtml = await readFile(
 const now = "2026-07-31T12:00:00.000Z";
 const window = createDiscoveryWindow(now);
 const safetyContext = { profile, applicationPolicy, packPolicy };
+
+function businessStores(overrides = {}) {
+  return {
+    "Scraped Jobs": [],
+    "To Review": [],
+    "To Apply": [],
+    "Applied Jobs": [],
+    Archive: [],
+    ...overrides
+  };
+}
 const validMessage = `Hi there,
 
 I reduced API response time from 800 milliseconds to 150 milliseconds by fixing query and schema bottlenecks, and I have shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase. Rent N Roll also gave me experience building marketplace and PayMongo webhook workflows.
@@ -91,9 +102,7 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   );
   const discovery = reconcileDiscovery(
     [page],
-    [],
-    [],
-    [],
+    businessStores(),
     schema,
     now
   );
@@ -150,8 +159,20 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   );
   assert.equal(ready.pipeline_status, "ready_to_apply");
 
+  const readyRoute = planQueueActions(
+    businessStores({ "Scraped Jobs": [ready] }),
+    schema,
+    now,
+    safetyContext
+  );
+  const readyToApply = {
+    ...destinationWrites(readyRoute).to_apply[0],
+    row_number: 2
+  };
+  assert.equal(readyRoute.moves[0].destination, "To Apply");
+
   const alerts = selectFreshAlertCandidates(
-    [ready],
+    [readyToApply],
     schema,
     alertPolicy,
     now,
@@ -159,7 +180,7 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   );
   assert.equal(alerts.candidates.length, 1);
   const sending = markAlertSending(
-    ready,
+    readyToApply,
     alertPolicy,
     "alerter-e2e",
     now
@@ -182,9 +203,7 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   const actioned = { ...sent, user_action: "I Applied", row_number: 2 };
   actioned.state_guard = stateGuard(actioned);
   const movement = planQueueActions(
-    [actioned],
-    [],
-    [],
+    businessStores({ "To Apply": [actioned] }),
     schema,
     now,
     safetyContext
@@ -194,18 +213,17 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   const applied = { ...writes.applied[0], row_number: 2 };
   const confirmation = confirmMoveDeletions(
     movement,
-    [actioned],
-    [applied],
-    [],
+    businessStores({
+      "To Apply": [actioned],
+      "Applied Jobs": [applied]
+    }),
     schema
   );
   assert.equal(confirmation.deletions.length, 1);
 
   const rediscovered = reconcileDiscovery(
     [page],
-    [],
-    [applied],
-    [],
+    businessStores({ "Applied Jobs": [applied] }),
     schema,
     "2026-07-31T13:00:00.000Z"
   );
@@ -240,9 +258,21 @@ test("review approval never bypasses generation and denial archives once", () =>
   };
   const approved = normalizeLegacyRecord(reviewRecord, schema, now);
   approved.state_guard = stateGuard(approved);
-  const approvalPlan = planQueueActions([approved], [], [], schema, now);
-  assert.equal(approvalPlan.moves.length, 0);
-  assert.equal(approvalPlan.generation_requests.length, 1);
+  const approvalPlan = planQueueActions(
+    businessStores({ "To Review": [approved] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(approvalPlan.moves.length, 1);
+  assert.equal(approvalPlan.moves[0].destination, "Scraped Jobs");
+  const returned = destinationWrites(approvalPlan).scraped_jobs[0];
+  assert.equal(returned.user_action, "Approve");
+  assert.equal(returned.review_approved_at, now);
+  assert.equal(
+    selectGeneratorCandidate([returned], schema, runtime, now).length,
+    1
+  );
 
   const denied = {
     ...approved,
@@ -250,16 +280,22 @@ test("review approval never bypasses generation and denial archives once", () =>
     record_version: approved.record_version + 1
   };
   denied.state_guard = stateGuard(denied);
-  const denialPlan = planQueueActions([denied], [], [], schema, now);
+  const denialPlan = planQueueActions(
+    businessStores({ "To Review": [denied] }),
+    schema,
+    now,
+    safetyContext
+  );
   const archive = destinationWrites(denialPlan).archive[0];
   assert.equal(archive.archive_reason, "review_denied");
   assert.equal(archive.decision_reason, denied.decision_reason);
   assert.deepEqual(archive.requirement_gaps, denied.requirement_gaps);
   const confirmed = confirmMoveDeletions(
     denialPlan,
-    [denied],
-    [],
-    [{ ...archive, row_number: 2 }],
+    businessStores({
+      "To Review": [denied],
+      Archive: [{ ...archive, row_number: 2 }]
+    }),
     schema
   );
   assert.equal(confirmed.deletions.length, 1);
@@ -374,8 +410,16 @@ test("a five-job Generator batch isolates one failure and downstream alerts neve
   assert.equal(rows[5].pipeline_status, "new");
   assert.equal(rows[5].processing_token || "", "");
 
+  const routing = planQueueActions(
+    businessStores({ "Scraped Jobs": completed }),
+    schema,
+    now,
+    safetyContext
+  );
+  const toApply = destinationWrites(routing).to_apply;
+  assert.equal(toApply.length, 4);
   const firstAlertRun = selectFreshAlertCandidates(
-    completed,
+    toApply,
     schema,
     alertPolicy,
     now,

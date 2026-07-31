@@ -13,7 +13,7 @@ import {
 } from "./groq-provider.mjs";
 import {
   stateGuard,
-  validateRecordContract
+  validateRecordStoreContract
 } from "./contracts.mjs";
 
 const MAX_REASON_LENGTH = 500;
@@ -60,21 +60,21 @@ export function selectGeneratorCandidate(
   runtime,
   now = new Date().toISOString()
 ) {
-  if (!Array.isArray(rows)) throw new Error("Review Queue rows must be an array");
+  if (!Array.isArray(rows)) throw new Error("Scraped Jobs rows must be an array");
   const nowMs = Date.parse(now);
   if (!Number.isFinite(nowMs)) throw new Error("Generator selection requires valid now");
   const candidates = [];
   const identities = new Set();
   for (const record of rows) {
-    const errors = validateRecordContract(record, schema);
+    const errors = validateRecordStoreContract(record, "Scraped Jobs", schema);
     if (errors.length > 0) {
-      throw new Error(`Generator rejected invalid Review Queue row: ${boundedText(errors.join("; "))}`);
+      throw new Error(`Generator rejected invalid Scraped Jobs row: ${boundedText(errors.join("; "))}`);
     }
     const identity = String(record.canonical_job_id)
       .normalize("NFKC")
       .toLocaleLowerCase("en-US");
     if (identities.has(identity)) {
-      throw new Error("Generator rejected ambiguous duplicate Review Queue identity");
+      throw new Error("Generator rejected ambiguous duplicate Scraped Jobs identity");
     }
     identities.add(identity);
     if (record.processing_token) {
@@ -503,7 +503,7 @@ export function commitGeneratorResult(
     freshRecord.state_guard !== claimedRecord.state_guard ||
     freshRecord.user_action !== claimedRecord.user_action
   ) {
-    throw new Error("Generator commit rejected stale or changed Review Queue state");
+    throw new Error("Generator commit rejected stale or changed Scraped Jobs state");
   }
   const committed = {
     ...freshRecord,
@@ -518,7 +518,11 @@ export function commitGeneratorResult(
     updated_at: now
   };
   committed.state_guard = stateGuard(committed);
-  const errors = validateRecordContract(committed, schema);
+  const errors = validateRecordStoreContract(
+    committed,
+    "Scraped Jobs",
+    schema
+  );
   if (errors.length > 0) {
     throw new Error(`Generator commit failed contract validation: ${boundedText(errors.join("; "))}`);
   }
@@ -577,7 +581,7 @@ export function confirmGeneratorClaimPersisted(
   );
   if (!plannedClaim.canonical_job_id || matches.length !== 1) {
     throw new Error(
-      "Generator claim confirmation failed: Review Queue identity is missing or ambiguous"
+      "Generator claim confirmation failed: Scraped Jobs identity is missing or ambiguous"
     );
   }
   const persisted = matches[0];

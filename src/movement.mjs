@@ -1,6 +1,6 @@
 import {
   stateGuard,
-  validateRecordContract
+  validateRecordStoreContract
 } from "./contracts.mjs";
 import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 
@@ -33,22 +33,15 @@ function indexStore(rows, name) {
   return index;
 }
 
-function completeCopy(expected, actual, schema) {
-  if (!actual) return false;
-  return schema.fields.every((field) => {
-    const expectedValue = expected[field];
-    if (
-      expectedValue === "" ||
-      expectedValue === undefined ||
-      expectedValue === null
-    ) {
-      return true;
-    }
-    return JSON.stringify(actual[field]) === JSON.stringify(expectedValue);
-  });
-}
-
 function destinationConflict(actual, destination, reason) {
+  if (
+    destination === "Scraped Jobs" &&
+    (actual.pipeline_status !== "review_needed" ||
+      actual.user_action !== "Approve" ||
+      actual.processing_token)
+  ) {
+    return true;
+  }
   if (
     destination === "Applied Jobs" &&
     (actual.archive_reason || actual.archived_at)
@@ -62,11 +55,23 @@ function destinationConflict(actual, destination, reason) {
   ) {
     return true;
   }
+  if (
+    ["Scraped Jobs", "To Review", "To Apply"].includes(destination) &&
+    (actual.applied_at || actual.archived_at || actual.archive_reason)
+  ) {
+    return true;
+  }
   return false;
 }
 
 function validExistingDestination(source, actual, destination, reason, schema) {
   if (!actual || destinationConflict(actual, destination, reason)) return false;
+  if (validateRecordStoreContract(actual, destination, schema).length > 0) {
+    return false;
+  }
+  if (destination === "Scraped Jobs" && actual.user_action !== "Approve") {
+    return false;
+  }
   if (
     destination === "Applied Jobs" &&
     !Number.isFinite(Date.parse(actual.applied_at || ""))
@@ -89,6 +94,15 @@ function validExistingDestination(source, actual, destination, reason, schema) {
     "processing_token",
     "processing_started_at",
     "alert_claim_token",
+    "alert_status",
+    "alert_idempotency_key",
+    "alert_attempt_count",
+    "alert_last_attempt_at",
+    "alert_next_retry_at",
+    "alert_sent_at",
+    "alert_provider_reference",
+    "alert_error_category",
+    "alert_error_summary",
     "applied_at",
     "archived_at",
     "archive_reason",
@@ -116,7 +130,10 @@ function destinationRecord(source, destination, reason, now, existing) {
   const record = {
     ...source,
     row_number: undefined,
-    user_action: "",
+    user_action:
+      destination === "Scraped Jobs"
+        ? "Approve"
+        : existing?.user_action || "",
     processing_stage: "",
     processing_token: "",
     processing_started_at: "",
@@ -140,21 +157,78 @@ function destinationRecord(source, destination, reason, now, existing) {
     record.outcome_at = existing
       ? existing.outcome_at || ""
       : source.outcome_at || "";
-  } else {
+  } else if (destination === "Archive") {
     record.archived_at = existing?.archived_at || source.archived_at || now;
     record.archive_reason = reason;
     record.applied_at = "";
     record.notes = existing ? existing.notes || "" : source.notes || "";
+  } else {
+    record.applied_at = "";
+    record.archived_at = "";
+    record.archive_reason = "";
+    record.notes = existing ? existing.notes || "" : source.notes || "";
+    if (destination === "Scraped Jobs") {
+      record.review_approved_at =
+        existing?.review_approved_at || source.review_approved_at || now;
+      record.review_approval_note = sanitize(
+        existing?.review_approval_note ||
+          source.review_approval_note ||
+          source.notes,
+        1000
+      );
+    }
+  }
+  if (existing) {
+    for (const field of [
+      "user_action",
+      "notes",
+      "alert_status",
+      "alert_idempotency_key",
+      "alert_claim_token",
+      "alert_attempt_count",
+      "alert_last_attempt_at",
+      "alert_next_retry_at",
+      "alert_sent_at",
+      "alert_provider_reference",
+      "alert_error_category",
+      "alert_error_summary",
+      "outcome",
+      "outcome_recorded_value",
+      "outcome_at"
+    ]) {
+      if (existing[field] !== undefined && existing[field] !== null) {
+        record[field] = existing[field];
+      }
+    }
   }
   record.state_guard = stateGuard(record);
   return record;
 }
 
-function classifyQueueRow(record, messageSafetyContext) {
-  if (record.pipeline_status === "skip" && !record.user_action) {
+function classifyQueueRow(sourceSheet, record, messageSafetyContext) {
+  if (
+    sourceSheet === "Scraped Jobs" &&
+    record.pipeline_status === "review_needed" &&
+    !record.user_action
+  ) {
+    return { destination: "To Review", reason: "review_needed" };
+  }
+  if (
+    sourceSheet === "Scraped Jobs" &&
+    record.pipeline_status === "ready_to_apply" &&
+    !record.user_action
+  ) {
+    return { destination: "To Apply", reason: "ready_to_apply" };
+  }
+  if (
+    sourceSheet === "Scraped Jobs" &&
+    record.pipeline_status === "skip" &&
+    !record.user_action
+  ) {
     return { destination: "Archive", reason: "automatic_skip" };
   }
   if (
+    sourceSheet === "To Apply" &&
     record.pipeline_status === "ready_to_apply" &&
     record.user_action === "I Applied"
   ) {
@@ -172,84 +246,137 @@ function classifyQueueRow(record, messageSafetyContext) {
     return { destination: "Applied Jobs", reason: "user_applied" };
   }
   if (
+    sourceSheet === "To Apply" &&
     record.pipeline_status === "ready_to_apply" &&
     record.user_action === "Skip"
   ) {
     return { destination: "Archive", reason: "user_skip" };
   }
   if (
+    sourceSheet === "To Review" &&
     record.pipeline_status === "review_needed" &&
     record.user_action === "Deny"
   ) {
     return { destination: "Archive", reason: "review_denied" };
   }
   if (
+    sourceSheet === "To Review" &&
     record.pipeline_status === "review_needed" &&
     record.user_action === "Approve"
   ) {
-    return { generationRequest: true };
+    return { destination: "Scraped Jobs", reason: "review_approved" };
   }
   return null;
 }
 
 export function planQueueActions(
-  reviewRows,
-  appliedRows,
-  archiveRows,
+  stores,
   schema,
   now = new Date().toISOString(),
   messageSafetyContext,
   { movementPerRunCap = Number.POSITIVE_INFINITY } = {}
 ) {
-  const applied = indexStore(appliedRows, "Applied Jobs");
-  const archive = indexStore(archiveRows, "Archive");
-  indexStore(reviewRows, "Review Queue");
-
+  const expectedStores = schema?.business_stores ?? [];
+  if (
+    expectedStores.length !== 5 ||
+    expectedStores.some((store) => !Array.isArray(stores?.[store]))
+  ) {
+    throw new Error(
+      "Movement requires Scraped Jobs, To Review, To Apply, Applied Jobs, and Archive rows"
+    );
+  }
+  const indexes = Object.fromEntries(
+    expectedStores.map((store) => [store, indexStore(stores[store], store)])
+  );
+  const canonicalUrlOwners = new Map();
+  for (const store of expectedStores) {
+    for (const row of stores[store]) {
+      const urlKey = identityKey(row?.canonical_url);
+      const identity = identityKey(row?.canonical_job_id);
+      const previous = canonicalUrlOwners.get(urlKey);
+      if (previous && previous.identity !== identity) {
+        throw new Error(
+          `Movement contains an ambiguous canonical URL in ${previous.store} and ${store}`
+        );
+      }
+      canonicalUrlOwners.set(urlKey, { identity, store });
+    }
+  }
   const moves = [];
-  const generationRequests = [];
   const rejected = [];
-  for (const source of reviewRows) {
-    const contractErrors = validateRecordContract(source, schema);
-    if (contractErrors.length > 0) {
-      rejected.push({
-        canonical_job_id: String(source?.canonical_job_id || ""),
-        reason: "invalid_source",
-        summary: sanitize(contractErrors.join("; "))
-      });
-      continue;
+  const candidates = [];
+  const sourceOrder = ["Scraped Jobs", "To Review", "To Apply"];
+  for (const sourceSheet of sourceOrder) {
+    for (const source of stores[sourceSheet]) {
+      const contractErrors = validateRecordStoreContract(
+        source,
+        sourceSheet,
+        schema
+      );
+      if (contractErrors.length > 0) {
+        rejected.push({
+          canonical_job_id: String(source?.canonical_job_id || ""),
+          source_sheet: sourceSheet,
+          reason: "invalid_source",
+          summary: sanitize(contractErrors.join("; "))
+        });
+        continue;
+      }
+      let classification;
+      try {
+        classification = classifyQueueRow(
+          sourceSheet,
+          source,
+          messageSafetyContext
+        );
+      } catch (error) {
+        rejected.push({
+          canonical_job_id: String(source?.canonical_job_id || ""),
+          source_sheet: sourceSheet,
+          reason: "unsafe_action",
+          summary: sanitize(error?.message || error)
+        });
+        continue;
+      }
+      if (classification) {
+        candidates.push({ sourceSheet, source, classification });
+      }
     }
-    let classification;
-    try {
-      classification = classifyQueueRow(source, messageSafetyContext);
-    } catch (error) {
-      rejected.push({
-        canonical_job_id: String(source?.canonical_job_id || ""),
-        reason: "unsafe_action",
-        summary: sanitize(error?.message || error)
-      });
-      continue;
-    }
-    if (!classification) continue;
-    if (classification.generationRequest) {
-      generationRequests.push({
-        canonical_job_id: source.canonical_job_id,
-        source_row_number: source.row_number,
-        source_state_guard: source.state_guard,
-        source_record_version: source.record_version
-      });
-      continue;
-    }
+  }
+  candidates.sort((left, right) => {
+    const timestamp = (entry) => {
+      const parsed = Date.parse(
+        entry.source.updated_at || entry.source.created_at || ""
+      );
+      return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+    };
+    return (
+      timestamp(left) - timestamp(right) ||
+      sourceOrder.indexOf(left.sourceSheet) -
+        sourceOrder.indexOf(right.sourceSheet) ||
+      String(left.source.canonical_job_id).localeCompare(
+        String(right.source.canonical_job_id)
+      )
+    );
+  });
 
+  for (const { sourceSheet, source, classification } of candidates) {
     const key = identityKey(source.canonical_job_id);
-    const inApplied = applied.get(key);
-    const inArchive = archive.get(key);
-    const existing =
-      classification.destination === "Applied Jobs" ? inApplied : inArchive;
-    const conflicting = classification.destination === "Applied Jobs"
-      ? inArchive
-      : inApplied;
-    if (conflicting) {
-      throw new Error("Terminal stores contain a conflicting canonical identity");
+    const existing = indexes[classification.destination].get(key);
+    const conflictingStores = expectedStores.filter(
+      (store) =>
+        store !== sourceSheet &&
+        store !== classification.destination &&
+        indexes[store].has(key)
+    );
+    if (conflictingStores.length > 0) {
+      rejected.push({
+        canonical_job_id: source.canonical_job_id,
+        source_sheet: sourceSheet,
+        reason: "identity_conflict",
+        summary: `Identity already exists in ${conflictingStores.join(", ")}`
+      });
+      continue;
     }
     if (
       existing &&
@@ -261,6 +388,7 @@ export function planQueueActions(
     ) {
       rejected.push({
         canonical_job_id: source.canonical_job_id,
+        source_sheet: sourceSheet,
         reason: "destination_conflict",
         summary: "Existing destination record has conflicting terminal state"
       });
@@ -269,6 +397,7 @@ export function planQueueActions(
     if (moves.length >= movementPerRunCap) {
       rejected.push({
         canonical_job_id: source.canonical_job_id,
+        source_sheet: sourceSheet,
         reason: "movement_cap_reached",
         summary: "Movement deferred to a later bounded run"
       });
@@ -290,10 +419,15 @@ export function planQueueActions(
           now,
           existing
         );
-    const destinationErrors = validateRecordContract(destination, schema);
+    const destinationErrors = validateRecordStoreContract(
+      destination,
+      classification.destination,
+      schema
+    );
     if (destinationErrors.length > 0) {
       rejected.push({
         canonical_job_id: source.canonical_job_id,
+        source_sheet: sourceSheet,
         reason: "invalid_destination",
         summary: sanitize(destinationErrors.join("; "))
       });
@@ -301,25 +435,45 @@ export function planQueueActions(
     }
     moves.push({
       canonical_job_id: source.canonical_job_id,
+      source_sheet: sourceSheet,
       source_row_number: source.row_number,
       source_state_guard: source.state_guard,
       source_record_version: source.record_version,
       source_status: source.pipeline_status,
       source_action: source.user_action,
+      source_notes: source.notes || "",
       destination: classification.destination,
+      route_reason: classification.reason,
+      claim_scope: `${sourceSheet}:${classification.destination}`,
       archive_reason:
         classification.destination === "Archive"
           ? classification.reason
           : "",
       write_required: !existingComplete,
+      source_record: { ...source },
       destination_record: destination
     });
   }
-  return { moves, generation_requests: generationRequests, rejected };
+  return { moves, rejected };
 }
 
 export function destinationWrites(plans) {
   return {
+    scraped_jobs: plans.moves
+      .filter(
+        (plan) => plan.destination === "Scraped Jobs" && plan.write_required
+      )
+      .map((plan) => ({ ...plan.destination_record })),
+    to_review: plans.moves
+      .filter(
+        (plan) => plan.destination === "To Review" && plan.write_required
+      )
+      .map((plan) => ({ ...plan.destination_record })),
+    to_apply: plans.moves
+      .filter(
+        (plan) => plan.destination === "To Apply" && plan.write_required
+      )
+      .map((plan) => ({ ...plan.destination_record })),
     applied: plans.moves
       .filter(
         (plan) => plan.destination === "Applied Jobs" && plan.write_required
@@ -333,20 +487,25 @@ export function destinationWrites(plans) {
 
 export function confirmMoveDeletions(
   plans,
-  freshReviewRows,
-  freshAppliedRows,
-  freshArchiveRows,
+  freshStores,
   schema
 ) {
-  const review = indexStore(freshReviewRows, "Review Queue");
-  const applied = indexStore(freshAppliedRows, "Applied Jobs");
-  const archive = indexStore(freshArchiveRows, "Archive");
+  const expectedStores = schema?.business_stores ?? [];
+  if (expectedStores.some((store) => !Array.isArray(freshStores?.[store]))) {
+    throw new Error("Movement confirmation requires every business store");
+  }
+  const indexes = Object.fromEntries(
+    expectedStores.map((store) => [
+      store,
+      indexStore(freshStores[store], store)
+    ])
+  );
   const deletions = [];
   const rejected = [];
 
   for (const plan of plans.moves) {
     const key = identityKey(plan.canonical_job_id);
-    const source = review.get(key);
+    const source = indexes[plan.source_sheet]?.get(key);
     if (!source) {
       // A repeated scheduler run after a successful delete is a no-op.
       continue;
@@ -357,7 +516,7 @@ export function confirmMoveDeletions(
       source.record_version === plan.source_record_version &&
       source.pipeline_status === plan.source_status &&
       source.user_action === plan.source_action &&
-      source.notes === plan.destination_record.notes;
+      String(source.notes || "") === String(plan.source_notes || "");
     if (!sourceUnchanged) {
       rejected.push({
         canonical_job_id: plan.canonical_job_id,
@@ -365,11 +524,16 @@ export function confirmMoveDeletions(
       });
       continue;
     }
-    const destination =
-      plan.destination === "Applied Jobs"
-        ? applied.get(key)
-        : archive.get(key);
-    if (!completeCopy(plan.destination_record, destination, schema)) {
+    const destination = indexes[plan.destination]?.get(key);
+    if (
+      !validExistingDestination(
+        plan.source_record,
+        destination,
+        plan.destination,
+        plan.route_reason,
+        schema
+      )
+    ) {
       rejected.push({
         canonical_job_id: plan.canonical_job_id,
         reason: "destination_unconfirmed"
@@ -379,11 +543,16 @@ export function confirmMoveDeletions(
     deletions.push({
       row_number: source.row_number,
       canonical_job_id: source.canonical_job_id,
+      source_sheet: plan.source_sheet,
       destination: plan.destination
     });
   }
 
-  deletions.sort((left, right) => right.row_number - left.row_number);
+  deletions.sort(
+    (left, right) =>
+      left.source_sheet.localeCompare(right.source_sheet) ||
+      right.row_number - left.row_number
+  );
   return { deletions, rejected };
 }
 
@@ -409,7 +578,11 @@ export function applyOutcomeUpdate(
     updated_at: now
   };
   updated.state_guard = stateGuard(updated);
-  const errors = validateRecordContract(updated, schema);
+  const errors = validateRecordStoreContract(
+    updated,
+    "Applied Jobs",
+    schema
+  );
   if (errors.length > 0) {
     throw new Error(`Outcome update failed contract validation: ${sanitize(errors.join("; "))}`);
   }
@@ -425,7 +598,11 @@ export function planOutcomeUpdates(
   const updates = [];
   const rejected = [];
   for (const record of appliedRows) {
-    const errors = validateRecordContract(record, schema);
+    const errors = validateRecordStoreContract(
+      record,
+      "Applied Jobs",
+      schema
+    );
     if (errors.length > 0) {
       rejected.push({
         canonical_job_id: String(record?.canonical_job_id || ""),

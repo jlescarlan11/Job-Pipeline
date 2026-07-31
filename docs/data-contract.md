@@ -1,12 +1,14 @@
 # Simplified pipeline data contract
 
-The machine-readable source is `config/pipeline-schema.json` (schema version 2). This contract applies only to records created in the fresh workbook. No old-workbook row is imported.
+The machine-readable source is `config/pipeline-schema.json` (schema version 3, storage contract `2026-07-31-segmented-queues-v3`). This contract applies to records created in the fresh workbook and to legacy `Review Queue` rows accepted by the explicit segmented migration planner. The retained old workbook is never imported.
 
 ## Authoritative stores
 
 | Store | Owns | Leaves the store when |
 | --- | --- | --- |
-| `Review Queue` | Every active discovered listing | A validated operator action or automatic `skip` is copied and confirmed in a terminal store |
+| `Scraped Jobs` | New, processing, error, unavailable, and generator result records before focused routing | A blank-action result is copied and confirmed in its focused owner, or an approved review is later reprocessed |
+| `To Review` | `review_needed` records awaiting `Approve` or `Deny` | A validated action is copied and confirmed in Scraped Jobs or Archive |
+| `To Apply` | `ready_to_apply` records awaiting manual `I Applied` or `Skip` | A validated action is copied and confirmed in Applied Jobs or Archive |
 | `Applied Jobs` | Listings the user explicitly marked `I Applied` | Never moved automatically |
 | `Archive` | Automatic skips, user skips, and review denials | Never reactivated automatically |
 | `_System` (hidden) | Short-lived concurrency claims | Claims expire and are pruned |
@@ -28,15 +30,17 @@ Operational conditions are separate from those recommendations:
 - `error` — retryable or exhausted technical work, with categorized bounded evidence.
 - `unavailable` — the source listing cannot currently provide the input needed to evaluate it.
 
-`user_action` is user-owned and never inferred:
+`user_action` is user-owned and never inferred. Validity is the intersection of sheet ownership and status:
 
-| Current status | Accepted actions |
+| Store/status | Accepted actions |
 | --- | --- |
-| `ready_to_apply` | blank, `I Applied`, `Skip` |
-| `review_needed` | blank, `Approve`, `Deny` |
-| every other status | blank only |
+| Scraped Jobs / any owned operational or result status | blank; `Approve` is retained only for an approved `review_needed` row returned for gated reconsideration |
+| To Review / `review_needed` | blank, `Approve`, `Deny` |
+| To Apply / `ready_to_apply` | blank, `I Applied`, `Skip` |
+| Applied Jobs / `ready_to_apply` | blank |
+| Archive / `skip`, `review_needed`, or `ready_to_apply` | blank |
 
-Unsupported status/action pairs are invalid even if a Sheet validation rule is bypassed. `Approve` returns a review-needed row to controlled generation; it does not waive pack or message validation. `I Applied` records a fact after the user submits manually; no workflow opens or submits an application form.
+Unsupported store/status/action combinations are invalid even if a Sheet validation rule is bypassed. `Approve` returns a review-needed row to controlled generation; it does not waive pack or message validation. `I Applied` records a fact after the user submits manually; no workflow opens or submits an application form. Terminal movement clears `user_action` after preserving the appropriate audit timestamp/reason.
 
 Archive reasons are exact and machine-readable: `automatic_skip` for a system
 skip, `user_skip` for the user’s Skip action, and `review_denied` for Deny.
@@ -47,7 +51,7 @@ The active record retains source timestamps and keyword provenance; deterministi
 
 Errors and operational logs use bounded categories and sanitized summaries. They must not contain credentials, authorization headers, full private profile payloads, Slack webhook URLs, or unnecessary full job/message content.
 
-`record_version`, `state_guard`, persisted processing/alert claim tokens, and expiring append-winner `_System` claims prevent a stale worker from overwriting a newer user action or duplicating destination/Slack work. A terminal move always passes the shared persisted-message gate for `I Applied`, upserts by canonical identity, confirms the destination copy, and only then deletes unchanged Review Queue state.
+`record_version`, `state_guard`, persisted processing/alert claim tokens, and expiring append-winner `_System` claims prevent a stale worker from overwriting a newer user action or duplicating destination/Slack work. Every route upserts by canonical identity, confirms all planned destination fields, and only then deletes unchanged source state. `I Applied` also passes the shared persisted-message gate. Partial active and terminal destinations are repaired without overwriting fields owned by their destination.
 
 An `Approve` action snapshots `review_approved_at` and a bounded `review_approval_note`; that note remains explicitly untrusted prompt context and never becomes candidate evidence. Applied outcomes use `outcome_recorded_value` to distinguish a new operator edit from the last workflow-recorded value without changing the original `applied_at`, message, or notes.
 

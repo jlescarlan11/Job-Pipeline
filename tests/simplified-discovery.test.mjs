@@ -73,6 +73,17 @@ function stored(id, overrides = {}) {
   );
 }
 
+function businessStores(overrides = {}) {
+  return {
+    "Scraped Jobs": [],
+    "To Review": [],
+    "To Apply": [],
+    "Applied Jobs": [],
+    Archive: [],
+    ...overrides
+  };
+}
+
 test("search plan contains only fixed operational network bounds", () => {
   assert.deepEqual(validateSearchPlan(plan), []);
   assert.equal(plan.window_hours, 24);
@@ -226,7 +237,7 @@ test("pagination retains the captured window and rejects window drift", () => {
   );
 });
 
-test("multi-keyword results become one new Review Queue record", () => {
+test("multi-keyword results become one new Scraped Jobs record", () => {
   const window = createDiscoveryWindow("2026-07-31T10:30:00.000Z");
   const first = parseSearchResults(
     card(200, "React Developer", "2026-07-31T09:00:00.000Z"),
@@ -242,9 +253,7 @@ test("multi-keyword results become one new Review Queue record", () => {
   );
   const result = reconcileDiscovery(
     [first, second],
-    [],
-    [],
-    [],
+    businessStores(),
     schema,
     window.window_end
   );
@@ -258,38 +267,74 @@ test("multi-keyword results become one new Review Queue record", () => {
   assert.equal(result.new_jobs[0].discovered_at, window.window_end);
 });
 
-test("rediscovery updates provenance without resetting downstream state", () => {
+test("rediscovery updates each active owner without resetting downstream state", () => {
   const window = createDiscoveryWindow("2026-07-31T10:30:00.000Z");
-  const existing = stored(201, {
-    pipeline_status: "ready_to_apply",
-    user_action: "I Applied",
-    generated_message: "Preserve this safe message",
-    attempt_count: 2,
-    alert_status: "sent",
-    notes: "reviewer note"
-  });
   const page = parseSearchResults(
-    card(201, "React Developer", "2026-07-31T09:00:00.000Z"),
+    [
+      card(201, "New React Developer", "2026-07-31T09:00:00.000Z"),
+      card(211, "Review React Developer", "2026-07-31T09:00:00.000Z"),
+      card(221, "Ready React Developer", "2026-07-31T09:00:00.000Z")
+    ].join(""),
     request(window)
   );
   const result = reconcileDiscovery(
     [page],
-    [{ ...existing, row_number: 7 }],
-    [],
-    [],
+    businessStores({
+      "Scraped Jobs": [
+        { ...stored(201, { notes: "intake note" }), row_number: 7 }
+      ],
+      "To Review": [
+        {
+          ...stored(211, {
+            pipeline_status: "review_needed",
+            user_action: "Approve",
+            decision_reason: "Needs a decision",
+            required_input: "Confirm scope",
+            review_approved_at: window.window_end,
+            review_approval_note: "keep approval context",
+            notes: "reviewer note"
+          }),
+          row_number: 8
+        }
+      ],
+      "To Apply": [
+        {
+          ...stored(221, {
+            pipeline_status: "ready_to_apply",
+            user_action: "I Applied",
+            generated_message: "Preserve this safe message",
+            application_pack_status: "ready",
+            alert_status: "sent",
+            notes: "application note"
+          }),
+          row_number: 9
+        }
+      ]
+    }),
     schema,
     window.window_end
   );
   assert.equal(result.new_jobs.length, 0);
-  assert.equal(result.review_updates.length, 1);
-  const updated = result.review_updates[0];
-  assert.equal(updated.pipeline_status, "ready_to_apply");
-  assert.equal(updated.user_action, "I Applied");
-  assert.equal(updated.generated_message, "Preserve this safe message");
-  assert.equal(updated.attempt_count, 2);
-  assert.equal(updated.alert_status, "sent");
-  assert.equal(updated.notes, "reviewer note");
-  assert.equal(updated.record_version, 1);
+  assert.equal(result.active_updates.length, 3);
+  const reviewUpdate = result.active_updates.find(
+    (record) => record.owner_sheet === "To Review"
+  );
+  assert.equal(reviewUpdate.pipeline_status, "review_needed");
+  assert.equal(reviewUpdate.user_action, "Approve");
+  assert.equal(reviewUpdate.decision_reason, "Needs a decision");
+  assert.equal(reviewUpdate.required_input, "Confirm scope");
+  assert.equal(reviewUpdate.review_approval_note, "keep approval context");
+  assert.equal(reviewUpdate.notes, "reviewer note");
+  const applyUpdate = result.active_updates.find(
+    (record) => record.owner_sheet === "To Apply"
+  );
+  assert.equal(applyUpdate.pipeline_status, "ready_to_apply");
+  assert.equal(applyUpdate.user_action, "I Applied");
+  assert.equal(applyUpdate.generated_message, "Preserve this safe message");
+  assert.equal(applyUpdate.application_pack_status, "ready");
+  assert.equal(applyUpdate.alert_status, "sent");
+  assert.equal(applyUpdate.notes, "application note");
+  assert.ok(result.active_updates.every((record) => record.record_version === 1));
 });
 
 test("Applied Jobs and Archive identities suppress rediscovery", () => {
@@ -303,9 +348,22 @@ test("Applied Jobs and Archive identities suppress rediscovery", () => {
   ];
   const result = reconcileDiscovery(
     pages,
-    [],
-    [stored(202, { applied_at: window.window_end })],
-    [stored(203, { pipeline_status: "skip", archived_at: window.window_end })],
+    businessStores({
+      "Applied Jobs": [
+        stored(202, {
+          pipeline_status: "ready_to_apply",
+          user_action: "",
+          applied_at: window.window_end
+        })
+      ],
+      Archive: [
+        stored(203, {
+          pipeline_status: "skip",
+          archived_at: window.window_end,
+          archive_reason: "automatic_skip"
+        })
+      ]
+    }),
     schema,
     window.window_end
   );
@@ -351,9 +409,7 @@ test("failed later page retains earlier valid results and reports partial covera
   };
   const result = reconcileDiscovery(
     [first, failed],
-    [],
-    [],
-    [],
+    businessStores(),
     schema,
     window.window_end
   );
@@ -378,12 +434,39 @@ test("cross-store ambiguity stops discovery before writes", () => {
     () =>
       reconcileDiscovery(
         [],
-        [duplicate],
-        [{ ...duplicate }],
-        [],
+        businessStores({
+          "Scraped Jobs": [duplicate, { ...duplicate }]
+        }),
         schema,
         "2026-07-31T10:30:00.000Z"
       ),
     /identity check failed/
+  );
+});
+
+test("distinct discovered identities cannot alias the same canonical URL", () => {
+  const first = stored(501, {
+    matched_keywords: ["react developer"]
+  });
+  const second = stored(502, {
+    canonical_url: first.canonical_url,
+    matched_keywords: ["web developer"]
+  });
+  assert.throws(
+    () =>
+      reconcileDiscovery(
+        [
+          {
+            ok: true,
+            jobs: [first, second],
+            malformed: [],
+            excluded: []
+          }
+        ],
+        businessStores(),
+        schema,
+        "2026-07-31T10:30:00.000Z"
+      ),
+    /ambiguous canonical URL identity/
   );
 });

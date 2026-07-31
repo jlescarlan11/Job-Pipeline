@@ -69,8 +69,12 @@ const groqErrors = [
 if (groqErrors.length > 0) {
   throw new Error(`Invalid Groq provider/runtime configuration:\n- ${groqErrors.join("\n- ")}`);
 }
-if (review.sheets.review_queue.name !== "Review Queue") {
-  throw new Error("Review Queue must be the authoritative active sheet");
+if (
+  review.sheets.scraped_jobs.name !== "Scraped Jobs" ||
+  review.sheets.to_review.name !== "To Review" ||
+  review.sheets.to_apply.name !== "To Apply"
+) {
+  throw new Error("Segmented active sheet configuration is invalid");
 }
 
 function stripModuleSyntax(source) {
@@ -191,7 +195,7 @@ function scheduleNode(name, position, config) {
   };
 }
 
-function codeNode(name, position, jsCode, mode) {
+function codeNode(name, position, jsCode, mode, explicitId) {
   return {
     parameters: {
       ...(mode ? { mode } : {}),
@@ -200,12 +204,12 @@ function codeNode(name, position, jsCode, mode) {
     type: "n8n-nodes-base.code",
     typeVersion: 2,
     position,
-    id: id(),
+    id: explicitId || id(),
     name
   };
 }
 
-function ifNode(name, position, expression) {
+function ifNode(name, position, expression, explicitId) {
   return {
     parameters: {
       conditions: {
@@ -234,7 +238,7 @@ function ifNode(name, position, expression) {
     type: "n8n-nodes-base.if",
     typeVersion: 2.3,
     position,
-    id: id(),
+    id: explicitId || id(),
     name
   };
 }
@@ -268,7 +272,7 @@ function loopOverItemsNode(name, position, batchSize = 1) {
   };
 }
 
-function aggregateNode(name, position, destinationFieldName) {
+function aggregateNode(name, position, destinationFieldName, explicitId) {
   return {
     parameters: {
       aggregate: "aggregateAllItemData",
@@ -278,7 +282,7 @@ function aggregateNode(name, position, destinationFieldName) {
     type: "n8n-nodes-base.aggregate",
     typeVersion: 1,
     position,
-    id: id(),
+    id: explicitId || id(),
     name
   };
 }
@@ -430,7 +434,7 @@ function writeSheet(
   operation,
   fields,
   matchingColumns = [],
-  { continueOnError = false } = {}
+  { continueOnError = false, explicitId } = {}
 ) {
   const value = Object.fromEntries(
     fields.map((field) => [field, sheetExpression(field)])
@@ -456,7 +460,7 @@ function writeSheet(
     type: "n8n-nodes-base.googleSheets",
     typeVersion: 4.7,
     position,
-    id: id(),
+    id: explicitId || id(),
     name,
     ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
@@ -466,7 +470,7 @@ function deleteRowsNode(
   name,
   position,
   sheet,
-  { continueOnError = false } = {}
+  { continueOnError = false, explicitId } = {}
 ) {
   return {
     parameters: {
@@ -479,7 +483,7 @@ function deleteRowsNode(
     type: "n8n-nodes-base.googleSheets",
     typeVersion: 4.7,
     position,
-    id: id(),
+    id: explicitId || id(),
     name,
     ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
@@ -503,7 +507,9 @@ function workflowSettings(config) {
 }
 
 function buildScraper() {
-  const queue = review.sheets.review_queue.name;
+  const scraped = review.sheets.scraped_jobs.name;
+  const toReview = review.sheets.to_review.name;
+  const toApply = review.sheets.to_apply.name;
   const applied = review.sheets.applied_jobs.name;
   const archive = review.sheets.archive.name;
   const keywords = review.sheets.search_keywords.name;
@@ -591,8 +597,26 @@ return { json: advanceSearchPagination(previous, page, SEARCH_POLICY) };`,
       searchPlan.request_interval_ms
     ),
     aggregateNode("Aggregate Search Pages", [-800, 300], "search_states"),
-    readSheet("Get Review Queue", [-600, 300], queue),
-    aggregateNode("Aggregate Review Queue", [-400, 300], "review_rows"),
+    readSheet("Get Scraped Jobs", [-600, 300], scraped),
+    aggregateNode("Aggregate Scraped Jobs", [-400, 300], "scraped_rows"),
+    readSheet("Get To Review", [-200, 460], toReview, {
+      explicitId: "f3a10000-0000-4000-8000-000000000001"
+    }),
+    aggregateNode(
+      "Aggregate To Review",
+      [0, 460],
+      "to_review_rows",
+      "f3a10000-0000-4000-8000-000000000002"
+    ),
+    readSheet("Get To Apply", [200, 460], toApply, {
+      explicitId: "f3a10000-0000-4000-8000-000000000003"
+    }),
+    aggregateNode(
+      "Aggregate To Apply",
+      [400, 460],
+      "to_apply_rows",
+      "f3a10000-0000-4000-8000-000000000004"
+    ),
     readSheet("Get Applied Jobs", [-200, 300], applied),
     aggregateNode("Aggregate Applied Jobs", [0, 300], "applied_rows"),
     readSheet("Get Archive", [200, 300], archive),
@@ -612,11 +636,19 @@ const KEYWORD_SNAPSHOT = $('Capture Fixed Window and Keywords').all()
 const states = $('Aggregate Search Pages').first().json.search_states || [];
 const pageResults = states.flatMap((state) => state.page_results || []);
 const nonempty = (row) => row && Object.keys(row).length;
-const reviewRows = ($('Aggregate Review Queue').first().json.review_rows || []).filter(nonempty);
+const scrapedRows = ($('Aggregate Scraped Jobs').first().json.scraped_rows || []).filter(nonempty);
+const toReviewRows = ($('Aggregate To Review').first().json.to_review_rows || []).filter(nonempty);
+const toApplyRows = ($('Aggregate To Apply').first().json.to_apply_rows || []).filter(nonempty);
 const appliedRows = ($('Aggregate Applied Jobs').first().json.applied_rows || []).filter(nonempty);
 const archiveRows = ($('Aggregate Archive').first().json.archive_rows || []).filter(nonempty);
 const now = states[0]?.window_end || new Date().toISOString();
-const reconciliation = reconcileDiscovery(pageResults, reviewRows, appliedRows, archiveRows, SCHEMA, now);
+const reconciliation = reconcileDiscovery(pageResults, {
+  'Scraped Jobs': scrapedRows,
+  'To Review': toReviewRows,
+  'To Apply': toApplyRows,
+  'Applied Jobs': appliedRows,
+  Archive: archiveRows
+}, SCHEMA, now);
 const coverage = summarizeCoverage(pageResults, SEARCH_POLICY, KEYWORD_SNAPSHOT);
 console.log(JSON.stringify({
   event: 'discovery_run',
@@ -624,7 +656,7 @@ console.log(JSON.stringify({
   window_end: states[0]?.window_end,
   coverage_status: coverage.status,
   new_jobs: reconciliation.new_jobs.length,
-  review_updates: reconciliation.review_updates.length,
+  rediscovery_updates: reconciliation.active_updates.length,
   exclusions: reconciliation.exclusion_counts,
   malformed_count: reconciliation.malformed_count
 }));
@@ -701,26 +733,68 @@ return proposed
   });`
     ),
     writeSheet(
-      "Append New Review Queue Rows",
+      "Append New Scraped Jobs Rows",
       [2000, 160],
-      queue,
+      scraped,
       "append",
       schema.fields
     ),
     codeNode(
-      "Emit Review Queue Seen Updates",
+      "Emit Scraped Jobs Seen Updates",
       [800, 440],
-      `const updates = $('Reconcile Discovery').first().json.review_updates || [];
-return updates.filter((record) => Number.isInteger(Number(record.row_number)))
+      `const updates = $('Reconcile Discovery').first().json.active_updates || [];
+return updates.filter((record) =>
+  record.owner_sheet === 'Scraped Jobs' &&
+  Number.isInteger(Number(record.row_number)))
   .map((record) => ({ json: record }));`
     ),
     writeSheet(
-      "Update Review Queue Seen",
+      "Update Scraped Jobs Seen",
       [1000, 440],
-      queue,
+      scraped,
       "update",
       discoveryUpdateFields,
       ["canonical_job_id"]
+    ),
+    codeNode(
+      "Emit To Review Seen Updates",
+      [1200, 520],
+      `const updates = $('Reconcile Discovery').first().json.active_updates || [];
+return updates.filter((record) =>
+  record.owner_sheet === 'To Review' &&
+  Number.isInteger(Number(record.row_number)))
+  .map((record) => ({ json: record }));`,
+      undefined,
+      "f3a10000-0000-4000-8000-000000000005"
+    ),
+    writeSheet(
+      "Update To Review Seen",
+      [1400, 520],
+      toReview,
+      "update",
+      discoveryUpdateFields,
+      ["canonical_job_id"],
+      { explicitId: "f3a10000-0000-4000-8000-000000000006" }
+    ),
+    codeNode(
+      "Emit To Apply Seen Updates",
+      [1600, 600],
+      `const updates = $('Reconcile Discovery').first().json.active_updates || [];
+return updates.filter((record) =>
+  record.owner_sheet === 'To Apply' &&
+  Number.isInteger(Number(record.row_number)))
+  .map((record) => ({ json: record }));`,
+      undefined,
+      "f3a10000-0000-4000-8000-000000000007"
+    ),
+    writeSheet(
+      "Update To Apply Seen",
+      [1800, 600],
+      toApply,
+      "update",
+      discoveryUpdateFields,
+      ["canonical_job_id"],
+      { explicitId: "f3a10000-0000-4000-8000-000000000008" }
     )
   ];
   const connections = {
@@ -742,9 +816,13 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
       ]
     },
     "Pace Next Page": { main: [[connection("Fetch Search Page")]] },
-    "Aggregate Search Pages": { main: [[connection("Get Review Queue")]] },
-    "Get Review Queue": { main: [[connection("Aggregate Review Queue")]] },
-    "Aggregate Review Queue": { main: [[connection("Get Applied Jobs")]] },
+    "Aggregate Search Pages": { main: [[connection("Get Scraped Jobs")]] },
+    "Get Scraped Jobs": { main: [[connection("Aggregate Scraped Jobs")]] },
+    "Aggregate Scraped Jobs": { main: [[connection("Get To Review")]] },
+    "Get To Review": { main: [[connection("Aggregate To Review")]] },
+    "Aggregate To Review": { main: [[connection("Get To Apply")]] },
+    "Get To Apply": { main: [[connection("Aggregate To Apply")]] },
+    "Aggregate To Apply": { main: [[connection("Get Applied Jobs")]] },
     "Get Applied Jobs": { main: [[connection("Aggregate Applied Jobs")]] },
     "Aggregate Applied Jobs": { main: [[connection("Get Archive")]] },
     "Get Archive": { main: [[connection("Aggregate Archive")]] },
@@ -753,7 +831,9 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
       main: [
         [
           connection("Emit Discovery Claims"),
-          connection("Emit Review Queue Seen Updates")
+          connection("Emit Scraped Jobs Seen Updates"),
+          connection("Emit To Review Seen Updates"),
+          connection("Emit To Apply Seen Updates")
         ]
       ]
     },
@@ -779,10 +859,16 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
       main: [[connection("Delete Expired Discovery Claims")]]
     },
     "Keep Winning Discovery Claims": {
-      main: [[connection("Append New Review Queue Rows")]]
+      main: [[connection("Append New Scraped Jobs Rows")]]
     },
-    "Emit Review Queue Seen Updates": {
-      main: [[connection("Update Review Queue Seen")]]
+    "Emit Scraped Jobs Seen Updates": {
+      main: [[connection("Update Scraped Jobs Seen")]]
+    },
+    "Emit To Review Seen Updates": {
+      main: [[connection("Update To Review Seen")]]
+    },
+    "Emit To Apply Seen Updates": {
+      main: [[connection("Update To Apply Seen")]]
     }
   };
   return {
@@ -795,12 +881,13 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "scraper",
-      workflowContractVersion: "2026-07-31/v2",
+      workflowContractVersion: "2026-07-31/v3",
       searchPlanVersion: searchPlan.plan_version,
       runtimeKeywordSource: keywords,
       pipelineSchemaVersion: schema.storage_version,
       windowHours: 24,
-      authoritativeActiveSheet: queue,
+      authoritativeBusinessSheets: schema.business_stores,
+      discoveryWriteSheet: scraped,
       executionTimeoutSeconds: config.execution_timeout_seconds,
       scheduleOffsetMinutes: config.schedule_offset_minutes
     },
@@ -810,13 +897,13 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
 }
 
 function buildGenerator() {
-  const queue = review.sheets.review_queue.name;
+  const queue = review.sheets.scraped_jobs.name;
   const system = review.sheets.system.name;
   const config = runtime.generator;
   const nodes = [
     scheduleNode("generator", [-2200, 240], config),
-    readSheet("Get Review Queue", [-2000, 240], queue),
-    aggregateNode("Aggregate Review Queue", [-1800, 240], "review_rows"),
+    readSheet("Get Scraped Jobs", [-2000, 240], queue),
+    aggregateNode("Aggregate Scraped Jobs", [-1800, 240], "scraped_rows"),
     codeNode(
       "Select Generator Candidates",
       [-1600, 240],
@@ -824,7 +911,7 @@ function buildGenerator() {
 const SCHEMA = ${JSON.stringify(schema)};
 const RUNTIME = ${JSON.stringify(config)};
 const now = new Date().toISOString();
-const rows = ($input.first().json.review_rows || [])
+const rows = ($input.first().json.scraped_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
 const selected = selectGeneratorCandidate(rows, SCHEMA, RUNTIME, now);
@@ -905,13 +992,13 @@ return { json: {
       "={{ $json.system_claim_won === true }}"
     ),
     readSheet(
-      "Get Review Queue Before Candidate Claim",
+      "Get Scraped Jobs Before Candidate Claim",
       [0, 40],
       queue,
       { continueOnError: true }
     ),
     aggregateNode(
-      "Aggregate Review Queue Before Candidate Claim",
+      "Aggregate Scraped Jobs Before Candidate Claim",
       [200, 40],
       "fresh_rows"
     ),
@@ -932,7 +1019,7 @@ try {
     );
   if (matches.length !== 1) {
     throw new Error(
-      'Generator claim rejected because Review Queue identity is missing or ambiguous'
+      'Generator claim rejected because Scraped Jobs identity is missing or ambiguous'
     );
   }
   const current = selectGeneratorCandidate(matches, SCHEMA, RUNTIME, new Date().toISOString());
@@ -957,7 +1044,7 @@ try {
     claimed_record: claim.record,
     selection_index: candidate.selection_index,
     provider_requests: 0,
-    processing_outcome: claim.claimed ? 'review_queue_claim_created' : 'review_queue_claim_rejected'
+    processing_outcome: claim.claimed ? 'scraped_jobs_claim_created' : 'scraped_jobs_claim_rejected'
   } };
 } catch (error) {
   return { json: {
@@ -965,14 +1052,14 @@ try {
     canonical_job_id: candidate.candidate_record.canonical_job_id,
     selection_index: candidate.selection_index,
     provider_requests: 0,
-    processing_outcome: 'review_queue_claim_rejected',
+    processing_outcome: 'scraped_jobs_claim_rejected',
     error_summary: String(error?.message || error).slice(0, 240)
   } };
 }`,
       "runOnceForEachItem"
     ),
     ifNode(
-      "Review Queue Claim Created",
+      "Scraped Jobs Claim Created",
       [600, 40],
       "={{ $json.claim_created === true }}"
     ),
@@ -986,13 +1073,13 @@ try {
       { continueOnError: true }
     ),
     readSheet(
-      "Get Review Queue After Claim",
+      "Get Scraped Jobs After Claim",
       [1000, -40],
       queue,
       { continueOnError: true }
     ),
     aggregateNode(
-      "Aggregate Review Queue After Claim",
+      "Aggregate Scraped Jobs After Claim",
       [1200, -40],
       "fresh_rows"
     ),
@@ -1015,7 +1102,7 @@ try {
     canonical_job_id: planned.canonical_job_id,
     selection_index: selectionIndex,
     provider_requests: 0,
-    processing_outcome: 'review_queue_claim_verified'
+    processing_outcome: 'scraped_jobs_claim_verified'
   } };
 } catch (error) {
   return { json: {
@@ -1023,13 +1110,13 @@ try {
     canonical_job_id: planned.canonical_job_id,
     selection_index: selectionIndex,
     provider_requests: 0,
-    processing_outcome: 'review_queue_claim_unverified',
+    processing_outcome: 'scraped_jobs_claim_unverified',
     error_summary: String(error?.message || error).slice(0, 240)
   } };
 }`
     ),
     ifNode(
-      "Review Queue Claim Verified",
+      "Scraped Jobs Claim Verified",
       [1600, -40],
       "={{ $json.claim_verified === true }}"
     ),
@@ -1337,12 +1424,12 @@ return { json: {
       "runOnceForEachItem"
     ),
     readSheet(
-      "Get Review Queue Before Commit",
+      "Get Scraped Jobs Before Commit",
       [4400, -80],
       queue,
       { continueOnError: true }
     ),
-    aggregateNode("Aggregate Fresh Review Queue", [4600, -80], "fresh_rows"),
+    aggregateNode("Aggregate Fresh Scraped Jobs", [4600, -80], "fresh_rows"),
     codeNode(
       "Guard and Commit Generator Result",
       [4800, -80],
@@ -1354,7 +1441,7 @@ try {
     .filter((row) => row && Object.keys(row).length)
     .map((row) => normalizeLegacyRecord(row, SCHEMA))
     .find((row) => row.canonical_job_id === staged.claimed_record.canonical_job_id);
-  if (!fresh) throw new Error('Generator commit could not find claimed Review Queue row');
+  if (!fresh) throw new Error('Generator commit could not find claimed Scraped Jobs row');
   const planned = commitGeneratorResult(
     fresh,
     staged.claimed_record,
@@ -1386,7 +1473,7 @@ try {
       "={{ $json.commit_allowed === true }}"
     ),
     writeSheet(
-      "Update Review Queue Result",
+      "Update Scraped Jobs Result",
       [5200, -200],
       queue,
       "update",
@@ -1395,13 +1482,13 @@ try {
       { continueOnError: true }
     ),
     readSheet(
-      "Get Review Queue After Commit",
+      "Get Scraped Jobs After Commit",
       [5400, -200],
       queue,
       { continueOnError: true }
     ),
     aggregateNode(
-      "Aggregate Review Queue After Commit",
+      "Aggregate Scraped Jobs After Commit",
       [5600, -200],
       "fresh_rows"
     ),
@@ -1486,9 +1573,9 @@ return { json: {
     )
   ];
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Review Queue")]] },
-    "Get Review Queue": { main: [[connection("Aggregate Review Queue")]] },
-    "Aggregate Review Queue": {
+    "Schedule Trigger": { main: [[connection("Get Scraped Jobs")]] },
+    "Get Scraped Jobs": { main: [[connection("Aggregate Scraped Jobs")]] },
+    "Aggregate Scraped Jobs": {
       main: [[connection("Select Generator Candidates")]]
     },
     "Select Generator Candidates": {
@@ -1517,38 +1604,38 @@ return { json: {
     },
     "Generator System Claim Won": {
       main: [
-        [connection("Get Review Queue Before Candidate Claim")],
+        [connection("Get Scraped Jobs Before Candidate Claim")],
         [connection("Finalize Candidate")]
       ]
     },
-    "Get Review Queue Before Candidate Claim": {
-      main: [[connection("Aggregate Review Queue Before Candidate Claim")]]
+    "Get Scraped Jobs Before Candidate Claim": {
+      main: [[connection("Aggregate Scraped Jobs Before Candidate Claim")]]
     },
-    "Aggregate Review Queue Before Candidate Claim": {
+    "Aggregate Scraped Jobs Before Candidate Claim": {
       main: [[connection("Claim Current Candidate")]]
     },
     "Claim Current Candidate": {
-      main: [[connection("Review Queue Claim Created")]]
+      main: [[connection("Scraped Jobs Claim Created")]]
     },
-    "Review Queue Claim Created": {
+    "Scraped Jobs Claim Created": {
       main: [
         [connection("Persist Generator Claim")],
         [connection("Finalize Candidate")]
       ]
     },
     "Persist Generator Claim": {
-      main: [[connection("Get Review Queue After Claim")]]
+      main: [[connection("Get Scraped Jobs After Claim")]]
     },
-    "Get Review Queue After Claim": {
-      main: [[connection("Aggregate Review Queue After Claim")]]
+    "Get Scraped Jobs After Claim": {
+      main: [[connection("Aggregate Scraped Jobs After Claim")]]
     },
-    "Aggregate Review Queue After Claim": {
+    "Aggregate Scraped Jobs After Claim": {
       main: [[connection("Confirm Generator Claim Persisted")]]
     },
     "Confirm Generator Claim Persisted": {
-      main: [[connection("Review Queue Claim Verified")]]
+      main: [[connection("Scraped Jobs Claim Verified")]]
     },
-    "Review Queue Claim Verified": {
+    "Scraped Jobs Claim Verified": {
       main: [
         [connection("Needs Fresh Job Detail")],
         [connection("Finalize Candidate")]
@@ -1612,12 +1699,12 @@ return { json: {
       main: [[connection("Stage Generator Result")]]
     },
     "Stage Generator Result": {
-      main: [[connection("Get Review Queue Before Commit")]]
+      main: [[connection("Get Scraped Jobs Before Commit")]]
     },
-    "Get Review Queue Before Commit": {
-      main: [[connection("Aggregate Fresh Review Queue")]]
+    "Get Scraped Jobs Before Commit": {
+      main: [[connection("Aggregate Fresh Scraped Jobs")]]
     },
-    "Aggregate Fresh Review Queue": {
+    "Aggregate Fresh Scraped Jobs": {
       main: [[connection("Guard and Commit Generator Result")]]
     },
     "Guard and Commit Generator Result": {
@@ -1625,17 +1712,17 @@ return { json: {
     },
     "Generator Commit Authorized": {
       main: [
-        [connection("Update Review Queue Result")],
+        [connection("Update Scraped Jobs Result")],
         [connection("Finalize Candidate")]
       ]
     },
-    "Update Review Queue Result": {
-      main: [[connection("Get Review Queue After Commit")]]
+    "Update Scraped Jobs Result": {
+      main: [[connection("Get Scraped Jobs After Commit")]]
     },
-    "Get Review Queue After Commit": {
-      main: [[connection("Aggregate Review Queue After Commit")]]
+    "Get Scraped Jobs After Commit": {
+      main: [[connection("Aggregate Scraped Jobs After Commit")]]
     },
-    "Aggregate Review Queue After Commit": {
+    "Aggregate Scraped Jobs After Commit": {
       main: [[connection("Confirm Generator Result Persisted")]]
     },
     "Confirm Generator Result Persisted": {
@@ -1658,13 +1745,13 @@ return { json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "evaluator_generator",
-      workflowContractVersion: "2026-07-31/v2",
+      workflowContractVersion: "2026-07-31/v3",
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileVersion: profile.profile_version,
       applicationPolicyVersion: applicationPolicy.policy_version,
       applicationPackPolicyVersion: packPolicy.policy_version,
       groqProviderPolicyVersion: groqPolicy.policy_version,
-      authoritativeActiveSheet: queue,
+      processingSourceSheet: queue,
       manualSubmissionOnly: true,
       maximumModelRequestsPerItem:
         groqPolicy.generation.maximum_requests_per_item,
@@ -1683,15 +1770,35 @@ return { json: {
 }
 
 function buildAlerterMover() {
-  const queue = review.sheets.review_queue.name;
+  const scraped = review.sheets.scraped_jobs.name;
+  const toReview = review.sheets.to_review.name;
+  const toApply = review.sheets.to_apply.name;
   const applied = review.sheets.applied_jobs.name;
   const archive = review.sheets.archive.name;
   const system = review.sheets.system.name;
   const config = runtime.alerter_mover;
   const nodes = [
     scheduleNode("alerter_mover", [-2200, 240], config),
-    readSheet("Get Fresh Review Queue", [-2000, 240], queue),
-    aggregateNode("Aggregate Fresh Review Queue", [-1800, 240], "review_rows"),
+    readSheet("Get Fresh Scraped Jobs", [-2000, 240], scraped),
+    aggregateNode("Aggregate Fresh Scraped Jobs", [-1800, 240], "scraped_rows"),
+    readSheet("Get Fresh To Review", [-1700, 400], toReview, {
+      explicitId: "f3a20000-0000-4000-8000-000000000001"
+    }),
+    aggregateNode(
+      "Aggregate Fresh To Review",
+      [-1500, 400],
+      "to_review_rows",
+      "f3a20000-0000-4000-8000-000000000002"
+    ),
+    readSheet("Get Fresh To Apply", [-1400, 400], toApply, {
+      explicitId: "f3a20000-0000-4000-8000-000000000003"
+    }),
+    aggregateNode(
+      "Aggregate Fresh To Apply",
+      [-1200, 400],
+      "to_apply_rows",
+      "f3a20000-0000-4000-8000-000000000004"
+    ),
     readSheet("Get Applied Jobs", [-1600, 240], applied),
     aggregateNode("Aggregate Applied Jobs", [-1400, 240], "applied_rows"),
     readSheet("Get Archive", [-1200, 240], archive),
@@ -1706,7 +1813,13 @@ const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
 const now = new Date().toISOString();
-const reviewRows = ($('Aggregate Fresh Review Queue').first().json.review_rows || [])
+const scrapedRows = ($('Aggregate Fresh Scraped Jobs').first().json.scraped_rows || [])
+  .filter((row) => row && Object.keys(row).length)
+  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
+const toReviewRows = ($('Aggregate Fresh To Review').first().json.to_review_rows || [])
+  .filter((row) => row && Object.keys(row).length)
+  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
+const toApplyRows = ($('Aggregate Fresh To Apply').first().json.to_apply_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
 const appliedRows = ($('Aggregate Applied Jobs').first().json.applied_rows || [])
@@ -1721,9 +1834,13 @@ const safety = {
   packPolicy: PACK_POLICY
 };
 const movement = planQueueActions(
-  reviewRows,
-  appliedRows,
-  archiveRows,
+  {
+    'Scraped Jobs': scrapedRows,
+    'To Review': toReviewRows,
+    'To Apply': toApplyRows,
+    'Applied Jobs': appliedRows,
+    Archive: archiveRows
+  },
   SCHEMA,
   now,
   safety,
@@ -1733,7 +1850,6 @@ const outcome = planOutcomeUpdates(appliedRows, SCHEMA, now);
 console.log(JSON.stringify({
   event: 'movement_plan',
   moves: movement.moves.length,
-  generation_requests: movement.generation_requests.length,
   rejected: movement.rejected.map((entry) => entry.reason),
   outcome_updates: outcome.updates.length
 }));
@@ -1765,7 +1881,7 @@ const rows = (plan.movement.moves || []).map((movementPlan) => ({
   ...createSystemClaim({
     stage: 'movement',
     canonicalJobId: movementPlan.canonical_job_id,
-    scope: movementPlan.destination,
+    scope: movementPlan.claim_scope,
     executionId: String($execution.id),
     now: plan.now,
     leaseMs: RUNTIME.claim_lease_ms
@@ -1831,6 +1947,117 @@ return rows.length
       { continueOnError: true }
     ),
     codeNode(
+      "Prepare Scraped Jobs Writes",
+      [1300, 360],
+      `${movementCore}
+const writes = destinationWrites(
+  $('Keep Winning Movement Claims').first().json.movement
+);
+return writes.scraped_jobs.length
+  ? writes.scraped_jobs.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`,
+      undefined,
+      "f3a20000-0000-4000-8000-000000000005"
+    ),
+    ifNode(
+      "Has Scraped Jobs Writes",
+      [1400, 360],
+      "={{ $json._noop !== true }}",
+      "f3a20000-0000-4000-8000-000000000006"
+    ),
+    writeSheet(
+      "Upsert Scraped Jobs",
+      [1500, 360],
+      scraped,
+      "appendOrUpdate",
+      schema.fields,
+      ["canonical_job_id"],
+      {
+        continueOnError: true,
+        explicitId: "f3a20000-0000-4000-8000-000000000007"
+      }
+    ),
+    aggregateNode(
+      "Aggregate Scraped Jobs Writes",
+      [1600, 360],
+      "scraped_writes",
+      "f3a20000-0000-4000-8000-000000000008"
+    ),
+    codeNode(
+      "Prepare To Review Writes",
+      [1650, 420],
+      `${movementCore}
+const writes = destinationWrites(
+  $('Keep Winning Movement Claims').first().json.movement
+);
+return writes.to_review.length
+  ? writes.to_review.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`,
+      undefined,
+      "f3a20000-0000-4000-8000-000000000009"
+    ),
+    ifNode(
+      "Has To Review Writes",
+      [1750, 420],
+      "={{ $json._noop !== true }}",
+      "f3a20000-0000-4000-8000-000000000010"
+    ),
+    writeSheet(
+      "Upsert To Review",
+      [1850, 420],
+      toReview,
+      "appendOrUpdate",
+      schema.fields,
+      ["canonical_job_id"],
+      {
+        continueOnError: true,
+        explicitId: "f3a20000-0000-4000-8000-000000000011"
+      }
+    ),
+    aggregateNode(
+      "Aggregate To Review Writes",
+      [1950, 420],
+      "to_review_writes",
+      "f3a20000-0000-4000-8000-000000000012"
+    ),
+    codeNode(
+      "Prepare To Apply Writes",
+      [2000, 480],
+      `${movementCore}
+const writes = destinationWrites(
+  $('Keep Winning Movement Claims').first().json.movement
+);
+return writes.to_apply.length
+  ? writes.to_apply.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`,
+      undefined,
+      "f3a20000-0000-4000-8000-000000000013"
+    ),
+    ifNode(
+      "Has To Apply Writes",
+      [2100, 480],
+      "={{ $json._noop !== true }}",
+      "f3a20000-0000-4000-8000-000000000014"
+    ),
+    writeSheet(
+      "Upsert To Apply",
+      [2200, 480],
+      toApply,
+      "appendOrUpdate",
+      schema.fields,
+      ["canonical_job_id"],
+      {
+        continueOnError: true,
+        explicitId: "f3a20000-0000-4000-8000-000000000015"
+      }
+    ),
+    aggregateNode(
+      "Aggregate To Apply Writes",
+      [2300, 480],
+      "to_apply_writes",
+      "f3a20000-0000-4000-8000-000000000016"
+    ),
+    codeNode(
       "Prepare Applied Writes",
       [1400, 240],
       `${movementCore}
@@ -1874,8 +2101,26 @@ return writes.archive.length
       { continueOnError: true }
     ),
     aggregateNode("Aggregate Archive Writes", [2800, 120], "archive_writes"),
-    readSheet("Get Review Queue After Copies", [3000, 240], queue),
-    aggregateNode("Aggregate Review After Copies", [3200, 240], "review_rows"),
+    readSheet("Get Scraped Jobs After Copies", [3000, 240], scraped),
+    aggregateNode("Aggregate Scraped After Copies", [3200, 240], "scraped_rows"),
+    readSheet("Get To Review After Copies", [3250, 360], toReview, {
+      explicitId: "f3a20000-0000-4000-8000-000000000017"
+    }),
+    aggregateNode(
+      "Aggregate To Review After Copies",
+      [3300, 360],
+      "to_review_rows",
+      "f3a20000-0000-4000-8000-000000000018"
+    ),
+    readSheet("Get To Apply After Copies", [3350, 420], toApply, {
+      explicitId: "f3a20000-0000-4000-8000-000000000019"
+    }),
+    aggregateNode(
+      "Aggregate To Apply After Copies",
+      [3400, 420],
+      "to_apply_rows",
+      "f3a20000-0000-4000-8000-000000000020"
+    ),
     readSheet("Get Applied Jobs After Copies", [3400, 240], applied),
     aggregateNode("Aggregate Applied After Copies", [3600, 240], "applied_rows"),
     readSheet("Get Archive After Copies", [3800, 240], archive),
@@ -1888,15 +2133,23 @@ const SCHEMA = ${JSON.stringify(schema)};
 const plans = $('Keep Winning Movement Claims').first().json.movement;
 const result = confirmMoveDeletions(
   plans,
-  ($('Aggregate Review After Copies').first().json.review_rows || [])
-    .filter((row) => row && Object.keys(row).length)
-    .map((row) => normalizeLegacyRecord(row, SCHEMA)),
-  ($('Aggregate Applied After Copies').first().json.applied_rows || [])
-    .filter((row) => row && Object.keys(row).length)
-    .map((row) => normalizeLegacyRecord(row, SCHEMA)),
-  ($('Aggregate Archive After Copies').first().json.archive_rows || [])
-    .filter((row) => row && Object.keys(row).length)
-    .map((row) => normalizeLegacyRecord(row, SCHEMA)),
+  {
+    'Scraped Jobs': ($('Aggregate Scraped After Copies').first().json.scraped_rows || [])
+      .filter((row) => row && Object.keys(row).length)
+      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
+    'To Review': ($('Aggregate To Review After Copies').first().json.to_review_rows || [])
+      .filter((row) => row && Object.keys(row).length)
+      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
+    'To Apply': ($('Aggregate To Apply After Copies').first().json.to_apply_rows || [])
+      .filter((row) => row && Object.keys(row).length)
+      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
+    'Applied Jobs': ($('Aggregate Applied After Copies').first().json.applied_rows || [])
+      .filter((row) => row && Object.keys(row).length)
+      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
+    Archive: ($('Aggregate Archive After Copies').first().json.archive_rows || [])
+      .filter((row) => row && Object.keys(row).length)
+      .map((row) => normalizeLegacyRecord(row, SCHEMA))
+  },
   SCHEMA
 );
 console.log(JSON.stringify({
@@ -1907,27 +2160,92 @@ console.log(JSON.stringify({
 return [{ json: result }];`
     ),
     codeNode(
-      "Prepare Confirmed Deletions",
+      "Prepare Scraped Jobs Deletions",
       [4400, 240],
       `const rows = $('Confirm Destination Copies').first().json.deletions || [];
-return rows.length
-  ? rows.map((row) => ({ json: row }))
+const selected = rows.filter((row) => row.source_sheet === 'Scraped Jobs');
+return selected.length
+  ? selected.map((row) => ({ json: row }))
   : [{ json: { _noop: true } }];`
     ),
     ifNode(
-      "Has Confirmed Deletions",
+      "Has Scraped Jobs Deletions",
       [4600, 240],
       "={{ $json._noop !== true }}"
     ),
     deleteRowsNode(
-      "Delete Confirmed Review Queue Rows",
+      "Delete Confirmed Scraped Jobs Rows",
       [4800, 120],
-      queue,
+      scraped,
       { continueOnError: true }
     ),
-    aggregateNode("Aggregate Deletion Attempts", [5000, 240], "deletions"),
-    readSheet("Get Review Queue After Moves", [5200, 240], queue),
-    aggregateNode("Aggregate Review After Moves", [5400, 240], "review_rows"),
+    aggregateNode("Aggregate Scraped Deletion Attempts", [5000, 240], "deletions"),
+    codeNode(
+      "Prepare To Review Deletions",
+      [5050, 320],
+      `const rows = $('Confirm Destination Copies').first().json.deletions || [];
+const selected = rows.filter((row) => row.source_sheet === 'To Review');
+return selected.length
+  ? selected.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`,
+      undefined,
+      "f3a20000-0000-4000-8000-000000000021"
+    ),
+    ifNode(
+      "Has To Review Deletions",
+      [5100, 320],
+      "={{ $json._noop !== true }}",
+      "f3a20000-0000-4000-8000-000000000022"
+    ),
+    deleteRowsNode(
+      "Delete Confirmed To Review Rows",
+      [5150, 200],
+      toReview,
+      {
+        continueOnError: true,
+        explicitId: "f3a20000-0000-4000-8000-000000000023"
+      }
+    ),
+    aggregateNode(
+      "Aggregate To Review Deletion Attempts",
+      [5200, 320],
+      "deletions",
+      "f3a20000-0000-4000-8000-000000000024"
+    ),
+    codeNode(
+      "Prepare To Apply Deletions",
+      [5250, 400],
+      `const rows = $('Confirm Destination Copies').first().json.deletions || [];
+const selected = rows.filter((row) => row.source_sheet === 'To Apply');
+return selected.length
+  ? selected.map((row) => ({ json: row }))
+  : [{ json: { _noop: true } }];`,
+      undefined,
+      "f3a20000-0000-4000-8000-000000000025"
+    ),
+    ifNode(
+      "Has To Apply Deletions",
+      [5300, 400],
+      "={{ $json._noop !== true }}",
+      "f3a20000-0000-4000-8000-000000000026"
+    ),
+    deleteRowsNode(
+      "Delete Confirmed To Apply Rows",
+      [5350, 280],
+      toApply,
+      {
+        continueOnError: true,
+        explicitId: "f3a20000-0000-4000-8000-000000000027"
+      }
+    ),
+    aggregateNode(
+      "Aggregate To Apply Deletion Attempts",
+      [5400, 400],
+      "deletions",
+      "f3a20000-0000-4000-8000-000000000028"
+    ),
+    readSheet("Get To Apply After Moves", [5200, 240], toApply),
+    aggregateNode("Aggregate To Apply After Moves", [5400, 240], "to_apply_rows"),
     codeNode(
       "Select Fresh Alerts",
       [5600, 240],
@@ -1937,7 +2255,7 @@ const POLICY = ${JSON.stringify(alertPolicy)};
 const PROFILE = ${JSON.stringify(profile)};
 const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
-const rows = ($('Aggregate Review After Moves').first().json.review_rows || [])
+const rows = ($('Aggregate To Apply After Moves').first().json.to_apply_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA));
 const selected = selectFreshAlertCandidates(
@@ -1971,7 +2289,7 @@ return rows.length
     writeSheet(
       "Persist Terminal Alert States",
       [6200, 120],
-      queue,
+      toApply,
       "update",
       alertStateFields,
       ["canonical_job_id"],
@@ -2058,15 +2376,15 @@ return rows.length
     writeSheet(
       "Persist Alert Sending States",
       [8200, 120],
-      queue,
+      toApply,
       "update",
       alertStateFields,
       ["canonical_job_id"],
       { continueOnError: true }
     ),
     aggregateNode("Aggregate Alert Sending States", [8400, 240], "claims"),
-    readSheet("Get Review Queue After Alert Claims", [8600, 240], queue),
-    aggregateNode("Aggregate Fresh Alert Claims", [8800, 240], "review_rows"),
+    readSheet("Get To Apply After Alert Claims", [8600, 240], toApply),
+    aggregateNode("Aggregate Fresh Alert Claims", [8800, 240], "to_apply_rows"),
     codeNode(
       "Confirm and Render Alerts",
       [9000, 240],
@@ -2078,7 +2396,7 @@ const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const proposed = $('Prepare Alert Sending States').all()
   .map((item) => item.json)
   .filter((item) => item._noop !== true);
-const fresh = ($input.first().json.review_rows || [])
+const fresh = ($input.first().json.to_apply_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, ${JSON.stringify(schema)}));
 const byId = new Map(fresh.map((row) => [String(row.canonical_job_id).toLowerCase(), row]));
@@ -2131,11 +2449,11 @@ return { json: {
       "runOnceForEachItem"
     ),
     aggregateNode("Aggregate Slack Results", [9800, 120], "results"),
-    readSheet("Get Review Queue Before Alert Commit", [10000, 120], queue),
+    readSheet("Get To Apply Before Alert Commit", [10000, 120], toApply),
     aggregateNode(
-      "Aggregate Review Before Alert Commit",
+      "Aggregate To Apply Before Alert Commit",
       [10200, 120],
-      "review_rows"
+      "to_apply_rows"
     ),
     codeNode(
       "Guard and Commit Slack Results",
@@ -2143,7 +2461,7 @@ return { json: {
       `${alertCore}
 const POLICY = ${JSON.stringify(alertPolicy)};
 const staged = $('Aggregate Slack Results').first().json.results || [];
-const fresh = ($input.first().json.review_rows || [])
+const fresh = ($input.first().json.to_apply_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, ${JSON.stringify(schema)}));
 const byId = new Map(fresh.map((row) => [String(row.canonical_job_id).toLowerCase(), row]));
@@ -2178,7 +2496,7 @@ return staged.flatMap((entry) => {
     writeSheet(
       "Update Alert Results",
       [10600, 120],
-      queue,
+      toApply,
       "update",
       alertStateFields,
       ["canonical_job_id"],
@@ -2186,11 +2504,23 @@ return staged.flatMap((entry) => {
     )
   ];
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Fresh Review Queue")]] },
-    "Get Fresh Review Queue": {
-      main: [[connection("Aggregate Fresh Review Queue")]]
+    "Schedule Trigger": { main: [[connection("Get Fresh Scraped Jobs")]] },
+    "Get Fresh Scraped Jobs": {
+      main: [[connection("Aggregate Fresh Scraped Jobs")]]
     },
-    "Aggregate Fresh Review Queue": {
+    "Aggregate Fresh Scraped Jobs": {
+      main: [[connection("Get Fresh To Review")]]
+    },
+    "Get Fresh To Review": {
+      main: [[connection("Aggregate Fresh To Review")]]
+    },
+    "Aggregate Fresh To Review": {
+      main: [[connection("Get Fresh To Apply")]]
+    },
+    "Get Fresh To Apply": {
+      main: [[connection("Aggregate Fresh To Apply")]]
+    },
+    "Aggregate Fresh To Apply": {
       main: [[connection("Get Applied Jobs")]]
     },
     "Get Applied Jobs": { main: [[connection("Aggregate Applied Jobs")]] },
@@ -2245,6 +2575,51 @@ return staged.flatMap((entry) => {
       main: [[connection("Delete Expired System Claims")], []]
     },
     "Keep Winning Movement Claims": {
+      main: [[connection("Prepare Scraped Jobs Writes")]]
+    },
+    "Prepare Scraped Jobs Writes": {
+      main: [[connection("Has Scraped Jobs Writes")]]
+    },
+    "Has Scraped Jobs Writes": {
+      main: [
+        [connection("Upsert Scraped Jobs")],
+        [connection("Prepare To Review Writes")]
+      ]
+    },
+    "Upsert Scraped Jobs": {
+      main: [[connection("Aggregate Scraped Jobs Writes")]]
+    },
+    "Aggregate Scraped Jobs Writes": {
+      main: [[connection("Prepare To Review Writes")]]
+    },
+    "Prepare To Review Writes": {
+      main: [[connection("Has To Review Writes")]]
+    },
+    "Has To Review Writes": {
+      main: [
+        [connection("Upsert To Review")],
+        [connection("Prepare To Apply Writes")]
+      ]
+    },
+    "Upsert To Review": {
+      main: [[connection("Aggregate To Review Writes")]]
+    },
+    "Aggregate To Review Writes": {
+      main: [[connection("Prepare To Apply Writes")]]
+    },
+    "Prepare To Apply Writes": {
+      main: [[connection("Has To Apply Writes")]]
+    },
+    "Has To Apply Writes": {
+      main: [
+        [connection("Upsert To Apply")],
+        [connection("Prepare Applied Writes")]
+      ]
+    },
+    "Upsert To Apply": {
+      main: [[connection("Aggregate To Apply Writes")]]
+    },
+    "Aggregate To Apply Writes": {
       main: [[connection("Prepare Applied Writes")]]
     },
     "Prepare Applied Writes": { main: [[connection("Has Applied Writes")]] },
@@ -2264,19 +2639,31 @@ return staged.flatMap((entry) => {
     "Has Archive Writes": {
       main: [
         [connection("Upsert Archive")],
-        [connection("Get Review Queue After Copies")]
+        [connection("Get Scraped Jobs After Copies")]
       ]
     },
     "Upsert Archive": {
       main: [[connection("Aggregate Archive Writes")]]
     },
     "Aggregate Archive Writes": {
-      main: [[connection("Get Review Queue After Copies")]]
+      main: [[connection("Get Scraped Jobs After Copies")]]
     },
-    "Get Review Queue After Copies": {
-      main: [[connection("Aggregate Review After Copies")]]
+    "Get Scraped Jobs After Copies": {
+      main: [[connection("Aggregate Scraped After Copies")]]
     },
-    "Aggregate Review After Copies": {
+    "Aggregate Scraped After Copies": {
+      main: [[connection("Get To Review After Copies")]]
+    },
+    "Get To Review After Copies": {
+      main: [[connection("Aggregate To Review After Copies")]]
+    },
+    "Aggregate To Review After Copies": {
+      main: [[connection("Get To Apply After Copies")]]
+    },
+    "Get To Apply After Copies": {
+      main: [[connection("Aggregate To Apply After Copies")]]
+    },
+    "Aggregate To Apply After Copies": {
       main: [[connection("Get Applied Jobs After Copies")]]
     },
     "Get Applied Jobs After Copies": {
@@ -2292,27 +2679,57 @@ return staged.flatMap((entry) => {
       main: [[connection("Confirm Destination Copies")]]
     },
     "Confirm Destination Copies": {
-      main: [[connection("Prepare Confirmed Deletions")]]
+      main: [[connection("Prepare Scraped Jobs Deletions")]]
     },
-    "Prepare Confirmed Deletions": {
-      main: [[connection("Has Confirmed Deletions")]]
+    "Prepare Scraped Jobs Deletions": {
+      main: [[connection("Has Scraped Jobs Deletions")]]
     },
-    "Has Confirmed Deletions": {
+    "Has Scraped Jobs Deletions": {
       main: [
-        [connection("Delete Confirmed Review Queue Rows")],
-        [connection("Aggregate Deletion Attempts")]
+        [connection("Delete Confirmed Scraped Jobs Rows")],
+        [connection("Aggregate Scraped Deletion Attempts")]
       ]
     },
-    "Delete Confirmed Review Queue Rows": {
-      main: [[connection("Aggregate Deletion Attempts")]]
+    "Delete Confirmed Scraped Jobs Rows": {
+      main: [[connection("Aggregate Scraped Deletion Attempts")]]
     },
-    "Aggregate Deletion Attempts": {
-      main: [[connection("Get Review Queue After Moves")]]
+    "Aggregate Scraped Deletion Attempts": {
+      main: [[connection("Prepare To Review Deletions")]]
     },
-    "Get Review Queue After Moves": {
-      main: [[connection("Aggregate Review After Moves")]]
+    "Prepare To Review Deletions": {
+      main: [[connection("Has To Review Deletions")]]
     },
-    "Aggregate Review After Moves": {
+    "Has To Review Deletions": {
+      main: [
+        [connection("Delete Confirmed To Review Rows")],
+        [connection("Aggregate To Review Deletion Attempts")]
+      ]
+    },
+    "Delete Confirmed To Review Rows": {
+      main: [[connection("Aggregate To Review Deletion Attempts")]]
+    },
+    "Aggregate To Review Deletion Attempts": {
+      main: [[connection("Prepare To Apply Deletions")]]
+    },
+    "Prepare To Apply Deletions": {
+      main: [[connection("Has To Apply Deletions")]]
+    },
+    "Has To Apply Deletions": {
+      main: [
+        [connection("Delete Confirmed To Apply Rows")],
+        [connection("Aggregate To Apply Deletion Attempts")]
+      ]
+    },
+    "Delete Confirmed To Apply Rows": {
+      main: [[connection("Aggregate To Apply Deletion Attempts")]]
+    },
+    "Aggregate To Apply Deletion Attempts": {
+      main: [[connection("Get To Apply After Moves")]]
+    },
+    "Get To Apply After Moves": {
+      main: [[connection("Aggregate To Apply After Moves")]]
+    },
+    "Aggregate To Apply After Moves": {
       main: [[connection("Select Fresh Alerts")]]
     },
     "Select Fresh Alerts": {
@@ -2367,9 +2784,9 @@ return staged.flatMap((entry) => {
       main: [[connection("Aggregate Alert Sending States")]]
     },
     "Aggregate Alert Sending States": {
-      main: [[connection("Get Review Queue After Alert Claims")]]
+      main: [[connection("Get To Apply After Alert Claims")]]
     },
-    "Get Review Queue After Alert Claims": {
+    "Get To Apply After Alert Claims": {
       main: [[connection("Aggregate Fresh Alert Claims")]]
     },
     "Aggregate Fresh Alert Claims": {
@@ -2386,12 +2803,12 @@ return staged.flatMap((entry) => {
       main: [[connection("Aggregate Slack Results")]]
     },
     "Aggregate Slack Results": {
-      main: [[connection("Get Review Queue Before Alert Commit")]]
+      main: [[connection("Get To Apply Before Alert Commit")]]
     },
-    "Get Review Queue Before Alert Commit": {
-      main: [[connection("Aggregate Review Before Alert Commit")]]
+    "Get To Apply Before Alert Commit": {
+      main: [[connection("Aggregate To Apply Before Alert Commit")]]
     },
-    "Aggregate Review Before Alert Commit": {
+    "Aggregate To Apply Before Alert Commit": {
       main: [[connection("Guard and Commit Slack Results")]]
     },
     "Guard and Commit Slack Results": {
@@ -2408,11 +2825,12 @@ return staged.flatMap((entry) => {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-07-31/v2",
+      workflowContractVersion: "2026-07-31/v3",
       alertPolicyVersion: alertPolicy.policy_version,
       pipelineSchemaVersion: schema.storage_version,
-      authoritativeActiveSheet: queue,
-      destinationSheets: [applied, archive],
+      sourceSheets: [scraped, toReview, toApply],
+      destinationSheets: schema.business_stores,
+      alertSourceSheet: toApply,
       manualSubmissionOnly: true,
       movementIndependentOfSlack: true,
       movementBeforeAlertSelection: true,

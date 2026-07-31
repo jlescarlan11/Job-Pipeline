@@ -2,7 +2,7 @@ import {
   normalizeCanonicalUrl,
   parseHttpUrl,
   stateGuard,
-  validateRecordContract
+  validateRecordStoreContract
 } from "./contracts.mjs";
 import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 import {
@@ -181,7 +181,7 @@ export function evaluateAlertEligibility(
 }
 
 export function selectFreshAlertCandidates(
-  freshReviewRows,
+  freshToApplyRows,
   schema,
   policy,
   now,
@@ -191,8 +191,12 @@ export function selectFreshAlertCandidates(
   const rejected = [];
   const stateUpdates = [];
   const identities = new Set();
-  for (const record of freshReviewRows) {
-    const contractErrors = validateRecordContract(record, schema);
+  for (const record of freshToApplyRows) {
+    const contractErrors = validateRecordStoreContract(
+      record,
+      "To Apply",
+      schema
+    );
     if (contractErrors.length > 0) {
       rejected.push({
         canonical_job_id: String(record?.canonical_job_id || ""),
@@ -204,7 +208,7 @@ export function selectFreshAlertCandidates(
       .normalize("NFKC")
       .toLocaleLowerCase("en-US");
     if (identities.has(identity)) {
-      throw new Error("Alert selection rejected ambiguous duplicate Review Queue identity");
+      throw new Error("Alert selection rejected ambiguous duplicate To Apply identity");
     }
     identities.add(identity);
     if (record.alert_status === "sending") {
@@ -333,8 +337,8 @@ export function renderSlackAlert(
   );
   const links = [
     safeReviewUrl
-      ? `<${safeReviewUrl}|Open Review Queue>`
-      : "Review Queue: unavailable",
+      ? `<${safeReviewUrl}|Open To Apply>`
+      : "To Apply: unavailable",
     sourceUrl
       ? `<${sourceUrl}|Open OnlineJobs.ph>`
       : "Source: unavailable"
@@ -404,7 +408,7 @@ export function applySlackProviderResult(
     !freshRecord.alert_claim_token ||
     freshRecord.alert_claim_token !== sendingRecord.alert_claim_token
   ) {
-    throw new Error("Slack result rejected stale Review Queue state");
+    throw new Error("Slack result rejected stale To Apply state");
   }
   const classification = providerClassification(result, policy);
   const attempts = Number(freshRecord.alert_attempt_count || 0);
@@ -443,9 +447,7 @@ export function applySlackProviderResult(
 }
 
 export function planAlerterMoverRun(
-  freshReviewRows,
-  appliedRows,
-  archiveRows,
+  stores,
   schema,
   policy,
   now,
@@ -455,16 +457,14 @@ export function planAlerterMoverRun(
   // Movement is planned first and remains usable even if an individual alert
   // is unsafe or the Slack provider later fails.
   const movement = planQueueActions(
-    freshReviewRows,
-    appliedRows,
-    archiveRows,
+    stores,
     schema,
     now,
     messageSafetyContext,
     movementOptions
   );
   const alerts = selectFreshAlertCandidates(
-    freshReviewRows,
+    stores["To Apply"],
     schema,
     policy,
     now,

@@ -4,6 +4,7 @@ import {
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
   stateGuard,
+  validateRecordStoreContract,
   validateUniqueIdentityAcrossStores
 } from "./contracts.mjs";
 import { validateMinuteIntervalSchedule } from "./schedules.mjs";
@@ -555,18 +556,21 @@ function identityKey(value) {
 
 export function reconcileDiscovery(
   pageResults,
-  reviewRows,
-  appliedRows,
-  archiveRows,
+  stores,
   schema,
   now = new Date().toISOString()
 ) {
+  const expectedStores = schema?.business_stores ?? [];
+  if (
+    expectedStores.length !== 5 ||
+    expectedStores.some((store) => !Array.isArray(stores?.[store]))
+  ) {
+    throw new Error(
+      "Discovery requires Scraped Jobs, To Review, To Apply, Applied Jobs, and Archive rows"
+    );
+  }
   const identityErrors = validateUniqueIdentityAcrossStores(
-    {
-      "Review Queue": reviewRows,
-      "Applied Jobs": appliedRows,
-      Archive: archiveRows
-    },
+    stores,
     schema,
     now
   );
@@ -575,20 +579,43 @@ export function reconcileDiscovery(
   }
 
   const existing = new Map();
-  for (const [location, rows] of [
-    ["review", reviewRows],
-    ["applied", appliedRows],
-    ["archive", archiveRows]
-  ]) {
+  for (const location of expectedStores) {
+    const rows = stores[location];
     for (const raw of rows) {
       const normalized = normalizeLegacyRecord(raw, schema, now);
+      const recordErrors = validateRecordStoreContract(
+        normalized,
+        location,
+        schema
+      );
+      if (recordErrors.length > 0) {
+        throw new Error(
+          `Discovery rejected invalid ${location} row: ${recordErrors
+            .join("; ")
+            .slice(0, 240)}`
+        );
+      }
       const entry = { location, raw, normalized };
-      existing.set(identityKey(normalized.canonical_job_id), entry);
-      existing.set(`url:${identityKey(normalized.canonical_url)}`, entry);
+      for (const key of [
+        identityKey(normalized.canonical_job_id),
+        `url:${identityKey(normalized.canonical_url)}`
+      ]) {
+        const previous = existing.get(key);
+        if (
+          previous &&
+          previous.normalized.canonical_job_id !== normalized.canonical_job_id
+        ) {
+          throw new Error(
+            "Discovery store identity check failed: canonical alias is ambiguous"
+          );
+        }
+        existing.set(key, entry);
+      }
     }
   }
 
   const discovered = new Map();
+  const discoveredUrls = new Map();
   let malformedCount = 0;
   const exclusionCounts = {};
   for (const page of pageResults.filter((result) => result.ok)) {
@@ -599,6 +626,14 @@ export function reconcileDiscovery(
     }
     for (const job of page.jobs) {
       const key = identityKey(job.canonical_job_id);
+      const urlKey = identityKey(job.canonical_url);
+      const priorUrlIdentity = discoveredUrls.get(urlKey);
+      if (priorUrlIdentity && priorUrlIdentity !== key) {
+        throw new Error(
+          "Discovery results rejected ambiguous canonical URL identity"
+        );
+      }
+      discoveredUrls.set(urlKey, key);
       const current = discovered.get(key);
       if (current) {
         current.matched_keywords = unionValues(
@@ -615,15 +650,16 @@ export function reconcileDiscovery(
   }
 
   const newJobs = [];
-  const reviewUpdates = [];
+  const activeUpdates = [];
   let terminalSuppressed = 0;
   for (const job of discovered.values()) {
     const match =
       existing.get(identityKey(job.canonical_job_id)) ||
       existing.get(`url:${identityKey(job.canonical_url)}`);
-    if (match?.location === "review") {
+    if (["Scraped Jobs", "To Review", "To Apply"].includes(match?.location)) {
       const updated = {
         ...match.normalized,
+        owner_sheet: match.location,
         row_number: match.raw.row_number,
         source_job_id: job.source_job_id,
         canonical_job_id: job.canonical_job_id,
@@ -635,7 +671,7 @@ export function reconcileDiscovery(
         last_seen_at: now,
         updated_at: now
       };
-      reviewUpdates.push(updated);
+      activeUpdates.push(updated);
       continue;
     }
     if (match) {
@@ -660,12 +696,24 @@ export function reconcileDiscovery(
       now
     );
     record.state_guard = stateGuard(record);
+    const recordErrors = validateRecordStoreContract(
+      record,
+      "Scraped Jobs",
+      schema
+    );
+    if (recordErrors.length > 0) {
+      throw new Error(
+        `Discovery rejected new Scraped Jobs row: ${recordErrors
+          .join("; ")
+          .slice(0, 240)}`
+      );
+    }
     newJobs.push(record);
   }
 
   return {
     new_jobs: newJobs,
-    review_updates: reviewUpdates,
+    active_updates: activeUpdates,
     discovered_unique: discovered.size,
     terminal_suppressed: terminalSuppressed,
     malformed_count: malformedCount,

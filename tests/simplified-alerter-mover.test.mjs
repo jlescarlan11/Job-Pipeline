@@ -39,6 +39,17 @@ const directHtml = await readFile(
 const now = "2026-07-31T11:00:00.000Z";
 const safetyContext = { profile, applicationPolicy, packPolicy };
 
+function businessStores(overrides = {}) {
+  return {
+    "Scraped Jobs": [],
+    "To Review": [],
+    "To Apply": [],
+    "Applied Jobs": [],
+    Archive: [],
+    ...overrides
+  };
+}
+
 const validMessage = `Hi there,
 
 I reduced API response time from 800 milliseconds to 150 milliseconds by fixing query and schema bottlenecks, and I have shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase. Rent N Roll also gave me experience building marketplace and PayMongo webhook workflows.
@@ -142,7 +153,7 @@ test("Slack copy contains complete context and the exact stored message", () => 
     /\*Application message — copy exactly:\*\n```([\s\S]*?)```/
   )[1];
   assert.equal(copied, ready.generated_message);
-  assert.match(payload.text, /Open Review Queue/);
+  assert.match(payload.text, /Open To Apply/);
   assert.match(payload.text, /Open OnlineJobs\.ph/);
   assert.deepEqual(payload.review_action.mode, "open_only");
   assert.deepEqual(payload.source_action.mode, "open_only");
@@ -176,7 +187,7 @@ test("only fresh unacted ready rows are alert candidates", () => {
         now,
         safetyContext
       ),
-    /duplicate Review Queue identity/
+    /duplicate To Apply identity/
   );
 });
 
@@ -185,9 +196,7 @@ test("movement is planned independently before Slack delivery", () => {
   const skipped = makeReady(5011, { user_action: "Skip" });
   const readyToAlert = makeReady(5012);
   const planned = planAlerterMoverRun(
-    [applied, skipped, readyToAlert],
-    [],
-    [],
+    businessStores({ "To Apply": [applied, skipped, readyToAlert] }),
     schema,
     alertPolicy,
     now,
@@ -277,9 +286,7 @@ test("Slack rejection schedules bounded retry without changing planned moves", (
   const applied = makeReady(5040, { user_action: "I Applied" });
   const alert = makeReady(5041);
   const run = planAlerterMoverRun(
-    [applied, alert],
-    [],
-    [],
+    businessStores({ "To Apply": [applied, alert] }),
     schema,
     alertPolicy,
     now,
@@ -354,7 +361,7 @@ test("stale Slack result cannot overwrite a user action", () => {
         alertPolicy,
         now
       ),
-    /stale Review Queue state/
+    /stale To Apply state/
   );
 });
 
@@ -386,13 +393,13 @@ test("quarantined, stale-policy, and unsafe message rows are suppressed", () => 
   );
 });
 
-test("unsafe Review Queue or source links are rendered as unavailable", () => {
+test("unsafe To Apply or source links are rendered as unavailable", () => {
   const ready = makeReady(5080);
   const payload = renderSlackAlert(ready, alertPolicy, {
     reviewUrl: "javascript:approve(5080)",
     messageSafetyContext: safetyContext
   });
-  assert.match(payload.text, /Review Queue: unavailable/);
+  assert.match(payload.text, /To Apply: unavailable/);
   assert.equal(payload.review_action.url, "");
   assert.equal(payload.source_action.mode, "open_only");
 });

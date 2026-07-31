@@ -47,12 +47,27 @@ test("build emits exactly the three inactive replacement roles", () => {
     assert.equal(workflow.settings.saveDataErrorExecution, "all");
     assert.equal(workflow.settings.saveExecutionProgress, false);
     assert.equal(workflow.settings.saveManualExecutions, true);
-    assert.equal(workflow.meta.authoritativeActiveSheet, "Review Queue");
     assert.equal(
       workflow.settings.executionTimeout,
       workflow.meta.executionTimeoutSeconds
     );
   }
+  assert.deepEqual(workflows["scraper.json"].meta.authoritativeBusinessSheets, [
+    "Scraped Jobs",
+    "To Review",
+    "To Apply",
+    "Applied Jobs",
+    "Archive"
+  ]);
+  assert.equal(workflows["scraper.json"].meta.discoveryWriteSheet, "Scraped Jobs");
+  assert.equal(workflows["generator.json"].meta.processingSourceSheet, "Scraped Jobs");
+  assert.deepEqual(workflows["alerter-mover.json"].meta.sourceSheets, [
+    "Scraped Jobs",
+    "To Review",
+    "To Apply"
+  ]);
+  assert.equal(workflows["alerter-mover.json"].meta.alertSourceSheet, "To Apply");
+  assert.doesNotMatch(JSON.stringify(workflows), /Review Queue/);
 });
 
 test("all generated Code nodes are syntactically valid", () => {
@@ -128,7 +143,7 @@ test("all workflows bind the fresh workbook by environment, never the old workbo
   }
 });
 
-test("Scraper owns one fixed inclusive 24-hour keyword window and three-store reconciliation", () => {
+test("Scraper owns one fixed inclusive 24-hour keyword window and five-store reconciliation", () => {
   const workflow = workflows["scraper.json"];
   const code = allCode(workflow);
   const keywordRead = node(workflow, "Get Search Keywords");
@@ -182,25 +197,35 @@ test("Scraper owns one fixed inclusive 24-hour keyword window and three-store re
   }
   assert.equal(workflow.meta.runtimeKeywordSource, "Search Keywords");
   for (const name of [
-    "Get Review Queue",
+    "Get Scraped Jobs",
+    "Get To Review",
+    "Get To Apply",
     "Get Applied Jobs",
     "Get Archive",
-    "Append New Review Queue Rows",
-    "Update Review Queue Seen"
+    "Append New Scraped Jobs Rows",
+    "Update Scraped Jobs Seen",
+    "Update To Review Seen",
+    "Update To Apply Seen"
   ]) {
     node(workflow, name);
   }
   assert.equal(
-    node(workflow, "Append New Review Queue Rows").parameters.sheetName.value,
-    "Review Queue"
+    node(workflow, "Append New Scraped Jobs Rows").parameters.sheetName.value,
+    "Scraped Jobs"
   );
-  const seenUpdate = node(workflow, "Update Review Queue Seen");
-  assert.deepEqual(seenUpdate.parameters.columns.matchingColumns, [
-    "canonical_job_id"
-  ]);
-  assert.equal("pipeline_status" in seenUpdate.parameters.columns.value, false);
-  assert.equal("user_action" in seenUpdate.parameters.columns.value, false);
-  assert.equal("notes" in seenUpdate.parameters.columns.value, false);
+  for (const updateName of [
+    "Update Scraped Jobs Seen",
+    "Update To Review Seen",
+    "Update To Apply Seen"
+  ]) {
+    const seenUpdate = node(workflow, updateName);
+    assert.deepEqual(seenUpdate.parameters.columns.matchingColumns, [
+      "canonical_job_id"
+    ]);
+    assert.equal("pipeline_status" in seenUpdate.parameters.columns.value, false);
+    assert.equal("user_action" in seenUpdate.parameters.columns.value, false);
+    assert.equal("notes" in seenUpdate.parameters.columns.value, false);
+  }
   node(workflow, "Append Discovery Claims");
   node(workflow, "Keep Winning Discovery Claims");
   node(workflow, "Select Expired Discovery Claims");
@@ -233,12 +258,12 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   node(workflow, "Persist Generator Claim");
   node(workflow, "Append Generator System Claim");
   node(workflow, "Confirm Generator System Claim");
-  node(workflow, "Get Review Queue Before Candidate Claim");
-  node(workflow, "Aggregate Review Queue Before Candidate Claim");
+  node(workflow, "Get Scraped Jobs Before Candidate Claim");
+  node(workflow, "Aggregate Scraped Jobs Before Candidate Claim");
   node(workflow, "Confirm Generator Claim Persisted");
-  node(workflow, "Get Review Queue Before Commit");
+  node(workflow, "Get Scraped Jobs Before Commit");
   node(workflow, "Guard and Commit Generator Result");
-  node(workflow, "Get Review Queue After Commit");
+  node(workflow, "Get Scraped Jobs After Commit");
   node(workflow, "Confirm Generator Result Persisted");
   node(workflow, "Needs One Repair");
   node(workflow, "Wait Before Repair");
@@ -274,7 +299,7 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   assert.equal("user_action" in claimUpdate.parameters.columns.value, false);
   assert.equal("notes" in claimUpdate.parameters.columns.value, false);
 
-  const resultUpdate = node(workflow, "Update Review Queue Result");
+  const resultUpdate = node(workflow, "Update Scraped Jobs Result");
   assert.deepEqual(resultUpdate.parameters.columns.matchingColumns, [
     "canonical_job_id"
   ]);
@@ -328,16 +353,16 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
   );
   assert.equal(
     workflow.connections["Generator System Claim Won"].main[0][0].node,
-    "Get Review Queue Before Candidate Claim"
+    "Get Scraped Jobs Before Candidate Claim"
   );
   assert.equal(
-    workflow.connections["Aggregate Review Queue Before Candidate Claim"]
+    workflow.connections["Aggregate Scraped Jobs Before Candidate Claim"]
       .main[0][0].node,
     "Claim Current Candidate"
   );
   assert.match(
     node(workflow, "Claim Current Candidate").parameters.jsCode,
-    /Review Queue identity is missing or ambiguous/
+    /Scraped Jobs identity is missing or ambiguous/
   );
   assert.match(
     node(workflow, "Claim Current Candidate").parameters.jsCode,
@@ -345,7 +370,7 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
   );
   assert.equal(
     workflow.connections["Confirm Generator Claim Persisted"].main[0][0].node,
-    "Review Queue Claim Verified"
+    "Scraped Jobs Claim Verified"
   );
   for (const entry of workflow.nodes.filter(
     (candidate) => candidate.type === "n8n-nodes-base.code"
@@ -396,7 +421,7 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
   );
 });
 
-test("Alerter & Mover plans terminal copies independently of Slack and confirms before delete", () => {
+test("Alerter & Mover routes focused queues independently of Slack and confirms before delete", () => {
   const workflow = workflows["alerter-mover.json"];
   const code = allCode(workflow);
   assert.equal(workflow.meta.movementIndependentOfSlack, true);
@@ -404,22 +429,29 @@ test("Alerter & Mover plans terminal copies independently of Slack and confirms 
     "Plan Independent Moves",
     "Append Movement Claims",
     "Keep Winning Movement Claims",
+    "Upsert Scraped Jobs",
+    "Upsert To Review",
+    "Upsert To Apply",
     "Upsert Applied Jobs",
     "Upsert Archive",
-    "Get Review Queue After Copies",
+    "Get Scraped Jobs After Copies",
+    "Get To Review After Copies",
+    "Get To Apply After Copies",
     "Get Applied Jobs After Copies",
     "Get Archive After Copies",
     "Confirm Destination Copies",
-    "Delete Confirmed Review Queue Rows",
-    "Get Review Queue After Moves",
+    "Delete Confirmed Scraped Jobs Rows",
+    "Delete Confirmed To Review Rows",
+    "Delete Confirmed To Apply Rows",
+    "Get To Apply After Moves",
     "Select Fresh Alerts",
     "Append Alert Claims",
     "Keep Winning Alert Claims",
     "Persist Alert Sending States",
-    "Get Review Queue After Alert Claims",
+    "Get To Apply After Alert Claims",
     "Confirm and Render Alerts",
     "Send Slack Alert",
-    "Get Review Queue Before Alert Commit",
+    "Get To Apply Before Alert Commit",
     "Guard and Commit Slack Results"
   ]) {
     node(workflow, name);
@@ -433,11 +465,11 @@ test("Alerter & Mover plans terminal copies independently of Slack and confirms 
   assert.equal(workflow.meta.movementBeforeAlertSelection, true);
   assert.equal(workflow.meta.appendWinnerClaims, true);
   assert.equal(
-    workflow.connections["Aggregate Deletion Attempts"].main[0][0].node,
-    "Get Review Queue After Moves"
+    workflow.connections["Aggregate To Apply Deletion Attempts"].main[0][0].node,
+    "Get To Apply After Moves"
   );
   assert.equal(
-    workflow.connections["Aggregate Review After Moves"].main[0][0].node,
+    workflow.connections["Aggregate To Apply After Moves"].main[0][0].node,
     "Select Fresh Alerts"
   );
   assert.match(
