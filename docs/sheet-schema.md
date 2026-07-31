@@ -1,10 +1,11 @@
 # Fresh workbook schema
 
-Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates exactly three visible business tabs and one hidden operational tab:
+Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates three visible business tabs, one visible configuration tab, and one hidden operational tab:
 
 - `Review Queue`
 - `Applied Jobs`
 - `Archive`
+- `Search Keywords` (visible configuration)
 - `_System` (hidden, short-lived claims only)
 
 An empty default `Sheet1` or another empty unexpected tab is removed. Setup refuses to delete a non-empty unexpected tab or replace conflicting headers. This makes the fresh-start instruction explicit without silently destroying existing data.
@@ -67,3 +68,21 @@ The exact record columns are:
 `_System` contains only `claim_key`, `canonical_job_id`, `stage`, `token`, `created_at`, and `expires_at`. It is not a business-data store.
 
 Setup is idempotent: rerunning it reconciles formatting, validation, protection, and visibility while preserving valid headers and operator data. It does not insert placeholders, call `openById`, use `IMPORTRANGE`, or copy a row from any old workbook.
+
+## Search Keywords
+
+`Search Keywords` is the runtime source of truth for Scraper keyword selection.
+Its exact columns are `enabled` and `keyword`. `enabled` uses checkbox
+validation, the header is warning-protected, and data rows remain editable
+under the workbook's normal Google Sheets permissions.
+
+When setup creates the tab for the first time, it seeds the ten current
+keywords as enabled. Setup never seeds an already existing tab, including a
+valid empty tab, so rerunning setup preserves additions, edits, row order,
+disabled values, and deletions.
+
+The Scraper reads this tab once before any OnlineJobs.ph request. It ignores
+blank and disabled rows, normalizes enabled keyword text with NFKC and trimming,
+and rejects malformed, missing, duplicate, or empty enabled configuration
+before any source request or pipeline write. Internal keyword IDs are derived
+by the workflow and are not operator-managed.

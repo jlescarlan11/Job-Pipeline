@@ -402,7 +402,7 @@ function readSheet(
   name,
   position,
   sheet,
-  { continueOnError = false } = {}
+  { continueOnError = false, explicitId } = {}
 ) {
   return {
     parameters: {
@@ -413,7 +413,7 @@ function readSheet(
     type: "n8n-nodes-base.googleSheets",
     typeVersion: 4.7,
     position,
-    id: id(),
+    id: explicitId || id(),
     name,
     alwaysOutputData: true,
     retryOnFail: true,
@@ -506,19 +506,36 @@ function buildScraper() {
   const queue = review.sheets.review_queue.name;
   const applied = review.sheets.applied_jobs.name;
   const archive = review.sheets.archive.name;
+  const keywords = review.sheets.search_keywords.name;
   const system = review.sheets.system.name;
   const config = runtime.scraper;
   const nodes = [
-    scheduleNode("scraper", [-1800, 200], config),
+    scheduleNode("scraper", [-2000, 200], config),
+    readSheet(
+      "Get Search Keywords",
+      [-1800, 200],
+      keywords,
+      {
+        continueOnError: true,
+        // Keep all existing workflow node IDs stable. This new ID is outside
+        // the generator's sequential range and therefore does not renumber
+        // unrelated workflows or production execution history.
+        explicitId: "f3a00000-0000-4000-8000-000000009999"
+      }
+    ),
     codeNode(
       "Capture Fixed Window and Keywords",
       [-1600, 200],
       `${discoveryCore}
-const SEARCH_PLAN = ${JSON.stringify(searchPlan)};
-const errors = validateSearchPlan(SEARCH_PLAN);
+const SEARCH_POLICY = ${JSON.stringify(searchPlan)};
+const errors = validateSearchPlan(SEARCH_POLICY);
 if (errors.length) throw new Error('Invalid search plan: ' + errors.join('; '));
+const keywordSnapshot = createKeywordSnapshot(
+  $input.all().map((item) => item.json || {})
+);
 const window = createDiscoveryWindow(new Date().toISOString());
-return buildSearchRequests(SEARCH_PLAN, window).map((request) => ({ json: request }));`
+return buildSearchRequests(SEARCH_POLICY, keywordSnapshot, window)
+  .map((request) => ({ json: request }));`
     ),
     httpNode("Fetch Search Page", [-1400, 200], {
       url: "={{ $json.request_url }}",
@@ -536,7 +553,7 @@ return buildSearchRequests(SEARCH_PLAN, window).map((request) => ({ json: reques
       "Parse Search Page",
       [-1200, 200],
       `${discoveryCore}
-const SEARCH_PLAN = ${JSON.stringify(searchPlan)};
+const SEARCH_POLICY = ${JSON.stringify(searchPlan)};
 let previous;
 try {
   previous = $('Pace Next Page').item.json;
@@ -560,7 +577,7 @@ const page = errorMessage && !$json.data && !$json.body
       typeof $json === 'string' ? $json : ($json.data || $json.body || ''),
       previous
     );
-return { json: advanceSearchPagination(previous, page, SEARCH_PLAN) };`,
+return { json: advanceSearchPagination(previous, page, SEARCH_POLICY) };`,
       "runOnceForEachItem"
     ),
     ifNode(
@@ -585,7 +602,13 @@ return { json: advanceSearchPagination(previous, page, SEARCH_PLAN) };`,
       [600, 300],
       `${discoveryCore}
 const SCHEMA = ${JSON.stringify(schema)};
-const SEARCH_PLAN = ${JSON.stringify(searchPlan)};
+const SEARCH_POLICY = ${JSON.stringify(searchPlan)};
+const KEYWORD_SNAPSHOT = $('Capture Fixed Window and Keywords').all()
+  .map((item) => ({
+    id: item.json.keyword_id,
+    keyword: item.json.keyword,
+    enabled: true
+  }));
 const states = $('Aggregate Search Pages').first().json.search_states || [];
 const pageResults = states.flatMap((state) => state.page_results || []);
 const nonempty = (row) => row && Object.keys(row).length;
@@ -594,7 +617,7 @@ const appliedRows = ($('Aggregate Applied Jobs').first().json.applied_rows || []
 const archiveRows = ($('Aggregate Archive').first().json.archive_rows || []).filter(nonempty);
 const now = states[0]?.window_end || new Date().toISOString();
 const reconciliation = reconcileDiscovery(pageResults, reviewRows, appliedRows, archiveRows, SCHEMA, now);
-const coverage = summarizeCoverage(pageResults, SEARCH_PLAN);
+const coverage = summarizeCoverage(pageResults, SEARCH_POLICY, KEYWORD_SNAPSHOT);
 console.log(JSON.stringify({
   event: 'discovery_run',
   window_start: states[0]?.window_start,
@@ -702,6 +725,9 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
   ];
   const connections = {
     "Schedule Trigger": {
+      main: [[connection("Get Search Keywords")]]
+    },
+    "Get Search Keywords": {
       main: [[connection("Capture Fixed Window and Keywords")]]
     },
     "Capture Fixed Window and Keywords": {
@@ -771,6 +797,7 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
       workflowRole: "scraper",
       workflowContractVersion: "2026-07-31/v2",
       searchPlanVersion: searchPlan.plan_version,
+      runtimeKeywordSource: keywords,
       pipelineSchemaVersion: schema.storage_version,
       windowHours: 24,
       authoritativeActiveSheet: queue,

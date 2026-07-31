@@ -18,6 +18,11 @@ and repair requests use separate production models and are validated against
 each model's documented and live-observed quota; the five-job all-repair pacing
 path remains inside the 480-second timeout.
 
+The Scraper must contain `Get Search Keywords` before `Capture Fixed Window and
+Keywords`. It reads the visible `Search Keywords` tab once per execution and
+contains no embedded runtime keyword catalog. Missing or invalid configuration
+must stop before OnlineJobs.ph requests and workbook writes.
+
 ## Required bindings
 
 Instance/runtime values must match the policy exactly. The production-context validator also requires:

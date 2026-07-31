@@ -9,6 +9,123 @@ import {
 import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAXIMUM_KEYWORD_CHARACTERS = 200;
+const KEYWORD_ROW_FIELDS = new Set(["enabled", "keyword", "row_number"]);
+
+function normalizeKeyword(value) {
+  return typeof value === "string" ? value.normalize("NFKC").trim() : "";
+}
+
+function parseEnabled(value) {
+  if (value === true || value === false) return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLocaleLowerCase("en-US");
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  return null;
+}
+
+function keywordIdentity(value) {
+  return value.toLocaleLowerCase("en-US");
+}
+
+export function validateKeywordSheetRows(rows) {
+  const errors = [];
+  const keywords = [];
+  const identities = new Set();
+  if (!Array.isArray(rows)) {
+    return {
+      errors: ["keyword_rows_not_array"],
+      keywords
+    };
+  }
+
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      errors.push("invalid_keyword_row");
+      continue;
+    }
+    if (Object.keys(row).some((field) => !KEYWORD_ROW_FIELDS.has(field))) {
+      errors.push("invalid_keyword_headers");
+      continue;
+    }
+
+    const rawEnabled = row.enabled;
+    const rawKeyword = row.keyword;
+    const keyword = normalizeKeyword(rawKeyword);
+    const blankEnabled =
+      rawEnabled === undefined ||
+      rawEnabled === null ||
+      (typeof rawEnabled === "string" && rawEnabled.trim() === "");
+    const blankKeyword =
+      rawKeyword === undefined ||
+      rawKeyword === null ||
+      (typeof rawKeyword === "string" && keyword === "");
+
+    if (blankEnabled && blankKeyword) continue;
+    if (
+      rawKeyword !== undefined &&
+      rawKeyword !== null &&
+      typeof rawKeyword !== "string"
+    ) {
+      errors.push("invalid_keyword_value");
+      continue;
+    }
+
+    const enabled = parseEnabled(rawEnabled);
+    if (enabled === null) {
+      errors.push("invalid_enabled_value");
+      continue;
+    }
+    if (!enabled) continue;
+    if (!keyword) {
+      errors.push("missing_enabled_keyword");
+      continue;
+    }
+    if (keyword.length > MAXIMUM_KEYWORD_CHARACTERS) {
+      errors.push("keyword_too_long");
+      continue;
+    }
+    if (/[\p{Cc}\p{Cf}]/u.test(keyword)) {
+      errors.push("keyword_contains_control_character");
+      continue;
+    }
+
+    const identity = keywordIdentity(keyword);
+    if (identities.has(identity)) {
+      errors.push("duplicate_enabled_keyword");
+      continue;
+    }
+    identities.add(identity);
+    keywords.push({
+      id: `sheet:${encodeURIComponent(identity)}`,
+      keyword,
+      enabled: true
+    });
+  }
+
+  if (keywords.length === 0) {
+    errors.push("no_enabled_keywords");
+  }
+  return {
+    errors: [...new Set(errors)],
+    keywords
+  };
+}
+
+export function createKeywordSnapshot(rows) {
+  const result = validateKeywordSheetRows(rows);
+  if (result.errors.length > 0) {
+    throw new Error(
+      `Search Keywords configuration invalid: ${result.errors
+        .slice(0, 8)
+        .join(", ")}`
+    );
+  }
+  return Object.freeze(
+    result.keywords.map((keyword) => Object.freeze({ ...keyword }))
+  );
+}
 
 function decodeHtml(value = "") {
   const named = {
@@ -70,8 +187,8 @@ export function createDiscoveryWindow(now = new Date().toISOString()) {
 
 export function validateSearchPlan(plan) {
   const errors = [];
-  if (plan?.schema_version !== 2) {
-    errors.push("search plan schema_version must be 2");
+  if (plan?.schema_version !== 3) {
+    errors.push("search plan schema_version must be 3");
   }
   if (!/^\d{4}-\d{2}-\d{2}\/v\d+$/.test(plan?.plan_version || "")) {
     errors.push("search plan plan_version must use YYYY-MM-DD/vN");
@@ -113,31 +230,10 @@ export function validateSearchPlan(plan) {
     errors.push("request timeout must be shorter than execution timeout");
   }
   errors.push(...validateMinuteIntervalSchedule(plan, "discovery"));
-
-  if (!Array.isArray(plan?.keywords) || plan.keywords.length === 0) {
-    errors.push("at least one keyword is required");
-    return errors;
-  }
-  const ids = new Set();
-  const values = new Set();
-  for (const entry of plan.keywords) {
-    const id = String(entry?.id || "").trim();
-    const keyword = String(entry?.keyword || "").trim();
-    if (!id || !keyword || typeof entry?.enabled !== "boolean") {
-      errors.push("every keyword requires id, keyword, and enabled");
-      continue;
-    }
-    const normalized = keyword.normalize("NFKC").toLocaleLowerCase("en-US");
-    if (ids.has(id)) errors.push(`duplicate keyword id: ${id}`);
-    if (values.has(normalized)) errors.push(`duplicate keyword: ${keyword}`);
-    ids.add(id);
-    values.add(normalized);
-    if ("evidence_refs" in entry || "role_family" in entry) {
-      errors.push(`keyword ${id} must not contain resume or adjacent-role metadata`);
-    }
-  }
-  if (!plan.keywords.some((entry) => entry.enabled)) {
-    errors.push("at least one keyword must be enabled");
+  if ("keywords" in (plan ?? {})) {
+    errors.push(
+      "search plan must not embed runtime keywords; use Search Keywords"
+    );
   }
   return errors;
 }
@@ -162,10 +258,13 @@ function searchRequest(keyword, pageNumber, plan, window) {
 
 export function buildSearchRequests(
   plan,
+  keywordSnapshot,
   window = createDiscoveryWindow()
 ) {
-  return plan.keywords
-    .filter((entry) => entry.enabled)
+  if (!Array.isArray(keywordSnapshot) || keywordSnapshot.length === 0) {
+    throw new Error("Search requests require a non-empty keyword snapshot");
+  }
+  return keywordSnapshot
     .map((keyword) => searchRequest(keyword, 1, plan, window));
 }
 
@@ -361,9 +460,9 @@ function effectivePagesForKeyword(pages) {
   return effective;
 }
 
-export function summarizeCoverage(pageResults, plan) {
+export function summarizeCoverage(pageResults, plan, keywordSnapshot) {
   const keywords = [];
-  for (const keyword of plan.keywords.filter((entry) => entry.enabled)) {
+  for (const keyword of keywordSnapshot) {
     const pages = effectivePagesForKeyword(
       pageResults.filter((result) => result.keyword_id === keyword.id)
     );
@@ -431,8 +530,7 @@ export function summarizeCoverage(pageResults, plan) {
       0
     ),
     maximum_page_requests:
-      plan.keywords.filter((entry) => entry.enabled).length *
-      plan.max_pages_per_keyword,
+      keywordSnapshot.length * plan.max_pages_per_keyword,
     keywords
   };
 }

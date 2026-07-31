@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-31T05:40:33Z",
+  "capture_mode": "read_only",
+  "production_mutation": false,
+  "credentials_included": false,
+  "private_job_content_included": false,
+  "complete_sheet_rows_included": false,
+  "application_messages_included": false,
+  "deployment_source": {
+    "branch": "codex/search-keywords-sheet",
+    "commit": "56243802aaed8fb01a0e3bf83f773f1a881572a9",
+    "pull_request": 54
+  },
+  "active_workflow_inventory": [
+    {
+      "role": "alerter_mover",
+      "id": "QO6OLK3pHetgGIGq",
+      "active": true,
+      "node_count": 68,
+      "version_id": "d15b8a27-5d46-45ee-b31e-4dd190ebfb1b"
+    },
+    {
+      "role": "evaluator_generator",
+      "id": "TRUqD9atneyDyMNx",
+      "active": true,
+      "node_count": 47,
+      "version_id": "16bd5c9a-876c-426e-a494-d378747e59b3"
+    },
+    {
+      "role": "scraper",
+      "id": "qxPbOzNs5StaPY8B",
+      "active": true,
+      "node_count": 25,
+      "version_id": "49ab515e-7585-48b1-8cea-3338b8cf441c"
+    }
+  ],
+  "scraper_before_deployment": {
+    "id": "qxPbOzNs5StaPY8B",
+    "active": true,
+    "node_count": 25,
+    "version_id": "49ab515e-7585-48b1-8cea-3338b8cf441c",
+    "active_version_id": "49ab515e-7585-48b1-8cea-3338b8cf441c",
+    "timezone": "Asia/Manila",
+    "execution_timeout_seconds": 900,
+    "schedule_cron_expression": "0 8 0,4,8,12,16,20 * * *",
+    "running_or_waiting_executions": 0
+  },
+  "workbook": {
+    "id": "1WDzgk83Js6QemgTA0-_Xemipfy_J7PdNf_Mdyedoing",
+    "title": "Job Pipeline — simplified production 2026-07-31 PHT",
+    "timezone": "Asia/Manila",
+    "search_keywords_present": false,
+    "sheets": [
+      {
+        "title": "Review Queue",
+        "sheet_id": 1540022097,
+        "hidden": false,
+        "data_row_count": 3,
+        "unique_identity_count": 3
+      },
+      {
+        "title": "Applied Jobs",
+        "sheet_id": 800357441,
+        "hidden": false,
+        "data_row_count": 0,
+        "unique_identity_count": 0
+      },
+      {
+        "title": "Archive",
+        "sheet_id": 1522775894,
+        "hidden": false,
+        "data_row_count": 12,
+        "unique_identity_count": 12
+      },
+      {
+        "title": "_System",
+        "sheet_id": 2080528297,
+        "hidden": true,
+        "data_row_count": 3,
+        "active_claim_count": 3,
+        "claim_stages": [
+          "generator"
+        ]
+      }
+    ],
+    "business_header_count": 69,
+    "business_headers_match_contract": true
+  },
+  "keyword_seed_source": {
+    "path": "config/review-sheet.json",
+    "sha256": "3b3ec246fff52e52594f919de764100e38d5e8bda3b8a070b435ff740eea516e",
+    "seed_count": 10,
+    "enabled_seed_count": 10
+  },
+  "retained_old_workbook": {
+    "id": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+    "modified_time": "2026-07-31T00:39:57.233Z",
+    "active_replacement_binding_count": 0
+  },
+  "rollback": {
+    "backup_file_name": "scraper.json",
+    "backup_sha256": "81523a35a8b76169c20264ae3dd294f90b248031f37225c04f0203e7d30dd768",
+    "backup_permissions": "0600",
+    "backup_node_count": 25,
+    "restore_sequence": [
+      "Wait for running or waiting pipeline executions to finish and deactivate the replacement Scraper.",
+      "Import the restricted prior Scraper definition under workflow qxPbOzNs5StaPY8B.",
+      "Publish qxPbOzNs5StaPY8B and restart the managed n8n listener with the unchanged production environment.",
+      "Reconfirm exact three-role inventory, workbook binding, claim state, and business identity counts before resuming the schedule."
+    ],
+    "preserve_search_keywords_sheet": true,
+    "preserve_business_rows": true
+  }
+}

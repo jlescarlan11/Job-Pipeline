@@ -131,7 +131,26 @@ test("all workflows bind the fresh workbook by environment, never the old workbo
 test("Scraper owns one fixed inclusive 24-hour keyword window and three-store reconciliation", () => {
   const workflow = workflows["scraper.json"];
   const code = allCode(workflow);
+  const keywordRead = node(workflow, "Get Search Keywords");
+  assert.equal(keywordRead.parameters.sheetName.value, "Search Keywords");
+  assert.equal(keywordRead.alwaysOutputData, true);
+  assert.equal(keywordRead.onError, "continueRegularOutput");
+  assert.equal(
+    workflow.connections["Schedule Trigger"].main[0][0].node,
+    "Get Search Keywords"
+  );
+  assert.equal(
+    workflow.connections["Get Search Keywords"].main[0][0].node,
+    "Capture Fixed Window and Keywords"
+  );
   assert.match(code, /createDiscoveryWindow/);
+  assert.match(code, /createKeywordSnapshot/);
+  assert.match(
+    node(workflow, "Capture Fixed Window and Keywords").parameters.jsCode,
+    /\$input\.all\(\)/
+  );
+  assert.match(code, /no_enabled_keywords/);
+  assert.match(code, /duplicate_enabled_keyword/);
   assert.match(code, /window_start/);
   assert.match(code, /window_end/);
   assert.match(code, /window_hours:\s*24|windowHours/);
@@ -143,6 +162,25 @@ test("Scraper owns one fixed inclusive 24-hour keyword window and three-store re
     node(workflow, "Capture Fixed Window and Keywords").parameters.jsCode,
     /"evidence_refs"\s*:|"role_family"\s*:|"lookback_days"\s*:|"queries"\s*:/
   );
+  for (const seed of [
+    "full stack developer",
+    "web developer",
+    "react developer",
+    "nextjs developer",
+    "nodejs developer",
+    "backend developer",
+    "flutter developer",
+    "n8n developer",
+    "automation developer",
+    "application support engineer"
+  ]) {
+    assert.doesNotMatch(
+      JSON.stringify(workflow),
+      new RegExp(seed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+      `Scraper must not embed seed keyword: ${seed}`
+    );
+  }
+  assert.equal(workflow.meta.runtimeKeywordSource, "Search Keywords");
   for (const name of [
     "Get Review Queue",
     "Get Applied Jobs",

@@ -67,6 +67,11 @@ test("Review Queue, Applied Jobs, and Archive own the three record lifecycles", 
   assert.equal(review.sheets.review_queue.authoritative_for, "active");
   assert.equal(review.sheets.applied_jobs.authoritative_for, "applied");
   assert.equal(review.sheets.archive.authoritative_for, "archived");
+  assert.equal(
+    review.sheets.search_keywords.authoritative_for,
+    "scraper_keywords"
+  );
+  assert.equal(review.sheets.search_keywords.visible, true);
   assert.equal(review.sheets.system.visible, false);
   assert.equal(review.fresh_start.imports_legacy_rows, false);
 });
@@ -145,7 +150,7 @@ test("identity duplicates across all three stores are rejected", () => {
   );
 });
 
-test("blank setup creates only intended sheets with headers and no rows", () => {
+test("blank setup creates business, configuration, and system sheets", () => {
   const planned = planFreshWorkbookSetup(
     { sheets: [{ name: "Sheet1", headers: [], rows: [] }] },
     review,
@@ -153,13 +158,30 @@ test("blank setup creates only intended sheets with headers and no rows", () => 
   );
   assert.deepEqual(
     planned.sheets.map((sheet) => sheet.name),
-    ["Review Queue", "Applied Jobs", "Archive", "_System"]
+    [
+      "Review Queue",
+      "Applied Jobs",
+      "Archive",
+      "Search Keywords",
+      "_System"
+    ]
   );
-  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 3);
-  for (const sheet of planned.sheets) {
+  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 4);
+  for (const sheet of planned.sheets.filter(
+    (sheet) => sheet.name !== "Search Keywords"
+  )) {
     assert.equal(sheet.rows.length, 0);
     assert.ok(sheet.headers.length > 0);
   }
+  const keywords = planned.sheets.find(
+    (sheet) => sheet.name === "Search Keywords"
+  );
+  assert.deepEqual(keywords.headers, ["enabled", "keyword"]);
+  assert.equal(keywords.rows.length, 10);
+  assert.ok(keywords.rows.every((row) => row.enabled === true));
+  assert.deepEqual(keywords.validations, { enabled: "checkbox" });
+  assert.equal(keywords.protectedHeader, true);
+  assert.deepEqual(keywords.protectedColumns, []);
 });
 
 test("setup is idempotent and preserves valid operator data", () => {
@@ -169,9 +191,45 @@ test("setup is idempotent and preserves valid operator data", () => {
     schema
   );
   first.sheets[0].rows.push(validRecord({ notes: "keep me" }));
+  const keywordSheet = first.sheets.find(
+    (sheet) => sheet.name === "Search Keywords"
+  );
+  keywordSheet.rows[0] = {
+    enabled: false,
+    keyword: "edited full stack developer"
+  };
+  keywordSheet.rows.splice(1, 1);
+  keywordSheet.rows.push({
+    enabled: true,
+    keyword: "new operator keyword"
+  });
   const second = planFreshWorkbookSetup(first, review, schema);
   assert.deepEqual(second, first);
   assert.equal(second.sheets[0].rows[0].notes, "keep me");
+  assert.deepEqual(
+    second.sheets.find((sheet) => sheet.name === "Search Keywords").rows,
+    keywordSheet.rows
+  );
+});
+
+test("pre-existing empty Search Keywords sheet is not repopulated", () => {
+  const planned = planFreshWorkbookSetup(
+    {
+      sheets: [
+        {
+          name: "Search Keywords",
+          headers: ["enabled", "keyword"],
+          rows: []
+        }
+      ]
+    },
+    review,
+    schema
+  );
+  assert.deepEqual(
+    planned.sheets.find((sheet) => sheet.name === "Search Keywords").rows,
+    []
+  );
 });
 
 test("fresh setup refuses conflicting or non-empty legacy sheets", () => {
@@ -197,6 +255,23 @@ test("fresh setup refuses conflicting or non-empty legacy sheets", () => {
       ),
     /conflicting headers/
   );
+  assert.throws(
+    () =>
+      planFreshWorkbookSetup(
+        {
+          sheets: [
+            {
+              name: "Search Keywords",
+              headers: ["keyword", "enabled"],
+              rows: [{ keyword: "react developer", enabled: true }]
+            }
+          ]
+        },
+        review,
+        schema
+      ),
+    /conflicting headers/
+  );
 });
 
 test("generated setup has no legacy import surface or placeholder writes", async () => {
@@ -209,6 +284,24 @@ test("generated setup has no legacy import surface or placeholder writes", async
   assert.match(artifact, /ensureSheetCapacity_/);
   assert.match(artifact, /insertRowsAfter/);
   assert.match(artifact, /insertColumnsAfter/);
+  assert.match(artifact, /configureSearchKeywordsSheet_/);
+  assert.match(artifact, /requireCheckbox/);
+  assert.match(artifact, /Search Keywords:header/);
+  assert.match(artifact, /createdSheets\.has/);
+  assert.match(artifact, /assertReconciliableHeaders_/);
+  assert.ok(
+    artifact.indexOf("assertReconciliableHeaders_(sheet, definition.headers)") <
+      artifact.indexOf("workbook.insertSheet(name)"),
+    "existing sheets must be preflighted before structural writes"
+  );
+  assert.match(
+    artifact,
+    /function reconcileHeaders_\(sheet, headers\) \{\s+const state = assertReconciliableHeaders_\(sheet, headers\);[\s\S]*?if \(!state\.hasHeader\) \{[\s\S]*?setValues\(\[headers\]\)/
+  );
+  assert.match(
+    artifact,
+    /function assertReconciliableHeaders_\(sheet, headers\) \{[\s\S]*?if \(lastRow > 1 && !hasHeader\) \{[\s\S]*?throw new Error\('Fresh setup found data without headers'\)/
+  );
   assert.doesNotMatch(artifact, /openById|IMPORTRANGE|copyTo\(/i);
   assert.doesNotMatch(artifact, /appendRow|placeholder/i);
   for (const legacy of [

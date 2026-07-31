@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "plan_version": "2026-07-31/v1",
+  "schema_version": 3,
+  "plan_version": "2026-07-31/v2",
   "source": "onlinejobs.ph",
   "schedule_minutes": 240,
   "schedule_offset_minutes": 8,
@@ -15,57 +15,5 @@
   "retry": {
     "max_attempts": 3,
     "backoff_ms": 5000
-  },
-  "keywords": [
-    {
-      "id": "full-stack",
-      "keyword": "full stack developer",
-      "enabled": true
-    },
-    {
-      "id": "web",
-      "keyword": "web developer",
-      "enabled": true
-    },
-    {
-      "id": "react",
-      "keyword": "react developer",
-      "enabled": true
-    },
-    {
-      "id": "nextjs",
-      "keyword": "nextjs developer",
-      "enabled": true
-    },
-    {
-      "id": "nodejs",
-      "keyword": "nodejs developer",
-      "enabled": true
-    },
-    {
-      "id": "backend",
-      "keyword": "backend developer",
-      "enabled": true
-    },
-    {
-      "id": "flutter",
-      "keyword": "flutter developer",
-      "enabled": true
-    },
-    {
-      "id": "n8n",
-      "keyword": "n8n developer",
-      "enabled": true
-    },
-    {
-      "id": "automation",
-      "keyword": "automation developer",
-      "enabled": true
-    },
-    {
-      "id": "support",
-      "keyword": "application support engineer",
-      "enabled": true
-    }
-  ]
+  }
 }

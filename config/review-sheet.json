@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "view_version": "2026-07-31/v2",
+  "schema_version": 3,
+  "view_version": "2026-07-31/v3",
   "timezone": "Asia/Manila",
   "sheets": {
     "review_queue": {
@@ -50,6 +50,57 @@
         "decision_reason",
         "canonical_url",
         "notes"
+      ]
+    },
+    "search_keywords": {
+      "name": "Search Keywords",
+      "visible": true,
+      "authoritative_for": "scraper_keywords",
+      "fields": [
+        "enabled",
+        "keyword"
+      ],
+      "initial_rows": [
+        {
+          "enabled": true,
+          "keyword": "full stack developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "web developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "react developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "nextjs developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "nodejs developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "backend developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "flutter developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "n8n developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "automation developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "application support engineer"
+        }
       ]
     },
     "system": {

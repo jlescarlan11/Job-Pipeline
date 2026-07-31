@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-31T05:39:47Z",
+  "capture_mode": "authorized_nonproduction_smoke",
+  "credentials_included": false,
+  "private_job_content_included": false,
+  "complete_sheet_rows_included": false,
+  "application_messages_included": false,
+  "submission_attempted": false,
+  "apply_points_spent": 0,
+  "workbook": {
+    "id": "1is410om2SXz5M0B72Cmb-3FfXuNwnnxn1XXO1VkSzrc",
+    "timezone": "Asia/Manila",
+    "sheet_titles": [
+      "Review Queue",
+      "Applied Jobs",
+      "Archive",
+      "Search Keywords",
+      "_System"
+    ],
+    "hidden_sheet_titles": [
+      "_System"
+    ],
+    "business_data_row_count": 0,
+    "initial_seed_count": 10,
+    "strict_checkbox_validation": true,
+    "frozen_header_row": true,
+    "filter_present": true,
+    "warning_only_header_protection": true,
+    "operator_values_preserved_on_setup_rerun": true,
+    "duplicate_sheet_count_after_rerun": 0
+  },
+  "workflow": {
+    "id": "keywordSmoke20260731",
+    "active": false,
+    "node_count": 26,
+    "google_sheets_node_count": 9,
+    "all_google_sheets_nodes_bound": true,
+    "embedded_keyword_seed_hit_count": 0,
+    "fallback_present": false,
+    "reimported_between_configuration_changes": false
+  },
+  "valid_runtime_smokes": [
+    {
+      "sequence": 1,
+      "captured_keyword_count": 2,
+      "captured_keyword_digest_sha256": "51ae227bd34114125feaf5d6f67f09529789945edc26016976d3d6423a038033",
+      "disabled_keyword_count": 9,
+      "unique_window_count": 1,
+      "source_request_attempted": true,
+      "coverage_status": "partial",
+      "business_write_count": 0,
+      "claim_write_count": 0
+    },
+    {
+      "sequence": 2,
+      "captured_keyword_count": 1,
+      "captured_keyword_digest_sha256": "a7c56a26218b44960defc665e05571450da9555170f289976553cd11bad397bb",
+      "edited_keyword_observed": true,
+      "previous_keyword_absent": true,
+      "newly_disabled_keyword_absent": true,
+      "unique_window_count": 1,
+      "source_request_attempted": true,
+      "coverage_status": "partial",
+      "business_write_count": 0,
+      "claim_write_count": 0
+    }
+  ],
+  "snapshot_verification": {
+    "sheet_read_node_count": 1,
+    "read_occurs_before_capture": true,
+    "pagination_uses_captured_snapshot": true,
+    "coverage_uses_captured_snapshot": true,
+    "configuration_changed_without_rebuild": true,
+    "change_observed_only_by_later_execution": true
+  },
+  "invalid_configuration_matrix": [
+    {
+      "case": "normalized_duplicate",
+      "execution_id": 6657,
+      "bounded_error_categories": [
+        "duplicate_enabled_keyword"
+      ],
+      "source_request_output_count": 0,
+      "claim_write_count": 0,
+      "business_write_count": 0
+    },
+    {
+      "case": "enabled_blank",
+      "execution_id": 6658,
+      "bounded_error_categories": [
+        "missing_enabled_keyword",
+        "no_enabled_keywords"
+      ],
+      "source_request_output_count": 0,
+      "claim_write_count": 0,
+      "business_write_count": 0
+    },
+    {
+      "case": "malformed_enabled",
+      "execution_id": 6659,
+      "bounded_error_categories": [
+        "invalid_enabled_value",
+        "no_enabled_keywords"
+      ],
+      "source_request_output_count": 0,
+      "claim_write_count": 0,
+      "business_write_count": 0
+    },
+    {
+      "case": "no_enabled_keywords",
+      "execution_id": 6660,
+      "bounded_error_categories": [
+        "no_enabled_keywords"
+      ],
+      "source_request_output_count": 0,
+      "claim_write_count": 0,
+      "business_write_count": 0
+    },
+    {
+      "case": "missing_sheet_and_read_failure",
+      "execution_id": 6661,
+      "bounded_error_categories": [
+        "invalid_keyword_headers",
+        "no_enabled_keywords"
+      ],
+      "sheet_read_error_observed": true,
+      "source_request_output_count": 0,
+      "claim_write_count": 0,
+      "business_write_count": 0
+    }
+  ],
+  "restoration": {
+    "search_keywords_title_restored": true,
+    "strict_checkbox_validation_restored": true,
+    "one_valid_enabled_keyword_present": true,
+    "workflow_remains_inactive": true
+  }
+}

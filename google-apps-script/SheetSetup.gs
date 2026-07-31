@@ -52,6 +52,57 @@ const JOB_PIPELINE_SETUP = {
         "notes"
       ]
     },
+    "search_keywords": {
+      "name": "Search Keywords",
+      "visible": true,
+      "authoritative_for": "scraper_keywords",
+      "fields": [
+        "enabled",
+        "keyword"
+      ],
+      "initial_rows": [
+        {
+          "enabled": true,
+          "keyword": "full stack developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "web developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "react developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "nextjs developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "nodejs developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "backend developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "flutter developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "n8n developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "automation developer"
+        },
+        {
+          "enabled": true,
+          "keyword": "application support engineer"
+        }
+      ]
+    },
     "system": {
       "name": "_System",
       "visible": false,
@@ -195,16 +246,44 @@ function setupFreshJobPipeline() {
       JOB_PIPELINE_SETUP.sheets.review_queue.name,
       JOB_PIPELINE_SETUP.sheets.applied_jobs.name,
       JOB_PIPELINE_SETUP.sheets.archive.name,
+      JOB_PIPELINE_SETUP.sheets.search_keywords.name,
       JOB_PIPELINE_SETUP.sheets.system.name
     ];
+    const expectedDefinitions = [
+      {
+        name: JOB_PIPELINE_SETUP.sheets.review_queue.name,
+        headers: JOB_PIPELINE_SETUP.recordFields
+      },
+      {
+        name: JOB_PIPELINE_SETUP.sheets.applied_jobs.name,
+        headers: JOB_PIPELINE_SETUP.recordFields
+      },
+      {
+        name: JOB_PIPELINE_SETUP.sheets.archive.name,
+        headers: JOB_PIPELINE_SETUP.recordFields
+      },
+      {
+        name: JOB_PIPELINE_SETUP.sheets.search_keywords.name,
+        headers: JOB_PIPELINE_SETUP.sheets.search_keywords.fields
+      },
+      {
+        name: JOB_PIPELINE_SETUP.sheets.system.name,
+        headers: JOB_PIPELINE_SETUP.sheets.system.fields
+      }
+    ];
+    const createdSheets = new Set();
 
-    // Create the intended tabs before removing an empty default Sheet1.
-    expected.forEach((name) => {
-      if (!workbook.getSheetByName(name)) workbook.insertSheet(name);
-    });
-
+    // Preflight every existing tab before the first structural or cell write.
+    // This makes header/content conflicts non-destructive and prevents a failed
+    // run from leaving an empty, never-seeded Search Keywords tab behind.
     workbook.getSheets().forEach((sheet) => {
-      if (expected.includes(sheet.getName())) return;
+      if (expected.includes(sheet.getName())) {
+        const definition = expectedDefinitions.find(
+          (entry) => entry.name === sheet.getName()
+        );
+        assertReconciliableHeaders_(sheet, definition.headers);
+        return;
+      }
       if (sheet.getLastRow() > 1 || sheet.getLastColumn() > 1 ||
           String(sheet.getRange(1, 1).getValue() || '').trim() !== '') {
         throw new Error(
@@ -212,6 +291,18 @@ function setupFreshJobPipeline() {
           sanitizeSetupDiagnostic_(sheet.getName())
         );
       }
+    });
+
+    // Create the intended tabs before removing an empty default Sheet1.
+    expected.forEach((name) => {
+      if (!workbook.getSheetByName(name)) {
+        workbook.insertSheet(name);
+        createdSheets.add(name);
+      }
+    });
+
+    workbook.getSheets().forEach((sheet) => {
+      if (expected.includes(sheet.getName())) return;
       workbook.deleteSheet(sheet);
     });
 
@@ -229,6 +320,10 @@ function setupFreshJobPipeline() {
     );
     configureSystemSheet_(
       workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.system.name)
+    );
+    configureSearchKeywordsSheet_(
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.search_keywords.name),
+      createdSheets.has(JOB_PIPELINE_SETUP.sheets.search_keywords.name)
     );
     applyReviewActionValidation_(
       workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.review_queue.name)
@@ -319,6 +414,63 @@ function configureSystemSheet_(sheet) {
     .setWarningOnly(true);
 }
 
+function configureSearchKeywordsSheet_(sheet, createdNow) {
+  const definition = JOB_PIPELINE_SETUP.sheets.search_keywords;
+  ensureSheetCapacity_(
+    sheet,
+    JOB_PIPELINE_SETUP.maximumRows,
+    definition.fields.length
+  );
+  reconcileHeaders_(sheet, definition.fields);
+
+  if (createdNow && definition.initial_rows.length > 0) {
+    const values = definition.initial_rows.map((row) =>
+      definition.fields.map((field) => row[field])
+    );
+    sheet.getRange(2, 1, values.length, definition.fields.length)
+      .setValues(values);
+  }
+
+  sheet.setFrozenRows(1);
+  sheet.getRange(1, 1, 1, definition.fields.length)
+    .setFontWeight('bold')
+    .setBackground('#cfe2f3');
+  sheet.setColumnWidth(1, 100);
+  sheet.setColumnWidth(2, 320);
+
+  sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE).forEach((protection) => {
+    if (String(protection.getDescription() || '')
+      .startsWith('Job Pipeline generated:Search Keywords:')) {
+      protection.remove();
+    }
+  });
+  sheet.getRange(1, 1, 1, definition.fields.length)
+    .protect()
+    .setDescription('Job Pipeline generated:Search Keywords:header')
+    .setWarningOnly(true);
+
+  const enabledColumn = definition.fields.indexOf('enabled') + 1;
+  const validation = SpreadsheetApp.newDataValidation()
+    .requireCheckbox()
+    .setAllowInvalid(false)
+    .build();
+  sheet.getRange(
+    2,
+    enabledColumn,
+    Math.max(sheet.getMaxRows() - 1, 1),
+    1
+  ).setDataValidation(validation);
+
+  if (!sheet.getFilter()) {
+    sheet.getRange(
+      1,
+      1,
+      Math.max(sheet.getLastRow(), 1),
+      definition.fields.length
+    ).createFilter();
+  }
+}
+
 function ensureSheetCapacity_(sheet, minimumRows, minimumColumns) {
   if (sheet.getMaxRows() < minimumRows) {
     sheet.insertRowsAfter(
@@ -335,6 +487,13 @@ function ensureSheetCapacity_(sheet, minimumRows, minimumColumns) {
 }
 
 function reconcileHeaders_(sheet, headers) {
+  const state = assertReconciliableHeaders_(sheet, headers);
+  if (!state.hasHeader) {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  }
+}
+
+function assertReconciliableHeaders_(sheet, headers) {
   const lastRow = sheet.getLastRow();
   const current = sheet
     .getRange(1, 1, 1, Math.max(sheet.getLastColumn(), headers.length))
@@ -350,12 +509,11 @@ function reconcileHeaders_(sheet, headers) {
         sanitizeSetupDiagnostic_(sheet.getName())
       );
     }
-  } else {
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   }
   if (lastRow > 1 && !hasHeader) {
     throw new Error('Fresh setup found data without headers');
   }
+  return { hasHeader };
 }
 
 function applyReviewActionValidation_(sheet) {

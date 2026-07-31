@@ -6,9 +6,11 @@ import {
   buildNextSearchRequest,
   buildSearchRequests,
   createDiscoveryWindow,
+  createKeywordSnapshot,
   parseSearchResults,
   reconcileDiscovery,
   summarizeCoverage,
+  validateKeywordSheetRows,
   validateSearchPlan
 } from "../src/discovery.mjs";
 import { normalizeLegacyRecord } from "../src/contracts.mjs";
@@ -19,6 +21,11 @@ const plan = JSON.parse(
 const schema = JSON.parse(
   await readFile(new URL("../config/pipeline-schema.json", import.meta.url))
 );
+const review = JSON.parse(
+  await readFile(new URL("../config/review-sheet.json", import.meta.url))
+);
+const keywordRows = review.sheets.search_keywords.initial_rows;
+const keywordSnapshot = createKeywordSnapshot(keywordRows);
 
 function card(id, title, postedAt, { omitDate = false } = {}) {
   return `<a href="/jobseekers/job/example-${id}">
@@ -66,15 +73,79 @@ function stored(id, overrides = {}) {
   );
 }
 
-test("search plan is simple keyword configuration with fixed network bounds", () => {
+test("search plan contains only fixed operational network bounds", () => {
   assert.deepEqual(validateSearchPlan(plan), []);
   assert.equal(plan.window_hours, 24);
-  assert.ok(plan.keywords.every((entry) => !("evidence_refs" in entry)));
-  assert.ok(plan.keywords.every((entry) => !("role_family" in entry)));
+  assert.equal("keywords" in plan, false);
   assert.equal(plan.max_pages_per_keyword, 3);
   assert.equal(plan.request_timeout_ms, 15000);
   assert.equal(plan.retry.max_attempts, 3);
   assert.ok(plan.request_interval_ms > 0);
+  assert.match(
+    validateSearchPlan({ ...plan, keywords: keywordSnapshot })[0],
+    /must not embed runtime keywords/
+  );
+});
+
+test("keyword sheet rows create one immutable normalized runtime snapshot", () => {
+  const snapshot = createKeywordSnapshot([
+    {},
+    { row_number: 2, enabled: false },
+    { row_number: 3, enabled: "FALSE", keyword: "paused developer" },
+    { row_number: 4, enabled: true, keyword: "  Ｒｅａｃｔ Developer  " },
+    { row_number: 5, enabled: "TRUE", keyword: "web developer" }
+  ]);
+  assert.deepEqual(snapshot, [
+    {
+      id: "sheet:react%20developer",
+      keyword: "React Developer",
+      enabled: true
+    },
+    {
+      id: "sheet:web%20developer",
+      keyword: "web developer",
+      enabled: true
+    }
+  ]);
+  assert.equal(Object.isFrozen(snapshot), true);
+  assert.ok(snapshot.every((entry) => Object.isFrozen(entry)));
+  assert.equal(
+    createKeywordSnapshot([
+      { enabled: true, keyword: "React Developer" }
+    ])[0].id,
+    snapshot[0].id
+  );
+});
+
+test("keyword sheet validation fails closed with bounded categories", () => {
+  for (const [rows, expected] of [
+    [[{}], "no_enabled_keywords"],
+    [[{ enabled: true, keyword: " " }], "missing_enabled_keyword"],
+    [[{ keyword: "react developer" }], "invalid_enabled_value"],
+    [[{ enabled: "yes", keyword: "react developer" }], "invalid_enabled_value"],
+    [[{ enabled: true, keyword: 123 }], "invalid_keyword_value"],
+    [
+      [
+        { enabled: true, keyword: "React Developer" },
+        { enabled: true, keyword: "ｒｅａｃｔ developer" }
+      ],
+      "duplicate_enabled_keyword"
+    ],
+    [[{ enabled: true, keyword: "react\u200bdeveloper" }], "keyword_contains_control_character"],
+    [[{ enabled: true, keyword: "x".repeat(201) }], "keyword_too_long"],
+    [[{ enabled: true, keyword: "react developer", extra: "unsafe" }], "invalid_keyword_headers"]
+  ]) {
+    const result = validateKeywordSheetRows(rows);
+    assert.ok(result.errors.includes(expected), expected);
+    assert.throws(
+      () => createKeywordSnapshot(rows),
+      (error) => {
+        assert.match(error.message, new RegExp(expected));
+        assert.doesNotMatch(error.message, /react developer|x{20}/i);
+        return true;
+      }
+    );
+  }
 });
 
 test("one immutable window is captured before every keyword request", () => {
@@ -84,7 +155,7 @@ test("one immutable window is captured before every keyword request", () => {
     window_end: "2026-07-31T10:30:00.000Z",
     window_hours: 24
   });
-  const requests = buildSearchRequests(plan, window);
+  const requests = buildSearchRequests(plan, keywordSnapshot, window);
   assert.ok(requests.length > 1);
   assert.ok(
     requests.every(
@@ -288,11 +359,14 @@ test("failed later page retains earlier valid results and reports partial covera
   );
   assert.equal(result.new_jobs.length, 1);
 
-  const singleKeywordPlan = {
-    ...plan,
-    keywords: [{ id: "react", keyword: "react developer", enabled: true }]
-  };
-  const coverage = summarizeCoverage([first, failed], singleKeywordPlan);
+  const singleKeywordSnapshot = [
+    { id: "react", keyword: "react developer", enabled: true }
+  ];
+  const coverage = summarizeCoverage(
+    [first, failed],
+    plan,
+    singleKeywordSnapshot
+  );
   assert.equal(coverage.status, "partial");
   assert.equal(coverage.keywords[0].pages_succeeded, 1);
   assert.equal(coverage.keywords[0].pages_failed, 1);
