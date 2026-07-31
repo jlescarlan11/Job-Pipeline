@@ -15,6 +15,7 @@ const [
   alerts,
   acceptance,
   generatorBatchVerification,
+  productionPredeploymentBaseline,
   schema,
   searchPlan,
   runtime,
@@ -31,6 +32,9 @@ const [
   loadText("../docs/alerts.md"),
   loadText("../docs/acceptance-matrix.md"),
   loadText("../docs/generator-batch-verification-2026-07-31.md"),
+  loadJson(
+    "../outputs/generator-batch-20260731/production-predeployment-baseline.json"
+  ),
   loadJson("../config/pipeline-schema.json"),
   loadJson("../config/search-plan.json"),
   loadJson("../config/runtime.json"),
@@ -189,10 +193,86 @@ test("Generator batch docs cover the five-job runtime, provider envelope, and pr
   assert.match(generatorBatchVerification, /groq-live-benchmark\.json/i);
   assert.match(generatorBatchVerification, /groq-permission-validation\.json/i);
   assert.match(generatorBatchVerification, /n8n-import-validation\.json/i);
+  assert.match(
+    generatorBatchVerification,
+    /production-predeployment-baseline\.json/i
+  );
   assert.match(generatorBatchVerification, /present on\s+`main`/i);
   for (const issue of [47, 48, 49]) {
     assert.match(acceptance, new RegExp(`Issue #${issue}`));
   }
+});
+
+test("production pre-deployment evidence is sanitized, bounded, and rollback-ready", () => {
+  assert.equal(productionPredeploymentBaseline.capture_mode, "read_only");
+  assert.equal(productionPredeploymentBaseline.production_mutation, false);
+  assert.equal(productionPredeploymentBaseline.credentials_included, false);
+  assert.equal(
+    productionPredeploymentBaseline.private_job_content_included,
+    false
+  );
+  assert.deepEqual(
+    new Set(
+      productionPredeploymentBaseline.active_workflow_inventory.map(
+        (workflow) => workflow.role
+      )
+    ),
+    new Set(["scraper", "evaluator_generator", "alerter_mover"])
+  );
+  assert.ok(
+    productionPredeploymentBaseline.active_workflow_inventory.every(
+      (workflow) => workflow.active === true
+    )
+  );
+  assert.equal(
+    productionPredeploymentBaseline.generator_before_deployment.id,
+    "TRUqD9atneyDyMNx"
+  );
+  assert.equal(
+    productionPredeploymentBaseline.generator_before_deployment
+      .running_or_waiting_executions,
+    0
+  );
+  assert.deepEqual(
+    productionPredeploymentBaseline.workbook.sheets.map(
+      ({ title, data_row_count: count }) => [title, count]
+    ),
+    [
+      ["Review Queue", 7],
+      ["Applied Jobs", 0],
+      ["Archive", 5],
+      ["_System", 0]
+    ]
+  );
+  const candidates =
+    productionPredeploymentBaseline.generator_smoke_candidates_in_selection_order;
+  assert.equal(candidates.length, 7);
+  assert.deepEqual(
+    candidates.slice(0, 5).map((candidate) => candidate.intended_role),
+    ["selected_1", "selected_2", "selected_3", "selected_4", "selected_5"]
+  );
+  assert.equal(candidates[5].intended_role, "sixth_control");
+  assert.ok(
+    candidates.every(
+      (candidate) =>
+        candidate.pipeline_status === "new" &&
+        candidate.record_version === 1 &&
+        candidate.processing_token_present === false &&
+        candidate.attempt_count === 0
+    )
+  );
+  assert.match(
+    productionPredeploymentBaseline.rollback.backup_sha256,
+    /^[a-f0-9]{64}$/
+  );
+  assert.equal(
+    productionPredeploymentBaseline.rollback.backup_permissions,
+    "0600"
+  );
+  assert.equal(
+    productionPredeploymentBaseline.rollback.restore_sequence.length,
+    4
+  );
 });
 
 test("alert docs preserve safe eligibility, fidelity, idempotency, and independence", () => {
@@ -247,6 +327,7 @@ test("acceptance accounting covers every criterion and labels live gates honestl
     22
   );
   assert.match(acceptance, /49-AC-02[^\n]*BLOCKED/);
+  assert.match(acceptance, /49-AC-03[^\n]*SATISFIED/);
   assert.match(
     acceptance,
     /delivery instruction[\s\S]{0,100}forbids deployment/i

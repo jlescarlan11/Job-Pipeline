@@ -24,7 +24,7 @@ claims, retries, idempotency, generated artifacts, and deployment recovery.
 | `README.md`, `docs/architecture.md`, `docs/master-prompt.md` | #47/#48 | Replace one-row/single-model descriptions with fixed-batch, sequential, split-model, and failure-isolation contracts. | Low | REVIEWED_CLEAN |
 | `docs/groq-provider-policy.md`, `docs/n8n-deployment.md`, `docs/operations.md` | #47/#48/#49 | Document verified quotas, pacing, smoke matrix, in-place deployment identity, rollback, and exact-commit gate. | Low | REVIEWED_CLEAN |
 | `docs/acceptance-matrix.md`, `docs/generator-batch-verification-2026-07-31.md` | #47/#48/#49 | Record stable criterion IDs/statuses, direct evidence, and the explicit production blocker without rewriting historical cutover evidence. | Low | REVIEWED_CLEAN |
-| `outputs/generator-batch-20260731/*.json` | #47/#48 | Retain only sanitized permission, benchmark, and isolated n8n import evidence. Secret-shaped value scan, JSON parse, measurement fields, and production-mutation flag inspected. | Moderate | REVIEWED_CLEAN |
+| `outputs/generator-batch-20260731/*.json` | #47/#48/#49 | Retain only sanitized permission, benchmark, isolated n8n import, and read-only production pre-deployment evidence. Secret-shaped value scan, JSON parse, measurement fields, bounded identities/state, rollback reference, and production-mutation flags inspected. | Moderate | REVIEWED_CLEAN |
 | This ledger | #47/#48/#49 | Account for every source, configuration, test, artifact, documentation, and evidence change unit. | Low | REVIEWED_CLEAN |
 
 ## Findings fixed before final review

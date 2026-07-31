@@ -192,7 +192,7 @@ production mutation remains blocked.
 
 1. **49-AC-01 — Exact-commit validation — BLOCKED:** Repository build, policy validation, and full tests pass; production deployment/cutover validation requires a deployment commit on `main`.
 2. **49-AC-02 — Commit on main before mutation — BLOCKED:** The reviewed implementation branch must be merged by an authorized maintainer; this run may not merge.
-3. **49-AC-03 — Pre-deployment evidence — BLOCKED:** Test-row selection and the final rollback snapshot belong to the prohibited deployment window.
+3. **49-AC-03 — Pre-deployment evidence — SATISFIED:** A fresh read-only baseline records the active workflow definition/hash, exact three-role inventory, workbook binding and row counts, deterministic five-plus-two candidate identities/state, zero live claims, and a restricted current-definition rollback backup without credentials or private job content.
 4. **49-AC-04 — In-place update — BLOCKED:** Updating `TRUqD9atneyDyMNx` is deployment and is explicitly forbidden.
 5. **49-AC-05 — Runtime identity preserved — BLOCKED:** Repository artifact proves the intended settings; deployed-state proof requires the forbidden update.
 6. **49-AC-06 — Exactly three active workflows — BLOCKED:** The existing cutover report proves the pre-change inventory; post-update proof requires deployment.

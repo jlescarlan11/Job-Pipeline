@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-31T02:12:22Z",
+  "capture_mode": "read_only",
+  "production_mutation": false,
+  "credentials_included": false,
+  "private_job_content_included": false,
+  "deployment_source": {
+    "required_branch": "main",
+    "required_commit": null,
+    "blocked_reason": "The reviewed implementation commit is not present on main and deployment is forbidden in this run."
+  },
+  "active_workflow_inventory": [
+    {
+      "role": "alerter_mover",
+      "id": "QO6OLK3pHetgGIGq",
+      "name": "(Alerter & Mover) Job Pipeline - Slack and Terminal Moves",
+      "active": true,
+      "node_count": 68,
+      "timezone": "Asia/Manila",
+      "execution_timeout_seconds": 120
+    },
+    {
+      "role": "evaluator_generator",
+      "id": "TRUqD9atneyDyMNx",
+      "name": "(Evaluator & Generator) Job Pipeline - Safe Routing",
+      "active": true,
+      "node_count": 27,
+      "timezone": "Asia/Manila",
+      "execution_timeout_seconds": 480
+    },
+    {
+      "role": "scraper",
+      "id": "qxPbOzNs5StaPY8B",
+      "name": "(Scraper) Job Pipeline - Rolling 24-Hour Keywords",
+      "active": true,
+      "node_count": 25,
+      "timezone": "Asia/Manila",
+      "execution_timeout_seconds": 900
+    }
+  ],
+  "generator_before_deployment": {
+    "id": "TRUqD9atneyDyMNx",
+    "active": true,
+    "updated_at": "2026-07-30 19:05:03",
+    "version_id": "0dab73ea-ba4a-46aa-9976-848039fc5608",
+    "active_version_id": "0dab73ea-ba4a-46aa-9976-848039fc5608",
+    "version_counter": 5,
+    "node_count": 27,
+    "definition_sha256": "b140ec98a79321754f5b2aa8313c198a99df209ea359c0ebcfbce7ef0baa8918",
+    "timezone": "Asia/Manila",
+    "execution_timeout_seconds": 480,
+    "schedule_cron_expressions": [
+      "0 2 0,3,6,9,12,15,18,21 * * *",
+      "0 32 1,4,7,10,13,16,19,22 * * *"
+    ],
+    "maximum_model_requests_per_item": 2,
+    "bounded_repair_enabled": true,
+    "manual_submission_only": true,
+    "running_or_waiting_executions": 0,
+    "latest_execution": {
+      "id": 6623,
+      "status": "success",
+      "mode": "manual",
+      "started_at": "2026-07-31 00:42:25.135",
+      "stopped_at": "2026-07-31 00:42:33.275"
+    }
+  },
+  "workbook": {
+    "id": "1WDzgk83Js6QemgTA0-_Xemipfy_J7PdNf_Mdyedoing",
+    "title": "Job Pipeline — simplified production 2026-07-31 PHT",
+    "timezone": "Asia/Manila",
+    "running_environment_binding_confirmed": true,
+    "old_workbook_reference_configured": true,
+    "sheets": [
+      {
+        "title": "Review Queue",
+        "sheet_id": 1540022097,
+        "hidden": false,
+        "data_row_count": 7
+      },
+      {
+        "title": "Applied Jobs",
+        "sheet_id": 800357441,
+        "hidden": false,
+        "data_row_count": 0
+      },
+      {
+        "title": "Archive",
+        "sheet_id": 1522775894,
+        "hidden": false,
+        "data_row_count": 5
+      },
+      {
+        "title": "_System",
+        "sheet_id": 2080528297,
+        "hidden": true,
+        "data_row_count": 0
+      }
+    ]
+  },
+  "generator_smoke_candidates_in_selection_order": [
+    {
+      "canonical_job_id": "onlinejobs.ph:1699550",
+      "record_version": 1,
+      "pipeline_status": "new",
+      "user_action": "",
+      "processing_stage": "",
+      "processing_token_present": false,
+      "attempt_count": 0,
+      "created_at": "2026-07-30T20:08:00.206Z",
+      "intended_role": "selected_1"
+    },
+    {
+      "canonical_job_id": "onlinejobs.ph:1517153",
+      "record_version": 1,
+      "pipeline_status": "new",
+      "user_action": "",
+      "processing_stage": "",
+      "processing_token_present": false,
+      "attempt_count": 0,
+      "created_at": "2026-07-31T00:08:00.286Z",
+      "intended_role": "selected_2"
+    },
+    {
+      "canonical_job_id": "onlinejobs.ph:1639913",
+      "record_version": 1,
+      "pipeline_status": "new",
+      "user_action": "",
+      "processing_stage": "",
+      "processing_token_present": false,
+      "attempt_count": 0,
+      "created_at": "2026-07-31T00:08:00.286Z",
+      "intended_role": "selected_3"
+    },
+    {
+      "canonical_job_id": "onlinejobs.ph:1698330",
+      "record_version": 1,
+      "pipeline_status": "new",
+      "user_action": "",
+      "processing_stage": "",
+      "processing_token_present": false,
+      "attempt_count": 0,
+      "created_at": "2026-07-31T00:08:00.286Z",
+      "intended_role": "selected_4"
+    },
+    {
+      "canonical_job_id": "onlinejobs.ph:1698529",
+      "record_version": 1,
+      "pipeline_status": "new",
+      "user_action": "",
+      "processing_stage": "",
+      "processing_token_present": false,
+      "attempt_count": 0,
+      "created_at": "2026-07-31T00:08:00.286Z",
+      "intended_role": "selected_5"
+    },
+    {
+      "canonical_job_id": "onlinejobs.ph:1699495",
+      "record_version": 1,
+      "pipeline_status": "new",
+      "user_action": "",
+      "processing_stage": "",
+      "processing_token_present": false,
+      "attempt_count": 0,
+      "created_at": "2026-07-31T00:08:00.286Z",
+      "intended_role": "sixth_control"
+    },
+    {
+      "canonical_job_id": "onlinejobs.ph:1699683",
+      "record_version": 1,
+      "pipeline_status": "new",
+      "user_action": "",
+      "processing_stage": "",
+      "processing_token_present": false,
+      "attempt_count": 0,
+      "created_at": "2026-07-31T00:08:00.286Z",
+      "intended_role": "seventh_control"
+    }
+  ],
+  "rollback": {
+    "definition_backup": "/Users/johnlesterescarlan/.codex/backups/job-pipeline/20260731T101159PHT-generator-five-job-predeploy/TRUqD9atneyDyMNx.json",
+    "backup_sha256": "9bbaa088c6c52f9f74b62668e2f167b9021fe1dfde9da19371c312d4552dc3cd",
+    "backup_permissions": "0600",
+    "backup_node_count": 27,
+    "backup_active": true,
+    "restore_sequence": [
+      "Stop or disable the replacement Generator and wait for running or waiting executions to finish.",
+      "Import the restricted backup definition with n8n import:workflow.",
+      "Publish workflow TRUqD9atneyDyMNx and restart the managed n8n listener with the unchanged production environment.",
+      "Reconfirm the three-role active inventory, workbook binding, definition hash, and affected Review Queue claims before resuming the schedule."
+    ]
+  }
+}

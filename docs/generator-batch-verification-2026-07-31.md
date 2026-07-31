@@ -86,3 +86,11 @@ Issue #49 requires the exact generated artifact commit to be present on
 five-plus-one smoke. The production deployment, Sheet row verification,
 Alerter replay observation, rollback result, and post-deployment evidence
 remain open until that prerequisite is satisfied.
+
+A fresh read-only pre-deployment baseline is recorded at
+`outputs/generator-batch-20260731/production-predeployment-baseline.json`.
+It confirms the current three active workflow identities, the one-row
+Generator definition and restricted rollback backup, the production workbook
+binding and row counts, seven eligible unclaimed Review Queue rows, the
+deterministic first-five selection, and sixth/seventh controls. Capturing this
+baseline did not execute a workflow or mutate n8n, Google Sheets, or Slack.
