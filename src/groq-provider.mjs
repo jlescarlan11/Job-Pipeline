@@ -268,7 +268,8 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
   for (const field of [
     "schedule_minutes",
     "per_run_cap",
-    "execution_timeout_seconds"
+    "execution_timeout_seconds",
+    "candidate_pacing_delay_ms"
   ]) {
     if (!positiveInteger(generatorRuntime?.[field])) {
       throw new Error(`Generator runtime ${field} must be a positive integer`);
@@ -321,6 +322,12 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
     initialRequestEstimate,
     repairRequestEstimate
   );
+  const maximumProviderPacingMilliseconds =
+    (generation.maximum_requests_per_item * generatorRuntime.per_run_cap - 1) *
+    generation.request_interval_ms;
+  const maximumCandidatePacingMilliseconds =
+    generatorRuntime.per_run_cap *
+    generatorRuntime.candidate_pacing_delay_ms;
   return {
     initial_model_id: initialModel.id,
     repair_model_id: repairModel.id,
@@ -338,9 +345,13 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
     maximum_character_token_estimate_in_any_minute:
       maximumRequestsInAnyMinute * maximumRequestEstimate,
     per_model_scheduled_capacity: [...perModel.values()],
+    maximum_provider_pacing_milliseconds:
+      maximumProviderPacingMilliseconds,
+    maximum_candidate_pacing_milliseconds:
+      maximumCandidatePacingMilliseconds,
     maximum_pacing_milliseconds:
-      (generation.maximum_requests_per_item * generatorRuntime.per_run_cap - 1) *
-      generation.request_interval_ms
+      maximumProviderPacingMilliseconds +
+      maximumCandidatePacingMilliseconds
   };
 }
 
@@ -349,7 +360,8 @@ export function validateGroqRuntimeCapacity(policy, generatorRuntime) {
   for (const field of [
     "schedule_minutes",
     "per_run_cap",
-    "execution_timeout_seconds"
+    "execution_timeout_seconds",
+    "candidate_pacing_delay_ms"
   ]) {
     if (!positiveInteger(generatorRuntime?.[field])) {
       errors.push(`Generator runtime ${field} must be a positive integer`);

@@ -137,7 +137,9 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
         maximum_scheduled_character_token_estimate_per_day: 196690
       }
     ],
-    maximum_pacing_milliseconds: 189000
+    maximum_provider_pacing_milliseconds: 189000,
+    maximum_candidate_pacing_milliseconds: 100000,
+    maximum_pacing_milliseconds: 289000
   });
   assert.deepEqual(
     validateGroqRuntimeCapacity(groqPolicy, runtime.generator),
@@ -150,7 +152,8 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
     ...runtime.generator,
     schedule_minutes: 15,
     per_run_cap: 5,
-    execution_timeout_seconds: 90
+    execution_timeout_seconds: 90,
+    candidate_pacing_delay_ms: 20000
   };
   const errors = validateGroqRuntimeCapacity(
     unsafePolicy,

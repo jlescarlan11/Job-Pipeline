@@ -25,6 +25,7 @@
     "execution_timeout_seconds": 480,
     "per_run_cap": 5,
     "claim_lease_ms": 600000,
+    "candidate_pacing_delay_ms": 20000,
     "request_retry_backoff_ms": 5000,
     "retry": {
       "max_attempts": 3,

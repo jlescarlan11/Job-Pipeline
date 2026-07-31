@@ -19,7 +19,11 @@ does not authorize mutation of the active workflow or workbook.
 - Repair route: `openai/gpt-oss-20b`, maximum 85 requests and 196,690
   character-estimated tokens per day.
 - Per-minute maximum: 3 requests and 6,942 character-estimated tokens.
-- Five-job all-repair configured pacing: 189 seconds.
+- Five-job all-repair provider pacing: 189 seconds.
+- Per-candidate Google Sheets pacing: 20 seconds after every handled item,
+  adding at most 100 seconds per five-item run.
+- Combined configured pacing ceiling: 289 seconds within the 480-second
+  execution timeout.
 
 ## Authorized Groq prerequisite
 
@@ -53,7 +57,8 @@ fixed selection of at most five candidates. Each loop item:
    and operator action;
 6. persists without automatic write retry;
 7. rereads and exactly confirms committed fields; and
-8. returns a bounded result to the loop before the next candidate starts.
+8. returns a bounded result, waits 20 seconds to stay within production
+   Google Sheets request capacity, and then advances the loop.
 
 All handled failure branches return to the loop and each attempted candidate
 emits exactly one sanitized `generator_result` event. Generated-workflow tests scan
@@ -74,7 +79,7 @@ fan-out, automatic Groq retry, and missing failure continuations.
   boundary.
 - The generated workflow imported successfully into an isolated temporary n8n
   2.32.6 profile after assigning a temporary import-only ID and re-exported
-  with its 46 nodes, cap, batch size, models, timeout, and timezone intact. The
+  with its 47 nodes, cap, batch size, models, timeout, and timezone intact. The
   sanitized result is checked in at
   `outputs/generator-batch-20260731/n8n-import-validation.json`. No production
   workflow or credential was changed.

@@ -239,7 +239,7 @@ function ifNode(name, position, expression) {
   };
 }
 
-function waitNode(name, position, milliseconds) {
+function waitNode(name, position, milliseconds, explicitId) {
   return {
     parameters: {
       resume: "timeInterval",
@@ -249,7 +249,7 @@ function waitNode(name, position, milliseconds) {
     type: "n8n-nodes-base.wait",
     typeVersion: 1.1,
     position,
-    id: id(),
+    id: explicitId || id(),
     name
   };
 }
@@ -1437,6 +1437,12 @@ console.log(JSON.stringify({
 return { json: result };`,
       "runOnceForEachItem"
     ),
+    waitNode(
+      "Wait After Generator Candidate",
+      [6200, 40],
+      config.candidate_pacing_delay_ms,
+      "f3a09999-0000-4000-8000-000000000001"
+    ),
     codeNode(
       "Summarize Generator Run",
       [-1200, 520],
@@ -1609,6 +1615,9 @@ return { json: {
       main: [[connection("Finalize Candidate")]]
     },
     "Finalize Candidate": {
+      main: [[connection("Wait After Generator Candidate")]]
+    },
+    "Wait After Generator Candidate": {
       main: [[connection("Process Candidates Sequentially")]]
     }
   };
@@ -1634,6 +1643,7 @@ return { json: {
         groqPolicy.generation.maximum_requests_per_item,
       maximumItemsPerExecution: config.per_run_cap,
       sequentialBatchSize: 1,
+      candidatePacingDelayMs: config.candidate_pacing_delay_ms,
       initialModel: groqPolicy.selected_model,
       repairModel: groqPolicy.repair_model,
       boundedRepairEnabled: true,

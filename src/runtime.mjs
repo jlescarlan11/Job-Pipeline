@@ -2,6 +2,7 @@ import { validateMinuteIntervalSchedule } from "./schedules.mjs";
 
 const REQUIRED_TIMEZONE = "Asia/Manila";
 const WORKFLOW_ROLES = ["scraper", "generator", "alerter_mover"];
+const MINIMUM_GENERATOR_CANDIDATE_PACING_DELAY_MS = 20000;
 export const EXPECTED_WORKFLOW_ARTIFACTS = [
   "alerter-mover.json",
   "generator.json",
@@ -98,10 +99,23 @@ export function validateRuntimeConfig(runtime) {
   } else if (runtime.generator.per_run_cap > 5) {
     errors.push("generator.per_run_cap must not exceed 5");
   }
-  for (const field of ["request_retry_backoff_ms", "http_timeout_ms"]) {
+  for (const field of [
+    "candidate_pacing_delay_ms",
+    "request_retry_backoff_ms",
+    "http_timeout_ms"
+  ]) {
     if (!positiveInteger(runtime.generator?.[field])) {
       errors.push(`generator.${field} must be a positive integer`);
     }
+  }
+  if (
+    positiveInteger(runtime.generator?.candidate_pacing_delay_ms) &&
+    runtime.generator.candidate_pacing_delay_ms <
+      MINIMUM_GENERATOR_CANDIDATE_PACING_DELAY_MS
+  ) {
+    errors.push(
+      `generator.candidate_pacing_delay_ms must be at least ${MINIMUM_GENERATOR_CANDIDATE_PACING_DELAY_MS}`
+    );
   }
   for (const field of ["max_attempts", "backoff_ms"]) {
     if (!positiveInteger(runtime.generator?.retry?.[field])) {

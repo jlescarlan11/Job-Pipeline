@@ -224,6 +224,7 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   assert.equal(workflow.meta.maximumModelRequestsPerItem, 2);
   assert.equal(workflow.meta.maximumItemsPerExecution, 5);
   assert.equal(workflow.meta.sequentialBatchSize, 1);
+  assert.equal(workflow.meta.candidatePacingDelayMs, 20000);
   assert.equal(workflow.meta.initialModel, "openai/gpt-oss-120b");
   assert.equal(workflow.meta.repairModel, "openai/gpt-oss-20b");
   assert.equal(workflow.meta.boundedRepairEnabled, true);
@@ -261,8 +262,16 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
     workflow.connections[loop.name].main[1][0].node,
     "Create Generator System Claim"
   );
+  const candidatePacing = node(workflow, "Wait After Generator Candidate");
+  assert.equal(candidatePacing.type, "n8n-nodes-base.wait");
+  assert.equal(candidatePacing.parameters.amount, 20);
+  assert.equal(candidatePacing.parameters.unit, "seconds");
   assert.equal(
     workflow.connections["Finalize Candidate"].main[0][0].node,
+    candidatePacing.name
+  );
+  assert.equal(
+    workflow.connections[candidatePacing.name].main[0][0].node,
     loop.name
   );
   assert.equal(

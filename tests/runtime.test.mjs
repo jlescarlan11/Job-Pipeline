@@ -125,6 +125,22 @@ test("Generator runtime accepts one through five jobs and rejects invalid caps",
   }
 });
 
+test("Generator runtime enforces production-safe per-candidate Sheet pacing", () => {
+  assert.equal(runtime.generator.candidate_pacing_delay_ms, 20000);
+  for (const candidatePacingDelayMs of [undefined, 0, -1, 1.5, "20000", 19999]) {
+    assert.match(
+      validateRuntimeConfig({
+        ...runtime,
+        generator: {
+          ...runtime.generator,
+          candidate_pacing_delay_ms: candidatePacingDelayMs
+        }
+      }).join(";"),
+      /generator\.candidate_pacing_delay_ms/
+    );
+  }
+});
+
 test("generator and alerter schedules retain worst-case timeout separation", () => {
   assert.equal(runtime.alerter_mover.schedule_offset_minutes, 14);
   assert.match(
