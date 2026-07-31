@@ -27,10 +27,10 @@ Run the generated `setupFreshJobPipeline()` Apps Script in a blank workbook. It 
 - `Archive`
 - `Search Keywords` (visible operator configuration)
 - `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, and `Awards`
-- `Job Preferences` and `Application Preferences`
+- `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases`
 - `_System` (hidden, short-lived claims only)
 
-All five business tabs use the same complete ordered record schema. `To Review` exposes only `Approve`/`Deny`; `To Apply` exposes only `I Applied`/`Skip`; blank remains valid and workflow-side validation is authoritative. The eight context tabs divide identity, evidence, and preferences into small editable tables. Generator and Alerter & Mover read and freeze them at execution start, derive context hashes automatically, and fail before business writes when context is missing or malformed. An empty default tab is removed. A non-empty unexpected tab or conflicting header stops setup. On first creation, the configuration tabs are seeded from the current approved profile and policies. Rerunning setup preserves operator edits without recreating deleted rows or re-enabling disabled rows.
+All five business tabs use the same complete ordered record schema. `To Review` exposes only `Approve`/`Deny`; `To Apply` exposes only `I Applied`/`Skip`; blank remains valid and workflow-side validation is authoritative. The ten context tabs divide identity, evidence, and preferences into small editable tables. Generator and Alerter & Mover read and freeze them at execution start, derive context hashes automatically, and fail before business writes when context is missing or malformed. An empty default tab is removed. A non-empty unexpected tab or conflicting header stops setup. On first creation, the configuration tabs are seeded from the current approved profile and policies. Rerunning setup preserves operator edits without recreating deleted rows or re-enabling disabled rows.
 
 ## Local commands
 

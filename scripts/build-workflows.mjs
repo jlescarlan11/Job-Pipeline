@@ -145,10 +145,22 @@ const contextSources = [
     "job_preference_rows"
   ],
   [
-    "applicationPreferenceRows",
-    "application_preferences",
-    "Application Preferences",
-    "application_preference_rows"
+    "applicationSettingRows",
+    "application_settings",
+    "Application Settings",
+    "application_setting_rows"
+  ],
+  [
+    "requiredStyleRows",
+    "required_style",
+    "Required Style",
+    "required_style_rows"
+  ],
+  [
+    "bannedPhraseRows",
+    "banned_phrases",
+    "Banned Phrases",
+    "banned_phrase_rows"
   ]
 ];
 
@@ -1840,7 +1852,7 @@ return { json: {
       workflowContractVersion: "2026-07-31/v3",
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
-      preferenceSource: "Job Preferences, Application Preferences",
+      preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases",
       applicationPackPolicyVersion: packPolicy.policy_version,
       groqProviderPolicyVersion: groqPolicy.policy_version,
       processingSourceSheet: queue,
@@ -2930,7 +2942,7 @@ return staged.flatMap((entry) => {
       alertPolicyVersion: alertPolicy.policy_version,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
-      preferenceSource: "Job Preferences, Application Preferences",
+      preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases",
       sourceSheets: [scraped, toReview, toApply],
       destinationSheets: schema.business_stores,
       alertSourceSheet: toApply,

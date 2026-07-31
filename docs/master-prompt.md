@@ -3,7 +3,8 @@
 The Groq request system message is assembled at runtime from one frozen Google
 Sheets context snapshot. Its compact identity and approved-URL block come from
 `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, and `Awards`;
-editable copy settings and phrases come from `Application Preferences`. The
+editable copy controls come from `Application Settings`, `Required Style`, and
+`Banned Phrases`. The
 per-job selected proofs resolve from that same snapshot. Repository policies
 retain the non-editable safety, pack, provider, and runtime bounds. Generated
 workflow exports contain no personal profile payload.

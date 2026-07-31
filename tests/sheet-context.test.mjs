@@ -30,9 +30,11 @@ function seedRows() {
     educationRows: structuredClone(sheets.education.initial_rows),
     awardRows: structuredClone(sheets.awards.initial_rows),
     jobPreferenceRows: structuredClone(sheets.job_preferences.initial_rows),
-    applicationPreferenceRows: structuredClone(
-      sheets.application_preferences.initial_rows
-    )
+    applicationSettingRows: structuredClone(
+      sheets.application_settings.initial_rows
+    ),
+    requiredStyleRows: structuredClone(sheets.required_style.initial_rows),
+    bannedPhraseRows: structuredClone(sheets.banned_phrases.initial_rows)
   };
 }
 
@@ -92,7 +94,7 @@ test("Sheet-only edits change the correct context hashes automatically", () => {
   assert.ok(afterCandidate.profile.skills.backend.includes("GraphQL"));
 
   const preferenceEdit = seedRows();
-  preferenceEdit.applicationPreferenceRows.find(
+  preferenceEdit.applicationSettingRows.find(
     (row) => row.key === "default_greeting"
   ).value = "Hello,";
   const afterPreference = compile(preferenceEdit);
@@ -105,6 +107,22 @@ test("Sheet-only edits change the correct context hashes automatically", () => {
     before.application_policy.policy_version
   );
   assert.equal(afterPreference.application_policy.default_greeting, "Hello,");
+
+  const phraseEdit = seedRows();
+  phraseEdit.bannedPhraseRows.push({
+    enabled: true,
+    phrase: "generic application wording"
+  });
+  const afterPhrase = compile(phraseEdit);
+  assert.notEqual(
+    afterPhrase.application_policy.policy_version,
+    before.application_policy.policy_version
+  );
+  assert.ok(
+    afterPhrase.application_policy.banned_phrases.includes(
+      "generic application wording"
+    )
+  );
 });
 
 test("invalid or conflicting Sheet context fails closed", () => {
@@ -128,5 +146,22 @@ test("invalid or conflicting Sheet context fails closed", () => {
   assert.throws(
     () => compile(invalidPreference),
     /invalid role-family evidence reference/
+  );
+
+  const blankRequiredStyle = seedRows();
+  blankRequiredStyle.requiredStyleRows.push({ enabled: true, style: "" });
+  assert.throws(
+    () => compile(blankRequiredStyle),
+    /Required Style contains an enabled blank row/
+  );
+
+  const duplicateBannedPhrase = seedRows();
+  duplicateBannedPhrase.bannedPhraseRows.push({
+    enabled: true,
+    phrase: "SOLID FOUNDATION"
+  });
+  assert.throws(
+    () => compile(duplicateBannedPhrase),
+    /Banned Phrases contains duplicate value/
   );
 });

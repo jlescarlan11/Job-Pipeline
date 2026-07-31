@@ -20,7 +20,9 @@ const CONTEXT_SHEET_KEYS = [
   "education",
   "awards",
   "job_preferences",
-  "application_preferences"
+  "application_settings",
+  "required_style",
+  "banned_phrases"
 ];
 const STEADY_STATE_SHEETS = [
   "Scraped Jobs",
@@ -36,7 +38,9 @@ const STEADY_STATE_SHEETS = [
   "Education",
   "Awards",
   "Job Preferences",
-  "Application Preferences",
+  "Application Settings",
+  "Required Style",
+  "Banned Phrases",
   "_System"
 ];
 const MIGRATION_REJECT_CATEGORIES = new Set([
@@ -68,8 +72,8 @@ function cloneRows(rows) {
 
 export function validateFreshSheetConfig(review, schema) {
   const errors = [];
-  if (review?.schema_version !== 5) {
-    errors.push("review-sheet schema_version must be 5");
+  if (review?.schema_version !== 6) {
+    errors.push("review-sheet schema_version must be 6");
   }
   const configuredNames = Object.values(review?.sheets ?? {}).map(
     (sheet) => sheet?.name
@@ -162,7 +166,9 @@ export function validateFreshSheetConfig(review, schema) {
     education: ["enabled", "program", "institution", "start", "end", "honor"],
     awards: ["enabled", "award"],
     job_preferences: ["enabled", "type", "group", "value", "score"],
-    application_preferences: ["enabled", "type", "key", "value"]
+    application_settings: ["key", "value"],
+    required_style: ["enabled", "style"],
+    banned_phrases: ["enabled", "phrase"]
   };
   for (const key of CONTEXT_SHEET_KEYS) {
     const definition = review?.sheets?.[key];

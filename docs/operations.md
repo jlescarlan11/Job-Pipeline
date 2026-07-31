@@ -31,12 +31,12 @@ Create a separate workbook whose ID is not the old workbook ID.
 
 1. Install the generated `google-apps-script/SheetSetup.gs`.
 2. Run `setupFreshJobPipeline()`.
-3. Confirm exactly `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, `Archive`, `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, and `Application Preferences` are visible and `_System` is hidden.
+3. Confirm exactly `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, `Archive`, `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases` are visible and `_System` is hidden.
 4. Confirm the five business tabs have the exact configured headers and zero data rows.
 5. Confirm `To Review` offers only `Approve` and `Deny`, `To Apply` offers only `I Applied` and `Skip`, blank remains valid, and `Scraped Jobs` has no normal action dropdown.
 6. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
-7. Confirm all eight context tabs have their exact configured headers, bootstrap rows, checkbox validation where applicable, and warning-protected headers.
-8. Edit disposable copies of candidate, evidence, job-preference, application-preference, and keyword rows, then run setup a second time.
+7. Confirm all ten context tabs have their exact configured headers, bootstrap rows, checkbox validation where applicable, and warning-protected headers.
+8. Edit disposable copies of candidate, evidence, job-preference, application-setting, required-style, banned-phrase, and keyword rows, then run setup a second time.
 9. Confirm no duplicate tab, header, validation, protection, context row, keyword row, or record was created and every edit was preserved.
 10. Confirm no old workbook ID, import formula, copied business row, or old data is present.
 

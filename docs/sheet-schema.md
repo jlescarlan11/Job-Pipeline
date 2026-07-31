@@ -1,6 +1,6 @@
 # Fresh workbook schema
 
-Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs, nine visible configuration/context tabs, and one hidden operational tab:
+Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs, eleven visible configuration/context tabs, and one hidden operational tab:
 
 - `Scraped Jobs`
 - `To Review`
@@ -15,7 +15,9 @@ Run the generated `setupFreshJobPipeline()` function from `google-apps-script/Sh
 - `Education`
 - `Awards`
 - `Job Preferences`
-- `Application Preferences`
+- `Application Settings`
+- `Required Style`
+- `Banned Phrases`
 - `_System` (hidden, short-lived claims only)
 
 An empty default `Sheet1` or another empty unexpected tab is removed. Setup refuses to delete a non-empty unexpected tab or replace conflicting headers. This makes the fresh-start instruction explicit without silently destroying existing data.
@@ -120,7 +122,7 @@ by the workflow and are not operator-managed.
 
 ## Candidate context tabs
 
-The Generator and Alerter & Mover read all eight context tabs at the start of
+The Generator and Alerter & Mover read all ten context tabs at the start of
 every execution and freeze one validated snapshot. The workflow automatically
 derives profile, ranking, and application context hashes, so operators do not
 edit version identifiers.
@@ -138,8 +140,12 @@ edit version identifiers.
 - `Awards` uses `enabled` and `award`.
 - `Job Preferences` uses `enabled`, `type`, `group`, `value`, and `score` for
   role-family evidence, unsupported technologies, and PHP monthly salary bands.
-- `Application Preferences` uses `enabled`, `type`, `key`, and `value` for
-  copy settings, required style, and banned phrases.
+- `Application Settings` uses `key` and `value` for the word limit, subject
+  template, greeting, and employer-format override.
+- `Required Style` uses `enabled` and `style`; add one writing instruction per
+  row.
+- `Banned Phrases` uses `enabled` and `phrase`; add one disallowed phrase per
+  row.
 
 Enabled columns use checkboxes and every header is warning-protected. Data rows
 remain editable. Missing required fields, conflicting repeated entities,

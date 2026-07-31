@@ -19,8 +19,8 @@ const schemaErrors = validatePipelineSchema(schema);
 if (schemaErrors.length > 0) {
   throw new Error(`Invalid pipeline schema:\n- ${schemaErrors.join("\n- ")}`);
 }
-if (review?.schema_version !== 5) {
-  throw new Error("review-sheet schema_version must be 5");
+if (review?.schema_version !== 6) {
+  throw new Error("review-sheet schema_version must be 6");
 }
 if (
   JSON.stringify(review.all_record_columns) !== JSON.stringify(schema.fields)
@@ -135,7 +135,9 @@ function setupFreshJobPipeline() {
       'education',
       'awards',
       'job_preferences',
-      'application_preferences'
+      'application_settings',
+      'required_style',
+      'banned_phrases'
     ].forEach((key) => {
       const definition = JOB_PIPELINE_SETUP.sheets[key];
       configureContextSheet_(
@@ -346,7 +348,9 @@ function configureContextSheet_(sheet, definition, createdNow) {
       type: 220,
       group: 220,
       key: 280,
-      score: 100
+      score: 100,
+      style: 520,
+      phrase: 420
     };
     sheet.setColumnWidth(column, widths[field] || 150);
     if ([
@@ -357,7 +361,9 @@ function configureContextSheet_(sheet, definition, createdNow) {
       'technologies',
       'program',
       'institution',
-      'award'
+      'award',
+      'style',
+      'phrase'
     ].includes(field)) {
       sheet.getRange(2, column, Math.max(sheet.getMaxRows() - 1, 1), 1)
         .setWrap(true);

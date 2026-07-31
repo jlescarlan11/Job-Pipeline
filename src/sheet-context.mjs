@@ -239,27 +239,48 @@ export function profileFromSheetRows({
   return profile;
 }
 
-function parseApplicationPreferences(rows, profile, basePolicy) {
-  const settings = new Map();
-  const requiredStyle = [];
-  const bannedPhrases = [];
+function enabledTextRows(rows, field, sheetName) {
+  const values = [];
+  const seen = new Set();
   for (const row of nonemptyRows(rows).filter((entry) => enabled(entry.enabled))) {
-    const type = normalizedText(row.type);
+    const value = normalizedText(row[field]);
+    if (!value) {
+      throw new Error(`${sheetName} contains an enabled blank row`);
+    }
+    const identity = value.toLocaleLowerCase("en-US");
+    if (seen.has(identity)) {
+      throw new Error(`${sheetName} contains duplicate value: ${value}`);
+    }
+    seen.add(identity);
+    values.push(value);
+  }
+  return values;
+}
+
+function parseApplicationPreferences(
+  { applicationSettingRows, requiredStyleRows, bannedPhraseRows },
+  profile,
+  basePolicy
+) {
+  const settings = new Map();
+  for (const row of nonemptyRows(applicationSettingRows)) {
     const key = normalizedText(row.key);
     const value = normalizedText(row.value);
-    if (type === "setting") {
-      if (!key || !value || settings.has(key)) {
-        throw new Error("Application Preferences contains an invalid or duplicate setting");
-      }
-      settings.set(key, value);
-    } else if (type === "required_style" && value) {
-      requiredStyle.push(value);
-    } else if (type === "banned_phrase" && value) {
-      bannedPhrases.push(value);
-    } else {
-      throw new Error("Application Preferences contains an unsupported enabled row");
+    if (!key || !value || settings.has(key)) {
+      throw new Error("Application Settings contains an invalid or duplicate setting");
     }
+    settings.set(key, value);
   }
+  const requiredStyle = enabledTextRows(
+    requiredStyleRows,
+    "style",
+    "Required Style"
+  );
+  const bannedPhrases = enabledTextRows(
+    bannedPhraseRows,
+    "phrase",
+    "Banned Phrases"
+  );
   requireFields(
     settings,
     [
@@ -268,15 +289,15 @@ function parseApplicationPreferences(rows, profile, basePolicy) {
       "default_greeting",
       "employer_format_overrides_default"
     ],
-    "Application Preferences"
+    "Application Settings"
   );
   const maxBodyWords = Number(settings.get("max_body_words"));
   if (!Number.isInteger(maxBodyWords) || maxBodyWords < 1 || maxBodyWords > 500) {
-    throw new Error("Application Preferences max_body_words must be from 1 through 500");
+    throw new Error("Application Settings max_body_words must be from 1 through 500");
   }
   const employerOverride = settings.get("employer_format_overrides_default");
   if (!/^(?:true|false)$/i.test(employerOverride)) {
-    throw new Error("Application Preferences employer_format_overrides_default must be true or false");
+    throw new Error("Application Settings employer_format_overrides_default must be true or false");
   }
   const source = {
     settings: Object.fromEntries(settings),
@@ -362,7 +383,11 @@ export function compileSheetContext(
 ) {
   const profile = profileFromSheetRows(rows);
   const effectiveApplicationPolicy = parseApplicationPreferences(
-    rows.applicationPreferenceRows,
+    {
+      applicationSettingRows: rows.applicationSettingRows,
+      requiredStyleRows: rows.requiredStyleRows,
+      bannedPhraseRows: rows.bannedPhraseRows
+    },
     profile,
     applicationPolicy
   );

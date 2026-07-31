@@ -818,184 +818,148 @@ const JOB_PIPELINE_SETUP = {
         }
       ]
     },
-    "application_preferences": {
-      "name": "Application Preferences",
+    "application_settings": {
+      "name": "Application Settings",
       "visible": true,
-      "authoritative_for": "application_preferences",
+      "authoritative_for": "application_settings",
       "fields": [
-        "enabled",
-        "type",
         "key",
         "value"
       ],
       "initial_rows": [
         {
-          "enabled": true,
-          "type": "setting",
           "key": "max_body_words",
           "value": "300"
         },
         {
-          "enabled": true,
-          "type": "setting",
           "key": "subject_template",
           "value": "Subject line: {{job_title}} Application — {{candidate_name}}"
         },
         {
-          "enabled": true,
-          "type": "setting",
           "key": "default_greeting",
           "value": "Hi there,"
         },
         {
-          "enabled": true,
-          "type": "setting",
           "key": "employer_format_overrides_default",
           "value": "true"
+        }
+      ]
+    },
+    "required_style": {
+      "name": "Required Style",
+      "visible": true,
+      "authoritative_for": "required_style",
+      "fields": [
+        "enabled",
+        "style"
+      ],
+      "initial_rows": [
+        {
+          "enabled": true,
+          "style": "first person"
         },
         {
           "enabled": true,
-          "type": "required_style",
-          "key": "",
-          "value": "first person"
+          "style": "direct and evidence-led"
         },
         {
           "enabled": true,
-          "type": "required_style",
-          "key": "",
-          "value": "direct and evidence-led"
+          "style": "specific to the job description"
         },
         {
           "enabled": true,
-          "type": "required_style",
-          "key": "",
-          "value": "specific to the job description"
+          "style": "copy-ready after manual review"
         },
         {
           "enabled": true,
-          "type": "required_style",
-          "key": "",
-          "value": "copy-ready after manual review"
+          "style": "no unsupported claims"
+        }
+      ]
+    },
+    "banned_phrases": {
+      "name": "Banned Phrases",
+      "visible": true,
+      "authoritative_for": "banned_phrases",
+      "fields": [
+        "enabled",
+        "phrase"
+      ],
+      "initial_rows": [
+        {
+          "enabled": true,
+          "phrase": "solid foundation"
         },
         {
           "enabled": true,
-          "type": "required_style",
-          "key": "",
-          "value": "no unsupported claims"
+          "phrase": "strong foundation"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "solid foundation"
+          "phrase": "valuable contribution"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "strong foundation"
+          "phrase": "eager to learn"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "valuable contribution"
+          "phrase": "eager to apply"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "eager to learn"
+          "phrase": "passionate about"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "eager to apply"
+          "phrase": "I am excited to apply"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "passionate about"
+          "phrase": "I look forward to"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "I am excited to apply"
+          "phrase": "confident that I can"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "I look forward to"
+          "phrase": "leverage"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "confident that I can"
+          "phrase": "utilize"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "leverage"
+          "phrase": "robust"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "utilize"
+          "phrase": "seamless"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "robust"
+          "phrase": "cutting-edge"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "seamless"
+          "phrase": "spearheaded"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "cutting-edge"
+          "phrase": "Thank you for considering my application"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "spearheaded"
+          "phrase": "FireCheck"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "Thank you for considering my application"
+          "phrase": "HEALTH"
         },
         {
           "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "FireCheck"
-        },
-        {
-          "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "HEALTH"
-        },
-        {
-          "enabled": true,
-          "type": "banned_phrase",
-          "key": "",
-          "value": "PriceCraft"
+          "phrase": "PriceCraft"
         }
       ]
     },
@@ -1236,7 +1200,9 @@ function setupFreshJobPipeline() {
       'education',
       'awards',
       'job_preferences',
-      'application_preferences'
+      'application_settings',
+      'required_style',
+      'banned_phrases'
     ].forEach((key) => {
       const definition = JOB_PIPELINE_SETUP.sheets[key];
       configureContextSheet_(
@@ -1447,7 +1413,9 @@ function configureContextSheet_(sheet, definition, createdNow) {
       type: 220,
       group: 220,
       key: 280,
-      score: 100
+      score: 100,
+      style: 520,
+      phrase: 420
     };
     sheet.setColumnWidth(column, widths[field] || 150);
     if ([
@@ -1458,7 +1426,9 @@ function configureContextSheet_(sheet, definition, createdNow) {
       'technologies',
       'program',
       'institution',
-      'award'
+      'award',
+      'style',
+      'phrase'
     ].includes(field)) {
       sheet.getRange(2, column, Math.max(sheet.getMaxRows() - 1, 1), 1)
         .setWrap(true);

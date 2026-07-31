@@ -119,7 +119,9 @@ test("Generator and Alerter freeze Sheet context without embedded personal facts
       "Education",
       "Awards",
       "Job Preferences",
-      "Application Preferences"
+      "Application Settings",
+      "Required Style",
+      "Banned Phrases"
     ]) {
       const read = node(workflow, `Get ${name} Context`);
       assert.equal(read.parameters.sheetName.value, name);

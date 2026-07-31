@@ -1,6 +1,6 @@
 {
-  "schema_version": 5,
-  "view_version": "2026-07-31/v5",
+  "schema_version": 6,
+  "view_version": "2026-08-01/v6",
   "timezone": "Asia/Manila",
   "sheets": {
     "scraped_jobs": {
@@ -286,40 +286,56 @@
         { "enabled": true, "type": "salary_band", "group": "PHP/month", "value": "0", "score": 20 }
       ]
     },
-    "application_preferences": {
-      "name": "Application Preferences",
+    "application_settings": {
+      "name": "Application Settings",
       "visible": true,
-      "authoritative_for": "application_preferences",
-      "fields": ["enabled", "type", "key", "value"],
+      "authoritative_for": "application_settings",
+      "fields": ["key", "value"],
       "initial_rows": [
-        { "enabled": true, "type": "setting", "key": "max_body_words", "value": "300" },
-        { "enabled": true, "type": "setting", "key": "subject_template", "value": "Subject line: {{job_title}} Application — {{candidate_name}}" },
-        { "enabled": true, "type": "setting", "key": "default_greeting", "value": "Hi there," },
-        { "enabled": true, "type": "setting", "key": "employer_format_overrides_default", "value": "true" },
-        { "enabled": true, "type": "required_style", "key": "", "value": "first person" },
-        { "enabled": true, "type": "required_style", "key": "", "value": "direct and evidence-led" },
-        { "enabled": true, "type": "required_style", "key": "", "value": "specific to the job description" },
-        { "enabled": true, "type": "required_style", "key": "", "value": "copy-ready after manual review" },
-        { "enabled": true, "type": "required_style", "key": "", "value": "no unsupported claims" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "solid foundation" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "strong foundation" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "valuable contribution" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "eager to learn" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "eager to apply" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "passionate about" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "I am excited to apply" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "I look forward to" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "confident that I can" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "leverage" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "utilize" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "robust" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "seamless" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "cutting-edge" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "spearheaded" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "Thank you for considering my application" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "FireCheck" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "HEALTH" },
-        { "enabled": true, "type": "banned_phrase", "key": "", "value": "PriceCraft" }
+        { "key": "max_body_words", "value": "300" },
+        { "key": "subject_template", "value": "Subject line: {{job_title}} Application — {{candidate_name}}" },
+        { "key": "default_greeting", "value": "Hi there," },
+        { "key": "employer_format_overrides_default", "value": "true" }
+      ]
+    },
+    "required_style": {
+      "name": "Required Style",
+      "visible": true,
+      "authoritative_for": "required_style",
+      "fields": ["enabled", "style"],
+      "initial_rows": [
+        { "enabled": true, "style": "first person" },
+        { "enabled": true, "style": "direct and evidence-led" },
+        { "enabled": true, "style": "specific to the job description" },
+        { "enabled": true, "style": "copy-ready after manual review" },
+        { "enabled": true, "style": "no unsupported claims" }
+      ]
+    },
+    "banned_phrases": {
+      "name": "Banned Phrases",
+      "visible": true,
+      "authoritative_for": "banned_phrases",
+      "fields": ["enabled", "phrase"],
+      "initial_rows": [
+        { "enabled": true, "phrase": "solid foundation" },
+        { "enabled": true, "phrase": "strong foundation" },
+        { "enabled": true, "phrase": "valuable contribution" },
+        { "enabled": true, "phrase": "eager to learn" },
+        { "enabled": true, "phrase": "eager to apply" },
+        { "enabled": true, "phrase": "passionate about" },
+        { "enabled": true, "phrase": "I am excited to apply" },
+        { "enabled": true, "phrase": "I look forward to" },
+        { "enabled": true, "phrase": "confident that I can" },
+        { "enabled": true, "phrase": "leverage" },
+        { "enabled": true, "phrase": "utilize" },
+        { "enabled": true, "phrase": "robust" },
+        { "enabled": true, "phrase": "seamless" },
+        { "enabled": true, "phrase": "cutting-edge" },
+        { "enabled": true, "phrase": "spearheaded" },
+        { "enabled": true, "phrase": "Thank you for considering my application" },
+        { "enabled": true, "phrase": "FireCheck" },
+        { "enabled": true, "phrase": "HEALTH" },
+        { "enabled": true, "phrase": "PriceCraft" }
       ]
     },
     "system": {

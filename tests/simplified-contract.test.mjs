@@ -227,11 +227,13 @@ test("blank setup creates business, configuration, and system sheets", () => {
       "Education",
       "Awards",
       "Job Preferences",
-      "Application Preferences",
+      "Application Settings",
+      "Required Style",
+      "Banned Phrases",
       "_System"
     ]
   );
-  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 14);
+  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 16);
   for (const sheet of planned.sheets.filter(
     (sheet) =>
       [
@@ -263,7 +265,9 @@ test("blank setup creates business, configuration, and system sheets", () => {
     "education",
     "awards",
     "job_preferences",
-    "application_preferences"
+    "application_settings",
+    "required_style",
+    "banned_phrases"
   ]) {
     const definition = review.sheets[key];
     const contextSheet = planned.sheets.find(

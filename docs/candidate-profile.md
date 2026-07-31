@@ -33,14 +33,15 @@ The current project list is:
 - Rent N Roll
 - Job Pipeline
 
-The bootstrap Application Preferences rows ban obsolete project claims from the
-legacy generator prompt. Operators can review or change those exclusions in the
-Sheet without rebuilding a workflow.
+The bootstrap `Banned Phrases` rows ban obsolete project claims from the legacy
+generator prompt. Operators can review or change those exclusions in the Sheet
+without rebuilding a workflow.
 
 ## Updating runtime context
 
 1. Edit the appropriate `Candidate`, `Skills`, `Experience`, `Projects`,
-   `Education`, `Awards`, `Job Preferences`, or `Application Preferences` tab.
+   `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required
+   Style`, or `Banned Phrases` tab.
 2. Keep stable experience/project IDs when editing an existing entity. Use one
    row per highlight and repeat the entity metadata exactly.
 3. Enable or disable list rows with the checkbox instead of deleting facts you
