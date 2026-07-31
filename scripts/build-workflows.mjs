@@ -896,7 +896,7 @@ const SCHEMA = ${JSON.stringify(schema)};
 const RUNTIME = ${JSON.stringify(config)};
 const candidate = $('Confirm Generator System Claim').item.json.candidate;
 try {
-  const matches = ($input.first().json.fresh_rows || [])
+  const matches = ($json.fresh_rows || [])
     .filter((row) => row && Object.keys(row).length)
     .map((row) => normalizeLegacyRecord(row, SCHEMA))
     .filter(

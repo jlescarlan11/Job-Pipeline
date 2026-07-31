@@ -308,7 +308,18 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
       /\$\('[^']+'\)\.first\(\)/,
       `${entry.name} must use current-item linkage instead of .first()`
     );
+    if (entry.parameters.mode === "runOnceForEachItem") {
+      assert.doesNotMatch(
+        entry.parameters.jsCode,
+        /\$input\.first\(\)/,
+        `${entry.name} must use $json in per-item mode instead of $input.first()`
+      );
+    }
   }
+  assert.match(
+    node(workflow, "Claim Current Candidate").parameters.jsCode,
+    /\(\$json\.fresh_rows \|\| \[\]\)/
+  );
   const initialBody = node(
     workflow,
     "Generate Initial Application with Groq"
