@@ -1,12 +1,21 @@
 {
-  "schema_version": 2,
-  "storage_version": "2026-07-31-fresh-three-workflow-v2",
+  "schema_version": 3,
+  "storage_version": "2026-07-31-segmented-queues-v3",
   "authoritative_stores": {
-    "active": "Review Queue",
+    "scraped": "Scraped Jobs",
+    "review": "To Review",
+    "apply": "To Apply",
     "applied": "Applied Jobs",
     "archived": "Archive",
     "claims": "_System"
   },
+  "business_stores": [
+    "Scraped Jobs",
+    "To Review",
+    "To Apply",
+    "Applied Jobs",
+    "Archive"
+  ],
   "canonical_identity": {
     "source": "onlinejobs.ph",
     "preferred": "source_job_id",
@@ -294,6 +303,62 @@
     "unavailable": [
       ""
     ]
+  },
+  "actions_by_store_status": {
+    "Scraped Jobs": {
+      "new": [
+        ""
+      ],
+      "processing": [
+        ""
+      ],
+      "ready_to_apply": [
+        ""
+      ],
+      "review_needed": [
+        "",
+        "Approve"
+      ],
+      "skip": [
+        ""
+      ],
+      "error": [
+        ""
+      ],
+      "unavailable": [
+        ""
+      ]
+    },
+    "To Review": {
+      "review_needed": [
+        "",
+        "Approve",
+        "Deny"
+      ]
+    },
+    "To Apply": {
+      "ready_to_apply": [
+        "",
+        "I Applied",
+        "Skip"
+      ]
+    },
+    "Applied Jobs": {
+      "ready_to_apply": [
+        ""
+      ]
+    },
+    "Archive": {
+      "ready_to_apply": [
+        ""
+      ],
+      "review_needed": [
+        ""
+      ],
+      "skip": [
+        ""
+      ]
+    }
   },
   "transitions": {
     "new": [

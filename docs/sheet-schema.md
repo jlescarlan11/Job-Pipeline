@@ -1,8 +1,10 @@
 # Fresh workbook schema
 
-Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates three visible business tabs, one visible configuration tab, and one hidden operational tab:
+Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs, one visible configuration tab, and one hidden operational tab:
 
-- `Review Queue`
+- `Scraped Jobs`
+- `To Review`
+- `To Apply`
 - `Applied Jobs`
 - `Archive`
 - `Search Keywords` (visible configuration)
@@ -10,13 +12,23 @@ Run the generated `setupFreshJobPipeline()` function from `google-apps-script/Sh
 
 An empty default `Sheet1` or another empty unexpected tab is removed. Setup refuses to delete a non-empty unexpected tab or replace conflicting headers. This makes the fresh-start instruction explicit without silently destroying existing data.
 
-## Review Queue
+## Scraped Jobs
 
-`Review Queue` is the authoritative active record, not a projection. Its visible columns are:
+`Scraped Jobs` owns new, processing, error, and unavailable intake records. It also briefly owns Generator results until Alerter & Mover routes them. Its visible columns are:
 
-`pipeline_status`, `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, `error_summary`, and `notes`.
+`pipeline_status`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, `error_summary`, and `notes`.
 
-Only `user_action` and `notes` are editable. The action cell rejects a value that is not allowed for the row’s current status.
+Only `notes` is editable. There is no normal user-action dropdown on this sheet.
+
+## To Review
+
+`To Review` owns `review_needed` records. Its native action dropdown offers exactly `Approve` and `Deny`, and a blank cell remains valid. Visible columns are `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. Only `user_action` and `notes` are editable.
+
+## To Apply
+
+`To Apply` owns safely generated `ready_to_apply` records. Its native action dropdown offers exactly `I Applied` and `Skip`, and a blank cell remains valid. Visible columns are `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. Only `user_action` and `notes` are editable.
+
+Sheet validation is a usability control. The versioned store/status/action matrix in `config/pipeline-schema.json` remains authoritative when values are pasted or written through the API.
 
 ## Applied Jobs
 
@@ -38,7 +50,7 @@ Visible columns are `archived_at`, `archive_reason`, `job_title`, `company`, `de
 
 ## Hidden record fields
 
-All three business sheets share the exact ordered fields in `config/pipeline-schema.json`. Columns not listed above remain hidden so a terminal record can preserve its full safe provenance without a second projection model. Generated and identity fields use warning-only protections; workflow validation remains the security boundary.
+All five business sheets share the exact ordered fields in `config/pipeline-schema.json`. Columns not listed above remain hidden so movement can preserve full safe provenance without a projection transform. Generated and identity fields use warning-only protections; workflow validation remains the security boundary.
 
 The exact record columns are:
 
@@ -68,6 +80,17 @@ The exact record columns are:
 `_System` contains only `claim_key`, `canonical_job_id`, `stage`, `token`, `created_at`, and `expires_at`. It is not a business-data store.
 
 Setup is idempotent: rerunning it reconciles formatting, validation, protection, and visibility while preserving valid headers and operator data. It does not insert placeholders, call `openById`, use `IMPORTRANGE`, or copy a row from any old workbook.
+
+## Existing-workbook migration planning
+
+`planSegmentedQueueMigration()` in `src/fresh-sheet-setup.mjs` is a pure planner. It reads a supplied workbook snapshot but performs no Sheet mutation and never plans source deletion. For a valid legacy snapshot it proposes an in-place `Review Queue` → `Scraped Jobs` rename, creates missing steady-state tabs, and classifies rows as follows:
+
+- operational rows remain in `Scraped Jobs`;
+- `review_needed` rows, including pending `Approve` or `Deny`, route to `To Review`;
+- `ready_to_apply` rows, including pending `I Applied` or `Skip`, route to `To Apply`;
+- blank-action `skip` rows route to `Archive` as `automatic_skip`.
+
+The same snapshot and reference time produce the same plan. Unknown status/action values, unsupported combinations, duplicate canonical identities, conflicting headers, coexisting `Review Queue`/`Scraped Jobs`, and unexpected non-empty tabs return bounded rejection categories with no routes or planned deletion. Production execution and rollback remain separate operator-controlled rollout steps.
 
 ## Search Keywords
 

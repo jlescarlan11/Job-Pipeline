@@ -1,15 +1,14 @@
 {
-  "schema_version": 3,
-  "view_version": "2026-07-31/v3",
+  "schema_version": 4,
+  "view_version": "2026-07-31/v4",
   "timezone": "Asia/Manila",
   "sheets": {
-    "review_queue": {
-      "name": "Review Queue",
+    "scraped_jobs": {
+      "name": "Scraped Jobs",
       "visible": true,
-      "authoritative_for": "active",
+      "authoritative_for": "scraped",
       "visible_columns": [
         "pipeline_status",
-        "user_action",
         "job_title",
         "company",
         "opportunity_score",
@@ -20,6 +19,40 @@
         "posted_at",
         "matched_keywords",
         "error_summary",
+        "notes"
+      ]
+    },
+    "to_review": {
+      "name": "To Review",
+      "visible": true,
+      "authoritative_for": "review",
+      "visible_columns": [
+        "user_action",
+        "job_title",
+        "company",
+        "opportunity_score",
+        "decision_reason",
+        "required_input",
+        "canonical_url",
+        "posted_at",
+        "matched_keywords",
+        "notes"
+      ]
+    },
+    "to_apply": {
+      "name": "To Apply",
+      "visible": true,
+      "authoritative_for": "apply",
+      "visible_columns": [
+        "user_action",
+        "job_title",
+        "company",
+        "opportunity_score",
+        "decision_reason",
+        "generated_message",
+        "canonical_url",
+        "posted_at",
+        "matched_keywords",
         "notes"
       ]
     },
@@ -189,7 +222,14 @@
     "updated_at"
   ],
   "editable_columns": {
-    "Review Queue": [
+    "Scraped Jobs": [
+      "notes"
+    ],
+    "To Review": [
+      "user_action",
+      "notes"
+    ],
+    "To Apply": [
       "user_action",
       "notes"
     ],
@@ -202,19 +242,24 @@
     ]
   },
   "action_validation": {
-    "ready_to_apply": [
-      "",
-      "I Applied",
-      "Skip"
-    ],
-    "review_needed": [
-      "",
-      "Approve",
-      "Deny"
-    ],
-    "default": [
-      ""
-    ]
+    "To Review": {
+      "values": [
+        "Approve",
+        "Deny"
+      ],
+      "allow_blank": true
+    },
+    "To Apply": {
+      "values": [
+        "I Applied",
+        "Skip"
+      ],
+      "allow_blank": true
+    },
+    "Scraped Jobs": {
+      "values": [],
+      "allow_blank": true
+    }
   },
   "outcome_validation": [
     "",
@@ -231,7 +276,9 @@
   },
   "fresh_start": {
     "required_empty_data_sheets": [
-      "Review Queue",
+      "Scraped Jobs",
+      "To Review",
+      "To Apply",
       "Applied Jobs",
       "Archive"
     ],

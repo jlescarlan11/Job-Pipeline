@@ -9,10 +9,12 @@ import {
   transitionRecord,
   validatePipelineSchema,
   validateRecordContract,
+  validateRecordStoreContract,
   validateUniqueIdentityAcrossStores
 } from "../src/contracts.mjs";
 import {
   planFreshWorkbookSetup,
+  planSegmentedQueueMigration,
   validateFreshSheetConfig
 } from "../src/fresh-sheet-setup.mjs";
 
@@ -62,9 +64,11 @@ test("simplified schema has exactly three business results and separate operatio
   ]);
 });
 
-test("Review Queue, Applied Jobs, and Archive own the three record lifecycles", () => {
+test("five business sheets own the segmented record lifecycle", () => {
   assert.deepEqual(validateFreshSheetConfig(review, schema), []);
-  assert.equal(review.sheets.review_queue.authoritative_for, "active");
+  assert.equal(review.sheets.scraped_jobs.authoritative_for, "scraped");
+  assert.equal(review.sheets.to_review.authoritative_for, "review");
+  assert.equal(review.sheets.to_apply.authoritative_for, "apply");
   assert.equal(review.sheets.applied_jobs.authoritative_for, "applied");
   assert.equal(review.sheets.archive.authoritative_for, "archived");
   assert.equal(
@@ -74,6 +78,13 @@ test("Review Queue, Applied Jobs, and Archive own the three record lifecycles", 
   assert.equal(review.sheets.search_keywords.visible, true);
   assert.equal(review.sheets.system.visible, false);
   assert.equal(review.fresh_start.imports_legacy_rows, false);
+  assert.deepEqual(schema.business_stores, [
+    "Scraped Jobs",
+    "To Review",
+    "To Apply",
+    "Applied Jobs",
+    "Archive"
+  ]);
 });
 
 test("operator actions are fail-closed and status specific", () => {
@@ -90,6 +101,46 @@ test("operator actions are fail-closed and status specific", () => {
       );
     }
   }
+  for (const [store, statuses] of Object.entries(
+    schema.actions_by_store_status
+  )) {
+    for (const [status, allowed] of Object.entries(statuses)) {
+      for (const action of schema.user_actions) {
+        const errors = validateRecordStoreContract(
+          validRecord({
+            pipeline_status: status,
+            user_action: action,
+            ...(status === "processing"
+              ? {
+                  processing_stage: "evaluation",
+                  processing_token: "owner",
+                  processing_started_at: "2026-07-31T00:00:00.000Z"
+                }
+              : {})
+          }),
+          store,
+          schema
+        );
+        assert.equal(
+          errors.some(
+            (error) =>
+              error.includes(`not supported for ${store}/`) ||
+              error.includes(`${store} does not own`)
+          ),
+          !allowed.includes(action),
+          `${store}/${status}/${action || "(blank)"}`
+        );
+      }
+    }
+  }
+  assert.match(
+    validateRecordStoreContract(
+      validRecord({ pipeline_status: "ready_to_apply", user_action: "" }),
+      "To Review",
+      schema
+    ).join(";"),
+    /does not own pipeline_status/
+  );
 });
 
 test("unsupported transitions and malformed identities fail closed", () => {
@@ -124,12 +175,14 @@ test("OnlineJobs IDs and canonical URLs retain established identity behavior", (
   );
 });
 
-test("identity duplicates across all three stores are rejected", () => {
+test("identity duplicates across all five stores are rejected", () => {
   const record = validRecord();
   assert.deepEqual(
     validateUniqueIdentityAcrossStores(
       {
-        "Review Queue": [record],
+        "Scraped Jobs": [record],
+        "To Review": [],
+        "To Apply": [],
         "Applied Jobs": [],
         Archive: []
       },
@@ -140,7 +193,9 @@ test("identity duplicates across all three stores are rejected", () => {
   assert.match(
     validateUniqueIdentityAcrossStores(
       {
-        "Review Queue": [record],
+        "Scraped Jobs": [record],
+        "To Review": [],
+        "To Apply": [],
         "Applied Jobs": [{ ...record }],
         Archive: []
       },
@@ -159,14 +214,16 @@ test("blank setup creates business, configuration, and system sheets", () => {
   assert.deepEqual(
     planned.sheets.map((sheet) => sheet.name),
     [
-      "Review Queue",
+      "Scraped Jobs",
+      "To Review",
+      "To Apply",
       "Applied Jobs",
       "Archive",
       "Search Keywords",
       "_System"
     ]
   );
-  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 4);
+  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 6);
   for (const sheet of planned.sheets.filter(
     (sheet) => sheet.name !== "Search Keywords"
   )) {
@@ -182,6 +239,22 @@ test("blank setup creates business, configuration, and system sheets", () => {
   assert.deepEqual(keywords.validations, { enabled: "checkbox" });
   assert.equal(keywords.protectedHeader, true);
   assert.deepEqual(keywords.protectedColumns, []);
+  assert.deepEqual(
+    planned.sheets.find((sheet) => sheet.name === "To Review").validations,
+    {
+      user_action: { values: ["Approve", "Deny"], allow_blank: true }
+    }
+  );
+  assert.deepEqual(
+    planned.sheets.find((sheet) => sheet.name === "To Apply").validations,
+    {
+      user_action: { values: ["I Applied", "Skip"], allow_blank: true }
+    }
+  );
+  assert.deepEqual(
+    planned.sheets.find((sheet) => sheet.name === "Scraped Jobs").validations,
+    {}
+  );
 });
 
 test("setup is idempotent and preserves valid operator data", () => {
@@ -247,7 +320,7 @@ test("fresh setup refuses conflicting or non-empty legacy sheets", () => {
       planFreshWorkbookSetup(
         {
           sheets: [
-            { name: "Review Queue", headers: ["wrong"], rows: [] }
+            { name: "Scraped Jobs", headers: ["wrong"], rows: [] }
           ]
         },
         review,
@@ -289,6 +362,9 @@ test("generated setup has no legacy import surface or placeholder writes", async
   assert.match(artifact, /Search Keywords:header/);
   assert.match(artifact, /createdSheets\.has/);
   assert.match(artifact, /assertReconciliableHeaders_/);
+  assert.match(artifact, /requireValueInList\(rule\.values, true\)/);
+  assert.match(artifact, /clearDataValidations/);
+  assert.doesNotMatch(artifact, /Review Queue/);
   assert.ok(
     artifact.indexOf("assertReconciliableHeaders_(sheet, definition.headers)") <
       artifact.indexOf("workbook.insertSheet(name)"),
@@ -314,5 +390,94 @@ test("generated setup has no legacy import surface or placeholder writes", async
       artifact.slice(artifact.indexOf("function setupFreshJobPipeline")),
       new RegExp(`insertSheet\\(['\"]${legacy}`)
     );
+  }
+});
+
+test("migration planner deterministically routes every supported legacy combination", () => {
+  const records = [
+    validRecord({ source_job_id: "1", canonical_job_id: "onlinejobs.ph:1", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-1", pipeline_status: "new" }),
+    validRecord({ source_job_id: "2", canonical_job_id: "onlinejobs.ph:2", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-2", pipeline_status: "processing", processing_stage: "evaluation", processing_token: "owner", processing_started_at: "2026-07-31T00:00:00.000Z" }),
+    validRecord({ source_job_id: "3", canonical_job_id: "onlinejobs.ph:3", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-3", pipeline_status: "review_needed" }),
+    validRecord({ source_job_id: "4", canonical_job_id: "onlinejobs.ph:4", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-4", pipeline_status: "review_needed", user_action: "Approve" }),
+    validRecord({ source_job_id: "5", canonical_job_id: "onlinejobs.ph:5", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-5", pipeline_status: "review_needed", user_action: "Deny" }),
+    validRecord({ source_job_id: "6", canonical_job_id: "onlinejobs.ph:6", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-6", pipeline_status: "ready_to_apply" }),
+    validRecord({ source_job_id: "7", canonical_job_id: "onlinejobs.ph:7", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-7", pipeline_status: "ready_to_apply", user_action: "I Applied" }),
+    validRecord({ source_job_id: "8", canonical_job_id: "onlinejobs.ph:8", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-8", pipeline_status: "ready_to_apply", user_action: "Skip" }),
+    validRecord({ source_job_id: "9", canonical_job_id: "onlinejobs.ph:9", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-9", pipeline_status: "skip" }),
+    validRecord({ source_job_id: "10", canonical_job_id: "onlinejobs.ph:10", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-10", pipeline_status: "error" }),
+    validRecord({ source_job_id: "11", canonical_job_id: "onlinejobs.ph:11", canonical_url: "https://onlinejobs.ph/jobseekers/job/a-11", pipeline_status: "unavailable" })
+  ];
+  const snapshot = {
+    sheets: [
+      { name: "Review Queue", headers: schema.fields, rows: records },
+      { name: "Applied Jobs", headers: schema.fields, rows: [] },
+      { name: "Archive", headers: schema.fields, rows: [] },
+      { name: "Search Keywords", headers: ["enabled", "keyword"], rows: [] },
+      { name: "_System", headers: review.sheets.system.fields, rows: [] }
+    ]
+  };
+  const first = planSegmentedQueueMigration(snapshot, review, schema, "2026-07-31T01:00:00.000Z");
+  const second = planSegmentedQueueMigration(snapshot, review, schema, "2026-07-31T01:00:00.000Z");
+  assert.deepEqual(second, first);
+  assert.equal(first.ok, true);
+  assert.deepEqual(first.counts, {
+    "Scraped Jobs": 4,
+    "To Review": 3,
+    "To Apply": 3,
+    "Applied Jobs": 0,
+    Archive: 1
+  });
+  assert.deepEqual(first.planned_source_deletions, []);
+  assert.deepEqual(first.sheet_actions[0], {
+    type: "rename_sheet",
+    from: "Review Queue",
+    to: "Scraped Jobs"
+  });
+});
+
+test("migration planner fails closed for duplicate, stale, malformed, and conflicting input", () => {
+  const duplicate = validRecord();
+  const base = {
+    sheets: [
+      { name: "Review Queue", headers: schema.fields, rows: [duplicate, { ...duplicate }] },
+      { name: "Applied Jobs", headers: schema.fields, rows: [] },
+      { name: "Archive", headers: schema.fields, rows: [] }
+    ]
+  };
+  const duplicatePlan = planSegmentedQueueMigration(base, review, schema);
+  assert.equal(duplicatePlan.ok, false);
+  assert.deepEqual(duplicatePlan.routes, []);
+  assert.deepEqual(duplicatePlan.planned_source_deletions, []);
+  assert.ok(duplicatePlan.rejects.some((reject) => reject.category === "duplicate_identity"));
+
+  for (const fixture of [
+    {
+      sheets: [{ name: "Review Queue", headers: ["wrong"], rows: [duplicate] }],
+      category: "conflicting_headers"
+    },
+    {
+      sheets: [{ name: "Review Queue", headers: schema.fields, rows: [{ ...duplicate, pipeline_status: "mystery" }] }],
+      category: "unsupported_status"
+    },
+    {
+      sheets: [{ name: "Review Queue", headers: schema.fields, rows: [{ ...duplicate, user_action: "Launch" }] }],
+      category: "unsupported_action"
+    },
+    {
+      sheets: [
+        { name: "Review Queue", headers: schema.fields, rows: [duplicate] },
+        { name: "Scraped Jobs", headers: schema.fields, rows: [] }
+      ],
+      category: "conflicting_source_sheet"
+    },
+    {
+      sheets: [{ name: "Legacy Data", headers: ["x"], rows: [["private"]] }],
+      category: "unexpected_sheet"
+    }
+  ]) {
+    const plan = planSegmentedQueueMigration({ sheets: fixture.sheets }, review, schema);
+    assert.equal(plan.ok, false);
+    assert.deepEqual(plan.routes, []);
+    assert.ok(plan.rejects.some((reject) => reject.category === fixture.category));
   }
 });

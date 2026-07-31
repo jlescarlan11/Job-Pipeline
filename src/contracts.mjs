@@ -430,6 +430,33 @@ export function validateRecordContract(record, schema) {
   return errors;
 }
 
+export function validateRecordStoreContract(record, store, schema) {
+  const errors = validateRecordContract(record, schema);
+  const normalizedStore = String(store || "").trim();
+  if (!(schema?.business_stores ?? []).includes(normalizedStore)) {
+    errors.push(`record store is not authoritative: ${normalizedStore || "(blank)"}`);
+    return errors;
+  }
+  const allowedActions =
+    schema?.actions_by_store_status?.[normalizedStore]?.[
+      record?.pipeline_status
+    ];
+  if (!Array.isArray(allowedActions)) {
+    errors.push(
+      `${normalizedStore} does not own pipeline_status ${
+        record?.pipeline_status || "(blank)"
+      }`
+    );
+  } else if (!allowedActions.includes(record?.user_action ?? "")) {
+    errors.push(
+      `user_action is not supported for ${normalizedStore}/${
+        record?.pipeline_status || "(blank)"
+      }`
+    );
+  }
+  return errors;
+}
+
 export function applyValidatedRecordUpdate(record, updates, schema) {
   const candidate = { ...record, ...updates };
   const errors = validateRecordContract(candidate, schema);
@@ -441,7 +468,7 @@ export function applyValidatedRecordUpdate(record, updates, schema) {
 
 export function validatePipelineSchema(schema) {
   const errors = [];
-  if (schema?.schema_version !== 2) errors.push("schema_version must be 2");
+  if (schema?.schema_version !== 3) errors.push("schema_version must be 3");
   if (!Array.isArray(schema?.fields) || schema.fields.length === 0) errors.push("fields are required");
   if (!Array.isArray(schema?.pipeline_statuses) || schema.pipeline_statuses.length === 0) {
     errors.push("pipeline_statuses are required");
@@ -515,6 +542,63 @@ export function validatePipelineSchema(schema) {
       errors.push(`missing actions_by_status for status: ${status}`);
     } else if (supportedActions.some((action) => !actions.has(action))) {
       errors.push(`actions_by_status contains an unsupported action for status: ${status}`);
+    }
+  }
+  const expectedStores = [
+    "Scraped Jobs",
+    "To Review",
+    "To Apply",
+    "Applied Jobs",
+    "Archive"
+  ];
+  if (
+    JSON.stringify(schema?.business_stores) !== JSON.stringify(expectedStores)
+  ) {
+    errors.push(
+      "business_stores must contain the five segmented stores in canonical order"
+    );
+  }
+  const expectedAuthoritativeStores = {
+    scraped: "Scraped Jobs",
+    review: "To Review",
+    apply: "To Apply",
+    applied: "Applied Jobs",
+    archived: "Archive",
+    claims: "_System"
+  };
+  if (
+    JSON.stringify(schema?.authoritative_stores) !==
+    JSON.stringify(expectedAuthoritativeStores)
+  ) {
+    errors.push("authoritative_stores must match the segmented storage contract");
+  }
+  for (const store of expectedStores) {
+    const statusRules = schema?.actions_by_store_status?.[store];
+    if (!statusRules || typeof statusRules !== "object") {
+      errors.push(`missing actions_by_store_status for store: ${store}`);
+      continue;
+    }
+    for (const [status, storeActions] of Object.entries(statusRules)) {
+      if (!statuses.has(status)) {
+        errors.push(
+          `actions_by_store_status references unknown status for ${store}: ${status}`
+        );
+        continue;
+      }
+      if (!Array.isArray(storeActions) || storeActions.length === 0) {
+        errors.push(
+          `actions_by_store_status requires actions for ${store}/${status}`
+        );
+        continue;
+      }
+      const globallyAllowed = new Set(schema?.actions_by_status?.[status] ?? []);
+      for (const action of storeActions) {
+        if (!actions.has(action) || !globallyAllowed.has(action)) {
+          errors.push(
+            `actions_by_store_status contains unsupported action for ${store}/${status}`
+          );
+        }
+      }
     }
   }
   return errors;

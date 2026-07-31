@@ -3,13 +3,12 @@
 const JOB_PIPELINE_SETUP = {
   "timezone": "Asia/Manila",
   "sheets": {
-    "review_queue": {
-      "name": "Review Queue",
+    "scraped_jobs": {
+      "name": "Scraped Jobs",
       "visible": true,
-      "authoritative_for": "active",
+      "authoritative_for": "scraped",
       "visible_columns": [
         "pipeline_status",
-        "user_action",
         "job_title",
         "company",
         "opportunity_score",
@@ -20,6 +19,40 @@ const JOB_PIPELINE_SETUP = {
         "posted_at",
         "matched_keywords",
         "error_summary",
+        "notes"
+      ]
+    },
+    "to_review": {
+      "name": "To Review",
+      "visible": true,
+      "authoritative_for": "review",
+      "visible_columns": [
+        "user_action",
+        "job_title",
+        "company",
+        "opportunity_score",
+        "decision_reason",
+        "required_input",
+        "canonical_url",
+        "posted_at",
+        "matched_keywords",
+        "notes"
+      ]
+    },
+    "to_apply": {
+      "name": "To Apply",
+      "visible": true,
+      "authoritative_for": "apply",
+      "visible_columns": [
+        "user_action",
+        "job_title",
+        "company",
+        "opportunity_score",
+        "decision_reason",
+        "generated_message",
+        "canonical_url",
+        "posted_at",
+        "matched_keywords",
         "notes"
       ]
     },
@@ -189,7 +222,14 @@ const JOB_PIPELINE_SETUP = {
     "updated_at"
   ],
   "editableColumns": {
-    "Review Queue": [
+    "Scraped Jobs": [
+      "notes"
+    ],
+    "To Review": [
+      "user_action",
+      "notes"
+    ],
+    "To Apply": [
       "user_action",
       "notes"
     ],
@@ -202,19 +242,24 @@ const JOB_PIPELINE_SETUP = {
     ]
   },
   "actionValidation": {
-    "ready_to_apply": [
-      "",
-      "I Applied",
-      "Skip"
-    ],
-    "review_needed": [
-      "",
-      "Approve",
-      "Deny"
-    ],
-    "default": [
-      ""
-    ]
+    "To Review": {
+      "values": [
+        "Approve",
+        "Deny"
+      ],
+      "allow_blank": true
+    },
+    "To Apply": {
+      "values": [
+        "I Applied",
+        "Skip"
+      ],
+      "allow_blank": true
+    },
+    "Scraped Jobs": {
+      "values": [],
+      "allow_blank": true
+    }
   },
   "outcomeValidation": [
     "",
@@ -243,7 +288,9 @@ function setupFreshJobPipeline() {
   lock.waitLock(30000);
   try {
     const expected = [
-      JOB_PIPELINE_SETUP.sheets.review_queue.name,
+      JOB_PIPELINE_SETUP.sheets.scraped_jobs.name,
+      JOB_PIPELINE_SETUP.sheets.to_review.name,
+      JOB_PIPELINE_SETUP.sheets.to_apply.name,
       JOB_PIPELINE_SETUP.sheets.applied_jobs.name,
       JOB_PIPELINE_SETUP.sheets.archive.name,
       JOB_PIPELINE_SETUP.sheets.search_keywords.name,
@@ -251,7 +298,15 @@ function setupFreshJobPipeline() {
     ];
     const expectedDefinitions = [
       {
-        name: JOB_PIPELINE_SETUP.sheets.review_queue.name,
+        name: JOB_PIPELINE_SETUP.sheets.scraped_jobs.name,
+        headers: JOB_PIPELINE_SETUP.recordFields
+      },
+      {
+        name: JOB_PIPELINE_SETUP.sheets.to_review.name,
+        headers: JOB_PIPELINE_SETUP.recordFields
+      },
+      {
+        name: JOB_PIPELINE_SETUP.sheets.to_apply.name,
         headers: JOB_PIPELINE_SETUP.recordFields
       },
       {
@@ -307,8 +362,16 @@ function setupFreshJobPipeline() {
     });
 
     configureRecordSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.review_queue.name),
-      JOB_PIPELINE_SETUP.sheets.review_queue.visible_columns
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name),
+      JOB_PIPELINE_SETUP.sheets.scraped_jobs.visible_columns
+    );
+    configureRecordSheet_(
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_review.name),
+      JOB_PIPELINE_SETUP.sheets.to_review.visible_columns
+    );
+    configureRecordSheet_(
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_apply.name),
+      JOB_PIPELINE_SETUP.sheets.to_apply.visible_columns
     );
     configureRecordSheet_(
       workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.applied_jobs.name),
@@ -325,15 +388,21 @@ function setupFreshJobPipeline() {
       workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.search_keywords.name),
       createdSheets.has(JOB_PIPELINE_SETUP.sheets.search_keywords.name)
     );
-    applyReviewActionValidation_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.review_queue.name)
+    applyQueueActionValidation_(
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name)
+    );
+    applyQueueActionValidation_(
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_review.name)
+    );
+    applyQueueActionValidation_(
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_apply.name)
     );
     applyOutcomeValidation_(
       workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.applied_jobs.name)
     );
     workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.system.name).hideSheet();
     workbook.setActiveSheet(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.review_queue.name)
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name)
     );
   } finally {
     lock.releaseLock();
@@ -516,29 +585,27 @@ function assertReconciliableHeaders_(sheet, headers) {
   return { hasHeader };
 }
 
-function applyReviewActionValidation_(sheet) {
-  const statusColumn = JOB_PIPELINE_SETUP.recordFields.indexOf('pipeline_status') + 1;
+function applyQueueActionValidation_(sheet) {
   const actionColumn = JOB_PIPELINE_SETUP.recordFields.indexOf('user_action') + 1;
-  const status = columnLetter_(statusColumn);
-  const action = columnLetter_(actionColumn);
-  const firstRow = 2;
-  const formula =
-    '=OR(' + action + firstRow + '="",' +
-    'AND(' + status + firstRow + '="ready_to_apply",OR(' +
-      action + firstRow + '="I Applied",' + action + firstRow + '="Skip")),' +
-    'AND(' + status + firstRow + '="review_needed",OR(' +
-      action + firstRow + '="Approve",' + action + firstRow + '="Deny")))';
-  const validation = SpreadsheetApp.newDataValidation()
-    .requireFormulaSatisfied(formula)
-    .setAllowInvalid(false)
-    .setHelpText('ready_to_apply: I Applied or Skip; review_needed: Approve or Deny')
-    .build();
-  sheet.getRange(
-    firstRow,
+  const range = sheet.getRange(
+    2,
     actionColumn,
     JOB_PIPELINE_SETUP.maximumRows - 1,
     1
-  ).setDataValidation(validation);
+  );
+  range.clearDataValidations();
+  const rule = JOB_PIPELINE_SETUP.actionValidation[sheet.getName()];
+  if (!rule || rule.values.length === 0) return;
+  const validation = SpreadsheetApp.newDataValidation()
+    .requireValueInList(rule.values, true)
+    .setAllowInvalid(false)
+    .setHelpText(
+      sheet.getName() === 'To Review'
+        ? 'Choose Approve or Deny, or leave blank.'
+        : 'Choose I Applied or Skip, or leave blank.'
+    )
+    .build();
+  range.setDataValidation(validation);
 }
 
 function applyOutcomeValidation_(sheet) {
@@ -560,15 +627,4 @@ function sanitizeSetupDiagnostic_(value) {
     .replace(/https?:\/\/\S+/gi, '[url]')
     .replace(/[\r\n\t]+/g, ' ')
     .slice(0, 120);
-}
-
-function columnLetter_(column) {
-  let value = column;
-  let result = '';
-  while (value > 0) {
-    const remainder = (value - 1) % 26;
-    result = String.fromCharCode(65 + remainder) + result;
-    value = Math.floor((value - 1) / 26);
-  }
-  return result;
 }
