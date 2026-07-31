@@ -24,6 +24,11 @@ and requires recoverable in-place deployment.
 | `tests/e2e.test.mjs` | #52 | Drive an enabled/disabled sheet fixture through snapshot, request, parsing, the full review/application lifecycle, and terminal rediscovery suppression. | Moderate | REVIEWED_CLEAN |
 | `README.md`, `docs/architecture.md`, `docs/sheet-schema.md` | #51/#52 | Define operator ownership, trust boundary, tab taxonomy, seed-once behavior, and fail-closed runtime source of truth. | Low | REVIEWED_CLEAN |
 | `docs/operations.md`, `docs/n8n-deployment.md` | #51/#52/#53 | Add setup, edit, invalid-state, snapshot, no-fallback, import, smoke, observation, and rollback gates. | Moderate | REVIEWED_CLEAN |
+| `outputs/search-keywords-20260731/production-predeployment-baseline.json` | #53 | Preserve sanitized pre-mutation workflow, workbook, seed-source, old-workbook, active-claim, and restricted rollback evidence. Captured counts/IDs/hashes, false content-inclusion flags, rollback sequence, and direct documentation/test consumers inspected. | High | REVIEWED_CLEAN |
+| `outputs/search-keywords-20260731/nonproduction-verification.json` | #53 | Preserve disposable setup/rerun, edit-without-rebuild, immutable snapshot, invalid matrix, restoration, and no-submission evidence. Execution categories/counts, bounded digests, absence of private rows, and direct documentation/test consumers inspected. | High | REVIEWED_CLEAN |
+| `outputs/search-keywords-20260731/production-deployment-verification.json` | #53 | Preserve sanitized setup, exact-ID deployment, real scheduled Scraper, fixed-window, identity, discovery-claim cleanup, downstream, retained-old-workbook, inventory, rollback, and release-gate evidence. Private-content flags, count/hash/timestamp consistency, execution linkage, and direct test consumers inspected. | High | REVIEWED_CLEAN |
+| `docs/search-keywords-verification-2026-07-31.md` | #53 | Record implementation, smoke, setup, deployment, real scheduled observation, downstream compatibility, safety, and rollback outcome. IDs/hashes/counts, private-data exclusions, acceptance linkage, and retention-policy boundaries inspected. | Moderate | REVIEWED_CLEAN |
+| `tests/docs.test.mjs` | #53 | Parse and enforce bounded baseline/non-production/final-production evidence and exact acceptance-criterion dispositions without weakening prior production evidence checks. New file loads, field-level assertions, issue-section slicing, and full documentation-suite behavior inspected. | Moderate | REVIEWED_CLEAN |
 | `docs/acceptance-matrix.md`, this ledger | #51/#52/#53 | Preserve stable criterion-level evidence and account for every source, test, generated, documentation, and rollout change unit. | Low | REVIEWED_CLEAN |
 
 ## Findings fixed before publication
@@ -67,3 +72,22 @@ claims, and writes; existing pagination, deduplication, rediscovery, terminal
 suppression, append-winner claims, and lease cleanup remain unchanged; generated
 artifacts are deterministic; and rollback remains an in-place Scraper restore
 without removing the configuration sheet.
+
+## Issue #53 rollout evidence review
+
+**Lane A — Security, Privacy, and Trust: PASS.** The baseline, non-production
+record, final production record, and report store only bounded counts, IDs,
+hashes, timestamps, statuses, and fixed error categories. Explicit false
+inclusion flags and focused scans confirm that credentials, authorization
+material, complete sheet rows, job descriptions, prompts, model responses, and
+application messages are absent. No submission or Apply Points spend occurred.
+
+**Lane B — Data, State, Failure, and Operations: PASS.** Direct records cover
+the original workbook and claim counts, first-creation production setup,
+value-preserving rerun, edit-without-rebuild smoke, five invalid
+configurations, exact-ID deployment, credential binding, normalized artifact
+equality, live environment validation, real scheduled snapshot and fixed
+window, 69/69 identity uniqueness, first-boundary discovery-lease cleanup,
+Generator and Alerter compatibility, unchanged retained-old-workbook timestamp,
+exact three-role inventory, and the restricted rollback export. No completed
+gate failed, so rollback was not required.
