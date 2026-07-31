@@ -93,8 +93,10 @@ export function validateRuntimeConfig(runtime) {
   for (const role of WORKFLOW_ROLES) {
     errors.push(...validateScheduledWorkflow(runtime[role], role));
   }
-  if (runtime.generator?.per_run_cap !== 1) {
-    errors.push("generator.per_run_cap must be 1");
+  if (!positiveInteger(runtime.generator?.per_run_cap)) {
+    errors.push("generator.per_run_cap must be a positive integer");
+  } else if (runtime.generator.per_run_cap > 5) {
+    errors.push("generator.per_run_cap must not exceed 5");
   }
   for (const field of ["request_retry_backoff_ms", "http_timeout_ms"]) {
     if (!positiveInteger(runtime.generator?.[field])) {

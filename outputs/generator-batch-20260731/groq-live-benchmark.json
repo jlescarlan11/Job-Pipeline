@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-07-31/v10",
+  "generated_at": "2026-07-31T01:57:45.238Z",
+  "live_external_calls": true,
+  "raw_prompts_or_messages_included": false,
+  "credentials_included": false,
+  "models": [
+    {
+      "model": "openai/gpt-oss-120b",
+      "scheduled_role": "initial",
+      "repair_model": "openai/gpt-oss-20b",
+      "case_count": 3,
+      "valid_count": 3,
+      "valid_rate": 1,
+      "measured": true,
+      "output_limit_reached": false,
+      "passes": true,
+      "cases": [
+        {
+          "case": "direct",
+          "valid": true,
+          "repaired": true,
+          "finish_reasons": ["stop", "stop"],
+          "latency_ms": 2434,
+          "input_tokens": 2024,
+          "cached_input_tokens": 0,
+          "output_tokens": 558,
+          "cost_usd": 0.00048315
+        },
+        {
+          "case": "adjacent",
+          "valid": true,
+          "repaired": false,
+          "finish_reasons": ["stop"],
+          "latency_ms": 1176,
+          "input_tokens": 914,
+          "cached_input_tokens": 0,
+          "output_tokens": 274,
+          "cost_usd": 0.0003015
+        },
+        {
+          "case": "instructions",
+          "valid": true,
+          "repaired": false,
+          "finish_reasons": ["stop"],
+          "latency_ms": 1438,
+          "input_tokens": 1011,
+          "cached_input_tokens": 0,
+          "output_tokens": 396,
+          "cost_usd": 0.00038925
+        }
+      ]
+    },
+    {
+      "model": "openai/gpt-oss-20b",
+      "scheduled_role": "repair",
+      "repair_model": "openai/gpt-oss-20b",
+      "case_count": 3,
+      "valid_count": 3,
+      "valid_rate": 1,
+      "measured": true,
+      "output_limit_reached": false,
+      "passes": true,
+      "cases": [
+        {
+          "case": "direct",
+          "valid": true,
+          "repaired": false,
+          "finish_reasons": ["stop"],
+          "latency_ms": 625,
+          "input_tokens": 938,
+          "cached_input_tokens": 0,
+          "output_tokens": 316,
+          "cost_usd": 0.00016515
+        },
+        {
+          "case": "adjacent",
+          "valid": true,
+          "repaired": false,
+          "finish_reasons": ["stop"],
+          "latency_ms": 1234,
+          "input_tokens": 914,
+          "cached_input_tokens": 768,
+          "output_tokens": 266,
+          "cost_usd": 0.000119166
+        },
+        {
+          "case": "instructions",
+          "valid": true,
+          "repaired": true,
+          "finish_reasons": ["stop", "stop"],
+          "latency_ms": 2010,
+          "input_tokens": 2180,
+          "cached_input_tokens": 0,
+          "output_tokens": 604,
+          "cost_usd": 0.0003447
+        }
+      ]
+    }
+  ]
+}

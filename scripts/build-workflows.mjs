@@ -97,10 +97,14 @@ const generatorCore = await bundledCore(
   "src/profile.mjs",
   "src/evaluation.mjs",
   "src/groq-provider.mjs",
+  "src/system-claims.mjs",
   "src/generator.mjs"
 );
 const groqModel = groqPolicy.models.find(
   (model) => model.id === groqPolicy.selected_model
+);
+const groqRepairModel = groqPolicy.models.find(
+  (model) => model.id === groqPolicy.repair_model
 );
 const movementCore = await bundledCore(
   "src/contracts.mjs",
@@ -250,6 +254,20 @@ function waitNode(name, position, milliseconds) {
   };
 }
 
+function loopOverItemsNode(name, position, batchSize = 1) {
+  return {
+    parameters: {
+      batchSize,
+      options: {}
+    },
+    type: "n8n-nodes-base.splitInBatches",
+    typeVersion: 3,
+    position,
+    id: id(),
+    name
+  };
+}
+
 function aggregateNode(name, position, destinationFieldName) {
   return {
     parameters: {
@@ -380,7 +398,12 @@ function sheetExpression(field) {
   return `={{ Array.isArray($json[${JSON.stringify(field)}]) || (typeof $json[${JSON.stringify(field)}] === 'object' && $json[${JSON.stringify(field)}] !== null) ? JSON.stringify($json[${JSON.stringify(field)}]) : ($json[${JSON.stringify(field)}] ?? '') }}`;
 }
 
-function readSheet(name, position, sheet) {
+function readSheet(
+  name,
+  position,
+  sheet,
+  { continueOnError = false } = {}
+) {
   return {
     parameters: {
       documentId: documentId(),
@@ -395,7 +418,8 @@ function readSheet(name, position, sheet) {
     alwaysOutputData: true,
     retryOnFail: true,
     maxTries: runtime.google_sheets.read_retry.max_attempts,
-    waitBetweenTries: runtime.google_sheets.read_retry.backoff_ms
+    waitBetweenTries: runtime.google_sheets.read_retry.backoff_ms,
+    ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
 }
 
@@ -760,14 +784,15 @@ return updates.filter((record) => Number.isInteger(Number(record.row_number)))
 
 function buildGenerator() {
   const queue = review.sheets.review_queue.name;
+  const system = review.sheets.system.name;
   const config = runtime.generator;
   const nodes = [
-    scheduleNode("generator", [-1600, 200], config),
-    readSheet("Get Review Queue", [-1400, 200], queue),
-    aggregateNode("Aggregate Review Queue", [-1200, 200], "review_rows"),
+    scheduleNode("generator", [-2200, 240], config),
+    readSheet("Get Review Queue", [-2000, 240], queue),
+    aggregateNode("Aggregate Review Queue", [-1800, 240], "review_rows"),
     codeNode(
-      "Select and Claim Candidate",
-      [-1000, 200],
+      "Select Generator Candidates",
+      [-1600, 240],
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const RUNTIME = ${JSON.stringify(config)};
@@ -776,32 +801,218 @@ const rows = ($input.first().json.review_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
 const selected = selectGeneratorCandidate(rows, SCHEMA, RUNTIME, now);
-return selected.map(({ record, stage }) => ({
-  json: claimGeneratorRecord(
-    record,
-    stage,
-    String($execution.id),
-    now,
-    RUNTIME.claim_lease_ms
-  ).record
+return selected.map(({ record, stage }, selectionIndex) => ({
+  json: {
+    candidate_record: record,
+    candidate_stage: stage,
+    selection_index: selectionIndex,
+    selected_at: now
+  }
 }));`
+    ),
+    loopOverItemsNode("Process Candidates Sequentially", [-1400, 240], 1),
+    codeNode(
+      "Create Generator System Claim",
+      [-1200, 240],
+      `${generatorCore}
+const RUNTIME = ${JSON.stringify(config)};
+const candidate = $json;
+const systemClaim = createSystemClaim({
+  stage: 'generator',
+  canonicalJobId: candidate.candidate_record.canonical_job_id,
+  scope: candidate.candidate_stage,
+  executionId: String($execution.id),
+  now: new Date().toISOString(),
+  leaseMs: RUNTIME.claim_lease_ms
+});
+return { json: {
+  ...systemClaim,
+  candidate
+} };`,
+      "runOnceForEachItem"
+    ),
+    writeSheet(
+      "Append Generator System Claim",
+      [-1000, 240],
+      system,
+      "append",
+      review.sheets.system.fields,
+      [],
+      { continueOnError: true }
+    ),
+    readSheet(
+      "Get Generator System Claims",
+      [-800, 240],
+      system,
+      { continueOnError: true }
+    ),
+    aggregateNode(
+      "Aggregate Generator System Claims",
+      [-600, 240],
+      "system_claims"
+    ),
+    codeNode(
+      "Confirm Generator System Claim",
+      [-400, 240],
+      `${generatorCore}
+const proposed = $('Create Generator System Claim').item.json;
+const persisted = ($input.first().json.system_claims || [])
+  .filter((row) => row && Object.keys(row).length);
+const winners = selectWinningSystemClaims(
+  [proposed],
+  persisted,
+  new Date().toISOString()
+);
+const won = winners.some((claim) => claim.token === proposed.token);
+return { json: {
+  system_claim_won: won,
+  candidate: proposed.candidate,
+  canonical_job_id: proposed.canonical_job_id,
+  selection_index: proposed.candidate.selection_index,
+  processing_outcome: won ? 'system_claim_won' : 'system_claim_lost'
+} };`
+    ),
+    ifNode(
+      "Generator System Claim Won",
+      [-200, 240],
+      "={{ $json.system_claim_won === true }}"
+    ),
+    readSheet(
+      "Get Review Queue Before Candidate Claim",
+      [0, 40],
+      queue,
+      { continueOnError: true }
+    ),
+    aggregateNode(
+      "Aggregate Review Queue Before Candidate Claim",
+      [200, 40],
+      "fresh_rows"
+    ),
+    codeNode(
+      "Claim Current Candidate",
+      [400, 40],
+      `${generatorCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const RUNTIME = ${JSON.stringify(config)};
+const candidate = $('Confirm Generator System Claim').item.json.candidate;
+try {
+  const matches = ($input.first().json.fresh_rows || [])
+    .filter((row) => row && Object.keys(row).length)
+    .map((row) => normalizeLegacyRecord(row, SCHEMA))
+    .filter(
+      (row) =>
+        row.canonical_job_id === candidate.candidate_record.canonical_job_id
+    );
+  if (matches.length !== 1) {
+    throw new Error(
+      'Generator claim rejected because Review Queue identity is missing or ambiguous'
+    );
+  }
+  const current = selectGeneratorCandidate(matches, SCHEMA, RUNTIME, new Date().toISOString());
+  if (
+    current.length !== 1 ||
+    current[0].stage !== candidate.candidate_stage
+  ) {
+    throw new Error(
+      'Generator claim rejected because the selected row is no longer eligible in the frozen stage'
+    );
+  }
+  const claim = claimGeneratorRecord(
+    current[0].record,
+    current[0].stage,
+    String($execution.id),
+    new Date().toISOString(),
+    RUNTIME.claim_lease_ms
+  );
+  return { json: {
+    ...claim.record,
+    claim_created: claim.claimed,
+    claimed_record: claim.record,
+    selection_index: candidate.selection_index,
+    provider_requests: 0,
+    processing_outcome: claim.claimed ? 'review_queue_claim_created' : 'review_queue_claim_rejected'
+  } };
+} catch (error) {
+  return { json: {
+    claim_created: false,
+    canonical_job_id: candidate.candidate_record.canonical_job_id,
+    selection_index: candidate.selection_index,
+    provider_requests: 0,
+    processing_outcome: 'review_queue_claim_rejected',
+    error_summary: String(error?.message || error).slice(0, 240)
+  } };
+}`,
+      "runOnceForEachItem"
+    ),
+    ifNode(
+      "Review Queue Claim Created",
+      [600, 40],
+      "={{ $json.claim_created === true }}"
     ),
     writeSheet(
       "Persist Generator Claim",
-      [-800, 200],
+      [800, -40],
       queue,
       "update",
       generatorClaimFields,
-      ["canonical_job_id"]
+      ["canonical_job_id"],
+      { continueOnError: true }
     ),
-    aggregateNode("Aggregate Claimed Candidate", [-600, 200], "claimed_rows"),
+    readSheet(
+      "Get Review Queue After Claim",
+      [1000, -40],
+      queue,
+      { continueOnError: true }
+    ),
+    aggregateNode(
+      "Aggregate Review Queue After Claim",
+      [1200, -40],
+      "fresh_rows"
+    ),
+    codeNode(
+      "Confirm Generator Claim Persisted",
+      [1400, -40],
+      `${generatorCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const CLAIM_FIELDS = ${JSON.stringify(generatorClaimFields)};
+const planned = $('Claim Current Candidate').item.json.claimed_record;
+const selectionIndex = $('Claim Current Candidate').item.json.selection_index;
+try {
+  const fresh = ($input.first().json.fresh_rows || [])
+    .filter((row) => row && Object.keys(row).length)
+    .map((row) => normalizeLegacyRecord(row, SCHEMA));
+  confirmGeneratorClaimPersisted(planned, fresh, SCHEMA, CLAIM_FIELDS);
+  return { json: {
+    claim_verified: true,
+    claimed_record: planned,
+    canonical_job_id: planned.canonical_job_id,
+    selection_index: selectionIndex,
+    provider_requests: 0,
+    processing_outcome: 'review_queue_claim_verified'
+  } };
+} catch (error) {
+  return { json: {
+    claim_verified: false,
+    canonical_job_id: planned.canonical_job_id,
+    selection_index: selectionIndex,
+    provider_requests: 0,
+    processing_outcome: 'review_queue_claim_unverified',
+    error_summary: String(error?.message || error).slice(0, 240)
+  } };
+}`
+    ),
+    ifNode(
+      "Review Queue Claim Verified",
+      [1600, -40],
+      "={{ $json.claim_verified === true }}"
+    ),
     ifNode(
       "Needs Fresh Job Detail",
-      [-500, 200],
-      "={{ $('Select and Claim Candidate').first().json.processing_stage === 'evaluation' }}"
+      [1800, -80],
+      "={{ $json.claimed_record.processing_stage === 'evaluation' }}"
     ),
-    httpNode("Fetch Job Detail", [-300, 80], {
-      url: "={{ $('Select and Claim Candidate').first().json.canonical_url }}",
+    httpNode("Fetch Job Detail", [1600, -160], {
+      url: "={{ $json.claimed_record.canonical_url }}",
       timeout: config.http_timeout_ms,
       retry: {
         max_attempts: config.retry.max_attempts,
@@ -816,13 +1027,13 @@ return selected.map(({ record, stage }) => ({
     }),
     codeNode(
       "Use Stored Job Detail",
-      [-300, 320],
-      "return { json: {} };",
+      [2000, 40],
+      "return { json: $json };",
       "runOnceForEachItem"
     ),
     codeNode(
       "Evaluate and Prepare Application",
-      [-100, 200],
+      [2200, -80],
       `${generatorCore}
 const PROFILE = ${JSON.stringify(profile)};
 const RANKING_POLICY = ${JSON.stringify(rankingPolicy)};
@@ -830,7 +1041,8 @@ const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const PROVIDER_POLICY = ${JSON.stringify(groqPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
-const claimed = $('Select and Claim Candidate').first().json;
+const context = $('Confirm Generator Claim Persisted').item.json;
+const claimed = context.claimed_record;
 const now = new Date().toISOString();
 const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
 if (
@@ -842,7 +1054,9 @@ if (
   return { json: {
     provider_required: false,
     claimed_record: claimed,
-    proposed_record: recordGeneratorFailure(claimed, new Error(errorMessage), RUNTIME, now)
+    proposed_record: recordGeneratorFailure(claimed, new Error(errorMessage), RUNTIME, now),
+    selection_index: context.selection_index,
+    provider_requests: 0
   } };
 }
 const html = typeof $json === 'string' ? $json : ($json.data || $json.body || '');
@@ -856,7 +1070,9 @@ if (working.processing_stage !== 'generation' || !working.processing_token) {
   return { json: {
     provider_required: false,
     claimed_record: claimed,
-    proposed_record: working
+    proposed_record: working,
+    selection_index: context.selection_index,
+    provider_requests: 0
   } };
 }
 try {
@@ -872,23 +1088,37 @@ try {
     ...prepared,
     claimed_record: claimed,
     working_record: working,
-    proposed_record: prepared.record
+    proposed_record: prepared.record,
+    selection_index: context.selection_index,
+    provider_requests: 0
   } };
 } catch (error) {
   return { json: {
     provider_required: false,
     claimed_record: claimed,
-    proposed_record: recordGeneratorFailure(working, error, RUNTIME, now)
+    proposed_record: recordGeneratorFailure(working, error, RUNTIME, now),
+    selection_index: context.selection_index,
+    provider_requests: 0
   } };
 }`,
       "runOnceForEachItem"
     ),
     ifNode(
       "Provider Required",
-      [100, 200],
+      [2400, -80],
       "={{ $json.provider_required === true }}"
     ),
-    httpNode("Generate Initial Application with Groq", [300, 40], {
+    ifNode(
+      "Needs Provider Pacing Delay",
+      [2600, -200],
+      "={{ $json.selection_index > 0 }}"
+    ),
+    waitNode(
+      "Wait Before Initial Provider Request",
+      [2800, -300],
+      groqPolicy.generation.request_interval_ms
+    ),
+    httpNode("Generate Initial Application with Groq", [3000, -200], {
       url: "https://api.groq.com/openai/v1/chat/completions",
       method: "POST",
       timeout: config.http_timeout_ms,
@@ -918,14 +1148,14 @@ try {
     }),
     codeNode(
       "Validate Initial Draft",
-      [500, 40],
+      [3200, -200],
       `${generatorCore}
 const PROFILE = ${JSON.stringify(profile)};
 const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const PROVIDER_POLICY = ${JSON.stringify(groqPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
-const prepared = $('Evaluate and Prepare Application').first().json;
+const prepared = $('Evaluate and Prepare Application').item.json;
 const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
 const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
 try {
@@ -948,7 +1178,9 @@ try {
     working_record: prepared.working_record,
     pack: prepared.pack,
     system_message: prepared.system_message,
-    initial_user_message: prepared.user_message
+    initial_user_message: prepared.user_message,
+    selection_index: prepared.selection_index,
+    provider_requests: 1
   } };
 } catch (error) {
   return { json: {
@@ -959,7 +1191,9 @@ try {
       error,
       RUNTIME,
       new Date().toISOString()
-    )
+    ),
+    selection_index: prepared.selection_index,
+    provider_requests: 1
   } };
 }
 `,
@@ -967,15 +1201,15 @@ try {
     ),
     ifNode(
       "Needs One Repair",
-      [700, 40],
+      [3400, -200],
       "={{ $json.repair_required === true }}"
     ),
     waitNode(
       "Wait Before Repair",
-      [900, -80],
+      [3600, -320],
       groqPolicy.generation.request_interval_ms
     ),
-    httpNode("Generate Application Repair with Groq", [1100, -80], {
+    httpNode("Generate Application Repair with Groq", [3800, -320], {
       url: "https://api.groq.com/openai/v1/chat/completions",
       method: "POST",
       timeout: config.http_timeout_ms,
@@ -991,13 +1225,13 @@ try {
       ],
       jsonBody:
         "={{ JSON.stringify({ model: " +
-        JSON.stringify(groqPolicy.selected_model) +
+        JSON.stringify(groqPolicy.repair_model) +
         ", temperature: " +
         JSON.stringify(groqPolicy.generation.temperature) +
         ", max_tokens: " +
         JSON.stringify(groqPolicy.generation.maximum_output_tokens) +
         ", reasoning_effort: " +
-        JSON.stringify(groqModel.reasoning_effort) +
+        JSON.stringify(groqRepairModel.reasoning_effort) +
         ", reasoning_format: " +
         JSON.stringify(groqPolicy.generation.reasoning_format) +
         ", messages: [{ role: 'system', content: $json.system_message }, { role: 'user', content: $json.repair_user_message }] }) }}",
@@ -1005,13 +1239,13 @@ try {
     }),
     codeNode(
       "Validate Repaired Draft",
-      [1300, -80],
+      [4000, -320],
       `${generatorCore}
 const PROFILE = ${JSON.stringify(profile)};
 const APPLICATION_POLICY = ${JSON.stringify(applicationPolicy)};
 const PACK_POLICY = ${JSON.stringify(packPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
-const staged = $('Validate Initial Draft').first().json;
+const staged = $('Validate Initial Draft').item.json;
 const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
 const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
 let proposed;
@@ -1036,98 +1270,185 @@ try {
 }
 return { json: {
   claimed_record: staged.claimed_record,
-  proposed_record: proposed
+  proposed_record: proposed,
+  selection_index: staged.selection_index,
+  provider_requests: 2
 } };`,
       "runOnceForEachItem"
     ),
     codeNode(
       "Use Valid Initial Draft",
-      [900, 120],
+      [3600, -120],
       `return { json: {
   claimed_record: $json.claimed_record,
-  proposed_record: $json.proposed_record
+  proposed_record: $json.proposed_record,
+  selection_index: $json.selection_index,
+  provider_requests: $json.provider_requests
 } };`,
       "runOnceForEachItem"
     ),
     codeNode(
       "Use Non-Provider Result",
-      [300, 320],
+      [2600, 40],
       `return { json: {
   claimed_record: $json.claimed_record,
-  proposed_record: $json.proposed_record
+  proposed_record: $json.proposed_record,
+  selection_index: $json.selection_index,
+  provider_requests: 0
 } };`,
       "runOnceForEachItem"
     ),
     codeNode(
       "Stage Generator Result",
-      [1500, 160],
+      [4200, -80],
       `return { json: {
   claimed_record: $json.claimed_record,
-  proposed_record: $json.proposed_record
+  proposed_record: $json.proposed_record,
+  selection_index: $json.selection_index,
+  provider_requests: $json.provider_requests
 } };`,
       "runOnceForEachItem"
     ),
-    readSheet("Get Review Queue Before Commit", [1700, 160], queue),
-    aggregateNode("Aggregate Fresh Review Queue", [1900, 160], "fresh_rows"),
+    readSheet(
+      "Get Review Queue Before Commit",
+      [4400, -80],
+      queue,
+      { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Fresh Review Queue", [4600, -80], "fresh_rows"),
     codeNode(
       "Guard and Commit Generator Result",
-      [2100, 160],
+      [4800, -80],
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
-const staged = $('Stage Generator Result').first().json;
-const fresh = ($input.first().json.fresh_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA))
-  .find((row) => row.canonical_job_id === staged.claimed_record.canonical_job_id);
-if (!fresh) throw new Error('Generator commit could not find claimed Review Queue row');
-return { json: commitGeneratorResult(
-  fresh,
-  staged.claimed_record,
-  staged.proposed_record,
-  SCHEMA,
-  new Date().toISOString()
-) };`
+const staged = $('Stage Generator Result').item.json;
+try {
+  const fresh = ($input.first().json.fresh_rows || [])
+    .filter((row) => row && Object.keys(row).length)
+    .map((row) => normalizeLegacyRecord(row, SCHEMA))
+    .find((row) => row.canonical_job_id === staged.claimed_record.canonical_job_id);
+  if (!fresh) throw new Error('Generator commit could not find claimed Review Queue row');
+  const planned = commitGeneratorResult(
+    fresh,
+    staged.claimed_record,
+    staged.proposed_record,
+    SCHEMA,
+    new Date().toISOString()
+  );
+  return { json: {
+    ...planned,
+    commit_allowed: true,
+    planned_record: planned,
+    selection_index: staged.selection_index,
+    provider_requests: staged.provider_requests
+  } };
+} catch (error) {
+  return { json: {
+    commit_allowed: false,
+    canonical_job_id: staged.claimed_record.canonical_job_id,
+    selection_index: staged.selection_index,
+    provider_requests: staged.provider_requests,
+    processing_outcome: 'commit_rejected',
+    error_summary: String(error?.message || error).slice(0, 240)
+  } };
+}`
+    ),
+    ifNode(
+      "Generator Commit Authorized",
+      [5000, -80],
+      "={{ $json.commit_allowed === true }}"
     ),
     writeSheet(
       "Update Review Queue Result",
-      [2300, 160],
+      [5200, -200],
       queue,
       "update",
       reviewMachineFields,
-      ["canonical_job_id"]
+      ["canonical_job_id"],
+      { continueOnError: true }
     ),
-    readSheet("Get Review Queue After Commit", [2500, 160], queue),
+    readSheet(
+      "Get Review Queue After Commit",
+      [5400, -200],
+      queue,
+      { continueOnError: true }
+    ),
     aggregateNode(
       "Aggregate Review Queue After Commit",
-      [2700, 160],
+      [5600, -200],
       "fresh_rows"
     ),
     codeNode(
       "Confirm Generator Result Persisted",
-      [2900, 160],
+      [5800, -200],
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const COMMIT_FIELDS = ${JSON.stringify(reviewMachineFields)};
-const planned = $('Guard and Commit Generator Result').first().json;
-const fresh = ($input.first().json.fresh_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA));
-const persisted = confirmGeneratorResultPersisted(
-  planned,
-  fresh,
-  SCHEMA,
-  COMMIT_FIELDS
-);
+const staged = $('Guard and Commit Generator Result').item.json;
+const planned = staged.planned_record;
+try {
+  const fresh = ($input.first().json.fresh_rows || [])
+    .filter((row) => row && Object.keys(row).length)
+    .map((row) => normalizeLegacyRecord(row, SCHEMA));
+  const persisted = confirmGeneratorResultPersisted(
+    planned,
+    fresh,
+    SCHEMA,
+    COMMIT_FIELDS
+  );
+  return { json: {
+    canonical_job_id: persisted.canonical_job_id,
+    pipeline_status: persisted.pipeline_status,
+    selection_index: staged.selection_index,
+    provider_requests: staged.provider_requests,
+    commit_verified: true,
+    processing_outcome: 'commit_verified'
+  } };
+} catch (error) {
+  return { json: {
+    canonical_job_id: planned.canonical_job_id,
+    selection_index: staged.selection_index,
+    provider_requests: staged.provider_requests,
+    commit_verified: false,
+    processing_outcome: 'persistence_unverified',
+    error_summary: String(error?.message || error).slice(0, 240)
+  } };
+}`
+    ),
+    codeNode(
+      "Finalize Candidate",
+      [6000, 40],
+      `const result = {
+  canonical_job_id: String($json.canonical_job_id || $json.claimed_record?.canonical_job_id || ''),
+  selection_index: Number.isInteger($json.selection_index) ? $json.selection_index : -1,
+  pipeline_status: String($json.pipeline_status || ''),
+  provider_requests: Number($json.provider_requests || 0),
+  commit_verified: $json.commit_verified === true,
+  processing_outcome: String($json.processing_outcome || 'candidate_handled'),
+  error_summary: String($json.error_summary || '').slice(0, 240)
+};
 console.log(JSON.stringify({
   event: 'generator_result',
-  canonical_job_id: persisted.canonical_job_id,
-  status: persisted.pipeline_status,
-  stage: persisted.processing_stage || ''
+  canonical_job_id: result.canonical_job_id,
+  status: result.pipeline_status || result.processing_outcome,
+  provider_requests: result.provider_requests,
+  commit_verified: result.commit_verified
 }));
+return { json: result };`,
+      "runOnceForEachItem"
+    ),
+    codeNode(
+      "Summarize Generator Run",
+      [-1200, 520],
+      `const results = $input.all().map((item) => item.json);
 return { json: {
-  canonical_job_id: persisted.canonical_job_id,
-  pipeline_status: persisted.pipeline_status,
-  commit_verified: true
+  selected_count: results.length,
+  commit_verified_count: results.filter((result) => result.commit_verified === true).length,
+  provider_request_count: results.reduce(
+    (total, result) => total + Number(result.provider_requests || 0),
+    0
+  ),
+  results
 } };`
     )
   ];
@@ -1135,16 +1456,70 @@ return { json: {
     "Schedule Trigger": { main: [[connection("Get Review Queue")]] },
     "Get Review Queue": { main: [[connection("Aggregate Review Queue")]] },
     "Aggregate Review Queue": {
-      main: [[connection("Select and Claim Candidate")]]
+      main: [[connection("Select Generator Candidates")]]
     },
-    "Select and Claim Candidate": {
-      main: [[connection("Persist Generator Claim")]]
+    "Select Generator Candidates": {
+      main: [[connection("Process Candidates Sequentially")]]
+    },
+    "Process Candidates Sequentially": {
+      main: [
+        [connection("Summarize Generator Run")],
+        [connection("Create Generator System Claim")]
+      ]
+    },
+    "Create Generator System Claim": {
+      main: [[connection("Append Generator System Claim")]]
+    },
+    "Append Generator System Claim": {
+      main: [[connection("Get Generator System Claims")]]
+    },
+    "Get Generator System Claims": {
+      main: [[connection("Aggregate Generator System Claims")]]
+    },
+    "Aggregate Generator System Claims": {
+      main: [[connection("Confirm Generator System Claim")]]
+    },
+    "Confirm Generator System Claim": {
+      main: [[connection("Generator System Claim Won")]]
+    },
+    "Generator System Claim Won": {
+      main: [
+        [connection("Get Review Queue Before Candidate Claim")],
+        [connection("Finalize Candidate")]
+      ]
+    },
+    "Get Review Queue Before Candidate Claim": {
+      main: [[connection("Aggregate Review Queue Before Candidate Claim")]]
+    },
+    "Aggregate Review Queue Before Candidate Claim": {
+      main: [[connection("Claim Current Candidate")]]
+    },
+    "Claim Current Candidate": {
+      main: [[connection("Review Queue Claim Created")]]
+    },
+    "Review Queue Claim Created": {
+      main: [
+        [connection("Persist Generator Claim")],
+        [connection("Finalize Candidate")]
+      ]
     },
     "Persist Generator Claim": {
-      main: [[connection("Aggregate Claimed Candidate")]]
+      main: [[connection("Get Review Queue After Claim")]]
     },
-    "Aggregate Claimed Candidate": {
-      main: [[connection("Needs Fresh Job Detail")]]
+    "Get Review Queue After Claim": {
+      main: [[connection("Aggregate Review Queue After Claim")]]
+    },
+    "Aggregate Review Queue After Claim": {
+      main: [[connection("Confirm Generator Claim Persisted")]]
+    },
+    "Confirm Generator Claim Persisted": {
+      main: [[connection("Review Queue Claim Verified")]]
+    },
+    "Review Queue Claim Verified": {
+      main: [
+        [connection("Needs Fresh Job Detail")],
+        [connection("Finalize Candidate")]
+      ]
     },
     "Needs Fresh Job Detail": {
       main: [
@@ -1163,9 +1538,18 @@ return { json: {
     },
     "Provider Required": {
       main: [
-        [connection("Generate Initial Application with Groq")],
+        [connection("Needs Provider Pacing Delay")],
         [connection("Use Non-Provider Result")]
       ]
+    },
+    "Needs Provider Pacing Delay": {
+      main: [
+        [connection("Wait Before Initial Provider Request")],
+        [connection("Generate Initial Application with Groq")]
+      ]
+    },
+    "Wait Before Initial Provider Request": {
+      main: [[connection("Generate Initial Application with Groq")]]
     },
     "Generate Initial Application with Groq": {
       main: [[connection("Validate Initial Draft")]]
@@ -1204,7 +1588,13 @@ return { json: {
       main: [[connection("Guard and Commit Generator Result")]]
     },
     "Guard and Commit Generator Result": {
-      main: [[connection("Update Review Queue Result")]]
+      main: [[connection("Generator Commit Authorized")]]
+    },
+    "Generator Commit Authorized": {
+      main: [
+        [connection("Update Review Queue Result")],
+        [connection("Finalize Candidate")]
+      ]
     },
     "Update Review Queue Result": {
       main: [[connection("Get Review Queue After Commit")]]
@@ -1214,6 +1604,12 @@ return { json: {
     },
     "Aggregate Review Queue After Commit": {
       main: [[connection("Confirm Generator Result Persisted")]]
+    },
+    "Confirm Generator Result Persisted": {
+      main: [[connection("Finalize Candidate")]]
+    },
+    "Finalize Candidate": {
+      main: [[connection("Process Candidates Sequentially")]]
     }
   };
   return {
@@ -1236,6 +1632,10 @@ return { json: {
       manualSubmissionOnly: true,
       maximumModelRequestsPerItem:
         groqPolicy.generation.maximum_requests_per_item,
+      maximumItemsPerExecution: config.per_run_cap,
+      sequentialBatchSize: 1,
+      initialModel: groqPolicy.selected_model,
+      repairModel: groqPolicy.repair_model,
       boundedRepairEnabled: true,
       executionTimeoutSeconds: config.execution_timeout_seconds,
       scheduleOffsetMinutes: config.schedule_offset_minutes

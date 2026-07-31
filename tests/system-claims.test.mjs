@@ -73,3 +73,33 @@ test("expired claims cannot win and are pruned in descending row order", () => {
     [{ row_number: 7 }, { row_number: 4 }]
   );
 });
+
+test("Generator append-winner claims allow only one overlapping execution per job and stage", () => {
+  const first = createSystemClaim({
+    stage: "generator",
+    canonicalJobId: "onlinejobs.ph:7003",
+    scope: "evaluation",
+    executionId: "generator-run-1",
+    now,
+    leaseMs: 600000
+  });
+  const second = createSystemClaim({
+    stage: "generator",
+    canonicalJobId: "onlinejobs.ph:7003",
+    scope: "evaluation",
+    executionId: "generator-run-2",
+    now,
+    leaseMs: 600000
+  });
+  assert.deepEqual(
+    selectWinningSystemClaims(
+      [first, second],
+      [
+        { ...second, row_number: 12 },
+        { ...first, row_number: 11 }
+      ],
+      now
+    ).map((claim) => claim.token),
+    [first.token]
+  );
+});

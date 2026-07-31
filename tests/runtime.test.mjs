@@ -104,6 +104,27 @@ test("runtime validation rejects overlap, unbounded claims, and legacy schema", 
   );
 });
 
+test("Generator runtime accepts one through five jobs and rejects invalid caps", () => {
+  for (const perRunCap of [1, 2, 3, 4, 5]) {
+    assert.deepEqual(
+      validateRuntimeConfig({
+        ...runtime,
+        generator: { ...runtime.generator, per_run_cap: perRunCap }
+      }),
+      []
+    );
+  }
+  for (const perRunCap of [undefined, 0, -1, 1.5, "5", 6]) {
+    assert.match(
+      validateRuntimeConfig({
+        ...runtime,
+        generator: { ...runtime.generator, per_run_cap: perRunCap }
+      }).join(";"),
+      /generator\.per_run_cap/
+    );
+  }
+});
+
 test("generator and alerter schedules retain worst-case timeout separation", () => {
   assert.equal(runtime.alerter_mover.schedule_offset_minutes, 14);
   assert.match(

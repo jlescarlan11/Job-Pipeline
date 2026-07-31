@@ -141,3 +141,74 @@ Evidence labels:
 20. **Remaining behavior or retirement documented:** Completed in the artifact docs and the [2026-07-31 cutover report](cutover-2026-07-31.md).
 
 The authorized production cutover and every Issue #45 live gate are completed. The permanent sanitized observations are recorded in the [2026-07-31 cutover report](cutover-2026-07-31.md).
+
+## Issue #47 — five-job runtime and Groq capacity envelope
+
+1. **47-AC-01 — Cap is five — SATISFIED:** Automated runtime/config assertion.
+2. **47-AC-02 — Cap boundaries — SATISFIED:** Automated acceptance of integers 1–5 and rejection of missing, non-integer, non-positive, and above-five values.
+3. **47-AC-03 — No cap-equals-one contract — SATISFIED:** Automated runtime error-surface regression.
+4. **47-AC-04 — Nominal throughput — SATISFIED:** Artifact documentation distinguishes 16 nominal executions and 80 jobs per Manila day.
+5. **47-AC-05 — Conservative provider envelope — SATISFIED:** Automated 17-boundary, 85-job, and 170-request assertions.
+6. **47-AC-06 — Sequential pacing fits timeout — SATISFIED:** Automated 189,000-millisecond all-repair pacing assertion against the unchanged 480-second timeout.
+7. **47-AC-07 — Verified production permissions/limits — SATISFIED:** Live gate completed for both scheduled models with sanitized 200 responses and account headers at or above the checked-in 1,000 RPD, 8,000 TPM baseline.
+8. **47-AC-08 — Insufficient capacity fails closed — SATISFIED:** Automated per-model RPD, RPM, TPD, TPM, shared-quota, and execution-time failure fixtures.
+9. **47-AC-09 — Runtime invariants — SATISFIED:** Automated 90-minute/offset-2 schedule, 480-second timeout, 600-second claim lease, retry, and two-request maximum assertions.
+10. **47-AC-10 — Safety unchanged — SATISFIED:** Automated application-pack, prompt, deterministic message validation, and one-repair suites.
+11. **47-AC-11 — Affected tests — SATISFIED:** Automated runtime, provider, deployment, documentation, and workflow suites.
+12. **47-AC-12 — Build and artifact drift — SATISFIED:** `npm run build` and `npm run validate` release gate.
+13. **47-AC-13 — Three-role/manual boundary — SATISFIED:** Automated schedules, retention, endpoint, and no-auto-submit regression suites.
+
+## Issue #48 — sequential five-candidate Generator
+
+1. **48-AC-01 — First five selected — SATISFIED:** Automated six-row deterministic selection fixture.
+2. **48-AC-02 — Sixth untouched — SATISFIED:** Automated assertion of no claim, request, mutation, or confirmation for the control row.
+3. **48-AC-03 — Empty successful no-op — SATISFIED:** Automated zero-row selection and generated-graph no-side-effect path.
+4. **48-AC-04 — Partial batch — SATISFIED:** Automated one-through-four selection fixtures with no placeholder work.
+5. **48-AC-05 — Strict sequence — SATISFIED:** Generated `Split In Batches` graph uses batch size one and returns every terminal/handled-failure path to the loop before the next candidate.
+6. **48-AC-06 — Independent lifecycle — SATISFIED:** Automated distinct token, append-winner claim, fresh-current-row gate, evaluation/generation, guarded commit, and exact confirmation fixtures.
+7. **48-AC-07 — No cross-item lookup — SATISFIED:** Generated-workflow scan rejects job-local `.first()` and fixed-index references.
+8. **48-AC-08 — Mixed results — SATISFIED:** Automated five-job fixture persists `ready_to_apply`, `review_needed`, `skip`, `error`, and preserves `unavailable`.
+9. **48-AC-09 — Failure isolation — SATISFIED:** Automated forced per-job provider failure followed by four completed candidates; generated failure branches and bounded mutation results return to the loop.
+10. **48-AC-10 — Lost claim fails closed — SATISFIED:** Automated append-winner arbitration, exact claim-persistence confirmation, and ambiguous identity rejection.
+11. **48-AC-11 — Stale action isolation — SATISFIED:** Automated current-row eligibility, version/action/state-guard rejection without newer-state overwrite.
+12. **48-AC-12 — Exact result confirmation — SATISFIED:** Automated missing, ambiguous, partial, and mismatched reread rejection.
+13. **48-AC-13 — No blind duplicate write — SATISFIED:** Artifact writes have no automatic retry and uncertain results go through exact reread.
+14. **48-AC-14 — Maximum two requests — SATISFIED:** Automated initial/conditional-repair/no-third-request assertions and no Groq HTTP retry scan.
+15. **48-AC-15 — Invalid drafts never ready — SATISFIED:** Automated initial and repaired validation failures.
+16. **48-AC-16 — Overlap idempotency — SATISFIED:** Automated `_System` earliest-active-row winner and repeated-execution fixtures.
+17. **48-AC-17 — Downstream alert idempotency — SATISFIED:** Five-job E2E ready-key selection and repeated Alerter no-replay suite.
+18. **48-AC-18 — Approve safety — SATISFIED:** Automated approval-context path through unchanged pack and message gates.
+19. **48-AC-19 — Existing behavior — SATISFIED:** Automated unavailable, exhausted retry, prior-safe-message, and no-auto-submit regressions.
+20. **48-AC-20 — Structural regression — SATISFIED:** Generated-workflow loop, linkage, retry, single-event, and model-route assertions.
+21. **48-AC-21 — Direct/integration coverage — SATISFIED:** Automated zero through six, mixed, failure, stale, repeat, overlap, and downstream alert cases.
+22. **48-AC-22 — Generated artifact release gate — SATISFIED:** `npm run build` and `npm run validate`.
+
+## Issue #49 — production deployment and verification
+
+Repository implementation and automated evidence for Issues #47 and #48 do
+not authorize deployment from an unmerged branch. The delivery instruction
+also explicitly forbids deployment, so every criterion that requires
+production mutation remains blocked.
+
+1. **49-AC-01 — Exact-commit validation — BLOCKED:** Repository build, policy validation, and full tests pass; production deployment/cutover validation requires a deployment commit on `main`.
+2. **49-AC-02 — Commit on main before mutation — BLOCKED:** The reviewed implementation branch must be merged by an authorized maintainer; this run may not merge.
+3. **49-AC-03 — Pre-deployment evidence — SATISFIED:** A fresh read-only baseline records the active workflow definition/hash, exact three-role inventory, workbook binding and row counts, deterministic five-plus-two candidate identities/state, zero live claims, and a restricted current-definition rollback backup without credentials or private job content.
+4. **49-AC-04 — In-place update — BLOCKED:** Updating `TRUqD9atneyDyMNx` is deployment and is explicitly forbidden.
+5. **49-AC-05 — Runtime identity preserved — BLOCKED:** Repository artifact proves the intended settings; deployed-state proof requires the forbidden update.
+6. **49-AC-06 — Exactly three active workflows — BLOCKED:** The existing cutover report proves the pre-change inventory; post-update proof requires deployment.
+7. **49-AC-07 — Workbook bindings preserved — BLOCKED:** The existing cutover report proves the pre-change binding; post-update proof requires deployment.
+8. **49-AC-08 — Five-row live attempt — BLOCKED:** Production mutation/smoke is explicitly forbidden.
+9. **49-AC-09 — Distinct live claims/results — BLOCKED:** Production mutation/smoke is explicitly forbidden.
+10. **49-AC-10 — Live guarded commits/confirmations — BLOCKED:** Production mutation/smoke is explicitly forbidden.
+11. **49-AC-11 — Live per-job request sequence — BLOCKED:** Production mutation/smoke is explicitly forbidden.
+12. **49-AC-12 — Live continuation/failure isolation — PARTIAL:** Automated five-job and failure-isolation evidence is complete; new-artifact live continuation is blocked.
+13. **49-AC-13 — Live valid outcomes — BLOCKED:** Production mutation/smoke is explicitly forbidden.
+14. **49-AC-14 — Live sixth-row control — BLOCKED:** Production mutation/smoke is explicitly forbidden.
+15. **49-AC-15 — Live duplicate suppression — BLOCKED:** Automated duplicate protection passes; production observation is blocked.
+16. **49-AC-16 — Live Alerter idempotency — BLOCKED:** Automated E2E no-replay passes; production Slack observation is blocked.
+17. **49-AC-17 — No submission or Apply Points spend — SATISFIED:** Generated endpoint scans and full regression tests prove the artifact has no submission or spend path.
+18. **49-AC-18 — Recoverable production claims — BLOCKED:** New-artifact production observation is blocked.
+19. **49-AC-19 — Sanitized production evidence — BLOCKED:** Repository/provider/import evidence is sanitized; new production execution evidence does not yet exist.
+20. **49-AC-20 — Production evidence record — BLOCKED:** Deployment timestamps and row outcomes do not yet exist.
+21. **49-AC-21 — Evidence pushed to main — BLOCKED:** No deployment evidence exists and this run may not merge.
+22. **49-AC-22 — Rollback on failed gate — BLOCKED:** The rollback gate is applicable only inside the prohibited deployment window.

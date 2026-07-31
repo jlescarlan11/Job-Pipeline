@@ -364,10 +364,14 @@ export function assessInitialGenerationDraft(
       )
     };
   }
-  const repairUserMessage = `${userMessage}\n\n${buildApplicationRepairMessage(
+  const repairUserMessage = buildApplicationRepairMessage(
     message,
-    validation.errors
-  )}`;
+    validation.errors,
+    {
+      selectedProofs: pack.selected_proofs,
+      applicationInstructions: pack.application_instructions
+    }
+  );
   const repairBudget = validateGroqPromptBudget(
     providerPolicy,
     systemMessage,
@@ -553,6 +557,51 @@ function normalizedCommitValue(field, value, schema) {
     return Number.isFinite(numeric) ? numeric : value;
   }
   return String(value);
+}
+
+export function confirmGeneratorClaimPersisted(
+  plannedClaim,
+  freshRows,
+  schema,
+  claimFields
+) {
+  if (
+    !plannedClaim ||
+    !Array.isArray(freshRows) ||
+    !Array.isArray(claimFields)
+  ) {
+    throw new Error("Generator claim confirmation requires planned and fresh data");
+  }
+  const matches = freshRows.filter(
+    (row) => row?.canonical_job_id === plannedClaim.canonical_job_id
+  );
+  if (!plannedClaim.canonical_job_id || matches.length !== 1) {
+    throw new Error(
+      "Generator claim confirmation failed: Review Queue identity is missing or ambiguous"
+    );
+  }
+  const persisted = matches[0];
+  const mismatches = claimFields.filter(
+    (field) =>
+      normalizedCommitValue(field, persisted[field], schema) !==
+      normalizedCommitValue(field, plannedClaim[field], schema)
+  );
+  for (const field of ["user_action", "notes"]) {
+    if (
+      normalizedCommitValue(field, persisted[field], schema) !==
+      normalizedCommitValue(field, plannedClaim[field], schema)
+    ) {
+      mismatches.push(field);
+    }
+  }
+  if (mismatches.length > 0) {
+    throw new Error(
+      `Generator claim confirmation mismatch: ${boundedText(
+        [...new Set(mismatches)].join(",")
+      )}`
+    );
+  }
+  return persisted;
 }
 
 export function confirmGeneratorResultPersisted(

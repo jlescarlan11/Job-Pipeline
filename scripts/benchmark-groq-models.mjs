@@ -133,6 +133,7 @@ async function requestCompletion({
     throw new Error(`${category}: HTTP ${response.status}`);
   }
   return {
+    model_id: model.id,
     message: String(payload?.choices?.[0]?.message?.content || "").trim(),
     finish_reason: String(payload?.choices?.[0]?.finish_reason || ""),
     usage: usageFromResponse(payload),
@@ -143,6 +144,7 @@ async function requestCompletion({
 async function benchmarkCase({
   apiKey,
   model,
+  repairModel = model,
   policy,
   profile,
   applicationPolicy,
@@ -203,10 +205,14 @@ async function benchmarkCase({
   );
   const calls = [initial];
   if (!validation.valid) {
-    const repairPrompt = `${initialPrompt}\n\n${buildApplicationRepairMessage(
+    const repairPrompt = buildApplicationRepairMessage(
       finalMessage,
-      validation.errors
-    )}`;
+      validation.errors,
+      {
+        selectedProofs: pack.selected_proofs,
+        applicationInstructions: pack.application_instructions
+      }
+    );
     if (!validateGroqPromptBudget(policy, systemMessage, repairPrompt).valid) {
       return {
         case: fixture.id,
@@ -230,7 +236,7 @@ async function benchmarkCase({
     await wait(policy.generation.request_interval_ms);
     const repair = await requestCompletion({
       apiKey,
-      model,
+      model: repairModel,
       policy,
       systemMessage,
       userMessage: repairPrompt,
@@ -273,7 +279,15 @@ async function benchmarkCase({
     ),
     latency_ms: calls.reduce((total, call) => total + call.latency_ms, 0),
     ...usage,
-    cost_usd: estimateGroqCostUsd(model, usage)
+    cost_usd: calls.reduce(
+      (total, call) =>
+        total +
+        estimateGroqCostUsd(
+          groqModelById(policy, call.model_id),
+          call.usage
+        ),
+      0
+    )
   };
 }
 
@@ -315,6 +329,10 @@ async function runLiveBenchmark(modelIds, caseIds) {
   });
   const results = [];
   for (const model of models) {
+    const repairModel =
+      model.id === policy.selected_model
+        ? groqModelById(policy, policy.repair_model)
+        : model;
     const cases = [];
     for (const fixture of benchmarkFixtures.filter(
       (fixture) => !caseIds || caseIds.includes(fixture.id)
@@ -333,6 +351,7 @@ async function runLiveBenchmark(modelIds, caseIds) {
           await benchmarkCase({
             apiKey,
             model,
+            repairModel,
             policy,
             profile,
             applicationPolicy,
@@ -360,7 +379,7 @@ async function runLiveBenchmark(modelIds, caseIds) {
         });
       }
     }
-    results.push({ model: model.id, cases });
+    results.push({ model: model.id, repair_model: repairModel.id, cases });
   }
   return {
     benchmark_version: policy.policy_version,
