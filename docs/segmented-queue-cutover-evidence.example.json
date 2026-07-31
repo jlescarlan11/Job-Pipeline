@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "contract_version": "2026-07-31-segmented-queues-v3",
+  "phase": "post_activation",
+  "captured_at": "",
+  "environment": "example_only",
+  "privacy": {
+    "sanitized": false,
+    "secret_scan_clean": false,
+    "credentials_included": false,
+    "private_job_content_included": false,
+    "complete_sheet_rows_included": false
+  },
+  "release": {
+    "issue_55_commit": "",
+    "issue_56_commit": "",
+    "issue_57_commit": "",
+    "commits_reviewed": false,
+    "build_passed": false,
+    "artifact_drift_clean": false,
+    "configuration_valid": false,
+    "full_suite_passed": false
+  },
+  "backups": {
+    "workbook_reference": "",
+    "workflow_reference": "",
+    "workbook_sha256": "",
+    "workflow_sha256": "",
+    "workbook_restore_verified": false,
+    "workflow_restore_verified": false
+  },
+  "disposable": {
+    "visible_sheets": [
+      "Scraped Jobs",
+      "To Review",
+      "To Apply",
+      "Applied Jobs",
+      "Archive",
+      "Search Keywords"
+    ],
+    "hidden_sheets": [
+      "_System"
+    ],
+    "business_headers_exact": false,
+    "queue_dropdowns_exact": false,
+    "search_keywords_preserved": false,
+    "setup_rerun_idempotent": false,
+    "planner_repeat_equal": false,
+    "unsafe_planner_rejected": false,
+    "inactive_workflow_smoke_passed": false
+  },
+  "quiet_window": {
+    "verified": false,
+    "running_or_waiting_executions": null,
+    "unexpired_claims": null
+  },
+  "production": {
+    "visible_sheets": [
+      "Scraped Jobs",
+      "To Review",
+      "To Apply",
+      "Applied Jobs",
+      "Archive",
+      "Search Keywords"
+    ],
+    "hidden_sheets": [
+      "_System"
+    ],
+    "legacy_review_queue_present": null,
+    "pre_cutover_identity_count": null,
+    "post_cutover_identity_count": null,
+    "unique_post_cutover_identity_count": null,
+    "legacy_source_identity_count": null,
+    "planned_destination_counts": {
+      "Scraped Jobs": null,
+      "To Review": null,
+      "To Apply": null,
+      "Applied Jobs": null,
+      "Archive": null
+    },
+    "duplicate_identity_count": null,
+    "unexplained_loss_count": null,
+    "applied_jobs_preserved": false,
+    "archive_preserved": false,
+    "search_keywords_preserved": false,
+    "audit_fields_preserved": false,
+    "system_evidence_reconciled": false,
+    "route_counts_reconciled": false,
+    "state_action_counts_reconciled": false
+  },
+  "workflows": [
+    {
+      "role": "scraper",
+      "id": "",
+      "updated_in_place": false,
+      "contract_version": "2026-07-31-segmented-queues-v3",
+      "configuration_preserved": false,
+      "role_signature_validated": false,
+      "artifact_sha256": "",
+      "active": false
+    },
+    {
+      "role": "evaluator_generator",
+      "id": "",
+      "updated_in_place": false,
+      "contract_version": "2026-07-31-segmented-queues-v3",
+      "configuration_preserved": false,
+      "role_signature_validated": false,
+      "artifact_sha256": "",
+      "active": false
+    },
+    {
+      "role": "alerter_mover",
+      "id": "",
+      "updated_in_place": false,
+      "contract_version": "2026-07-31-segmented-queues-v3",
+      "configuration_preserved": false,
+      "role_signature_validated": false,
+      "artifact_sha256": "",
+      "active": false
+    }
+  ],
+  "routes": {
+    "new_scrape_to_scraped_jobs": false,
+    "rediscovery_preserves_active_owner": false,
+    "generator_reads_scraped_jobs_only": false,
+    "review_needed_to_to_review": false,
+    "ready_to_apply_to_to_apply": false,
+    "automatic_skip_to_archive": false,
+    "approve_to_scraped_jobs": false,
+    "deny_to_archive": false,
+    "i_applied_to_applied_jobs": false,
+    "user_skip_to_archive": false,
+    "invalid_combinations_fail_closed": false,
+    "partial_destination_recovery": false,
+    "ready_alert_from_to_apply_only": false,
+    "ready_alert_idempotent": false,
+    "to_apply_deep_link_verified": false,
+    "no_automatic_submission": false
+  },
+  "post_cutover": {
+    "leaked_claim_count": null,
+    "unexplained_failure_count": null,
+    "observed_schedule_boundaries": null,
+    "workflow_execution_ids": [],
+    "known_deviations": []
+  },
+  "rollback": {
+    "documented": false,
+    "rehearsal_verified": false,
+    "workbook_and_workflows_restored_together": false,
+    "mutually_compatible_restore": false
+  }
+}

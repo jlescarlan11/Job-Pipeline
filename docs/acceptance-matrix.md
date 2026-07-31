@@ -365,4 +365,4 @@ Issue #58 is not complete. Repository work implements and validates the release 
 17. **58-AC-17 — No automatic application — SATISFIED:** Repository endpoint, workflow, and E2E scans prove no submission path exists.
 18. **58-AC-18 — Production claims/logs — BLOCKED:** Requires post-cutover production observation.
 19. **58-AC-19 — Rollback proof — BLOCKED:** The runbook and validator require a compatibility-unit rehearsal, but no external rehearsal was authorized.
-20. **58-AC-20 — Permanent evidence/runbook — PARTIAL:** The reviewed runbook and strict sanitized-evidence validator are committed in this change; validator-passing production evidence does not yet exist.
+20. **58-AC-20 — Permanent evidence/runbook — PARTIAL:** The reviewed runbook, deliberately non-passing sanitized field template, and strict evidence validator are committed in this change; validator-passing production evidence does not yet exist.

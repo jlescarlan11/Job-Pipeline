@@ -105,6 +105,7 @@ test("segmented cutover runbook preserves the no-deploy boundary and compatibili
   }
   assert.match(segmentedCutover, /plan:segmented-queues/);
   assert.match(segmentedCutover, /validate:segmented-cutover/);
+  assert.match(segmentedCutover, /segmented-queue-cutover-evidence\.example\.json/);
   assert.match(segmentedCutover, /has not mutated a production workbook/i);
   assert.match(segmentedCutover, /must not be committed/i);
 });

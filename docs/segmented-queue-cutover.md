@@ -102,13 +102,14 @@ A rehearsal in a disposable environment must prove this procedure before product
 
 ## 9. Commit sanitized evidence
 
-Create a sanitized JSON record outside `outputs/` first and validate it:
+Copy the deliberately non-passing field template to an approved private location, replace every placeholder from direct evidence, and validate that private record:
 
 ```bash
-npm run validate:segmented-cutover -- sanitized-production-evidence.json
+cp docs/segmented-queue-cutover-evidence.example.json /approved/private/location/segmented-cutover-evidence.json
+npm run validate:segmented-cutover -- /approved/private/location/segmented-cutover-evidence.json
 ```
 
-Only after validation passes may bounded evidence be committed. The validator requires pinned commits, build gates, backup/restore proofs, disposable tests, quiet-window proof, exact sheet ownership, zero-loss identity reconciliation, all three in-place workflow records, every route smoke, three schedule observations, clean claims/failures, and compatible rollback rehearsal.
+The checked-in example uses `environment=example_only`, empty identifiers/hashes, null counts, and false gates, so it must fail validation unchanged. Never put private rows, generated messages, credentials, signed backup URLs, or complete migration plans into it. Only after a populated private copy passes may bounded evidence be committed. The validator requires pinned commits, build gates, backup/restore proofs, disposable tests, quiet-window proof, exact sheet ownership, zero-loss identity reconciliation, all three in-place workflow records, every route smoke, three schedule observations, clean claims/failures, and compatible rollback rehearsal.
 
 ## Current execution status
 

@@ -4,8 +4,12 @@ import test from "node:test";
 
 import { validateSegmentedQueueCutoverEvidence } from "../src/segmented-queue-cutover.mjs";
 
-const [schema, review] = await Promise.all(
-  ["../config/pipeline-schema.json", "../config/review-sheet.json"].map(
+const [schema, review, evidenceExample] = await Promise.all(
+  [
+    "../config/pipeline-schema.json",
+    "../config/review-sheet.json",
+    "../docs/segmented-queue-cutover-evidence.example.json"
+  ].map(
     async (path) => JSON.parse(await readFile(new URL(path, import.meta.url)))
   )
 );
@@ -202,4 +206,35 @@ test("segmented cutover rejects stale contract, wrong tabs, live work, and incom
   assert.match(errors, /disposable workbook sheet contract/);
   assert.match(errors, /quiet window/);
   assert.match(errors, /rollback\.mutually_compatible_restore/);
+});
+
+test("checked-in evidence example is complete, sanitized, and deliberately non-passing", () => {
+  assert.equal(evidenceExample.environment, "example_only");
+  assert.deepEqual(evidenceExample.production.visible_sheets, [
+    "Scraped Jobs",
+    "To Review",
+    "To Apply",
+    "Applied Jobs",
+    "Archive",
+    "Search Keywords"
+  ]);
+  assert.deepEqual(Object.keys(evidenceExample.routes), Object.keys(validEvidence().routes));
+  assert.deepEqual(
+    evidenceExample.workflows.map((workflow) => workflow.role),
+    ["scraper", "evaluator_generator", "alerter_mover"]
+  );
+  const serialized = JSON.stringify(evidenceExample);
+  assert.doesNotMatch(
+    serialized,
+    /hooks\.slack\.com|Authorization|Bearer |https?:\/\/|job_description|generated_message/i
+  );
+  const errors = validateSegmentedQueueCutoverEvidence(
+    schema,
+    review,
+    evidenceExample
+  ).join(";");
+  assert.match(errors, /must identify production/);
+  assert.match(errors, /full_suite_passed/);
+  assert.match(errors, /quiet window/);
+  assert.match(errors, /rollback/);
 });

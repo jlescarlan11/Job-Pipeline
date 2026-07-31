@@ -36,6 +36,7 @@ Disposition vocabulary follows the autonomous issue loop. Generated artifacts ar
 | `tests/segmented-queue-cutover.test.mjs` | #58 | Accept complete phase-correct evidence; reject loss, secrets, live work, stale contract, mixed activation, rollback gaps | High regression | REVIEWED_AFTER_FIX |
 | `tests/workflow-cutover.test.mjs` | #58 | Align role fixtures and prove current policy signatures match generated artifacts | High deployment regression | REVIEWED_AFTER_FIX |
 | `docs/segmented-queue-cutover.md` | #58 | Define private dry-run, backup, quiet window, atomic migration/deployment, observation, rollback, evidence gates | High operations | REVIEWED_CLEAN |
+| `docs/segmented-queue-cutover-evidence.example.json` | #58 | Provide a complete sanitized evidence shape that deliberately fails until direct production proof replaces every placeholder | High evidence/privacy | REVIEWED_AFTER_FIX |
 | `README.md` | #55–#58 | Describe focused ownership, manual boundary, setup, runtime, and offline migration command | Low | REVIEWED_CLEAN |
 | `docs/architecture.md` | #56/#57 | Document five-store trust/data flow, Generator source, routes, claims, and repairs | Medium | REVIEWED_CLEAN |
 | `docs/data-contract.md` | #55/#57 | Document versioned store/status/action and move contracts | Medium | REVIEWED_CLEAN |
@@ -62,11 +63,12 @@ Verified findings fixed during review:
 4. Movement indexed only canonical IDs; it now rejects cross-store canonical-URL aliases before planning.
 5. Deployment role signatures still named retired queue nodes; policy v3 now matches and is tested against generated workflows.
 6. Pre-activation cutover evidence could claim post-activation schedule observations; phase-specific validation now forbids that state.
+7. The strict evidence validator had no operator-consumable document shape; a secret-free, deliberately non-passing template now covers every required field and is regression-tested.
 
 ## Validation evidence
 
 - Generated graph integrity: Scraper 34 nodes, Generator 47 nodes, Alerter & Mover 96 nodes; unique IDs/names and no dangling connections.
 - Focused domain, workflow, documentation, cutover, policy, and E2E suites pass after each applicable fix.
-- Integrated release command: `npm run validate` passed 200 tests (188 passed, 12 intentional legacy skips, 0 failed).
+- Integrated release command: `npm run validate` passed 201 tests (189 passed, 12 intentional legacy skips, 0 failed).
 - Diff hygiene: `git diff --check` passes.
 - Production mutation/deployment/live-provider evidence: not executed and not claimed; see issue #58 matrix and runbook.
