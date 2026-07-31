@@ -13,19 +13,58 @@ function cloneRows(rows) {
 
 export function validateFreshSheetConfig(review, schema) {
   const errors = [];
-  if (review?.schema_version !== 2) {
-    errors.push("review-sheet schema_version must be 2");
+  if (review?.schema_version !== 3) {
+    errors.push("review-sheet schema_version must be 3");
   }
   const configuredNames = Object.values(review?.sheets ?? {}).map(
     (sheet) => sheet?.name
   );
   if (
-    new Set(configuredNames).size !== 4 ||
-    !["Review Queue", "Applied Jobs", "Archive", "_System"].every((name) =>
-      configuredNames.includes(name)
-    )
+    new Set(configuredNames).size !== 5 ||
+    ![
+      "Review Queue",
+      "Applied Jobs",
+      "Archive",
+      "Search Keywords",
+      "_System"
+    ].every((name) => configuredNames.includes(name))
   ) {
-    errors.push("exactly Review Queue, Applied Jobs, Archive, and _System are required");
+    errors.push(
+      "exactly Review Queue, Applied Jobs, Archive, Search Keywords, and _System are required"
+    );
+  }
+  const keywordSheet = review?.sheets?.search_keywords;
+  if (
+    keywordSheet?.visible !== true ||
+    JSON.stringify(keywordSheet?.fields) !==
+      JSON.stringify(["enabled", "keyword"])
+  ) {
+    errors.push(
+      "Search Keywords must be visible with exact enabled and keyword fields"
+    );
+  }
+  const seedRows = keywordSheet?.initial_rows;
+  if (!Array.isArray(seedRows) || seedRows.length !== 10) {
+    errors.push("Search Keywords must define exactly ten initial rows");
+  } else {
+    const normalizedKeywords = new Set();
+    for (const row of seedRows) {
+      const keyword =
+        typeof row?.keyword === "string"
+          ? row.keyword.normalize("NFKC").trim()
+          : "";
+      const normalized = keyword.toLocaleLowerCase("en-US");
+      if (row?.enabled !== true || !keyword) {
+        errors.push(
+          "every initial Search Keywords row must be enabled with a keyword"
+        );
+        continue;
+      }
+      if (normalizedKeywords.has(normalized)) {
+        errors.push("initial Search Keywords rows must be unique");
+      }
+      normalizedKeywords.add(normalized);
+    }
   }
   if (
     JSON.stringify(review?.all_record_columns) !==
@@ -91,6 +130,16 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
       }
     ],
     [
+      review.sheets.search_keywords.name,
+      {
+        headers: review.sheets.search_keywords.fields,
+        visible: true,
+        editable: review.sheets.search_keywords.fields,
+        visibleColumns: review.sheets.search_keywords.fields,
+        seedRows: review.sheets.search_keywords.initial_rows
+      }
+    ],
+    [
       review.sheets.system.name,
       {
         headers: review.sheets.system.fields,
@@ -126,7 +175,9 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
     ) {
       throw new Error(`Fresh setup found conflicting headers in ${name}`);
     }
-    const rows = cloneRows(current?.rows);
+    const rows = current
+      ? cloneRows(current.rows)
+      : cloneRows(definition.seedRows);
     const hiddenColumns = definition.headers.filter(
       (field) => !definition.visibleColumns.includes(field)
     );
@@ -140,6 +191,7 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
       hidden: !definition.visible,
       hiddenColumns,
       protectedColumns,
+      protectedHeader: name === review.sheets.search_keywords.name,
       validations:
         name === "Review Queue"
           ? {
@@ -147,6 +199,8 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
             }
           : name === "Applied Jobs"
             ? { outcome: [...review.outcome_validation] }
+            : name === review.sheets.search_keywords.name
+              ? { enabled: "checkbox" }
             : {}
     });
   }

@@ -14,6 +14,7 @@ const [
   deployment,
   alerts,
   acceptance,
+  searchKeywordsLedger,
   generatorBatchVerification,
   productionPredeploymentBaseline,
   productionDeploymentVerification,
@@ -32,6 +33,7 @@ const [
   loadText("../docs/n8n-deployment.md"),
   loadText("../docs/alerts.md"),
   loadText("../docs/acceptance-matrix.md"),
+  loadText("../docs/search-keywords-change-ledger-2026-07-31.md"),
   loadText("../docs/generator-batch-verification-2026-07-31.md"),
   loadJson(
     "../outputs/generator-batch-20260731/production-predeployment-baseline.json"
@@ -211,6 +213,32 @@ test("Generator batch docs cover the five-job runtime, provider envelope, and pr
   for (const issue of [47, 48, 49]) {
     assert.match(acceptance, new RegExp(`Issue #${issue}`));
   }
+});
+
+test("Search Keywords acceptance accounting and high-assurance lanes are complete", () => {
+  for (const issue of [51, 52]) {
+    assert.match(acceptance, new RegExp(`Issue #${issue}`));
+  }
+  for (const criterionCount of [
+    ["51", 14],
+    ["52", 21]
+  ]) {
+    const [issue, count] = criterionCount;
+    for (let index = 1; index <= count; index += 1) {
+      assert.match(
+        acceptance,
+        new RegExp(
+          `${issue}-AC-${String(index).padStart(2, "0")}[^\\n]+SATISFIED`
+        )
+      );
+    }
+  }
+  assert.match(searchKeywordsLedger, /Lane A[\s\S]*PASS/);
+  assert.match(searchKeywordsLedger, /Lane B[\s\S]*PASS/);
+  assert.doesNotMatch(
+    searchKeywordsLedger,
+    /\|\s*(?:UNREVIEWED|FINDING_RECORDED|FIXED_REQUIRES_REREVIEW)\s*\|/
+  );
 });
 
 test("production evidence is sanitized, bounded, and rollback-ready", () => {

@@ -31,11 +31,12 @@ Create a separate workbook whose ID is not the old workbook ID.
 
 1. Install the generated `google-apps-script/SheetSetup.gs`.
 2. Run `setupFreshJobPipeline()`.
-3. Confirm exactly `Review Queue`, `Applied Jobs`, and `Archive` are visible and `_System` is hidden.
+3. Confirm exactly `Review Queue`, `Applied Jobs`, `Archive`, and `Search Keywords` are visible and `_System` is hidden.
 4. Confirm the three business tabs have the exact configured headers and zero data rows.
-5. Run setup a second time.
-6. Confirm no duplicate tab, header, validation, protection, or record was created.
-7. Confirm no old workbook ID, import formula, copied row, or old data is present.
+5. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
+6. Edit, disable, reorder, add, and delete disposable keyword rows, then run setup a second time.
+7. Confirm no duplicate tab, header, validation, protection, keyword row, or record was created and every keyword edit was preserved.
+8. Confirm no old workbook ID, import formula, copied business row, or old data is present.
 
 Setup must stop rather than delete a non-empty unexpected sheet or overwrite conflicting headers.
 
@@ -63,6 +64,17 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 
 ### Scraper
 
+- Confirm the workflow reads `Search Keywords` before the first source request.
+- Add, edit, enable, and disable disposable keywords between runs without
+  rebuilding or reimporting the workflow; confirm the next run uses only the
+  new enabled snapshot.
+- Confirm blank enabled, malformed enabled, duplicate normalized, zero-enabled,
+  missing-sheet, and read-failure cases stop before source requests, claims, or
+  business-sheet writes.
+- Edit the tab after one execution captures its snapshot and confirm only the
+  next execution observes the edit.
+- Confirm the generated and imported Scraper contains no embedded keyword
+  catalog or fallback.
 - Freeze one execution clock and prove every keyword/page uses the same `window_start` and `window_end`.
 - Accept a source timestamp exactly at `window_start`, inside the interval, and exactly at `window_end`.
 - Exclude a timestamp one millisecond older, one millisecond future, missing, and unparseable.

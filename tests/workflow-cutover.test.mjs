@@ -17,7 +17,11 @@ const roleWorkflows = [
     id: "scraper-new",
     name: "(Scraper) Job Pipeline - Rolling 24-Hour Keywords",
     active: false,
-    nodes: ["Capture Fixed Window and Keywords", "Append New Review Queue Rows"],
+    nodes: [
+      "Get Search Keywords",
+      "Capture Fixed Window and Keywords",
+      "Append New Review Queue Rows"
+    ],
     spreadsheet_id: "new-book"
   },
   {

@@ -8,6 +8,8 @@ import {
   selectFreshAlertCandidates
 } from "../src/alerter-mover.mjs";
 import {
+  buildSearchRequests,
+  createKeywordSnapshot,
   createDiscoveryWindow,
   parseSearchResults,
   reconcileDiscovery
@@ -42,6 +44,7 @@ const packPolicy = await loadJson("../config/application-pack-policy.json");
 const groqPolicy = await loadJson("../config/groq-provider-policy.json");
 const runtime = (await loadJson("../config/runtime.json")).generator;
 const alertPolicy = await loadJson("../config/alert-policy.json");
+const searchPlan = await loadJson("../config/search-plan.json");
 const directHtml = await readFile(
   new URL("./fixtures/job-direct.html", import.meta.url),
   "utf8"
@@ -71,13 +74,17 @@ function searchCard(id, postedAt) {
 }
 
 test("fresh lifecycle reaches alert, manual applied move, outcome store, and dedup suppression", () => {
-  const request = {
-    keyword_id: "full-stack",
-    keyword: "full stack developer",
-    page_number: 1,
-    request_url: "https://www.onlinejobs.ph/jobseekers/jobsearch",
-    ...window
-  };
+  const keywordSnapshot = createKeywordSnapshot([
+    { enabled: true, keyword: " full stack developer " },
+    { enabled: false, keyword: "disabled keyword" }
+  ]);
+  const [request] = buildSearchRequests(
+    searchPlan,
+    keywordSnapshot,
+    window
+  );
+  assert.equal(request.keyword, "full stack developer");
+  assert.doesNotMatch(request.request_url, /disabled/i);
   const page = parseSearchResults(
     searchCard(6001, "2026-07-31T11:00:00.000Z"),
     request

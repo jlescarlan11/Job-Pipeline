@@ -6,7 +6,7 @@ The replacement contains exactly three scheduled workflows.
 OnlineJobs.ph
       |
       v
-Scraper (4h, rolling 24h)
+Scraper (4h, rolling 24h) <----- Search Keywords
       |
       v
 Review Queue  <----- user actions
@@ -27,7 +27,7 @@ Review Queue  <----- user actions
 
 ## Trust boundaries
 
-`Review Queue` is authoritative active state. There is no projection owner and no hidden `Sheet1`. `Applied Jobs` and `Archive` are authoritative terminal stores. `_System` contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
+`Review Queue` is authoritative active state. There is no projection owner and no hidden `Sheet1`. `Applied Jobs` and `Archive` are authoritative terminal stores. `Search Keywords` is visible operator-owned Scraper configuration, not a business-record store. `_System` contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
 
 Google Sheet validation improves usability, but workflow-side contract validation is authoritative. Generated fields use warning-only protection; an API or pasted value is still validated again before any status change, alert, or move.
 
@@ -37,14 +37,21 @@ No workflow submits a job application. The user reviews, copies, and submits the
 
 ## Scraper
 
-At execution start, Scraper freezes:
+At execution start, Scraper reads `Search Keywords`, validates the exact
+`enabled`/`keyword` contract, derives internal keyword identities, and freezes
+the enabled normalized keyword snapshot together with:
 
 ```text
 window_end   = execution reference instant
 window_start = window_end - 24 hours
 ```
 
-Every keyword, page, retry, parser call, and reconciliation receives those exact values. Timestamps at both boundaries are accepted. Older, future, missing, or unparseable timestamps are excluded with categorized evidence.
+Every keyword, page, retry, parser call, and reconciliation receives that exact
+snapshot and those exact values. A sheet edit during a run applies only to the
+next run. A missing, unreadable, empty, malformed, or duplicate enabled-keyword
+configuration fails before source requests or workbook writes, with no embedded
+keyword fallback. Timestamps at both boundaries are accepted. Older, future,
+missing, or unparseable timestamps are excluded with categorized evidence.
 
 Search is intentionally plain keyword matching. Pagination is source-exhaustion aware and capped at three pages per keyword; requests are paced, timed out, and retried within configuration. Login, challenge, maintenance, and structurally unrecognized pages never produce jobs.
 

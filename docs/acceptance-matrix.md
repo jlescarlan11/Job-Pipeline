@@ -211,3 +211,44 @@ sanitized permanent record is
 20. **49-AC-20 — Production evidence record — SATISFIED:** The deployment versions, executions, rollback events, candidate order, outcomes, Sheet transitions, Alerter replay, and final inventory are recorded.
 21. **49-AC-21 — Evidence pushed to main — SATISFIED:** The sanitized verification record, updated tests, generated artifact, and documentation are included in the final evidence commit on `main`.
 22. **49-AC-22 — Rollback on failed gate — SATISFIED:** The prior 27-node definition was restored after both the per-item-context failure and the Sheet-quota gate failure before another deployment was attempted.
+
+## Issue #51 — idempotent Search Keywords sheet
+
+1. **51-AC-01 — Five-tab workbook — SATISFIED:** `config/review-sheet.json` and `planFreshWorkbookSetup` define the four visible `Review Queue`, `Applied Jobs`, `Archive`, and `Search Keywords` tabs plus hidden `_System`; the blank-workbook contract test asserts the exact set.
+2. **51-AC-02 — Exact ordered headers — SATISFIED:** The configuration owns only `enabled` then `keyword`; planner and generated-artifact tests assert that order.
+3. **51-AC-03 — Checkbox validation — SATISFIED:** The generated Apps Script applies strict `requireCheckbox()` validation to the complete `enabled` data range; planner and artifact tests assert the rule.
+4. **51-AC-04 — Protected header/editable rows — SATISFIED:** Setup installs one warning-only generated header protection and no generated data-column protection; the planner asserts a protected header with both data fields editable.
+5. **51-AC-05 — Seed current ten once — SATISFIED:** The ten former search-plan keywords moved to the workbook definition as enabled rows and are written only when `createdSheets` records first creation.
+6. **51-AC-06 — Idempotent rerun — SATISFIED:** Setup reuses the existing tab, removes/recreates only its generated header protection, reapplies validation, and does not seed; repeat-planner and artifact tests reject duplicate rows or sheets.
+7. **51-AC-07 — Preserve every operator edit — SATISFIED:** The repeat fixture edits, disables, deletes, reorders, and adds keyword rows and proves byte-equivalent row preservation.
+8. **51-AC-08 — Existing valid empty tab stays empty — SATISFIED:** A dedicated fixture starts with the exact headers and no rows and proves setup does not populate it.
+9. **51-AC-09 — Conflicts fail non-destructively — SATISFIED:** Pure planning rejects conflicting headers, and the generated setup preflights every existing tab before the first structural or cell write, including the data-without-headers boundary.
+10. **51-AC-10 — Business rows unchanged — SATISFIED:** Existing record-sheet rows are cloned unchanged by the planner; the repeat fixture compares the complete business records before and after adding/reconciling configuration.
+11. **51-AC-11 — Legacy safety retained — SATISFIED:** Unexpected non-empty tabs are rejected before mutation, empty defaults alone are removable, and the generated script contains no open-by-ID, import, copy, placeholder, or legacy-sheet creation surface.
+12. **51-AC-12 — Regression protection — SATISFIED:** `simplified-contract.test.mjs` covers configuration validation, empty creation, seeds, repeated edits, pre-existing empty state, conflicts, preflight ordering, and generated artifact structure.
+13. **51-AC-13 — Build and drift gates — SATISFIED:** `npm run build:sheet-setup`, `npm run check:artifacts`, and the full `npm run validate` pass against the generated artifact.
+14. **51-AC-14 — Documentation taxonomy — SATISFIED:** README, sheet schema, architecture, and operations distinguish three business tabs, one visible configuration tab, and one hidden operational tab.
+
+## Issue #52 — runtime Scraper keyword loading
+
+1. **52-AC-01 — Read before request — SATISFIED:** Generated graph order is `Schedule Trigger` → `Get Search Keywords` → `Capture Fixed Window and Keywords` → `Fetch Search Page`; workflow tests assert the exact connections.
+2. **52-AC-02 — Enabled normalized request — SATISFIED:** `createKeywordSnapshot` applies NFKC plus trim and `buildSearchRequests` URL-encodes one first-page request per enabled value; unit and lifecycle tests exercise the path.
+3. **52-AC-03 — Disabled ignored — SATISFIED:** Boolean and serialized false values are excluded, including the end-to-end disabled control.
+4. **52-AC-04 — Blank rows ignored — SATISFIED:** Fully blank rows and disabled blank rows are ignored without becoming work.
+5. **52-AC-05 — Enabled blank fails before effects — SATISFIED:** The validator emits only `missing_enabled_keyword`/`no_enabled_keywords`; graph topology puts validation before HTTP, claims, and business writes.
+6. **52-AC-06 — Missing or malformed enabled fails — SATISFIED:** Missing, blank, and unsupported checkbox values have explicit fail-closed fixtures.
+7. **52-AC-07 — Normalized duplicate fails — SATISFIED:** NFKC- and case-equivalent enabled rows emit `duplicate_enabled_keyword`; no request list is returned.
+8. **52-AC-08 — No enabled keywords visibly fails — SATISFIED:** Empty/disabled-only input throws bounded `no_enabled_keywords` rather than returning a successful no-op.
+9. **52-AC-09 — Read and schema failures fail closed — SATISFIED:** The Sheet node retains zero/error items, routes errors to the validator, and has no branch around Capture; missing/conflicting/read/permission/network/service payloads cannot reach the first HTTP or later write nodes.
+10. **52-AC-10 — Deterministic internal IDs — SATISFIED:** IDs derive from the case-folded normalized value and are stable across runs; the sheet exposes no ID column.
+11. **52-AC-11 — One frozen snapshot/window — SATISFIED:** The pure snapshot and entries are frozen; every first-page item carries the one frozen window, pagination rejects drift, retries use the same item, and reconciliation derives coverage from Capture output.
+12. **52-AC-12 — Mid-run edits deferred — SATISFIED:** The sheet is read exactly once before Capture and no later graph node rereads it; pagination and coverage consume captured values.
+13. **52-AC-13 — No embedded catalog/fallback — SATISFIED:** `search-plan.json` rejects a `keywords` property, and generated-workflow tests scan for all ten former values and find none.
+14. **52-AC-14 — Operational policy retained — SATISFIED:** Source, schedule, fixed window, pagination, pacing, request timeout, retry, execution timeout, and claim lease remain in versioned repository configuration.
+15. **52-AC-15 — Canonical multi-keyword merge — SATISFIED:** The existing reconciliation fixture proves one canonical row with merged normalized `matched_keywords`.
+16. **52-AC-16 — Rediscovery state preservation — SATISFIED:** The existing fixture and generated write mapping prove only the discovery-owned fields update; status, action, and notes are excluded.
+17. **52-AC-17 — Terminal suppression retained — SATISFIED:** Applied Jobs and Archive fixtures continue to suppress Review Queue insertion.
+18. **52-AC-18 — Page/window behavior retained — SATISFIED:** Exact window boundaries, empty/unrecognized pages, malformed timestamps/pages, adaptive pagination, failed later pages, retries, and partial coverage remain covered after a valid runtime snapshot.
+19. **52-AC-19 — Bounded secret-free diagnostics — SATISFIED:** Configuration errors contain at most eight fixed categories and never row values; changed-file secret scanning found no credential, authorization, webhook, or private payload.
+20. **52-AC-20 — Layered regression coverage — SATISFIED:** Domain, generated-graph, edge-state, cutover-policy, and end-to-end lifecycle tests cover the runtime source-of-truth change.
+21. **52-AC-21 — Build and validation — SATISFIED:** `npm run build`, artifact drift, deployment-policy validation, JavaScript syntax checks, and all 187 repository tests pass.
