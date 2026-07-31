@@ -251,4 +251,4 @@ sanitized permanent record is
 18. **52-AC-18 — Page/window behavior retained — SATISFIED:** Exact window boundaries, empty/unrecognized pages, malformed timestamps/pages, adaptive pagination, failed later pages, retries, and partial coverage remain covered after a valid runtime snapshot.
 19. **52-AC-19 — Bounded secret-free diagnostics — SATISFIED:** Configuration errors contain at most eight fixed categories and never row values; changed-file secret scanning found no credential, authorization, webhook, or private payload.
 20. **52-AC-20 — Layered regression coverage — SATISFIED:** Domain, generated-graph, edge-state, cutover-policy, and end-to-end lifecycle tests cover the runtime source-of-truth change.
-21. **52-AC-21 — Build and validation — SATISFIED:** `npm run build`, artifact drift, deployment-policy validation, JavaScript syntax checks, and all 187 repository tests pass.
+21. **52-AC-21 — Build and validation — SATISFIED:** `npm run build`, artifact drift, deployment-policy validation, JavaScript syntax checks, and all 188 repository tests pass.

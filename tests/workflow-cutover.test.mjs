@@ -12,6 +12,13 @@ const policy = JSON.parse(
     new URL("../config/n8n-deployment-policy.json", import.meta.url)
   )
 );
+const boundReplacementBuilder = await readFile(
+  new URL(
+    "../outputs/cutover-20260731/build-bound-replacements.mjs",
+    import.meta.url
+  ),
+  "utf8"
+);
 const roleWorkflows = [
   {
     id: "scraper-new",
@@ -265,4 +272,12 @@ test("capture paginates and stores only sanitized inventory fields", async () =>
     validateWorkflowCutoverEvidence(policy, captured),
     []
   );
+});
+
+test("replacement binding covers newly added Google Sheets nodes", () => {
+  assert.match(
+    boundReplacementBuilder,
+    /node\.type === "n8n-nodes-base\.googleSheets"[\s\S]*googleSheetsCredentials/
+  );
+  assert.match(boundReplacementBuilder, /unboundGoogleSheetsNodes/);
 });

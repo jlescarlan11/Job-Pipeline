@@ -34,13 +34,34 @@ for (const [fileName, workflowId] of targets) {
       .filter((node) => node.credentials)
       .map((node) => [node.name, node.credentials]),
   );
+  const googleSheetsCredentials = previousBound.nodes.find(
+    (node) =>
+      node.type === "n8n-nodes-base.googleSheets" &&
+      node.credentials,
+  )?.credentials;
 
   workflow.id = workflowId;
   workflow.versionId = crypto.randomUUID();
   workflow.active = false;
   for (const node of workflow.nodes) {
-    const credentials = credentialsByNode.get(node.name);
+    const credentials =
+      credentialsByNode.get(node.name) ||
+      (node.type === "n8n-nodes-base.googleSheets"
+        ? googleSheetsCredentials
+        : undefined);
     if (credentials) node.credentials = structuredClone(credentials);
+  }
+  const unboundGoogleSheetsNodes = workflow.nodes
+    .filter(
+      (node) =>
+        node.type === "n8n-nodes-base.googleSheets" &&
+        !node.credentials,
+    )
+    .map((node) => node.name);
+  if (unboundGoogleSheetsNodes.length > 0) {
+    throw new Error(
+      `${workflowId} has unbound Google Sheets nodes: ${unboundGoogleSheetsNodes.join(", ")}`,
+    );
   }
 
   await writeFile(

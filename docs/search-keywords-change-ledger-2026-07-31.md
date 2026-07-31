@@ -16,6 +16,7 @@ and requires recoverable in-place deployment.
 | `src/discovery.mjs` | #52 | Normalize, validate, freeze, and deterministically identify sheet keywords while keeping search-plan validation operational only. Unicode/control input, malformed checkbox values, duplicates, zero valid rows, error redaction, request encoding, pagination, coverage, reconciliation, and terminal suppression inspected. | High | REVIEWED_CLEAN |
 | `scripts/build-workflows.mjs` | #52/#53 | Add the one-time Sheet read before Capture, consume the frozen snapshot, and retain it for coverage without renumbering existing nodes. Error routing, zero output, graph order, HTTP/write reachability, environment binding, settings, node IDs, and no fallback inspected. | High | REVIEWED_AFTER_FIX |
 | `workflows/scraper.json` | #52/#53 | Deterministic generated Scraper with a 26th node and no keyword catalog. Artifact drift, n8n syntax/import, node order, settings, binding, retry behavior, logging, endpoints, claims, and business writes inspected. | High | REVIEWED_CLEAN |
+| `outputs/cutover-20260731/build-bound-replacements.mjs` | #53 | Bind an added Google Sheets node from the established workflow-level Sheets credential and reject any unbound Sheet node before import. Existing name-based bindings, credential data boundaries, all three target IDs, inactive output, and restricted temporary files inspected. | High | REVIEWED_AFTER_FIX |
 | `config/n8n-deployment-policy.json`, `tests/workflow-cutover.test.mjs` | #52/#53 | Version and require the runtime keyword-read node in the recognized Scraper signature while retaining exactly three roles. Policy-only, cutover fixture, role-count, binding, and retired-marker validation inspected. | Moderate | REVIEWED_AFTER_FIX |
 | `tests/simplified-contract.test.mjs` | #51 | Cover exact five-tab setup, seeds, strict validation, edit/delete/disable/reorder/add persistence, pre-existing empty state, conflicts, and generated preflight ordering. | Moderate | REVIEWED_AFTER_FIX |
 | `tests/simplified-discovery.test.mjs` | #52 | Cover operational-only plan, normalization, freezing, deterministic IDs, every malformed/empty/duplicate state, fixed window, pagination, reconciliation, and bounded diagnostics. | Moderate | REVIEWED_AFTER_FIX |
@@ -43,6 +44,10 @@ and requires recoverable in-place deployment.
 5. The changed Scraper recognition signature initially retained deployment
    policy version v1. The policy is now v2 so evidence cannot silently validate
    against the old signature.
+6. The deployment binder originally copied credentials by node name only, so
+   the new `Get Search Keywords` node would import unbound. Newly added Google
+   Sheets nodes now inherit the existing workflow-level Sheets binding, and
+   the binder refuses any remaining unbound Sheet node before import.
 
 ## High-assurance review result for issues #51 and #52
 
