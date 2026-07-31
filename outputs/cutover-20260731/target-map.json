@@ -1,0 +1,96 @@
+{
+  "target_workflow_ids": {
+    "scraper": "qxPbOzNs5StaPY8B",
+    "evaluator_generator": "TRUqD9atneyDyMNx",
+    "alerter_mover": "QO6OLK3pHetgGIGq"
+  },
+  "workflow_bindings": {
+    "qxPbOzNs5StaPY8B": {
+      "spreadsheet_id": "1WDzgk83Js6QemgTA0-_Xemipfy_J7PdNf_Mdyedoing"
+    },
+    "TRUqD9atneyDyMNx": {
+      "spreadsheet_id": "1WDzgk83Js6QemgTA0-_Xemipfy_J7PdNf_Mdyedoing"
+    },
+    "QO6OLK3pHetgGIGq": {
+      "spreadsheet_id": "1WDzgk83Js6QemgTA0-_Xemipfy_J7PdNf_Mdyedoing"
+    }
+  },
+  "fresh_workbook": {
+    "id": "1WDzgk83Js6QemgTA0-_Xemipfy_J7PdNf_Mdyedoing",
+    "verified_empty_before_activation": true,
+    "setup_runs": 2,
+    "old_rows_imported": false,
+    "initial_data_rows": {
+      "Review Queue": 0,
+      "Applied Jobs": 0,
+      "Archive": 0
+    }
+  },
+  "old_workbook": {
+    "id": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE",
+    "backup_id": "1dwb3G_ANorUOcfNyY8K60JdfjUJWw00pQ4YUI3hg6pE",
+    "retained": true,
+    "active_binding_count": 0
+  },
+  "workflow_backup": {
+    "reference": "/Users/johnlesterescarlan/.codex/backups/job-pipeline/20260731T021435PHT/n8n-production-pre-simplified-cutover.tar.gz.enc",
+    "complete": true
+  },
+  "smoke": {
+    "blank_setup_zero_rows": true,
+    "setup_rerun_idempotent": true,
+    "no_old_row_import": true,
+    "fixed_window_single_clock": true,
+    "window_start_inclusive": true,
+    "window_end_inclusive": true,
+    "old_listing_excluded": true,
+    "future_listing_excluded": true,
+    "missing_timestamp_excluded": true,
+    "unique_and_duplicate_discovery": true,
+    "ready_route": true,
+    "review_needed_route": true,
+    "approval_route": true,
+    "denial_move": true,
+    "automatic_skip_move": true,
+    "user_skip_move": true,
+    "i_applied_move": true,
+    "empty_queues": true,
+    "source_page_failure": true,
+    "provider_failure": true,
+    "stale_action": true,
+    "destination_write_failure": true,
+    "source_delete_failure": true,
+    "slack_rejection": true,
+    "slack_timeout": true,
+    "repeated_scheduler_runs": true,
+    "safe_recovery": true,
+    "slack_copy_fidelity": true,
+    "links_open_only": true,
+    "no_automatic_submission": true,
+    "secret_scan_clean": true
+  },
+  "observations": {
+    "no_out_of_window_jobs": false,
+    "no_duplicate_jobs": false,
+    "no_duplicate_alerts": false,
+    "no_duplicate_applied_rows": false,
+    "no_duplicate_archive_rows": false,
+    "no_stuck_claims": false,
+    "no_old_workbook_writes": false,
+    "old_workbook_unchanged": false
+  },
+  "rollback": {
+    "documented": true,
+    "verified": true,
+    "prior_workflow_ids": [
+      "OJH9i9uZDKYK8Orx",
+      "r0FvLfoQKSPalo8u",
+      "RhiOXT0fFldADn0s",
+      "K5XQEntq6bfpjcqU",
+      "6mCnpSqrfDc3TtPq",
+      "LJHTDyZ94FRlvT8v",
+      "generatorCommitVerified20260730"
+    ],
+    "old_workbook_id": "1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE"
+  }
+}
