@@ -89,7 +89,7 @@ test("primary docs describe the exact simplified workflow and manual boundary", 
   assert.match(architecture, /exactly three/i);
 });
 
-test("segmented cutover runbook preserves the no-deploy boundary and compatibility unit", () => {
+test("segmented cutover runbook preserves its authorization boundary and compatibility unit", () => {
   for (const required of [
     "Pin and validate the release",
     "Capture restorable backups",
@@ -106,7 +106,12 @@ test("segmented cutover runbook preserves the no-deploy boundary and compatibili
   assert.match(segmentedCutover, /plan:segmented-queues/);
   assert.match(segmentedCutover, /validate:segmented-cutover/);
   assert.match(segmentedCutover, /segmented-queue-cutover-evidence\.example\.json/);
-  assert.match(segmentedCutover, /has not mutated a production workbook/i);
+  assert.match(segmentedCutover, /authorized production cutover completed/i);
+  assert.match(segmentedCutover, /segmented-queue-cutover-2026-07-31\.md/);
+  assert.match(
+    segmentedCutover,
+    /segmented-queue-cutover-evidence-2026-07-31\.json/
+  );
   assert.match(segmentedCutover, /must not be committed/i);
 });
 

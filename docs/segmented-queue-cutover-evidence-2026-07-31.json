@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "contract_version": "2026-07-31-segmented-queues-v3",
+  "phase": "post_activation",
+  "captured_at": "2026-07-31T15:12:33Z",
+  "environment": "production",
+  "privacy": {
+    "sanitized": true,
+    "secret_scan_clean": true,
+    "credentials_included": false,
+    "private_job_content_included": false,
+    "complete_sheet_rows_included": false
+  },
+  "release": {
+    "issue_55_commit": "fcf935260ceb808a91c81a0757bdafb019ad9aa2",
+    "issue_56_commit": "dc515f83c33a4ca25e6ae4119d29fbfb7a6710d2",
+    "issue_57_commit": "f412a269718de657b56dda7e1295dd456d8b8c5a",
+    "commits_reviewed": true,
+    "build_passed": true,
+    "artifact_drift_clean": true,
+    "configuration_valid": true,
+    "full_suite_passed": true
+  },
+  "backups": {
+    "workbook_reference": "job-pipeline/20260731T2134PHT-segmented-queue-cutover/workbook-private.tar.gz.enc",
+    "workflow_reference": "job-pipeline/20260731T2134PHT-segmented-queue-cutover/workflows-private.tar.gz.enc",
+    "workbook_sha256": "93bedeaffd76004576e0d28d19e52409a5d8fd837dee9de9e8dccd1dc49add50",
+    "workflow_sha256": "252f39f92c1147e5582ffcfc8e95aac285150f2dce9ff955f2eb96a23e64a53e",
+    "workbook_restore_verified": true,
+    "workflow_restore_verified": true
+  },
+  "disposable": {
+    "visible_sheets": [
+      "Scraped Jobs",
+      "To Review",
+      "To Apply",
+      "Applied Jobs",
+      "Archive",
+      "Search Keywords"
+    ],
+    "hidden_sheets": [
+      "_System"
+    ],
+    "business_headers_exact": true,
+    "queue_dropdowns_exact": true,
+    "search_keywords_preserved": true,
+    "setup_rerun_idempotent": true,
+    "planner_repeat_equal": true,
+    "unsafe_planner_rejected": true,
+    "inactive_workflow_smoke_passed": true
+  },
+  "quiet_window": {
+    "verified": true,
+    "running_or_waiting_executions": 0,
+    "unexpired_claims": 0
+  },
+  "production": {
+    "visible_sheets": [
+      "Scraped Jobs",
+      "To Review",
+      "To Apply",
+      "Applied Jobs",
+      "Archive",
+      "Search Keywords"
+    ],
+    "hidden_sheets": [
+      "_System"
+    ],
+    "legacy_review_queue_present": false,
+    "pre_cutover_identity_count": 79,
+    "post_cutover_identity_count": 79,
+    "unique_post_cutover_identity_count": 79,
+    "legacy_source_identity_count": 48,
+    "planned_destination_counts": {
+      "Scraped Jobs": 44,
+      "To Review": 2,
+      "To Apply": 2,
+      "Applied Jobs": 0,
+      "Archive": 0
+    },
+    "duplicate_identity_count": 0,
+    "unexplained_loss_count": 0,
+    "applied_jobs_preserved": true,
+    "archive_preserved": true,
+    "search_keywords_preserved": true,
+    "audit_fields_preserved": true,
+    "system_evidence_reconciled": true,
+    "route_counts_reconciled": true,
+    "state_action_counts_reconciled": true
+  },
+  "workflows": [
+    {
+      "role": "scraper",
+      "id": "qxPbOzNs5StaPY8B",
+      "updated_in_place": true,
+      "contract_version": "2026-07-31-segmented-queues-v3",
+      "configuration_preserved": true,
+      "role_signature_validated": true,
+      "artifact_sha256": "a897d353a03e6779ea8818404533c2808d0ddf6536378645abfc860cf9125551",
+      "active": true
+    },
+    {
+      "role": "evaluator_generator",
+      "id": "TRUqD9atneyDyMNx",
+      "updated_in_place": true,
+      "contract_version": "2026-07-31-segmented-queues-v3",
+      "configuration_preserved": true,
+      "role_signature_validated": true,
+      "artifact_sha256": "3a00a5b36fd62ae0c2100f8142e59765ecbefcba5b62240197ce35a1a1cb8d47",
+      "active": true
+    },
+    {
+      "role": "alerter_mover",
+      "id": "QO6OLK3pHetgGIGq",
+      "updated_in_place": true,
+      "contract_version": "2026-07-31-segmented-queues-v3",
+      "configuration_preserved": true,
+      "role_signature_validated": true,
+      "artifact_sha256": "3fcbd94860e2a23dddec450f7448f8b018003aa6bc03a94ae4e5e028a102fe97",
+      "active": true
+    }
+  ],
+  "routes": {
+    "new_scrape_to_scraped_jobs": true,
+    "rediscovery_preserves_active_owner": true,
+    "generator_reads_scraped_jobs_only": true,
+    "review_needed_to_to_review": true,
+    "ready_to_apply_to_to_apply": true,
+    "automatic_skip_to_archive": true,
+    "approve_to_scraped_jobs": true,
+    "deny_to_archive": true,
+    "i_applied_to_applied_jobs": true,
+    "user_skip_to_archive": true,
+    "invalid_combinations_fail_closed": true,
+    "partial_destination_recovery": true,
+    "ready_alert_from_to_apply_only": true,
+    "ready_alert_idempotent": true,
+    "to_apply_deep_link_verified": true,
+    "no_automatic_submission": true
+  },
+  "post_cutover": {
+    "leaked_claim_count": 0,
+    "unexplained_failure_count": 0,
+    "observed_schedule_boundaries": 4,
+    "workflow_execution_ids": [
+      "6714",
+      "6715",
+      "6716",
+      "6723"
+    ],
+    "known_deviations": [
+      "disposable_alerter_timeout_recovered",
+      "launcher_review_url_gate_triggered_before_execution",
+      "live_workflow_cli_start_refused_without_side_effects",
+      "scraper_controlled_via_inactive_manual_smoke"
+    ]
+  },
+  "rollback": {
+    "documented": true,
+    "rehearsal_verified": true,
+    "workbook_and_workflows_restored_together": true,
+    "mutually_compatible_restore": true
+  }
+}

@@ -344,25 +344,27 @@ sanitized permanent record is
 
 ## Issue #58 — production segmented-queue migration
 
-Issue #58 is not complete. Repository work implements and validates the release artifacts, private dry-run planner CLI, sanitized evidence validator, and operator runbook. The authority boundary forbids the production mutations, workflow deployment/activation, live Slack delivery, and rollback operation required for the remaining criteria; no evidence is fabricated.
+Issue #58 completed under explicit production authorization. The bounded evidence
+record passes `validate:segmented-cutover`; private rows, credentials, generated
+messages, and complete migration plans remain outside the repository.
 
-1. **58-AC-01 — Pinned completed dependencies — PARTIAL:** #55–#57 changes are implemented and reviewed locally; final pushed commit/PR identity is not yet the deployed production pin.
-2. **58-AC-02 — Predeployment repository gates — SATISFIED:** Build, drift, configuration, and full-suite gates are automated; final integrated results are captured before delivery.
-3. **58-AC-03 — Production backups — BLOCKED:** Requires authorized production workbook/n8n access and external encrypted storage.
-4. **58-AC-04 — Disposable native setup — BLOCKED:** Repository tests prove the plan/artifact; issue requires native Google Sheets execution evidence.
-5. **58-AC-05 — Deterministic/refusing planner — SATISFIED:** Pure planner tests and the private `plan:segmented-queues` CLI prove repeatability and fail-closed rejection.
-6. **58-AC-06 — Inactive disposable workflow tests — BLOCKED:** Automated simulation is satisfied, but native n8n/Sheets/Slack evidence requires external authorized systems.
-7. **58-AC-07 — Production quiet window — BLOCKED:** Requires pausing/inspecting production executions and claims.
-8. **58-AC-08 — Production seven-tab contract — BLOCKED:** Requires prohibited production workbook mutation and reread.
-9. **58-AC-09 — Production identity reconciliation — BLOCKED:** Requires private pre/post production snapshots and migration execution.
-10. **58-AC-10 — Existing production data preserved — BLOCKED:** Requires production mutation and direct post-write verification.
-11. **58-AC-11 — Three workflows updated in place — BLOCKED:** Requires prohibited n8n deployment and activation.
-12. **58-AC-12 — Production configuration preserved — BLOCKED:** Requires production export/import and bound-environment comparison.
-13. **58-AC-13 — Production Scraper path — BLOCKED:** Requires controlled or scheduled production execution.
-14. **58-AC-14 — Production Generator route — BLOCKED:** Requires controlled or scheduled production execution.
-15. **58-AC-15 — Production action isolation — BLOCKED:** Requires authorized production user-action smoke paths.
-16. **58-AC-16 — Production Slack alert/deep link — BLOCKED:** Requires authorized live-provider delivery from the migrated workbook.
-17. **58-AC-17 — No automatic application — SATISFIED:** Repository endpoint, workflow, and E2E scans prove no submission path exists.
-18. **58-AC-18 — Production claims/logs — BLOCKED:** Requires post-cutover production observation.
-19. **58-AC-19 — Rollback proof — BLOCKED:** The runbook and validator require a compatibility-unit rehearsal, but no external rehearsal was authorized.
-20. **58-AC-20 — Permanent evidence/runbook — PARTIAL:** The reviewed runbook, deliberately non-passing sanitized field template, and strict evidence validator are committed in this change; validator-passing production evidence does not yet exist.
+1. **58-AC-01 — Pinned completed dependencies — SATISFIED:** #55–#57 commits were reviewed, pushed to `main`, and deployed from integrated commit `8a7e37406089aff59214c80db1f35afa842ea20c`.
+2. **58-AC-02 — Predeployment repository gates — SATISFIED:** Build, artifact drift, policy, and all 201 tests passed immediately before delivery.
+3. **58-AC-03 — Production backups — SATISFIED:** Owner-only native workbook copies and encrypted workbook/workflow archives were hashed, decrypted, parsed, and restored in disposable systems.
+4. **58-AC-04 — Disposable native setup — SATISFIED:** Native Sheets rehearsal produced the exact visible/hidden tabs, headers, validations, formatting, protections, and 79/79 identity reconciliation.
+5. **58-AC-05 — Deterministic/refusing planner — SATISFIED:** Two final production plans had identical hashes; steady-state reruns were no-ops and an unsafe snapshot was refused without routes or sheet actions.
+6. **58-AC-06 — Inactive disposable workflow tests — SATISFIED:** Inactive n8n copies proved intake/replay, fixed-five isolation, all four actions, invalid-action rejection, failure recovery, live Slack delivery, and no-replay.
+7. **58-AC-07 — Production quiet window — SATISFIED:** All three roles were inactive with zero running/waiting executions and zero unexpired claims before the final snapshot and plan.
+8. **58-AC-08 — Production seven-tab contract — SATISFIED:** Production exposes `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, `Archive`, and `Search Keywords`, hides `_System`, and contains no `Review Queue`.
+9. **58-AC-09 — Production identity reconciliation — SATISFIED:** The migration reconciled 79 pre/post/unique identities with zero loss or duplication and exact 44/2/2/0/0 source-route counts.
+10. **58-AC-10 — Existing production data preserved — SATISFIED:** Applied Jobs, Archive, Search Keywords, audit fields, and `_System` evidence were directly reread and matched the paused snapshot.
+11. **58-AC-11 — Three workflows updated in place — SATISFIED:** Scraper `qxPbOzNs5StaPY8B`, Generator `TRUqD9atneyDyMNx`, and Alerter `QO6OLK3pHetgGIGq` retained their IDs; exactly those three are active.
+12. **58-AC-12 — Production configuration preserved — SATISFIED:** Credential references, schedules, timeouts, caps, timezone, workbook IDs, and the exact `To Apply` deep link passed inactive and active inventory/environment validation.
+13. **58-AC-13 — Production Scraper path — SATISFIED:** Controlled production intake added five identities once; immediate replay stayed at 84/84 unique identities.
+14. **58-AC-14 — Production Generator route — SATISFIED:** Scheduled and controlled fixed-five runs isolated errors, cleared processing ownership, and produced ready/review/skip results routed to focused owners.
+15. **58-AC-15 — Production action isolation — SATISFIED:** Native validations and disposable live runs proved `Approve`/`Deny` only in `To Review`, `I Applied`/`Skip` only in `To Apply`, and forged combinations fail closed.
+16. **58-AC-16 — Production Slack alert/deep link — SATISFIED:** One new production-ready row delivered from `To Apply`; the persistent launcher uses sheet ID `2099002002`, and immediate plus scheduled replay left all sent rows unchanged.
+17. **58-AC-17 — No automatic application — SATISFIED:** Repository endpoint scans and live workflow inventory contain no submission path or Apply Points operation.
+18. **58-AC-18 — Production claims/logs — SATISFIED:** Four scheduled boundaries succeeded; the final snapshot had zero expired/malformed claims and zero unexplained workflow failures.
+19. **58-AC-19 — Rollback proof — SATISFIED:** An owner-only workbook restore matched every legacy tab byte-for-byte while an isolated n8n user folder restored the three prior compatible workflow IDs.
+20. **58-AC-20 — Permanent evidence/runbook — SATISFIED:** The runbook, production report, strict validator, deliberately failing example, and validator-passing sanitized evidence are committed together.

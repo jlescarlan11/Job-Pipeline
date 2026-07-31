@@ -113,4 +113,9 @@ The checked-in example uses `environment=example_only`, empty identifiers/hashes
 
 ## Current execution status
 
-As of 2026-07-31, this repository change has not mutated a production workbook, deployed or activated n8n workflows, sent a live Slack message, or performed a production rollback. Those acceptance criteria remain blocked by the explicit no-deploy/no-production-mutation authority boundary until an authorized operator executes this runbook and commits validator-passing sanitized evidence.
+The authorized production cutover completed on 2026-07-31. The workbook uses
+the exact seven-tab segmented contract, the three existing workflow IDs are
+active on the new contract, controlled production paths and scheduled
+boundaries passed, and the rollback compatibility-unit rehearsal succeeded.
+See `docs/segmented-queue-cutover-2026-07-31.md` and the validator-passing
+`docs/segmented-queue-cutover-evidence-2026-07-31.json`.
