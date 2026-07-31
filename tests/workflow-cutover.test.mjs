@@ -19,6 +19,13 @@ const boundReplacementBuilder = await readFile(
   ),
   "utf8"
 );
+const generatedWorkflows = await Promise.all(
+  ["scraper", "generator", "alerter-mover"].map(async (name) =>
+    JSON.parse(
+      await readFile(new URL(`../workflows/${name}.json`, import.meta.url))
+    )
+  )
+);
 const roleWorkflows = [
   {
     id: "scraper-new",
@@ -27,7 +34,9 @@ const roleWorkflows = [
     nodes: [
       "Get Search Keywords",
       "Capture Fixed Window and Keywords",
-      "Append New Review Queue Rows"
+      "Get To Review",
+      "Get To Apply",
+      "Append New Scraped Jobs Rows"
     ],
     spreadsheet_id: "new-book"
   },
@@ -36,6 +45,7 @@ const roleWorkflows = [
     name: "(Evaluator & Generator) Job Pipeline - Safe Routing",
     active: false,
     nodes: [
+      "Get Scraped Jobs",
       "Evaluate and Prepare Application",
       "Guard and Commit Generator Result"
     ],
@@ -47,8 +57,11 @@ const roleWorkflows = [
     active: false,
     nodes: [
       "Plan Independent Moves",
+      "Upsert To Review",
+      "Upsert To Apply",
       "Send Slack Alert",
-      "Delete Confirmed Review Queue Rows"
+      "Delete Confirmed To Review Rows",
+      "Delete Confirmed To Apply Rows"
     ],
     spreadsheet_id: "new-book"
   },
@@ -166,6 +179,20 @@ test("cutover policy and complete pre/post evidence accept exactly three roles",
     validateWorkflowCutoverEvidence(policy, evidence("post_activation")),
     []
   );
+});
+
+test("current cutover role signatures match the generated segmented workflows", () => {
+  for (const role of policy.workflow_cutover.roles) {
+    const matches = generatedWorkflows.filter((workflow) => {
+      const nodeNames = new Set(workflow.nodes.map((node) => node.name));
+      return (
+        role.name_markers.every((marker) => workflow.name.includes(marker)) &&
+        role.required_node_names.every((name) => nodeNames.has(name))
+      );
+    });
+    assert.equal(matches.length, 1, role.role);
+    assert.equal(matches[0].meta.pipelineSchemaVersion, "2026-07-31-segmented-queues-v3");
+  }
 });
 
 test("missing, duplicate, old-active, wrong-workbook, and mixed inventories fail", () => {

@@ -13,6 +13,7 @@ const [
   operations,
   deployment,
   alerts,
+  segmentedCutover,
   acceptance,
   searchKeywordsLedger,
   searchKeywordsPredeploymentBaseline,
@@ -36,6 +37,7 @@ const [
   loadText("../docs/operations.md"),
   loadText("../docs/n8n-deployment.md"),
   loadText("../docs/alerts.md"),
+  loadText("../docs/segmented-queue-cutover.md"),
   loadText("../docs/acceptance-matrix.md"),
   loadText("../docs/search-keywords-change-ledger-2026-07-31.md"),
   loadJson(
@@ -72,7 +74,9 @@ test("primary docs describe the exact simplified workflow and manual boundary", 
     assert.match(document, /Scraper/i);
     assert.match(document, /Evaluator\s*&\s*Generator|Evaluator and Generator/i);
     assert.match(document, /Alerter\s*&\s*Mover|Alerter and Mover/i);
-    assert.match(document, /Review Queue/i);
+    assert.match(document, /Scraped Jobs/i);
+    assert.match(document, /To Review/i);
+    assert.match(document, /To Apply/i);
   }
   for (const document of [readme, architecture, operations]) {
     assert.match(document, /manual/i);
@@ -83,6 +87,26 @@ test("primary docs describe the exact simplified workflow and manual boundary", 
   }
   assert.match(readme, /exactly three workflow exports|all three workflow exports/i);
   assert.match(architecture, /exactly three/i);
+});
+
+test("segmented cutover runbook preserves the no-deploy boundary and compatibility unit", () => {
+  for (const required of [
+    "Pin and validate the release",
+    "Capture restorable backups",
+    "Prove the migration in disposable systems",
+    "Establish the quiet window",
+    "Migrate the workbook",
+    "Update workflows as one release unit",
+    "Activate and observe",
+    "Rollback as one compatibility unit",
+    "Commit sanitized evidence"
+  ]) {
+    assert.match(segmentedCutover, new RegExp(required, "i"));
+  }
+  assert.match(segmentedCutover, /plan:segmented-queues/);
+  assert.match(segmentedCutover, /validate:segmented-cutover/);
+  assert.match(segmentedCutover, /has not mutated a production workbook/i);
+  assert.match(segmentedCutover, /must not be committed/i);
 });
 
 test("docs match all schedules, timeouts, and the Manila timezone", () => {
@@ -248,7 +272,8 @@ test("Search Keywords acceptance accounting and high-assurance lanes are complet
     }
   }
   const issue53Start = acceptance.indexOf("## Issue #53");
-  const issue53Section = acceptance.slice(issue53Start);
+  const issue53End = acceptance.indexOf("## Issue #55", issue53Start);
+  const issue53Section = acceptance.slice(issue53Start, issue53End);
   assert.equal(
     [...issue53Section.matchAll(/53-AC-\d+[^\n]+SATISFIED/g)].length,
     18

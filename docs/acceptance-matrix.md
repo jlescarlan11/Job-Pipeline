@@ -274,3 +274,95 @@ sanitized permanent record is
 17. **53-AC-17 — Retained old workbook unchanged/unbound — SATISFIED:** The old workbook modified time remained exactly `2026-07-31T00:39:57.233Z`; all 39 active Google Sheets nodes are credential-bound through the production environment and active definitions have zero old-workbook literal hits.
 18. **53-AC-18 — Permanent sanitized rollout record — SATISFIED:** Baseline, disposable/non-production, and final production JSON evidence plus the completed verification report are committed and field-level tested; they contain bounded counts/hashes/IDs/timestamps/statuses and explicitly exclude credentials and private row payloads.
 19. **53-AC-19 — Conditional rollback — NOT_APPLICABLE_WITH_EVIDENCE:** No completed setup or deployment gate has failed. A live-execution guard prevented import until an Alerter completed, so no partial deployment or rollback was needed; the prior 25-node restricted export remains verified and ready, and no duplicate workflow is active.
+
+## Issue #55 — segmented job-queue contract and setup
+
+1. **55-AC-01 — Exact seven-tab plan — SATISFIED:** Contract/setup tests assert six visible configured tabs plus hidden `_System`.
+2. **55-AC-02 — Retired steady-state name — SATISFIED:** Configuration and generated setup exclude `Review Queue`; only the explicit legacy migration boundary recognizes it.
+3. **55-AC-03 — Complete ordered fields — SATISFIED:** Configuration validation and tests compare every one of the five business stores with the same 69-field ordered schema.
+4. **55-AC-04 — To Review dropdown — SATISFIED:** Planner/artifact tests prove exact `Approve`/`Deny` list validation with blank allowed.
+5. **55-AC-05 — To Apply dropdown — SATISFIED:** Planner/artifact tests prove exact `I Applied`/`Skip` list validation with blank allowed.
+6. **55-AC-06 — Scraped Jobs action surface — SATISFIED:** Configuration and artifact tests prove no normal action validation is installed.
+7. **55-AC-07 — Workflow-side fail-closed matrix — SATISFIED:** `validateRecordStoreContract` tests every store/status/action combination, including bypassed invalid values.
+8. **55-AC-08 — Terminal edit behavior — SATISFIED:** Applied outcome/notes and Archive notes remain the only terminal editable fields.
+9. **55-AC-09 — Keyword first-create seed — SATISFIED:** Setup tests retain the issue #51 seed-on-create behavior and edited reruns.
+10. **55-AC-10 — Byte-preserving idempotence — SATISFIED:** Repeat setup fixtures prove no duplicate structure/data and unchanged operator rows.
+11. **55-AC-11 — Empty focused tabs — SATISFIED:** Existing valid empty `To Review` and `To Apply` fixtures remain empty.
+12. **55-AC-12 — Whole-workbook preflight — SATISFIED:** The pure planner and generated setup reject conflicts before the first planned write.
+13. **55-AC-13 — Deterministic base migration routes — SATISFIED:** Repeated fixed-time plans route operational, review, ready, and automatic-skip rows exactly.
+14. **55-AC-14 — Existing action recognition — SATISFIED:** Migration fixtures cover `Approve`, `Deny`, `I Applied`, and `Skip` without coercion.
+15. **55-AC-15 — Unsafe migration rejection — SATISFIED:** Duplicate, conflict, header, invalid record, unsupported state/action, and unexpected-sheet fixtures return bounded rejects and no routes/deletions.
+16. **55-AC-16 — Existing core contracts — SATISFIED:** Canonical identity, guard/version, message-safety, manual submission, and terminal tests remain green.
+17. **55-AC-17 — Direct regression coverage — SATISFIED:** `simplified-contract.test.mjs` covers fresh, empty, rerun, edited, duplicate, conflict, and legacy migration cases.
+18. **55-AC-18 — Generated Apps Script — SATISFIED:** Source generation and drift checks rebuild `SheetSetup.gs`.
+19. **55-AC-19 — Repository gates — SATISFIED:** Build and full validation are required again at the integrated release gate.
+
+## Issue #56 — segmented Scraper and Generator
+
+1. **56-AC-01 — Five-store discovery read — SATISFIED:** Pure reconciliation requires all five stores and the generated Scraper reads each before writes.
+2. **56-AC-02 — New identity intake — SATISFIED:** Unit, workflow, and E2E tests append exactly once to `Scraped Jobs` with `new`.
+3. **56-AC-03 — Scraped rediscovery — SATISFIED:** Owner-qualified update tests preserve all non-discovery fields.
+4. **56-AC-04 — To Review rediscovery — SATISFIED:** Tests preserve review status/action/reason/input/note/context.
+5. **56-AC-05 — To Apply rediscovery — SATISFIED:** Tests preserve ready action/message/pack/alert/notes.
+6. **56-AC-06 — Terminal suppression — SATISFIED:** Applied and Archive identities remain non-reinsertable.
+7. **56-AC-07 — Global ambiguity gate — SATISFIED:** Within-store and cross-store duplicates reject reconciliation before writes.
+8. **56-AC-08 — Multi-keyword merge — SATISFIED:** Existing deterministic provenance tests pass under the five-store input.
+9. **56-AC-09 — Fixed snapshot/window — SATISFIED:** Existing inclusive-window, pagination, retry, and coverage tests remain unchanged and green.
+10. **56-AC-10 — Invalid keyword gate — SATISFIED:** Workflow topology retains configuration validation before requests, claims, or writes.
+11. **56-AC-11 — Generator store isolation — SATISFIED:** Source, claim, commit, and confirmation code/graph use only `Scraped Jobs`.
+12. **56-AC-12 — Five-item sequence — SATISFIED:** Batch cap, ordering, no-backfill, and pacing tests remain green.
+13. **56-AC-13 — Approved reconsideration — SATISFIED:** Returned `Approve` records remain eligible with bounded review context.
+14. **56-AC-14 — Approval safety gates — SATISFIED:** Evaluation, proof, instruction, pack, message, stale-write, and confirmation gates are reused.
+15. **56-AC-15 — Complete outcomes — SATISFIED:** Result fixtures clear ownership for business and operational outcomes.
+16. **56-AC-16 — Commit before routing — SATISFIED:** Generator commits results only to `Scraped Jobs`; movement owns subsequent routes.
+17. **56-AC-17 — Failure isolation — SATISFIED:** A failed candidate does not stop later frozen candidates.
+18. **56-AC-18 — Stale commit rejection — SATISFIED:** Identity/action/version/guard/token fixtures reject only the affected commit.
+19. **56-AC-19 — Runtime policy unchanged — SATISFIED:** Provider caps, pacing, retry, batch, schedule, timeout, and lease configuration remain unchanged.
+20. **56-AC-20 — Retired binding removal — SATISFIED:** Generated Scraper/Generator scans contain no `Review Queue` binding or metadata.
+21. **56-AC-21 — Deployable artifact properties — SATISFIED:** Workflow validation proves inactive, environment-bound, syntactically valid, and generated state.
+22. **56-AC-22 — No application endpoint — SATISFIED:** Endpoint scans retain the manual-only boundary.
+23. **56-AC-23 — Layered path coverage — SATISFIED:** Discovery, Generator, graph, concurrency, and E2E suites cover all active owners.
+24. **56-AC-24 — Repository gates — SATISFIED:** Build and full validation are required at the integrated release gate.
+
+## Issue #57 — focused routing and actions
+
+1. **57-AC-01 — Exact route table — SATISFIED:** Movement/E2E fixtures cover all seven supported source/status/action routes.
+2. **57-AC-02 — Invalid combinations fail closed — SATISFIED:** Store validation and planner tests leave invalid sources intact with bounded rejection evidence.
+3. **57-AC-03 — Approve returns for generation — SATISFIED:** Tests prove return to `Scraped Jobs` with context, without readiness or generation.
+4. **57-AC-04 — Applied message gate — SATISFIED:** Unsafe or stale generated-message provenance blocks `I Applied` movement.
+5. **57-AC-05 — Copy-confirm-delete — SATISFIED:** Every route uses confirmed upsert, fresh-source guard, partial repair, and retry-safe deletion.
+6. **57-AC-06 — Single ownership under retry — SATISFIED:** Duplicate/conflict and repeated-execution fixtures prevent multiple active or terminal owners.
+7. **57-AC-07 — Scoped expiring claims — SATISFIED:** Claim scope includes source/destination and stale workers cannot commit newer decisions.
+8. **57-AC-08 — Global cap/failure isolation — SATISFIED:** Deterministic combined ordering, cap, and independent-result fixtures pass.
+9. **57-AC-09 — Post-route To Apply selection — SATISFIED:** Graph and domain tests reread fresh `To Apply` after movement and enforce blank-action safe-ready eligibility.
+10. **57-AC-10 — Idempotent alert/deep link — SATISFIED:** Alert tests preserve exact stored content, one key, and `To Apply` link text/target.
+11. **57-AC-11 — Terminal reporting compatibility — SATISFIED:** Existing reason/timestamp/outcome tests remain green and terminal actions clear after audit fields are written.
+12. **57-AC-12 — Retired binding removal — SATISFIED:** Runtime/generated Alerter scan contains no `Review Queue` reference.
+13. **57-AC-13 — Manual-only boundary — SATISFIED:** No route or HTTP node submits an application.
+14. **57-AC-14 — Layered failure/concurrency coverage — SATISFIED:** Domain, graph, claim, partial-failure, and E2E tests cover the integrated route set.
+15. **57-AC-15 — Build/validation — SATISFIED:** Workflow build and repository validation are required at the integrated release gate.
+
+## Issue #58 — production segmented-queue migration
+
+Issue #58 is not complete. Repository work implements and validates the release artifacts, private dry-run planner CLI, sanitized evidence validator, and operator runbook. The authority boundary forbids the production mutations, workflow deployment/activation, live Slack delivery, and rollback operation required for the remaining criteria; no evidence is fabricated.
+
+1. **58-AC-01 — Pinned completed dependencies — PARTIAL:** #55–#57 changes are implemented and reviewed locally; final pushed commit/PR identity is not yet the deployed production pin.
+2. **58-AC-02 — Predeployment repository gates — SATISFIED:** Build, drift, configuration, and full-suite gates are automated; final integrated results are captured before delivery.
+3. **58-AC-03 — Production backups — BLOCKED:** Requires authorized production workbook/n8n access and external encrypted storage.
+4. **58-AC-04 — Disposable native setup — BLOCKED:** Repository tests prove the plan/artifact; issue requires native Google Sheets execution evidence.
+5. **58-AC-05 — Deterministic/refusing planner — SATISFIED:** Pure planner tests and the private `plan:segmented-queues` CLI prove repeatability and fail-closed rejection.
+6. **58-AC-06 — Inactive disposable workflow tests — BLOCKED:** Automated simulation is satisfied, but native n8n/Sheets/Slack evidence requires external authorized systems.
+7. **58-AC-07 — Production quiet window — BLOCKED:** Requires pausing/inspecting production executions and claims.
+8. **58-AC-08 — Production seven-tab contract — BLOCKED:** Requires prohibited production workbook mutation and reread.
+9. **58-AC-09 — Production identity reconciliation — BLOCKED:** Requires private pre/post production snapshots and migration execution.
+10. **58-AC-10 — Existing production data preserved — BLOCKED:** Requires production mutation and direct post-write verification.
+11. **58-AC-11 — Three workflows updated in place — BLOCKED:** Requires prohibited n8n deployment and activation.
+12. **58-AC-12 — Production configuration preserved — BLOCKED:** Requires production export/import and bound-environment comparison.
+13. **58-AC-13 — Production Scraper path — BLOCKED:** Requires controlled or scheduled production execution.
+14. **58-AC-14 — Production Generator route — BLOCKED:** Requires controlled or scheduled production execution.
+15. **58-AC-15 — Production action isolation — BLOCKED:** Requires authorized production user-action smoke paths.
+16. **58-AC-16 — Production Slack alert/deep link — BLOCKED:** Requires authorized live-provider delivery from the migrated workbook.
+17. **58-AC-17 — No automatic application — SATISFIED:** Repository endpoint, workflow, and E2E scans prove no submission path exists.
+18. **58-AC-18 — Production claims/logs — BLOCKED:** Requires post-cutover production observation.
+19. **58-AC-19 — Rollback proof — BLOCKED:** The runbook and validator require a compatibility-unit rehearsal, but no external rehearsal was authorized.
+20. **58-AC-20 — Permanent evidence/runbook — PARTIAL:** The reviewed runbook and strict sanitized-evidence validator are committed in this change; validator-passing production evidence does not yet exist.

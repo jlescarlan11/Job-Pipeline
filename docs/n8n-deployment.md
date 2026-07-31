@@ -10,7 +10,7 @@ The validator rejects missing or duplicate signatures, any active retired workfl
 
 The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 120-second timeout. This deployment policy does not authorize or automate application submission.
 
-The Generator freezes at most five eligible Review Queue rows and processes
+The Generator freezes at most five eligible `Scraped Jobs` rows and processes
 them sequentially, with a 20-second post-candidate interval for production
 Sheet request capacity. Its conservative 17 daily trigger boundaries yield 80
 nominal jobs per day and at most 170 logical Groq requests per day. The initial
@@ -23,13 +23,15 @@ Keywords`. It reads the visible `Search Keywords` tab once per execution and
 contains no embedded runtime keyword catalog. Missing or invalid configuration
 must stop before OnlineJobs.ph requests and workbook writes.
 
+All three exports share the segmented storage contract: Scraper and Generator use `Scraped Jobs`, Alerter & Mover routes review decisions through `To Review`, and ready alerts/actions originate only from `To Apply`. `Applied Jobs` and `Archive` remain terminal stores.
+
 ## Required bindings
 
 Instance/runtime values must match the policy exactly. The production-context validator also requires:
 
 - `JOB_PIPELINE_SPREADSHEET_ID` — fresh workbook;
 - `JOB_PIPELINE_OLD_SPREADSHEET_ID` — retained old workbook, and it must differ;
-- `JOB_PIPELINE_REVIEW_URL` — HTTPS link to the fresh Review Queue;
+- `JOB_PIPELINE_REVIEW_URL` — HTTPS deep link to the production `To Apply` tab (the environment-variable name is retained for deployment compatibility);
 - `JOB_PIPELINE_GROQ_API_KEY`;
 - `JOB_PIPELINE_SLACK_WEBHOOK_URL`.
 

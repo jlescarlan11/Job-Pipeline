@@ -9,10 +9,12 @@
     "build:sheet-setup": "node scripts/build-sheet-setup.mjs",
     "benchmark:groq": "node scripts/benchmark-groq-models.mjs",
     "capture:cutover": "node scripts/capture-n8n-cutover-evidence.mjs",
+    "plan:segmented-queues": "node scripts/plan-segmented-queue-migration.mjs",
     "check:artifacts": "npm run check:workflows && node scripts/build-sheet-setup.mjs --check",
     "check:workflows": "node scripts/build-workflows.mjs --check",
     "test": "node --test",
     "validate:cutover": "node scripts/validate-n8n-cutover.mjs",
+    "validate:segmented-cutover": "node scripts/validate-segmented-queue-cutover.mjs",
     "validate:deployment": "node scripts/validate-n8n-deployment.mjs",
     "validate:policy": "node scripts/validate-n8n-deployment.mjs --policy-only",
     "validate": "npm run check:artifacts && npm run validate:policy && npm test"

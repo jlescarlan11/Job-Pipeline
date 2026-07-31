@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-07-31/v2",
+  "policy_version": "2026-07-31/v3",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-07-31",
   "official_sources": [
@@ -84,7 +84,9 @@
         "required_node_names": [
           "Get Search Keywords",
           "Capture Fixed Window and Keywords",
-          "Append New Review Queue Rows"
+          "Get To Review",
+          "Get To Apply",
+          "Append New Scraped Jobs Rows"
         ]
       },
       {
@@ -94,6 +96,7 @@
           "Safe Routing"
         ],
         "required_node_names": [
+          "Get Scraped Jobs",
           "Evaluate and Prepare Application",
           "Guard and Commit Generator Result"
         ]
@@ -106,8 +109,11 @@
         ],
         "required_node_names": [
           "Plan Independent Moves",
+          "Upsert To Review",
+          "Upsert To Apply",
           "Send Slack Alert",
-          "Delete Confirmed Review Queue Rows"
+          "Delete Confirmed To Review Rows",
+          "Delete Confirmed To Apply Rows"
         ]
       }
     ],
