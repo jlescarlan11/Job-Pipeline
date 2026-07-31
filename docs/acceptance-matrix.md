@@ -149,7 +149,7 @@ The authorized production cutover and every Issue #45 live gate are completed. T
 3. **47-AC-03 — No cap-equals-one contract — SATISFIED:** Automated runtime error-surface regression.
 4. **47-AC-04 — Nominal throughput — SATISFIED:** Artifact documentation distinguishes 16 nominal executions and 80 jobs per Manila day.
 5. **47-AC-05 — Conservative provider envelope — SATISFIED:** Automated 17-boundary, 85-job, and 170-request assertions.
-6. **47-AC-06 — Sequential pacing fits timeout — SATISFIED:** Automated 189,000-millisecond all-repair pacing assertion against the unchanged 480-second timeout.
+6. **47-AC-06 — Sequential pacing fits timeout — SATISFIED:** Automated 189,000-millisecond all-repair provider pacing plus 100,000 milliseconds of production-safe Sheet pacing, for a 289,000-millisecond ceiling against the unchanged 480-second timeout.
 7. **47-AC-07 — Verified production permissions/limits — SATISFIED:** Live gate completed for both scheduled models with sanitized 200 responses and account headers at or above the checked-in 1,000 RPD, 8,000 TPM baseline.
 8. **47-AC-08 — Insufficient capacity fails closed — SATISFIED:** Automated per-model RPD, RPM, TPD, TPM, shared-quota, and execution-time failure fixtures.
 9. **47-AC-09 — Runtime invariants — SATISFIED:** Automated 90-minute/offset-2 schedule, 480-second timeout, 600-second claim lease, retry, and two-request maximum assertions.
@@ -185,30 +185,29 @@ The authorized production cutover and every Issue #45 live gate are completed. T
 
 ## Issue #49 — production deployment and verification
 
-Repository implementation and automated evidence for Issues #47 and #48 do
-not authorize deployment from an unmerged branch. The delivery instruction
-also explicitly forbids deployment, so every criterion that requires
-production mutation remains blocked.
+The authorized production deployment and verification are complete. The
+sanitized permanent record is
+`outputs/generator-batch-20260731/production-deployment-verification.json`.
 
-1. **49-AC-01 — Exact-commit validation — BLOCKED:** Repository build, policy validation, and full tests pass; production deployment/cutover validation requires a deployment commit on `main`.
-2. **49-AC-02 — Commit on main before mutation — BLOCKED:** The reviewed implementation branch must be merged by an authorized maintainer; this run may not merge.
-3. **49-AC-03 — Pre-deployment evidence — SATISFIED:** A fresh read-only baseline records the active workflow definition/hash, exact three-role inventory, workbook binding and row counts, deterministic five-plus-two candidate identities/state, zero live claims, and a restricted current-definition rollback backup without credentials or private job content.
-4. **49-AC-04 — In-place update — BLOCKED:** Updating `TRUqD9atneyDyMNx` is deployment and is explicitly forbidden.
-5. **49-AC-05 — Runtime identity preserved — BLOCKED:** Repository artifact proves the intended settings; deployed-state proof requires the forbidden update.
-6. **49-AC-06 — Exactly three active workflows — BLOCKED:** The existing cutover report proves the pre-change inventory; post-update proof requires deployment.
-7. **49-AC-07 — Workbook bindings preserved — BLOCKED:** The existing cutover report proves the pre-change binding; post-update proof requires deployment.
-8. **49-AC-08 — Five-row live attempt — BLOCKED:** Production mutation/smoke is explicitly forbidden.
-9. **49-AC-09 — Distinct live claims/results — BLOCKED:** Production mutation/smoke is explicitly forbidden.
-10. **49-AC-10 — Live guarded commits/confirmations — BLOCKED:** Production mutation/smoke is explicitly forbidden.
-11. **49-AC-11 — Live per-job request sequence — BLOCKED:** Production mutation/smoke is explicitly forbidden.
-12. **49-AC-12 — Live continuation/failure isolation — PARTIAL:** Automated five-job and failure-isolation evidence is complete; new-artifact live continuation is blocked.
-13. **49-AC-13 — Live valid outcomes — BLOCKED:** Production mutation/smoke is explicitly forbidden.
-14. **49-AC-14 — Live sixth-row control — BLOCKED:** Production mutation/smoke is explicitly forbidden.
-15. **49-AC-15 — Live duplicate suppression — BLOCKED:** Automated duplicate protection passes; production observation is blocked.
-16. **49-AC-16 — Live Alerter idempotency — BLOCKED:** Automated E2E no-replay passes; production Slack observation is blocked.
-17. **49-AC-17 — No submission or Apply Points spend — SATISFIED:** Generated endpoint scans and full regression tests prove the artifact has no submission or spend path.
-18. **49-AC-18 — Recoverable production claims — BLOCKED:** New-artifact production observation is blocked.
-19. **49-AC-19 — Sanitized production evidence — BLOCKED:** Repository/provider/import evidence is sanitized; new production execution evidence does not yet exist.
-20. **49-AC-20 — Production evidence record — BLOCKED:** Deployment timestamps and row outcomes do not yet exist.
-21. **49-AC-21 — Evidence pushed to main — BLOCKED:** No deployment evidence exists and this run may not merge.
-22. **49-AC-22 — Rollback on failed gate — BLOCKED:** The rollback gate is applicable only inside the prohibited deployment window.
+1. **49-AC-01 — Exact-commit validation — SATISFIED:** The final artifact passed `npm run validate` with 183 tests, policy/deployment validation, isolated n8n 2.32.6 import/export, and deployed-export comparison.
+2. **49-AC-02 — Commit on main before mutation — SATISFIED:** PR #50 was merged, and both runtime hotfixes were committed and pushed to `main` before their respective production imports; the final deployed source is commit `d525cdc62808d7b0c7a7ff52de00cc0283feb138`.
+3. **49-AC-03 — Pre-deployment evidence — SATISFIED:** The read-only baseline, exact inventory, workbook state, deterministic control rows, and restricted rollback exports were captured before mutation.
+4. **49-AC-04 — In-place update — SATISFIED:** Workflow `TRUqD9atneyDyMNx` retained its identity and was published in place as version `16bd5c9a-876c-426e-a494-d378747e59b3`.
+5. **49-AC-05 — Runtime identity preserved — SATISFIED:** The deployed Generator has 47 nodes, cap five, batch size one, 20-second candidate pacing, 480-second timeout, and `Asia/Manila` timezone.
+6. **49-AC-06 — Exactly three active workflows — SATISFIED:** Post-deployment inventory contains only Scraper, Evaluator & Generator, and Alerter & Mover as active workflows.
+7. **49-AC-07 — Workbook bindings preserved — SATISFIED:** All nine Generator Sheet nodes retained the production workbook binding, and environment validation passed.
+8. **49-AC-08 — Five-row live attempt — SATISFIED:** Manual execution `6636` selected and finalized exactly five eligible rows in one run.
+9. **49-AC-09 — Distinct live claims/results — SATISFIED:** Execution `6636` appended five distinct tokens for five identities and emitted five item-local final results.
+10. **49-AC-10 — Live guarded commits/confirmations — SATISFIED:** All five items persisted their Review Queue claims, guarded result writes, and exact post-write confirmations independently.
+11. **49-AC-11 — Live per-job request sequence — SATISFIED:** Every live item recorded zero provider requests because deterministic evaluation routed all five to `skip`; automated coverage still proves one initial request and at most one repair whenever generation is required.
+12. **49-AC-12 — Live continuation/failure isolation — SATISFIED:** In execution `6635`, the fourth item returned `persistence_unverified`, after which the fifth item still entered the loop and attempted its independent system claim; the failed gate then triggered rollback.
+13. **49-AC-13 — Live valid outcomes — SATISFIED:** All five successful smoke outcomes were valid `skip` results; automated mixed-result coverage retains `ready_to_apply`, `review_needed`, `skip`, and `error`.
+14. **49-AC-14 — Live sixth-row control — SATISFIED:** `onlinejobs.ph:1699683` remained `new`, version 1, with its original guard and no processing ownership throughout Generator and Alerter execution.
+15. **49-AC-15 — Live duplicate suppression — SATISFIED:** The successful run produced one claim, one result update, and one confirmation per selected identity; Archive contains each moved identity once and no application message was generated.
+16. **49-AC-16 — Live Alerter idempotency — SATISFIED:** Scheduled execution `6637` archived each `skip` row once; manual replay `6638` made no business-row writes, deletions, alert claims, or Slack provider calls.
+17. **49-AC-17 — No submission or Apply Points spend — SATISFIED:** Endpoint scans, execution paths, and workbook results show no application submission attempt and no Apply Points spend.
+18. **49-AC-18 — Recoverable production claims — SATISFIED:** The first failed claim expired naturally, a later execution reacquired the identity, expired operational claims were pruned, and no Review Queue row retained a processing token.
+19. **49-AC-19 — Sanitized production evidence — SATISFIED:** The permanent record contains only bounded IDs, hashes, counts, categories, timestamps, and statuses; it excludes credentials, job descriptions, prompts, responses, and application messages.
+20. **49-AC-20 — Production evidence record — SATISFIED:** The deployment versions, executions, rollback events, candidate order, outcomes, Sheet transitions, Alerter replay, and final inventory are recorded.
+21. **49-AC-21 — Evidence pushed to main — SATISFIED:** The sanitized verification record, updated tests, generated artifact, and documentation are included in the final evidence commit on `main`.
+22. **49-AC-22 — Rollback on failed gate — SATISFIED:** The prior 27-node definition was restored after both the per-item-context failure and the Sheet-quota gate failure before another deployment was attempted.

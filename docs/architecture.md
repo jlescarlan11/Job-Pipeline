@@ -104,5 +104,7 @@ The timeout-weighted demand is 0.2847 execution slots. A one-week phase-aware si
 The Generator has 17 conservative daily trigger boundaries and a nominal
 capacity of 80 jobs per 24 hours. At five jobs and at most two model requests
 per job, the schedule permits at most 170 logical Groq requests across those
-boundaries. Twenty-one-second request pacing bounds the all-repair path to 189
-seconds, inside the unchanged 480-second execution timeout.
+boundaries. Twenty-one-second request pacing bounds the all-repair provider
+path to 189 seconds. A 20-second post-candidate Sheet pacing interval adds at
+most 100 seconds, keeping the combined 289-second pacing ceiling inside the
+unchanged 480-second execution timeout.

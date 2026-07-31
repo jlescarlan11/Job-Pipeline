@@ -11,7 +11,8 @@ The validator rejects missing or duplicate signatures, any active retired workfl
 The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 120-second timeout. This deployment policy does not authorize or automate application submission.
 
 The Generator freezes at most five eligible Review Queue rows and processes
-them sequentially. Its conservative 17 daily trigger boundaries yield 80
+them sequentially, with a 20-second post-candidate interval for production
+Sheet request capacity. Its conservative 17 daily trigger boundaries yield 80
 nominal jobs per day and at most 170 logical Groq requests per day. The initial
 and repair requests use separate production models and are validated against
 each model's documented and live-observed quota; the five-job all-repair pacing

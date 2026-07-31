@@ -44,6 +44,13 @@ claims, retries, idempotency, generated artifacts, and deployment recovery.
 4. Capacity regression coverage did not independently force all four provider
    limit failures or a shared initial/repair quota. Explicit RPM, TPM, RPD,
    TPD, and shared-model failure fixtures now fail closed.
+5. The first production smoke exposed an n8n 2.32.6 restriction on
+   `$input.first()` inside a per-item Code node. The node now uses item-local
+   `$json`, and workflow tests reject that unsafe per-item reference.
+6. The second production smoke exposed Google Sheets request throttling after
+   four fast candidates. A validated 20-second post-candidate wait now keeps
+   each item sequential while distributing Sheet operations across quota
+   windows; capacity accounting includes the additional 100-second ceiling.
 
 ## High-assurance review result
 
@@ -60,10 +67,11 @@ identities are fixed with no backfill; claims are append-winner and
 just-in-time; current state is reread before claim and commit; successful
 writes are exactly confirmed; uncertain writes are not blindly retried;
 handled failures return to the batch-one loop; model calls are bounded and
-paced; alerts remain idempotent; n8n import/export succeeds; and rollback/main
-deployment gates remain explicit.
+paced; Sheet calls are quota-paced; alerts remain idempotent; n8n import/export
+succeeds; and both failed production gates exercised the rollback path before
+the final successful deployment.
 
-Issue #49 is not complete. Production deployment is explicitly forbidden by
-the delivery instruction, and its authoritative acceptance criteria also
-require the exact generated commit on `main` before mutation. No production
-workflow, Sheet row, claim, or Slack delivery was changed during this run.
+Issue #49 is complete. The final artifact was committed to `main`, deployed in
+place, and verified through the five-plus-one Generator smoke, scheduled
+movement, manual Alerter replay, exact Sheet reads, and sanitized execution
+inspection. No application was submitted and no Apply Points were spent.

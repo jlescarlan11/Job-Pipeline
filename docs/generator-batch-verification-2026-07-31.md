@@ -1,8 +1,7 @@
 # Five-job Generator repository verification — 2026-07-31
 
-This record covers the repository and authorized provider prerequisites for
-Issues #47 and #48. It is not Issue #49 production deployment evidence and
-does not authorize mutation of the active workflow or workbook.
+This record covers the repository, provider, deployment, and production smoke
+evidence for Issues #47, #48, and #49.
 
 ## Runtime and capacity
 
@@ -84,18 +83,47 @@ fan-out, automatic Groq retry, and missing failure continuations.
   `outputs/generator-batch-20260731/n8n-import-validation.json`. No production
   workflow or credential was changed.
 
-## Production gate
+## Production deployment and smoke
 
-Issue #49 requires the exact generated artifact commit to be present on
-`main` before updating active workflow `TRUqD9atneyDyMNx` or running the live
-five-plus-one smoke. The production deployment, Sheet row verification,
-Alerter replay observation, rollback result, and post-deployment evidence
-remain open until that prerequisite is satisfied.
-
+The final generated artifact was present on `main` before production import.
 A fresh read-only pre-deployment baseline is recorded at
 `outputs/generator-batch-20260731/production-predeployment-baseline.json`.
-It confirms the current three active workflow identities, the one-row
-Generator definition and restricted rollback backup, the production workbook
-binding and row counts, seven eligible unclaimed Review Queue rows, the
-deterministic first-five selection, and sixth/seventh controls. Capturing this
-baseline did not execute a workflow or mutate n8n, Google Sheets, or Slack.
+It confirms the original three-workflow inventory, one-row Generator
+definition, restricted rollback backup, production workbook binding, row
+counts, and deterministic controls. Capturing the baseline did not execute a
+workflow or mutate n8n, Google Sheets, or Slack.
+
+Two live gates failed safely before the successful smoke:
+
+1. execution `6634` exposed an n8n 2.32.6 per-item `$input.first()` runtime
+   restriction; one append-only claim was written, no Review Queue row was
+   changed, and the prior definition was restored;
+2. execution `6635` selected all five candidates and continued after a fourth
+   item persistence-verification failure, but Google Sheets throttled the
+   fifth claim append; the four controlled row changes were restored and the
+   prior definition was restored again.
+
+The second finding produced the checked-in 20-second per-candidate Sheet
+pacing floor. Final execution `6636` then:
+
+- selected exactly five identities and left `onlinejobs.ph:1699683`
+  untouched as the sixth control;
+- appended five unique claims at a minimum spacing of 33,572 milliseconds;
+- persisted and exactly confirmed five independent claims and five guarded
+  results;
+- completed with five valid `skip` outcomes, five confirmed commits, zero
+  error items, and zero Groq calls because no candidate reached generation;
+- finished successfully in 172,117 milliseconds on workflow version
+  `16bd5c9a-876c-426e-a494-d378747e59b3`.
+
+Scheduled Alerter execution `6637` archived the five smoke results and the
+pre-existing automatic skip once. Manual replay `6638` made no business-row
+write, deletion, alert claim, or Slack provider call. Review Queue retained
+only the untouched control, Applied Jobs remained empty, and Archive contained
+each expected identity once. After the claim leases elapsed, no-op execution
+`6639` pruned all five expired Generator claims without a business-row or Slack
+side effect, leaving `_System` empty. No application submission was attempted
+and no Apply Points were spent.
+
+The permanent sanitized evidence is
+`outputs/generator-batch-20260731/production-deployment-verification.json`.

@@ -8,7 +8,9 @@ Runtime baseline: all three exports use `Asia/Manila`. Scraper runs every 240
 minutes with a 900-second timeout; Evaluator & Generator runs every 90 minutes
 with a 480-second timeout; Alerter & Mover runs every 15 minutes with a
 120-second timeout. Each Generator execution freezes at most five eligible
-rows and processes them sequentially without backfill.
+rows and processes them sequentially without backfill, waiting 20 seconds
+after every handled candidate to stay within production Sheet request
+capacity.
 
 ## 1. Freeze and back up the old system
 

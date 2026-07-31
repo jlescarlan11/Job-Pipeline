@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "verified_on": "2026-07-31",
   "n8n_version": "2.32.6",
   "isolated_temporary_profile": true,
@@ -9,13 +9,15 @@
   "workflow": {
     "name": "(Evaluator & Generator) Job Pipeline - Safe Routing",
     "active": false,
-    "node_count": 46,
+    "node_count": 47,
     "timezone": "Asia/Manila",
     "execution_timeout_seconds": 480,
     "loop_node_type": "n8n-nodes-base.splitInBatches",
     "loop_node_type_version": 3,
     "sequential_batch_size": 1,
     "maximum_items_per_execution": 5,
+    "candidate_pacing_delay_ms": 20000,
+    "candidate_pacing_wait_seconds": 20,
     "initial_model": "openai/gpt-oss-120b",
     "repair_model": "openai/gpt-oss-20b"
   }

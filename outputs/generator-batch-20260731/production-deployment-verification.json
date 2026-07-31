@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-07-31T03:26:23Z",
+  "capture_mode": "authorized_production_verification",
+  "credentials_included": false,
+  "private_job_content_included": false,
+  "prompts_included": false,
+  "model_responses_included": false,
+  "application_messages_included": false,
+  "submission_attempted": false,
+  "apply_points_spent": 0,
+  "deployment_source": {
+    "pull_request": 50,
+    "reviewed_commit": "93ce3b0a269b7b08b8e22c05ac49ee1d7c04cedd",
+    "merge_commit": "4dfc01c62f27c6f626e7fa9b3433e51c27afd65d",
+    "runtime_hotfix_commits": [
+      "77c156d287b2a1c11617bcd350b38016bc477c15",
+      "d525cdc62808d7b0c7a7ff52de00cc0283feb138"
+    ],
+    "deployed_commit": "d525cdc62808d7b0c7a7ff52de00cc0283feb138",
+    "artifact_sha256": "1fe64ac86ba29d9642e1493af0c8430f334d45514cde9a29944fe5859a9173ba"
+  },
+  "deployment": {
+    "workflow_id": "TRUqD9atneyDyMNx",
+    "workflow_version_id": "16bd5c9a-876c-426e-a494-d378747e59b3",
+    "active_version_id": "16bd5c9a-876c-426e-a494-d378747e59b3",
+    "active": true,
+    "node_count": 47,
+    "timezone": "Asia/Manila",
+    "execution_timeout_seconds": 480,
+    "maximum_items_per_execution": 5,
+    "sequential_batch_size": 1,
+    "candidate_pacing_delay_ms": 20000,
+    "maximum_model_requests_per_item": 2,
+    "sheet_node_count": 9,
+    "sheet_bindings_confirmed": true,
+    "deployed_export_matches_repository_artifact": true,
+    "deployment_environment_validation_passed": true,
+    "active_pipeline_workflow_count": 3,
+    "active_workflows": [
+      {
+        "role": "scraper",
+        "id": "qxPbOzNs5StaPY8B",
+        "node_count": 25
+      },
+      {
+        "role": "evaluator_generator",
+        "id": "TRUqD9atneyDyMNx",
+        "node_count": 47
+      },
+      {
+        "role": "alerter_mover",
+        "id": "QO6OLK3pHetgGIGq",
+        "node_count": 68
+      }
+    ]
+  },
+  "failed_gates_and_rollbacks": [
+    {
+      "execution_id": 6634,
+      "workflow_version_id": "8deba110-9695-49d5-aa01-a66843cb66e5",
+      "started_at": "2026-07-31T02:43:12.446Z",
+      "stopped_at": "2026-07-31T02:43:20.157Z",
+      "gate": "per_item_context",
+      "error_category": "unsafe_first_reference",
+      "review_queue_rows_mutated": 0,
+      "append_only_claims_written": 1,
+      "rolled_back": true,
+      "controlled_rows_restored": true
+    },
+    {
+      "execution_id": 6635,
+      "workflow_version_id": "96b3eff2-eef2-48b3-b7d4-1ceff8d4904a",
+      "started_at": "2026-07-31T02:56:12.083Z",
+      "stopped_at": "2026-07-31T02:57:23.600Z",
+      "gate": "google_sheets_request_capacity",
+      "error_category": "persistence_unverified_and_system_claim_lost",
+      "selected_count": 5,
+      "failed_item_position": 4,
+      "later_item_attempted": true,
+      "controlled_review_queue_rows_restored": 4,
+      "sixth_control_mutated": false,
+      "rolled_back": true,
+      "controlled_rows_restored": true
+    }
+  ],
+  "successful_generator_smoke": {
+    "execution_id": 6636,
+    "mode": "manual",
+    "status": "success",
+    "started_at": "2026-07-31T03:10:13.254Z",
+    "stopped_at": "2026-07-31T03:13:05.371Z",
+    "duration_ms": 172117,
+    "selected_count": 5,
+    "selected_identities_in_order": [
+      "onlinejobs.ph:1517153",
+      "onlinejobs.ph:1639913",
+      "onlinejobs.ph:1698330",
+      "onlinejobs.ph:1698529",
+      "onlinejobs.ph:1699495"
+    ],
+    "sixth_control": {
+      "canonical_job_id": "onlinejobs.ph:1699683",
+      "pipeline_status": "new",
+      "record_version": 1,
+      "state_guard": "onlinejobs.ph:1699683|2178186c",
+      "processing_token_present": false,
+      "mutated": false
+    },
+    "distinct_claim_count": 5,
+    "minimum_claim_gap_ms": 33572,
+    "claim_append_count": 5,
+    "claim_persistence_confirmation_count": 5,
+    "guarded_result_update_count": 5,
+    "result_persistence_confirmation_count": 5,
+    "commit_verified_count": 5,
+    "candidate_wait_count": 5,
+    "loop_run_count": 6,
+    "outcome_counts": {
+      "ready_to_apply": 0,
+      "review_needed": 0,
+      "skip": 5,
+      "error": 0
+    },
+    "provider_request_count": 0,
+    "initial_model_request_count": 0,
+    "repair_model_request_count": 0,
+    "provider_requests_skipped_by_deterministic_routing": true,
+    "error_item_count": 0,
+    "duplicate_claim_count": 0,
+    "duplicate_result_update_count": 0,
+    "duplicate_application_message_count": 0
+  },
+  "failure_isolation_observation": {
+    "execution_id": 6635,
+    "failed_item_position": 4,
+    "failed_item_outcome": "persistence_unverified",
+    "next_item_entered_loop": true,
+    "next_item_claim_attempted": true,
+    "batch_aborted_by_item_failure": false,
+    "deployment_gate_failed_after_batch": true
+  },
+  "alerter_and_mover_verification": {
+    "scheduled_execution": {
+      "execution_id": 6637,
+      "started_at": "2026-07-31T03:14:00.205Z",
+      "execution_record_status": "retention_stale_running",
+      "durable_sheet_state_verified": true,
+      "archive_write_count": 6,
+      "smoke_identity_archive_count": 5,
+      "archive_timestamp": "2026-07-31T03:14:04.388Z",
+      "archive_reason": "automatic_skip"
+    },
+    "idempotency_replay": {
+      "execution_id": 6638,
+      "status": "success",
+      "started_at": "2026-07-31T03:17:31.539Z",
+      "stopped_at": "2026-07-31T03:17:48.060Z",
+      "movement_claim_count": 0,
+      "business_row_write_count": 0,
+      "business_row_delete_count": 0,
+      "alert_claim_count": 0,
+      "provider_alert_count": 0,
+      "slack_provider_call_count": 0
+    },
+    "expired_claim_cleanup": {
+      "execution_id": 6639,
+      "status": "success",
+      "started_at": "2026-07-31T03:25:26Z",
+      "stopped_at": "2026-07-31T03:25:43Z",
+      "expired_claims_selected": 5,
+      "expired_claim_delete_succeeded": true,
+      "movement_claim_count": 0,
+      "business_row_write_count": 0,
+      "business_row_delete_count": 0,
+      "alert_claim_count": 0,
+      "provider_alert_count": 0,
+      "slack_provider_call_count": 0
+    },
+    "bounded_slack_identifier_search_matches": 0,
+    "duplicate_slack_alert_count": 0
+  },
+  "final_workbook_state": {
+    "spreadsheet_id": "1WDzgk83Js6QemgTA0-_Xemipfy_J7PdNf_Mdyedoing",
+    "review_queue": {
+      "data_row_count": 1,
+      "unique_identity_count": 1,
+      "canonical_job_id": "onlinejobs.ph:1699683",
+      "pipeline_status": "new",
+      "record_version": 1,
+      "processing_token_present": false
+    },
+    "applied_jobs": {
+      "data_row_count": 0,
+      "unique_identity_count": 0
+    },
+    "archive": {
+      "data_row_count": 11,
+      "unique_identity_count": 11,
+      "smoke_identity_count": 5,
+      "smoke_identity_unique_count": 5,
+      "smoke_pipeline_status": "skip"
+    },
+    "system_claims": {
+      "data_row_count": 0
+    }
+  },
+  "rollback": {
+    "backup_file_name": "TRUqD9atneyDyMNx.json",
+    "backup_sha256": "8d4b0fbd8d40010c4d87508602097c1efccbf8921699043d2fceab107f6a5c6f",
+    "backup_permissions": "0600",
+    "final_deployment_rollback_required": false
+  },
+  "validation": {
+    "full_validation_passed": true,
+    "tests_total": 183,
+    "tests_passed": 171,
+    "tests_intentional_skips": 12,
+    "tests_failed": 0,
+    "isolated_n8n_version": "2.32.6",
+    "isolated_import_export_passed": true,
+    "isolated_import_node_count": 47,
+    "changed_file_secret_scan_passed": true
+  }
+}

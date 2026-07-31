@@ -16,6 +16,7 @@ const [
   acceptance,
   generatorBatchVerification,
   productionPredeploymentBaseline,
+  productionDeploymentVerification,
   schema,
   searchPlan,
   runtime,
@@ -34,6 +35,9 @@ const [
   loadText("../docs/generator-batch-verification-2026-07-31.md"),
   loadJson(
     "../outputs/generator-batch-20260731/production-predeployment-baseline.json"
+  ),
+  loadJson(
+    "../outputs/generator-batch-20260731/production-deployment-verification.json"
   ),
   loadJson("../config/pipeline-schema.json"),
   loadJson("../config/search-plan.json"),
@@ -187,6 +191,7 @@ test("Generator batch docs cover the five-job runtime, provider envelope, and pr
   assert.match(generatorBatchVerification, /17 trigger boundaries/i);
   assert.match(generatorBatchVerification, /170\s+logical requests/i);
   assert.match(generatorBatchVerification, /189 seconds/i);
+  assert.match(generatorBatchVerification, /289 seconds/i);
   assert.match(generatorBatchVerification, /openai\/gpt-oss-120b/);
   assert.match(generatorBatchVerification, /openai\/gpt-oss-20b/);
   assert.match(generatorBatchVerification, /sixth untouched/i);
@@ -197,13 +202,18 @@ test("Generator batch docs cover the five-job runtime, provider envelope, and pr
     generatorBatchVerification,
     /production-predeployment-baseline\.json/i
   );
+  assert.match(
+    generatorBatchVerification,
+    /production-deployment-verification\.json/i
+  );
+  assert.match(generatorBatchVerification, /execution\s+`6636`/i);
   assert.match(generatorBatchVerification, /present on\s+`main`/i);
   for (const issue of [47, 48, 49]) {
     assert.match(acceptance, new RegExp(`Issue #${issue}`));
   }
 });
 
-test("production pre-deployment evidence is sanitized, bounded, and rollback-ready", () => {
+test("production evidence is sanitized, bounded, and rollback-ready", () => {
   assert.equal(productionPredeploymentBaseline.capture_mode, "read_only");
   assert.equal(productionPredeploymentBaseline.production_mutation, false);
   assert.equal(productionPredeploymentBaseline.credentials_included, false);
@@ -273,6 +283,134 @@ test("production pre-deployment evidence is sanitized, bounded, and rollback-rea
     productionPredeploymentBaseline.rollback.restore_sequence.length,
     4
   );
+
+  assert.equal(productionDeploymentVerification.credentials_included, false);
+  assert.equal(
+    productionDeploymentVerification.private_job_content_included,
+    false
+  );
+  assert.equal(productionDeploymentVerification.prompts_included, false);
+  assert.equal(productionDeploymentVerification.model_responses_included, false);
+  assert.equal(
+    productionDeploymentVerification.application_messages_included,
+    false
+  );
+  assert.equal(productionDeploymentVerification.submission_attempted, false);
+  assert.equal(productionDeploymentVerification.apply_points_spent, 0);
+  assert.equal(
+    productionDeploymentVerification.deployment_source.deployed_commit,
+    "d525cdc62808d7b0c7a7ff52de00cc0283feb138"
+  );
+  assert.match(
+    productionDeploymentVerification.deployment_source.artifact_sha256,
+    /^[a-f0-9]{64}$/
+  );
+  assert.deepEqual(
+    {
+      id: productionDeploymentVerification.deployment.workflow_id,
+      active: productionDeploymentVerification.deployment.active,
+      nodes: productionDeploymentVerification.deployment.node_count,
+      cap:
+        productionDeploymentVerification.deployment
+          .maximum_items_per_execution,
+      batch:
+        productionDeploymentVerification.deployment.sequential_batch_size,
+      pacing:
+        productionDeploymentVerification.deployment.candidate_pacing_delay_ms,
+      timeout:
+        productionDeploymentVerification.deployment.execution_timeout_seconds
+    },
+    {
+      id: "TRUqD9atneyDyMNx",
+      active: true,
+      nodes: 47,
+      cap: 5,
+      batch: 1,
+      pacing: 20000,
+      timeout: 480
+    }
+  );
+  assert.equal(
+    productionDeploymentVerification.deployment.active_pipeline_workflow_count,
+    3
+  );
+  assert.equal(
+    productionDeploymentVerification.deployment
+      .deployed_export_matches_repository_artifact,
+    true
+  );
+  assert.equal(
+    productionDeploymentVerification.failed_gates_and_rollbacks.length,
+    2
+  );
+  assert.ok(
+    productionDeploymentVerification.failed_gates_and_rollbacks.every(
+      (gate) => gate.rolled_back && gate.controlled_rows_restored
+    )
+  );
+  const smoke = productionDeploymentVerification.successful_generator_smoke;
+  assert.equal(smoke.selected_count, 5);
+  assert.equal(smoke.selected_identities_in_order.length, 5);
+  assert.equal(new Set(smoke.selected_identities_in_order).size, 5);
+  assert.equal(smoke.distinct_claim_count, 5);
+  assert.equal(smoke.guarded_result_update_count, 5);
+  assert.equal(smoke.commit_verified_count, 5);
+  assert.equal(smoke.sixth_control.mutated, false);
+  assert.equal(smoke.sixth_control.pipeline_status, "new");
+  assert.equal(smoke.provider_request_count, 0);
+  assert.equal(smoke.duplicate_claim_count, 0);
+  assert.equal(smoke.duplicate_result_update_count, 0);
+  assert.equal(smoke.duplicate_application_message_count, 0);
+  assert.equal(
+    productionDeploymentVerification.failure_isolation_observation
+      .next_item_claim_attempted,
+    true
+  );
+  assert.equal(
+    productionDeploymentVerification.failure_isolation_observation
+      .batch_aborted_by_item_failure,
+    false
+  );
+  const replay =
+    productionDeploymentVerification.alerter_and_mover_verification
+      .idempotency_replay;
+  assert.deepEqual(
+    [
+      replay.business_row_write_count,
+      replay.business_row_delete_count,
+      replay.alert_claim_count,
+      replay.slack_provider_call_count
+    ],
+    [0, 0, 0, 0]
+  );
+  const cleanup =
+    productionDeploymentVerification.alerter_and_mover_verification
+      .expired_claim_cleanup;
+  assert.equal(cleanup.expired_claims_selected, 5);
+  assert.equal(cleanup.expired_claim_delete_succeeded, true);
+  assert.equal(cleanup.business_row_write_count, 0);
+  assert.equal(cleanup.slack_provider_call_count, 0);
+  const finalWorkbook = productionDeploymentVerification.final_workbook_state;
+  assert.deepEqual(
+    [
+      finalWorkbook.review_queue.data_row_count,
+      finalWorkbook.applied_jobs.data_row_count,
+      finalWorkbook.archive.data_row_count,
+      finalWorkbook.system_claims.data_row_count
+    ],
+    [1, 0, 11, 0]
+  );
+  assert.equal(finalWorkbook.archive.unique_identity_count, 11);
+  assert.equal(finalWorkbook.review_queue.processing_token_present, false);
+  assert.deepEqual(
+    [
+      productionDeploymentVerification.validation.tests_total,
+      productionDeploymentVerification.validation.tests_passed,
+      productionDeploymentVerification.validation.tests_intentional_skips,
+      productionDeploymentVerification.validation.tests_failed
+    ],
+    [183, 171, 12, 0]
+  );
 });
 
 test("alert docs preserve safe eligibility, fidelity, idempotency, and independence", () => {
@@ -326,12 +464,14 @@ test("acceptance accounting covers every criterion and labels live gates honestl
     [...acceptance.matchAll(/48-AC-\d+[^\n]*SATISFIED/g)].length,
     22
   );
-  assert.match(acceptance, /49-AC-02[^\n]*BLOCKED/);
-  assert.match(acceptance, /49-AC-03[^\n]*SATISFIED/);
-  assert.match(
-    acceptance,
-    /delivery instruction[\s\S]{0,100}forbids deployment/i
+  const issue49Start = acceptance.indexOf("## Issue #49");
+  const issue49Section = acceptance.slice(issue49Start);
+  assert.equal(
+    [...issue49Section.matchAll(/49-AC-\d+[^\n]*SATISFIED/g)].length,
+    22
   );
+  assert.doesNotMatch(issue49Section, /\b(?:BLOCKED|PARTIAL)\b/);
+  assert.match(issue49Section, /final deployed source is commit/i);
 });
 
 test("completed cutover report records sanitized live evidence", async () => {
