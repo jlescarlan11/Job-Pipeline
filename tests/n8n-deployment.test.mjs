@@ -54,16 +54,21 @@ test("deployment policy has exactly three signatures and all retired markers", (
   );
   assert.equal(policy.workflow_cutover.retired_role_markers.length, 7);
   assert.equal(
-    policy.workbook_binding.spreadsheet_environment_variable,
+    policy.workbook_binding.queue_spreadsheet_environment_variable,
     "JOB_PIPELINE_SPREADSHEET_ID"
   );
-  assert.equal(policy.workbook_binding.old_workbook_must_differ, true);
+  assert.equal(
+    policy.workbook_binding.configuration_spreadsheet_environment_variable,
+    "JOB_PIPELINE_CONFIG_SPREADSHEET_ID"
+  );
+  assert.equal(policy.workbook_binding.all_workbook_ids_must_differ, true);
 });
 
 test("production environment requires exact runtime values and separate workbooks", () => {
   const environment = {
     ...policy.environment,
     JOB_PIPELINE_SPREADSHEET_ID: "new-workbook",
+    JOB_PIPELINE_CONFIG_SPREADSHEET_ID: "configuration-workbook",
     JOB_PIPELINE_OLD_SPREADSHEET_ID: "old-workbook",
     JOB_PIPELINE_REVIEW_URL:
       "https://docs.google.com/spreadsheets/d/new-workbook/edit",
@@ -77,7 +82,7 @@ test("production environment requires exact runtime values and separate workbook
   assert.match(
     validateN8nDeploymentEnvironment(policy, {
       ...environment,
-      JOB_PIPELINE_SPREADSHEET_ID: "old-workbook",
+      JOB_PIPELINE_CONFIG_SPREADSHEET_ID: "old-workbook",
       N8N_CONCURRENCY_PRODUCTION_LIMIT: "9"
     }).join(";"),
     /must differ|does not match/

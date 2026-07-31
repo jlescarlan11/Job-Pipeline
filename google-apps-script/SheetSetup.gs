@@ -1109,6 +1109,14 @@ const JOB_PIPELINE_SETUP = {
 };
 
 function setupFreshJobPipeline() {
+  setupFreshJobPipeline_('main');
+}
+
+function setupFreshJobPipelineConfiguration() {
+  setupFreshJobPipeline_('configuration');
+}
+
+function setupFreshJobPipeline_(workbookRole) {
   const workbook = SpreadsheetApp.getActive();
   workbook.setSpreadsheetTimeZone(JOB_PIPELINE_SETUP.timezone);
   const lock = LockService.getDocumentLock();
@@ -1121,7 +1129,30 @@ function setupFreshJobPipeline() {
       'applied_jobs',
       'archive'
     ]);
+    const mainSheetKeys = new Set([...recordSheetKeys, 'system']);
+    const configurationSheetKeys = new Set([
+      'search_keywords',
+      'candidate',
+      'skills',
+      'experience',
+      'projects',
+      'education',
+      'awards',
+      'job_preferences',
+      'application_settings',
+      'required_style',
+      'banned_phrases'
+    ]);
+    const expectedKeys = workbookRole === 'main'
+      ? mainSheetKeys
+      : workbookRole === 'configuration'
+        ? configurationSheetKeys
+        : null;
+    if (!expectedKeys) {
+      throw new Error('Unknown Job Pipeline workbook role');
+    }
     const expectedDefinitions = Object.entries(JOB_PIPELINE_SETUP.sheets)
+      .filter(([key]) => expectedKeys.has(key))
       .map(([key, definition]) => ({
         key,
         name: definition.name,
@@ -1165,68 +1196,65 @@ function setupFreshJobPipeline() {
       workbook.deleteSheet(sheet);
     });
 
-    configureRecordSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name),
-      JOB_PIPELINE_SETUP.sheets.scraped_jobs.visible_columns
-    );
-    configureRecordSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_review.name),
-      JOB_PIPELINE_SETUP.sheets.to_review.visible_columns
-    );
-    configureRecordSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_apply.name),
-      JOB_PIPELINE_SETUP.sheets.to_apply.visible_columns
-    );
-    configureRecordSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.applied_jobs.name),
-      JOB_PIPELINE_SETUP.sheets.applied_jobs.visible_columns
-    );
-    configureRecordSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.archive.name),
-      JOB_PIPELINE_SETUP.sheets.archive.visible_columns
-    );
-    configureSystemSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.system.name)
-    );
-    configureSearchKeywordsSheet_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.search_keywords.name),
-      createdSheets.has(JOB_PIPELINE_SETUP.sheets.search_keywords.name)
-    );
-    [
-      'candidate',
-      'skills',
-      'experience',
-      'projects',
-      'education',
-      'awards',
-      'job_preferences',
-      'application_settings',
-      'required_style',
-      'banned_phrases'
-    ].forEach((key) => {
-      const definition = JOB_PIPELINE_SETUP.sheets[key];
-      configureContextSheet_(
-        workbook.getSheetByName(definition.name),
-        definition,
-        createdSheets.has(definition.name)
+    if (workbookRole === 'main') {
+      [
+        'scraped_jobs',
+        'to_review',
+        'to_apply',
+        'applied_jobs',
+        'archive'
+      ].forEach((key) => {
+        const definition = JOB_PIPELINE_SETUP.sheets[key];
+        configureRecordSheet_(
+          workbook.getSheetByName(definition.name),
+          definition.visible_columns
+        );
+      });
+      configureSystemSheet_(
+        workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.system.name)
       );
-    });
-    applyQueueActionValidation_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name)
-    );
-    applyQueueActionValidation_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_review.name)
-    );
-    applyQueueActionValidation_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.to_apply.name)
-    );
-    applyOutcomeValidation_(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.applied_jobs.name)
-    );
-    workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.system.name).hideSheet();
-    workbook.setActiveSheet(
-      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name)
-    );
+      [
+        'scraped_jobs',
+        'to_review',
+        'to_apply'
+      ].forEach((key) => applyQueueActionValidation_(
+        workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets[key].name)
+      ));
+      applyOutcomeValidation_(
+        workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.applied_jobs.name)
+      );
+      workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.system.name).hideSheet();
+      workbook.setActiveSheet(
+        workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.scraped_jobs.name)
+      );
+    } else {
+      configureSearchKeywordsSheet_(
+        workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.search_keywords.name),
+        createdSheets.has(JOB_PIPELINE_SETUP.sheets.search_keywords.name)
+      );
+      [
+        'candidate',
+        'skills',
+        'experience',
+        'projects',
+        'education',
+        'awards',
+        'job_preferences',
+        'application_settings',
+        'required_style',
+        'banned_phrases'
+      ].forEach((key) => {
+        const definition = JOB_PIPELINE_SETUP.sheets[key];
+        configureContextSheet_(
+          workbook.getSheetByName(definition.name),
+          definition,
+          createdSheets.has(definition.name)
+        );
+      });
+      workbook.setActiveSheet(
+        workbook.getSheetByName(JOB_PIPELINE_SETUP.sheets.search_keywords.name)
+      );
+    }
   } finally {
     lock.releaseLock();
   }

@@ -125,6 +125,10 @@ test("Generator and Alerter freeze Sheet context without embedded personal facts
     ]) {
       const read = node(workflow, `Get ${name} Context`);
       assert.equal(read.parameters.sheetName.value, name);
+      assert.equal(
+        read.parameters.documentId.value,
+        "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}"
+      );
     }
     node(workflow, "Compile Candidate Context");
     const serialized = JSON.stringify(workflow);
@@ -163,10 +167,29 @@ test("Groq requests disable compressed streaming responses", () => {
   }
 });
 
-test("all workflows bind the fresh workbook by environment, never the old workbook", () => {
+test("workflows bind queue and configuration workbooks by environment, never the old workbook", () => {
   const serialized = JSON.stringify(workflows);
   assert.match(serialized, /JOB_PIPELINE_SPREADSHEET_ID/);
+  assert.match(serialized, /JOB_PIPELINE_CONFIG_SPREADSHEET_ID/);
   assert.doesNotMatch(serialized, /1ORq6ImOOJ1a0ZLoH8a2PlKHWX5jmQyBu4fRlGQWFkRE/);
+  for (const workflow of Object.values(workflows)) {
+    for (const sheetNode of workflow.nodes.filter(
+      (entry) => entry.type === "n8n-nodes-base.googleSheets"
+    )) {
+      const isConfigurationRead =
+        sheetNode.name === "Get Search Keywords" ||
+        /^Get (Candidate|Skills|Experience|Projects|Education|Awards|Job Preferences|Application Settings|Required Style|Banned Phrases) Context$/.test(
+          sheetNode.name
+        );
+      assert.equal(
+        sheetNode.parameters.documentId.value,
+        isConfigurationRead
+          ? "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}"
+          : "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+        `${workflow.name}/${sheetNode.name} has the wrong workbook binding`
+      );
+    }
+  }
   for (const legacy of [
     '"Sheet1"',
     '"Dashboard"',
@@ -185,6 +208,10 @@ test("Scraper owns one fixed inclusive 24-hour keyword window and five-store rec
   const code = allCode(workflow);
   const keywordRead = node(workflow, "Get Search Keywords");
   assert.equal(keywordRead.parameters.sheetName.value, "Search Keywords");
+  assert.equal(
+    keywordRead.parameters.documentId.value,
+    "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}"
+  );
   assert.equal(keywordRead.alwaysOutputData, true);
   assert.equal(keywordRead.onError, "continueRegularOutput");
   assert.equal(

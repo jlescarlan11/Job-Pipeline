@@ -19,7 +19,7 @@ each model's documented and live-observed quota; the five-job all-repair pacing
 path remains inside the 480-second timeout.
 
 The Scraper must contain `Get Search Keywords` before `Capture Fixed Window and
-Keywords`. It reads the visible `Search Keywords` tab once per execution and
+Keywords`. It reads the visible `Search Keywords` tab from the Configuration workbook once per execution and
 contains no embedded runtime keyword catalog. Missing or invalid configuration
 must stop before OnlineJobs.ph requests and workbook writes.
 
@@ -29,8 +29,9 @@ All three exports share the segmented storage contract: Scraper and Generator us
 
 Instance/runtime values must match the policy exactly. The production-context validator also requires:
 
-- `JOB_PIPELINE_SPREADSHEET_ID` — fresh workbook;
-- `JOB_PIPELINE_OLD_SPREADSHEET_ID` — retained old workbook, and it must differ;
+- `JOB_PIPELINE_SPREADSHEET_ID` — Main queue workbook containing the five business tabs and hidden `_System`;
+- `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` — Configuration workbook containing Search Keywords and the ten context tabs;
+- `JOB_PIPELINE_OLD_SPREADSHEET_ID` — retained old workbook; all three workbook IDs must differ;
 - `JOB_PIPELINE_REVIEW_URL` — HTTPS deep link to the production `To Apply` tab (the environment-variable name is retained for deployment compatibility);
 - `JOB_PIPELINE_GROQ_API_KEY`;
 - `JOB_PIPELINE_SLACK_WEBHOOK_URL`.

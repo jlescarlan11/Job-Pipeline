@@ -6,7 +6,7 @@ A small, manual-application job pipeline for OnlineJobs.ph:
 Scraper → Evaluator & Generator → Alerter & Mover
 ```
 
-The replacement starts with a new Google workbook. `Scraped Jobs` owns intake and automated processing, `To Review` owns decisions that need `Approve` or `Deny`, and `To Apply` owns safe messages awaiting `I Applied` or `Skip`. `Applied Jobs` and `Archive` are terminal stores. The retained old workbook is a backup/reference and is never imported.
+The replacement uses a Main Google workbook for queue records and a separate Configuration workbook for operator-managed context. `Scraped Jobs` owns intake and automated processing, `To Review` owns decisions that need `Approve` or `Deny`, and `To Apply` owns safe messages awaiting `I Applied` or `Skip`. `Applied Jobs` and `Archive` are terminal stores. The retained old workbook is a backup/reference and is never imported.
 
 ## Workflow behavior
 
@@ -16,21 +16,24 @@ The replacement starts with a new Google workbook. `Scraped Jobs` owns intake an
 
 Applications are never submitted automatically. Slack and Sheet links only open `To Apply` or the source page. The user applies manually and then selects `I Applied` in `To Apply`.
 
-## Fresh workbook
+## Fresh workbooks
 
-Run the generated `setupFreshJobPipeline()` Apps Script in a blank workbook. It creates:
+Install the generated Apps Script in two blank workbooks. Run `setupFreshJobPipeline()` in Main; it creates:
 
 - `Scraped Jobs`
 - `To Review`
 - `To Apply`
 - `Applied Jobs`
 - `Archive`
-- `Search Keywords` (visible operator configuration)
-- `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, and `Awards`
-- `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases`
 - `_System` (hidden, short-lived claims only)
 
-All five business tabs use the same complete ordered record schema. `To Review` exposes only `Approve`/`Deny`; `To Apply` exposes only `I Applied`/`Skip`; blank remains valid and workflow-side validation is authoritative. The ten context tabs divide identity, evidence, and preferences into small editable tables. Generator and Alerter & Mover read and freeze them at execution start, derive context hashes automatically, and fail before business writes when context is missing or malformed. An empty default tab is removed. A non-empty unexpected tab or conflicting header stops setup. On first creation, the configuration tabs are seeded from the current approved profile and policies. Rerunning setup preserves operator edits without recreating deleted rows or re-enabling disabled rows.
+Run `setupFreshJobPipelineConfiguration()` in Configuration; it creates:
+
+- `Search Keywords`
+- `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, and `Awards`
+- `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases`
+
+All five business tabs use the same complete ordered record schema. `To Review` exposes only `Approve`/`Deny`; `To Apply` exposes only `I Applied`/`Skip`; blank remains valid and workflow-side validation is authoritative. The ten context tabs divide identity, evidence, and preferences into small editable tables. Generator and Alerter & Mover read and freeze them directly from Configuration at execution start, derive context hashes automatically, and fail before business writes when context is missing or malformed. An empty default tab is removed. A non-empty unexpected tab or conflicting header stops setup. On first creation, the configuration tabs are seeded from the current approved profile and policies. Rerunning either role-specific setup preserves operator edits without recreating deleted rows or re-enabling disabled rows.
 
 ## Local commands
 

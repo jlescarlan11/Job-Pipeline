@@ -170,7 +170,8 @@ function contextSnapshotNodes(startX, y, idPrefix) {
     const x = startX + index * 400;
     nodes.push(
       readSheet(`Get ${label} Context`, [x, y], review.sheets[sheetKey].name, {
-        explicitId: `${idPrefix}-${String(index * 2 + 1).padStart(12, "0")}`
+        explicitId: `${idPrefix}-${String(index * 2 + 1).padStart(12, "0")}`,
+        workbookEnvironmentVariable: CONFIG_WORKBOOK_ENVIRONMENT_VARIABLE
       }),
       aggregateNode(
         `Aggregate ${label} Context`,
@@ -451,10 +452,17 @@ function httpNode(
   };
 }
 
-function documentId() {
+const QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE =
+  "JOB_PIPELINE_SPREADSHEET_ID";
+const CONFIG_WORKBOOK_ENVIRONMENT_VARIABLE =
+  "JOB_PIPELINE_CONFIG_SPREADSHEET_ID";
+
+function documentId(
+  environmentVariable = QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE
+) {
   return {
     __rl: true,
-    value: "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+    value: `={{ $env.${environmentVariable} }}`,
     mode: "id"
   };
 }
@@ -501,11 +509,15 @@ function readSheet(
   name,
   position,
   sheet,
-  { continueOnError = false, explicitId } = {}
+  {
+    continueOnError = false,
+    explicitId,
+    workbookEnvironmentVariable = QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE
+  } = {}
 ) {
   return {
     parameters: {
-      documentId: documentId(),
+      documentId: documentId(workbookEnvironmentVariable),
       sheetName: sheetName(sheet),
       options: {}
     },
@@ -618,6 +630,7 @@ function buildScraper() {
       keywords,
       {
         continueOnError: true,
+        workbookEnvironmentVariable: CONFIG_WORKBOOK_ENVIRONMENT_VARIABLE,
         // Keep all existing workflow node IDs stable. This new ID is outside
         // the generator's sequential range and therefore does not renumber
         // unrelated workflows or production execution history.

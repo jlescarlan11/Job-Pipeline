@@ -241,12 +241,14 @@ export function validateN8nDeploymentPolicy(
     errors.push("cutover policy must identify all retired workflow signatures");
   }
   if (
-    policy?.workbook_binding?.spreadsheet_environment_variable !==
+    policy?.workbook_binding?.queue_spreadsheet_environment_variable !==
       "JOB_PIPELINE_SPREADSHEET_ID" ||
-    policy?.workbook_binding?.old_workbook_must_differ !== true ||
-    policy?.workbook_binding?.new_workbook_must_start_empty !== true
+    policy?.workbook_binding?.configuration_spreadsheet_environment_variable !==
+      "JOB_PIPELINE_CONFIG_SPREADSHEET_ID" ||
+    policy?.workbook_binding?.all_workbook_ids_must_differ !== true ||
+    policy?.workbook_binding?.queue_workbook_must_start_empty !== true
   ) {
-    errors.push("fresh workbook binding policy is incomplete");
+    errors.push("queue and configuration workbook binding policy is incomplete");
   }
   return errors;
 }
@@ -260,6 +262,7 @@ export function validateN8nDeploymentEnvironment(policy, environment) {
   }
   for (const key of [
     "JOB_PIPELINE_SPREADSHEET_ID",
+    "JOB_PIPELINE_CONFIG_SPREADSHEET_ID",
     "JOB_PIPELINE_OLD_SPREADSHEET_ID",
     "JOB_PIPELINE_REVIEW_URL",
     "JOB_PIPELINE_GROQ_API_KEY",
@@ -269,12 +272,13 @@ export function validateN8nDeploymentEnvironment(policy, environment) {
       errors.push(`${key} is required`);
     }
   }
-  if (
-    environment?.JOB_PIPELINE_SPREADSHEET_ID &&
-    environment.JOB_PIPELINE_SPREADSHEET_ID ===
-      environment.JOB_PIPELINE_OLD_SPREADSHEET_ID
-  ) {
-    errors.push("new and old workbook identifiers must differ");
+  const workbookIds = [
+    environment?.JOB_PIPELINE_SPREADSHEET_ID,
+    environment?.JOB_PIPELINE_CONFIG_SPREADSHEET_ID,
+    environment?.JOB_PIPELINE_OLD_SPREADSHEET_ID
+  ].filter((value) => String(value || "").trim());
+  if (new Set(workbookIds).size !== workbookIds.length) {
+    errors.push("queue, configuration, and old workbook identifiers must differ");
   }
   if (
     environment?.JOB_PIPELINE_REVIEW_URL &&

@@ -25,20 +25,20 @@ Before creating or activating anything:
 
 Do not put workbook content, generated messages, private profile payloads, API keys, authorization headers, or Slack webhook URLs in evidence.
 
-## 2. Provision a blank non-production workbook
+## 2. Provision blank non-production workbooks
 
-Create a separate workbook whose ID is not the old workbook ID.
+Create separate Main and Configuration workbooks whose IDs differ from each other and from the old workbook ID.
 
 1. Install the generated `google-apps-script/SheetSetup.gs`.
-2. Run `setupFreshJobPipeline()`.
-3. Confirm exactly `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, `Archive`, `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases` are visible and `_System` is hidden.
+2. Run `setupFreshJobPipeline()` in Main and `setupFreshJobPipelineConfiguration()` in Configuration.
+3. Confirm Main has exactly five visible tabs—`Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`—plus hidden `_System`; confirm Configuration has exactly `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases` visible.
 4. Confirm the five business tabs have the exact configured headers and zero data rows.
 5. Confirm `To Review` offers only `Approve` and `Deny`, `To Apply` offers only `I Applied` and `Skip`, blank remains valid, and `Scraped Jobs` has no normal action dropdown.
 6. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
 7. Confirm all ten context tabs have their exact configured headers, bootstrap rows, checkbox validation where applicable, and warning-protected headers.
 8. Edit disposable copies of candidate, evidence, job-preference, application-setting, required-style, banned-phrase, and keyword rows, then run setup a second time.
 9. Confirm no duplicate tab, header, validation, protection, context row, keyword row, or record was created and every edit was preserved.
-10. Confirm no old workbook ID, import formula, copied business row, or old data is present.
+10. Confirm no old workbook ID, `IMPORTRANGE`, copied business row, or old data is present in Configuration.
 
 Setup must stop rather than delete a non-empty unexpected sheet or overwrite conflicting headers.
 
@@ -58,7 +58,7 @@ Import only:
 - `workflows/generator.json`
 - `workflows/alerter-mover.json`
 
-Keep all three inactive. Bind Google Sheets credentials and `JOB_PIPELINE_SPREADSHEET_ID` only to the disposable non-production workbook. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to that workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
+Keep all three inactive. Bind Google Sheets credentials, `JOB_PIPELINE_SPREADSHEET_ID` to the disposable non-production Main workbook, and `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` to a separate disposable Configuration workbook. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to the Main workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
 
 ## 4. Non-production smoke matrix
 
@@ -157,11 +157,11 @@ Explicitly cover source-page failure, Groq/provider failure, stale/concurrent ac
 
 Only after non-production passes:
 
-1. Create another new workbook, distinct from old and non-production IDs.
-2. Run setup twice and repeat the exact structure/idempotency/zero-row checks.
+1. Create a new Main workbook and a separate Configuration workbook, both distinct from old and non-production IDs.
+2. Run setup twice and repeat the exact structure/idempotency/zero-row checks, then verify the Configuration workbook contains Search Keywords and all ten context tabs.
 3. Record `verified_empty_before_activation=true`, `setup_runs>=2`, initial row counts of zero, and `old_rows_imported=false`.
-4. Set production `JOB_PIPELINE_SPREADSHEET_ID` and set `JOB_PIPELINE_REVIEW_URL` to the production `To Apply` deep link.
-5. Set `JOB_PIPELINE_OLD_SPREADSHEET_ID` only for validation/rollback comparison; replacement workflows never read it.
+4. Set production `JOB_PIPELINE_SPREADSHEET_ID`, set `JOB_PIPELINE_CONFIG_SPREADSHEET_ID`, and set `JOB_PIPELINE_REVIEW_URL` to the production Main workbook's `To Apply` deep link.
+5. Set `JOB_PIPELINE_OLD_SPREADSHEET_ID` only for validation/rollback comparison; replacement workflows never read it, and all three workbook IDs must differ.
 6. Run `npm run validate:deployment` inside the actual production environment.
 
 ## 6. Pre-activation inventory gate

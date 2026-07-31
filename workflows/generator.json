@@ -29,7 +29,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -71,7 +71,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -113,7 +113,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -155,7 +155,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -197,7 +197,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -239,7 +239,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -281,7 +281,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -323,7 +323,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -365,7 +365,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {
@@ -407,7 +407,7 @@
       "parameters": {
         "documentId": {
           "__rl": true,
-          "value": "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}",
+          "value": "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
           "mode": "id"
         },
         "sheetName": {

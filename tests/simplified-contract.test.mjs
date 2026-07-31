@@ -205,20 +205,33 @@ test("identity duplicates across all five stores are rejected", () => {
   );
 });
 
-test("blank setup creates business, configuration, and system sheets", () => {
-  const planned = planFreshWorkbookSetup(
+test("blank setup creates separate Main and Configuration workbooks", () => {
+  const main = planFreshWorkbookSetup(
     { sheets: [{ name: "Sheet1", headers: [], rows: [] }] },
     review,
-    schema
+    schema,
+    "main"
+  );
+  const configuration = planFreshWorkbookSetup(
+    { sheets: [{ name: "Sheet1", headers: [], rows: [] }] },
+    review,
+    schema,
+    "configuration"
   );
   assert.deepEqual(
-    planned.sheets.map((sheet) => sheet.name),
+    main.sheets.map((sheet) => sheet.name),
     [
       "Scraped Jobs",
       "To Review",
       "To Apply",
       "Applied Jobs",
       "Archive",
+      "_System"
+    ]
+  );
+  assert.deepEqual(
+    configuration.sheets.map((sheet) => sheet.name),
+    [
       "Search Keywords",
       "Candidate",
       "Skills",
@@ -229,12 +242,12 @@ test("blank setup creates business, configuration, and system sheets", () => {
       "Job Preferences",
       "Application Settings",
       "Required Style",
-      "Banned Phrases",
-      "_System"
+      "Banned Phrases"
     ]
   );
-  assert.equal(planned.sheets.filter((sheet) => !sheet.hidden).length, 16);
-  for (const sheet of planned.sheets.filter(
+  assert.equal(main.sheets.filter((sheet) => !sheet.hidden).length, 5);
+  assert.equal(configuration.sheets.filter((sheet) => !sheet.hidden).length, 11);
+  for (const sheet of main.sheets.filter(
     (sheet) =>
       [
         "Scraped Jobs",
@@ -248,7 +261,7 @@ test("blank setup creates business, configuration, and system sheets", () => {
     assert.equal(sheet.rows.length, 0);
     assert.ok(sheet.headers.length > 0);
   }
-  const keywords = planned.sheets.find(
+  const keywords = configuration.sheets.find(
     (sheet) => sheet.name === "Search Keywords"
   );
   assert.deepEqual(keywords.headers, ["enabled", "keyword"]);
@@ -270,7 +283,7 @@ test("blank setup creates business, configuration, and system sheets", () => {
     "banned_phrases"
   ]) {
     const definition = review.sheets[key];
-    const contextSheet = planned.sheets.find(
+    const contextSheet = configuration.sheets.find(
       (sheet) => sheet.name === definition.name
     );
     assert.deepEqual(contextSheet.headers, definition.fields);
@@ -283,31 +296,38 @@ test("blank setup creates business, configuration, and system sheets", () => {
     );
   }
   assert.deepEqual(
-    planned.sheets.find((sheet) => sheet.name === "To Review").validations,
+    main.sheets.find((sheet) => sheet.name === "To Review").validations,
     {
       user_action: { values: ["Approve", "Deny"], allow_blank: true }
     }
   );
   assert.deepEqual(
-    planned.sheets.find((sheet) => sheet.name === "To Apply").validations,
+    main.sheets.find((sheet) => sheet.name === "To Apply").validations,
     {
       user_action: { values: ["I Applied", "Skip"], allow_blank: true }
     }
   );
   assert.deepEqual(
-    planned.sheets.find((sheet) => sheet.name === "Scraped Jobs").validations,
+    main.sheets.find((sheet) => sheet.name === "Scraped Jobs").validations,
     {}
   );
 });
 
 test("setup is idempotent and preserves valid operator data", () => {
-  const first = planFreshWorkbookSetup(
+  const firstMain = planFreshWorkbookSetup(
     { sheets: [{ name: "Sheet1", headers: [], rows: [] }] },
     review,
-    schema
+    schema,
+    "main"
   );
-  first.sheets[0].rows.push(validRecord({ notes: "keep me" }));
-  const keywordSheet = first.sheets.find(
+  const firstConfiguration = planFreshWorkbookSetup(
+    { sheets: [{ name: "Sheet1", headers: [], rows: [] }] },
+    review,
+    schema,
+    "configuration"
+  );
+  firstMain.sheets[0].rows.push(validRecord({ notes: "keep me" }));
+  const keywordSheet = firstConfiguration.sheets.find(
     (sheet) => sheet.name === "Search Keywords"
   );
   keywordSheet.rows[0] = {
@@ -319,11 +339,25 @@ test("setup is idempotent and preserves valid operator data", () => {
     enabled: true,
     keyword: "new operator keyword"
   });
-  const second = planFreshWorkbookSetup(first, review, schema);
-  assert.deepEqual(second, first);
-  assert.equal(second.sheets[0].rows[0].notes, "keep me");
+  const secondMain = planFreshWorkbookSetup(
+    firstMain,
+    review,
+    schema,
+    "main"
+  );
+  const secondConfiguration = planFreshWorkbookSetup(
+    firstConfiguration,
+    review,
+    schema,
+    "configuration"
+  );
+  assert.deepEqual(secondMain, firstMain);
+  assert.deepEqual(secondConfiguration, firstConfiguration);
+  assert.equal(secondMain.sheets[0].rows[0].notes, "keep me");
   assert.deepEqual(
-    second.sheets.find((sheet) => sheet.name === "Search Keywords").rows,
+    secondConfiguration.sheets.find(
+      (sheet) => sheet.name === "Search Keywords"
+    ).rows,
     keywordSheet.rows
   );
 });
@@ -340,7 +374,8 @@ test("pre-existing empty Search Keywords sheet is not repopulated", () => {
       ]
     },
     review,
-    schema
+    schema,
+    "configuration"
   );
   assert.deepEqual(
     planned.sheets.find((sheet) => sheet.name === "Search Keywords").rows,
@@ -354,7 +389,8 @@ test("fresh setup refuses conflicting or non-empty legacy sheets", () => {
       planFreshWorkbookSetup(
         { sheets: [{ name: "Sheet1", headers: ["legacy"], rows: [["data"]] }] },
         review,
-        schema
+        schema,
+        "main"
       ),
     /refused non-empty unexpected sheet/
   );
@@ -367,7 +403,8 @@ test("fresh setup refuses conflicting or non-empty legacy sheets", () => {
           ]
         },
         review,
-        schema
+        schema,
+        "main"
       ),
     /conflicting headers/
   );
@@ -384,7 +421,8 @@ test("fresh setup refuses conflicting or non-empty legacy sheets", () => {
           ]
         },
         review,
-        schema
+        schema,
+        "configuration"
       ),
     /conflicting headers/
   );

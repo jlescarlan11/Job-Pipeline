@@ -225,7 +225,12 @@ export function validateFreshSheetConfig(review, schema) {
   return errors;
 }
 
-export function planFreshWorkbookSetup(snapshot, review, schema) {
+export function planFreshWorkbookSetup(
+  snapshot,
+  review,
+  schema,
+  workbookRole
+) {
   const configErrors = validateFreshSheetConfig(review, schema);
   if (configErrors.length > 0) {
     throw new Error(`Invalid fresh sheet configuration: ${configErrors.join("; ")}`);
@@ -233,9 +238,11 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
   if (!Array.isArray(snapshot?.sheets)) {
     throw new Error("Workbook snapshot sheets must be an array");
   }
+  if (!new Set(["main", "configuration"]).has(workbookRole)) {
+    throw new Error("Workbook role must be main or configuration");
+  }
 
-  const expected = new Map([
-    ...RECORD_SHEET_KEYS.map((key) => {
+  const recordDefinitions = RECORD_SHEET_KEYS.map((key) => {
       const definition = review.sheets[key];
       return [
         definition.name,
@@ -246,7 +253,8 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
           visibleColumns: definition.visible_columns
         }
       ];
-    }),
+    });
+  const configurationDefinitions = [
     [
       review.sheets.search_keywords.name,
       {
@@ -280,7 +288,12 @@ export function planFreshWorkbookSetup(snapshot, review, schema) {
         visibleColumns: []
       }
     ]
-  ]);
+  ];
+  const expected = new Map(
+    workbookRole === "main"
+      ? [...recordDefinitions, configurationDefinitions.at(-1)]
+      : configurationDefinitions.slice(0, -1)
+  );
 
   const currentByName = new Map();
   for (const sheet of snapshot.sheets) {

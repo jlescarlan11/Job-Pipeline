@@ -210,7 +210,16 @@ test("deployment docs and policy agree on capacity, retention, and bindings", ()
   assert.match(
     deployment,
     new RegExp(
-      deploymentPolicy.workbook_binding.spreadsheet_environment_variable.replace(
+      deploymentPolicy.workbook_binding.queue_spreadsheet_environment_variable.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        "\\$&"
+      )
+    )
+  );
+  assert.match(
+    deployment,
+    new RegExp(
+      deploymentPolicy.workbook_binding.configuration_spreadsheet_environment_variable.replace(
         /[.*+?^${}()|[\]\\]/g,
         "\\$&"
       )

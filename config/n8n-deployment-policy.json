@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-07-31/v3",
+  "policy_version": "2026-08-01/v4",
   "deployment_scope": "self_hosted_regular",
-  "verified_on": "2026-07-31",
+  "verified_on": "2026-08-01",
   "official_sources": [
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
@@ -61,10 +61,11 @@
     ]
   },
   "workbook_binding": {
-    "spreadsheet_environment_variable": "JOB_PIPELINE_SPREADSHEET_ID",
+    "queue_spreadsheet_environment_variable": "JOB_PIPELINE_SPREADSHEET_ID",
+    "configuration_spreadsheet_environment_variable": "JOB_PIPELINE_CONFIG_SPREADSHEET_ID",
     "review_url_environment_variable": "JOB_PIPELINE_REVIEW_URL",
-    "old_workbook_must_differ": true,
-    "new_workbook_must_start_empty": true
+    "all_workbook_ids_must_differ": true,
+    "queue_workbook_must_start_empty": true
   },
   "workflow_cutover": {
     "schema_version": 2,

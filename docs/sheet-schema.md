@@ -122,7 +122,7 @@ by the workflow and are not operator-managed.
 
 ## Candidate context tabs
 
-The Generator and Alerter & Mover read all ten context tabs at the start of
+These tabs live in the separate Configuration workbook. The Generator and Alerter & Mover read all ten context tabs at the start of
 every execution and freeze one validated snapshot. The workflow automatically
 derives profile, ranking, and application context hashes, so operators do not
 edit version identifiers.
