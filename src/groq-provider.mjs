@@ -45,6 +45,9 @@ export function validateGroqProviderPolicy(
   if (!MODEL_ID_PATTERN.test(policy.selected_model ?? "")) {
     errors.push("Groq selected_model is invalid");
   }
+  if (!MODEL_ID_PATTERN.test(policy.repair_model ?? "")) {
+    errors.push("Groq repair_model is invalid");
+  }
 
   const generation = policy.generation ?? {};
   if (
@@ -73,12 +76,6 @@ export function validateGroqProviderPolicy(
       generation.maximum_combined_input_characters
   ) {
     errors.push("Groq repair reserve must be smaller than the input budget");
-  }
-  if (
-    positiveInteger(generation.request_interval_ms) &&
-    generation.request_interval_ms <= 60_000
-  ) {
-    errors.push("Groq request interval must exceed the one-minute rate window");
   }
   if (generation.maximum_requests_per_item !== 2) {
     errors.push(
@@ -177,34 +174,39 @@ export function validateGroqProviderPolicy(
     }
   }
 
-  const selected = groqModelById(policy, policy.selected_model);
-  if (!selected) {
-    errors.push("Groq selected_model is absent from models");
-  } else {
-    if (selected.artifact_approved !== true) {
-      errors.push("Groq selected_model is not approved for generated artifacts");
+  const productionModels = [
+    ["selected_model", groqModelById(policy, policy.selected_model)],
+    ["repair_model", groqModelById(policy, policy.repair_model)]
+  ];
+  for (const [role, model] of productionModels) {
+    if (!model) {
+      errors.push(`Groq ${role} is absent from models`);
+      continue;
     }
-    if (selected.production_activation === "forbidden") {
-      errors.push("Groq selected_model is forbidden for production activation");
+    if (model.artifact_approved !== true) {
+      errors.push(`Groq ${role} is not approved for generated artifacts`);
     }
-    if (selected.lifecycle === "deprecated") {
-      errors.push("Groq selected_model is deprecated");
+    if (model.production_activation !== "ready") {
+      errors.push(`Groq ${role} is not ready for production activation`);
+    }
+    if (model.lifecycle !== "production") {
+      errors.push(`Groq ${role} is not a production model`);
     }
     if (
       positiveInteger(generation.maximum_output_tokens) &&
-      positiveInteger(selected.provider_maximum_output_tokens) &&
+      positiveInteger(model.provider_maximum_output_tokens) &&
       generation.maximum_output_tokens >
-        selected.provider_maximum_output_tokens
+        model.provider_maximum_output_tokens
     ) {
-      errors.push("Groq output cap exceeds the selected provider model limit");
+      errors.push(`Groq output cap exceeds the ${role} provider model limit`);
     }
     const nowDate = String(now).slice(0, 10);
     if (
-      selected.shutdown_on &&
+      model.shutdown_on &&
       validDateOnly(nowDate) &&
-      nowDate >= selected.shutdown_on
+      nowDate >= model.shutdown_on
     ) {
-      errors.push("Groq selected_model has reached its shutdown date");
+      errors.push(`Groq ${role} has reached its shutdown date`);
     }
   }
 
@@ -225,7 +227,8 @@ export function validateGroqProviderPolicy(
     !Array.isArray(gate.candidate_models) ||
     gate.candidate_models.length < 2 ||
     gate.candidate_models.some((modelId) => !modelIds.has(modelId)) ||
-    !gate.candidate_models.includes(policy.selected_model)
+    !gate.candidate_models.includes(policy.selected_model) ||
+    !gate.candidate_models.includes(policy.repair_model)
   ) {
     errors.push(
       "Groq benchmark candidates must name the selected model and at least one comparison policy model"
@@ -248,8 +251,20 @@ export function resolveGroqGenerationModel(
   return groqModelById(policy, policy.selected_model);
 }
 
+export function resolveGroqRepairModel(
+  policy,
+  now = new Date().toISOString()
+) {
+  const errors = validateGroqProviderPolicy(policy, now);
+  if (errors.length > 0) {
+    throw new Error(`Invalid Groq provider policy:\n- ${errors.join("\n- ")}`);
+  }
+  return groqModelById(policy, policy.repair_model);
+}
+
 export function groqScheduledCapacity(policy, generatorRuntime) {
-  const model = resolveGroqGenerationModel(policy);
+  const initialModel = resolveGroqGenerationModel(policy);
+  const repairModel = resolveGroqRepairModel(policy);
   for (const field of [
     "schedule_minutes",
     "per_run_cap",
@@ -281,8 +296,34 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
     generation.maximum_requests_per_item === 1
       ? initialRequestEstimate
       : initialRequestEstimate + repairRequestEstimate;
+  const maximumRequestsPerRolePerDay =
+    maximumScheduledExecutionsPerDay * generatorRuntime.per_run_cap;
+  const perModel = new Map();
+  for (const [model, requestEstimate] of [
+    [initialModel, initialRequestEstimate],
+    [repairModel, repairRequestEstimate]
+  ]) {
+    const existing = perModel.get(model.id) ?? {
+      model_id: model.id,
+      maximum_scheduled_requests_per_day: 0,
+      maximum_scheduled_character_token_estimate_per_day: 0
+    };
+    existing.maximum_scheduled_requests_per_day +=
+      maximumRequestsPerRolePerDay;
+    existing.maximum_scheduled_character_token_estimate_per_day +=
+      maximumRequestsPerRolePerDay * requestEstimate;
+    perModel.set(model.id, existing);
+  }
+  const maximumRequestsInAnyMinute = Math.ceil(
+    60_000 / generation.request_interval_ms
+  );
+  const maximumRequestEstimate = Math.max(
+    initialRequestEstimate,
+    repairRequestEstimate
+  );
   return {
-    model_id: model.id,
+    initial_model_id: initialModel.id,
+    repair_model_id: repairModel.id,
     initial_request_character_token_estimate: initialRequestEstimate,
     repair_request_character_token_estimate: repairRequestEstimate,
     per_item_character_token_estimate: perItemEstimate,
@@ -293,6 +334,10 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
       maximumScheduledExecutionsPerDay *
       generatorRuntime.per_run_cap *
       perItemEstimate,
+    maximum_requests_in_any_minute: maximumRequestsInAnyMinute,
+    maximum_character_token_estimate_in_any_minute:
+      maximumRequestsInAnyMinute * maximumRequestEstimate,
+    per_model_scheduled_capacity: [...perModel.values()],
     maximum_pacing_milliseconds:
       (generation.maximum_requests_per_item * generatorRuntime.per_run_cap - 1) *
       generation.request_interval_ms
@@ -312,39 +357,48 @@ export function validateGroqRuntimeCapacity(policy, generatorRuntime) {
   }
   if (errors.length > 0) return [...new Set(errors)];
 
-  const model = groqModelById(policy, policy.selected_model);
-  const limits = model.developer_base_limits;
   const capacity = groqScheduledCapacity(policy, generatorRuntime);
-  if (
-    capacity.initial_request_character_token_estimate >
-    limits.tokens_per_minute
-  ) {
-    errors.push(
-      "Groq initial-request character token estimate exceeds the selected model TPM limit"
+  for (const modelId of new Set([
+    policy.selected_model,
+    policy.repair_model
+  ])) {
+    const model = groqModelById(policy, modelId);
+    const limits = model.developer_base_limits;
+    const scheduled = capacity.per_model_scheduled_capacity.find(
+      (entry) => entry.model_id === modelId
     );
-  }
-  if (
-    capacity.repair_request_character_token_estimate >
-    limits.tokens_per_minute
-  ) {
-    errors.push(
-      "Groq repair-request character token estimate exceeds the selected model TPM limit"
-    );
-  }
-  if (
-    capacity.maximum_scheduled_requests_per_day > limits.requests_per_day
-  ) {
-    errors.push(
-      "Groq scheduled request ceiling exceeds the selected model RPD limit"
-    );
-  }
-  if (
-    capacity.maximum_scheduled_character_token_estimate_per_day >
-    limits.tokens_per_day
-  ) {
-    errors.push(
-      "Groq scheduled character token estimate exceeds the selected model TPD limit"
-    );
+    if (
+      capacity.maximum_requests_in_any_minute >
+      limits.requests_per_minute
+    ) {
+      errors.push(
+        `Groq ${modelId} paced request ceiling exceeds its verified RPM limit`
+      );
+    }
+    if (
+      capacity.maximum_character_token_estimate_in_any_minute >
+      limits.tokens_per_minute
+    ) {
+      errors.push(
+        `Groq ${modelId} paced character token estimate exceeds its verified TPM limit`
+      );
+    }
+    if (
+      scheduled.maximum_scheduled_requests_per_day >
+      limits.requests_per_day
+    ) {
+      errors.push(
+        `Groq ${modelId} scheduled request ceiling exceeds its verified RPD limit`
+      );
+    }
+    if (
+      scheduled.maximum_scheduled_character_token_estimate_per_day >
+      limits.tokens_per_day
+    ) {
+      errors.push(
+        `Groq ${modelId} scheduled character token estimate exceeds its verified TPD limit`
+      );
+    }
   }
   if (
     capacity.maximum_pacing_milliseconds >=
@@ -423,7 +477,9 @@ export function evaluateGroqBenchmark(modelResults, policy) {
       valid_count: valid,
       valid_rate: validRate,
       measured,
-      required_for_activation: result.model === policy.selected_model,
+      required_for_activation:
+        result.model === policy.selected_model ||
+        result.model === policy.repair_model,
       passes: measured && validRate >= requiredRate
     };
   });

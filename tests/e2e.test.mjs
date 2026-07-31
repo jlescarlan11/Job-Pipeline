@@ -18,7 +18,9 @@ import {
   claimGeneratorRecord,
   commitGeneratorResult,
   evaluateAndRoute,
-  prepareApplicationGeneration
+  prepareApplicationGeneration,
+  recordGeneratorFailure,
+  selectGeneratorCandidate
 } from "../src/generator.mjs";
 import {
   confirmMoveDeletions,
@@ -254,4 +256,152 @@ test("review approval never bypasses generation and denial archives once", () =>
     schema
   );
   assert.equal(confirmed.deletions.length, 1);
+});
+
+test("a five-job Generator batch isolates one failure and downstream alerts never replay", () => {
+  const rows = Array.from({ length: 6 }, (_, index) => {
+    const id = 6101 + index;
+    const parsed = parseJobDetail(directHtml, {
+      source: "onlinejobs.ph",
+      source_job_id: String(id),
+      canonical_job_id: `onlinejobs.ph:${id}`,
+      canonical_url:
+        `https://onlinejobs.ph/jobseekers/job/full-stack-${id}`,
+      record_version: 1,
+      pipeline_status: "new",
+      user_action: "",
+      source_availability: "active",
+      attempt_count: 0,
+      alert_attempt_count: 0,
+      matched_keywords: ["full stack developer"],
+      posted_at: "2026-07-31T11:00:00.000Z",
+      discovered_at: "2026-07-31T11:05:00.000Z",
+      created_at: new Date(
+        Date.parse("2026-07-31T11:05:00.000Z") + index * 1000
+      ).toISOString(),
+      updated_at: "2026-07-31T11:05:00.000Z"
+    });
+    parsed.source_job_id = String(id);
+    parsed.canonical_job_id = `onlinejobs.ph:${id}`;
+    parsed.canonical_url =
+      `https://onlinejobs.ph/jobseekers/job/full-stack-${id}`;
+    const normalized = normalizeLegacyRecord(parsed, schema, now);
+    normalized.state_guard = stateGuard(normalized);
+    return normalized;
+  });
+
+  const selected = selectGeneratorCandidate(rows, schema, runtime, now);
+  assert.equal(selected.length, 5);
+  assert.equal(
+    selected.some(
+      (entry) =>
+        entry.record.canonical_job_id === rows[5].canonical_job_id
+    ),
+    false
+  );
+
+  const completed = selected.map((entry, index) => {
+    const claimed = claimGeneratorRecord(
+      entry.record,
+      entry.stage,
+      `generator-batch-e2e-${index}`,
+      now,
+      runtime.claim_lease_ms
+    ).record;
+    let proposed;
+    if (index === 2) {
+      proposed = recordGeneratorFailure(
+        claimed,
+        new Error("controlled provider timeout"),
+        runtime,
+        now
+      );
+    } else {
+      const evaluated = evaluateAndRoute(
+        claimed,
+        profile,
+        rankingPolicy,
+        now
+      );
+      const prepared = prepareApplicationGeneration(
+        evaluated,
+        profile,
+        applicationPolicy,
+        packPolicy,
+        groqPolicy,
+        now
+      );
+      proposed = applyValidatedGeneration(
+        evaluated,
+        prepared.pack,
+        validMessage,
+        profile,
+        applicationPolicy,
+        packPolicy,
+        now
+      );
+    }
+    return commitGeneratorResult(
+      claimed,
+      claimed,
+      proposed,
+      schema,
+      now
+    );
+  });
+
+  assert.deepEqual(
+    completed.map((record) => record.pipeline_status),
+    [
+      "ready_to_apply",
+      "ready_to_apply",
+      "error",
+      "ready_to_apply",
+      "ready_to_apply"
+    ]
+  );
+  assert.equal(
+    new Set(completed.map((record) => record.canonical_job_id)).size,
+    5
+  );
+  assert.equal(rows[5].pipeline_status, "new");
+  assert.equal(rows[5].processing_token || "", "");
+
+  const firstAlertRun = selectFreshAlertCandidates(
+    completed,
+    schema,
+    alertPolicy,
+    now,
+    safetyContext
+  );
+  assert.equal(firstAlertRun.candidates.length, 4);
+  const sent = firstAlertRun.candidates.map(({ record }, index) => {
+    const sending = markAlertSending(
+      record,
+      alertPolicy,
+      `alerter-batch-e2e-${index}`,
+      now
+    );
+    return applySlackProviderResult(
+      sending,
+      sending,
+      { ok: true, reference: `batch-slack-${index}` },
+      alertPolicy,
+      now
+    );
+  });
+  const repeatedAlertRun = selectFreshAlertCandidates(
+    sent,
+    schema,
+    alertPolicy,
+    "2026-07-31T12:01:00.000Z",
+    safetyContext
+  );
+  assert.equal(repeatedAlertRun.candidates.length, 0);
+  assert.equal(
+    repeatedAlertRun.rejected.filter((entry) =>
+      entry.reasons.includes("already_sent")
+    ).length,
+    4
+  );
 });

@@ -7,11 +7,11 @@ artifact. Its compact identity and approved-URL block comes only from
 same profile. `scripts/build-workflows.mjs` validates those inputs plus
 `config/groq-provider-policy.json` and rebuilds the export.
 
-The generated HTTPS request reads the Groq API key from
-`JOB_PIPELINE_GROQ_API_KEY` and the optional model override from
-`JOB_PIPELINE_GROQ_MODEL`. The export contains neither secret and remains
-inactive. The request sends the reviewed model, output cap, and temperature
-from the provider policy.
+The generated HTTPS requests read the Groq API key from
+`JOB_PIPELINE_GROQ_API_KEY`. The export contains no secret and remains
+inactive. The initial request uses the reviewed `selected_model`; a repair
+uses the independently reviewed `repair_model`. Both requests use the output
+cap, temperature, reasoning controls, and pacing from the provider policy.
 
 The system message instructs Groq to:
 
@@ -50,7 +50,14 @@ banned phrase; and required-subject compliance. Schedule text is classified
 before generic numeric evidence so time fragments are not reported as the
 primary error.
 
-The simplified Generator makes one initial model request and, only when deterministic validation rejects it, at most one delayed repair request per selected row. The repair contains the complete rejected draft and every validation error, and the repaired output must pass the same gates.
+The Generator freezes at most five selected rows and processes them
+sequentially. It makes one initial model request for each row that reaches
+generation and, only when deterministic validation rejects that response, at
+most one delayed repair request for that row. The standalone repair contains
+the complete rejected draft, every deterministic validation error, the compact
+selected-proof context, and the safe application instructions needed to
+validate the correction; it does not resend the full job description. The
+repaired output must pass the same gates.
 Invalid output becomes bounded `error` evidence and returns through the normal
 retry schedule; it never stores rejected text or erases a previous valid
 pack/message. A retry is a later claimed execution and must pass the same

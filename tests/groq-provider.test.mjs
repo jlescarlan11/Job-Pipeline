@@ -48,6 +48,11 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
   assert.equal(selected.lifecycle, "production");
   assert.equal(selected.production_activation, "ready");
   assert.equal(selected.reasoning_effort, "low");
+  assert.equal(groqPolicy.repair_model, "openai/gpt-oss-20b");
+  assert.equal(
+    groqModelById(groqPolicy, groqPolicy.repair_model).production_activation,
+    "ready"
+  );
   assert.equal(groqPolicy.generation.reasoning_format, "hidden");
 
   const unapproved = structuredClone(groqPolicy);
@@ -68,7 +73,7 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
     validateGroqProviderPolicy(forbidden, "2026-07-30T00:00:00.000Z").join(
       "\n"
     ),
-    /forbidden/
+    /not ready/
   );
 
   const expired = structuredClone(groqPolicy);
@@ -110,14 +115,29 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
 test("Groq scheduled capacity stays within the conservative developer-base envelope", () => {
   const capacity = groqScheduledCapacity(groqPolicy, runtime.generator);
   assert.deepEqual(capacity, {
-    model_id: "openai/gpt-oss-120b",
-    initial_request_character_token_estimate: 4024,
-    repair_request_character_token_estimate: 6024,
-    per_item_character_token_estimate: 10048,
+    initial_model_id: "openai/gpt-oss-120b",
+    repair_model_id: "openai/gpt-oss-20b",
+    initial_request_character_token_estimate: 1980,
+    repair_request_character_token_estimate: 2314,
+    per_item_character_token_estimate: 4294,
     maximum_scheduled_executions_per_day: 17,
-    maximum_scheduled_requests_per_day: 34,
-    maximum_scheduled_character_token_estimate_per_day: 170816,
-    maximum_pacing_milliseconds: 65000
+    maximum_scheduled_requests_per_day: 170,
+    maximum_scheduled_character_token_estimate_per_day: 364990,
+    maximum_requests_in_any_minute: 3,
+    maximum_character_token_estimate_in_any_minute: 6942,
+    per_model_scheduled_capacity: [
+      {
+        model_id: "openai/gpt-oss-120b",
+        maximum_scheduled_requests_per_day: 85,
+        maximum_scheduled_character_token_estimate_per_day: 168300
+      },
+      {
+        model_id: "openai/gpt-oss-20b",
+        maximum_scheduled_requests_per_day: 85,
+        maximum_scheduled_character_token_estimate_per_day: 196690
+      }
+    ],
+    maximum_pacing_milliseconds: 189000
   });
   assert.deepEqual(
     validateGroqRuntimeCapacity(groqPolicy, runtime.generator),
@@ -125,7 +145,7 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
   );
 
   const unsafePolicy = structuredClone(groqPolicy);
-  unsafePolicy.generation.request_interval_ms = 20000;
+  unsafePolicy.generation.request_interval_ms = 1000;
   const unsafeRuntime = {
     ...runtime.generator,
     schedule_minutes: 15,
@@ -136,14 +156,14 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
     unsafePolicy,
     unsafeRuntime
   ).join("\n");
-  assert.match(errors, /one-minute rate window/);
+  assert.match(errors, /verified RPM limit|verified TPM limit/);
 
   unsafePolicy.generation.request_interval_ms = 65000;
   const capacityErrors = validateGroqRuntimeCapacity(
     unsafePolicy,
     unsafeRuntime
   ).join("\n");
-  assert.match(capacityErrors, /TPD limit/);
+  assert.match(capacityErrors, /verified TPD limit/);
   assert.match(capacityErrors, /exhausts the Generator execution timeout/);
 
   const oversizedRequest = structuredClone(groqPolicy);
@@ -152,7 +172,42 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
     oversizedRequest,
     runtime.generator
   ).join("\n");
-  assert.match(requestErrors, /repair-request character token estimate.*TPM/i);
+  assert.match(requestErrors, /verified TPM limit/i);
+
+  for (const [field, value, expected] of [
+    ["requests_per_minute", 2, /120b.*RPM limit/i],
+    ["tokens_per_minute", 6941, /120b.*TPM limit/i],
+    ["requests_per_day", 84, /120b.*RPD limit/i],
+    ["tokens_per_day", 168299, /120b.*TPD limit/i]
+  ]) {
+    const belowRequired = structuredClone(groqPolicy);
+    groqModelById(
+      belowRequired,
+      belowRequired.selected_model
+    ).developer_base_limits[field] = value;
+    assert.match(
+      validateGroqRuntimeCapacity(
+        belowRequired,
+        runtime.generator
+      ).join("\n"),
+      expected
+    );
+  }
+
+  const sharedModelQuota = structuredClone(groqPolicy);
+  sharedModelQuota.repair_model = sharedModelQuota.selected_model;
+  sharedModelQuota.activation_gate.candidate_models = [
+    sharedModelQuota.selected_model,
+    "openai/gpt-oss-20b"
+  ];
+  assert.match(
+    validateGroqRuntimeCapacity(
+      sharedModelQuota,
+      runtime.generator
+    ).join("\n"),
+    /120b.*TPD limit/i,
+    "initial and repair traffic must combine when both roles share one quota"
+  );
 });
 
 test("Groq prompt budget compacts canonical evidence and bounds oversized descriptions", () => {
@@ -186,14 +241,17 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   assert.ok(system.length < 6000);
   assert.equal(pack.selected_proofs.length, 3);
   assert.equal(groqPolicy.generation.maximum_prompt_proofs, 2);
-  assert.equal(measurement.combined_characters, 6029);
-  assert.equal(measurement.character_based_token_estimate, 2010);
+  assert.equal(measurement.combined_characters, 4044);
+  assert.equal(measurement.character_based_token_estimate, 1348);
   assert.ok(user.includes(pack.selected_proofs[0].reference));
   assert.ok(user.includes(pack.selected_proofs[1].reference));
   assert.equal(user.includes(pack.selected_proofs[2].reference), false);
   assert.doesNotMatch(user, /"label"|"relevance_score"/);
   assert.doesNotMatch(system, /12\+ production-blocking defects/);
-  assert.match(system, /selected approved proofs are the only candidate facts/i);
+  assert.match(
+    system,
+    /identity and selected approved proofs are the only\s+candidate facts/i
+  );
   assert.doesNotMatch(user, /Job URL:/);
   assert.doesNotMatch(user, /SCREENING QUESTIONS REQUIRING MANUAL REVIEW/);
   assert.doesNotMatch(user, /APPLICATION WARNINGS — INTERNAL ONLY/);
@@ -207,18 +265,24 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
     }
   );
   assert.equal(oversized.length, userBudget);
-  assert.match(oversized, /final message satisfying the system prompt\.$/);
+  assert.ok(oversized.endsWith("the system prompt."));
   assert.equal(
     validateGroqPromptBudget(groqPolicy, system, oversized).valid,
     true
   );
 
-  const repair = `${user}\n\n${buildApplicationRepairMessage(
+  const repair = buildApplicationRepairMessage(
     "Subject line: Developer Application\n\nI can work Pacific Time.",
-    ["unsupported availability or schedule commitment"]
-  )}`;
+    ["unsupported availability or schedule commitment"],
+    {
+      selectedProofs: pack.selected_proofs,
+      applicationInstructions: pack.application_instructions
+    }
+  );
   assert.equal(validateGroqPromptBudget(groqPolicy, system, repair).valid, true);
-  assert.ok(repair.includes(user), "repair must reuse the exact initial evidence packet");
+  assert.ok(repair.includes(pack.selected_proofs[0].reference));
+  assert.ok(repair.includes(pack.selected_proofs[1].reference));
+  assert.doesNotMatch(repair, /SAFE JOB DESCRIPTION/);
   assert.throws(
     () => buildApplicationUserMessage(job, pack, { maximumProofs: 0 }),
     /proof limit/
@@ -248,20 +312,20 @@ test("Groq benchmark assessment requires measured valid cases and calculates pro
   const passing = evaluateGroqBenchmark(
     [
       { model: selected.id, cases },
-      { model: "qwen/qwen3.6-27b", cases }
+      { model: groqPolicy.repair_model, cases }
     ],
     groqPolicy
   );
   assert.equal(passing[0].passes, true);
   assert.equal(passing[0].required_for_activation, true);
   assert.equal(passing[1].measured, true);
-  assert.equal(passing[1].required_for_activation, false);
+  assert.equal(passing[1].required_for_activation, true);
 
   cases[0] = { ...cases[0], valid: false };
   const failing = evaluateGroqBenchmark(
     [
       { model: selected.id, cases },
-      { model: "qwen/qwen3.6-27b", cases }
+      { model: groqPolicy.repair_model, cases }
     ],
     groqPolicy
   );
@@ -273,7 +337,7 @@ test("Groq benchmark assessment requires measured valid cases and calculates pro
         model: selected.id,
         cases: cases.map((entry) => ({ ...entry, valid: true }))
       },
-      { model: "qwen/qwen3.6-27b", cases }
+      { model: groqPolicy.repair_model, cases }
     ],
     groqPolicy
   );

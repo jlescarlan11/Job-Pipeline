@@ -7,7 +7,8 @@ Stop at any failed gate. Never run old and replacement workflows against either 
 Runtime baseline: all three exports use `Asia/Manila`. Scraper runs every 240
 minutes with a 900-second timeout; Evaluator & Generator runs every 90 minutes
 with a 480-second timeout; Alerter & Mover runs every 15 minutes with a
-120-second timeout.
+120-second timeout. Each Generator execution freezes at most five eligible
+rows and processes them sequentially without backfill.
 
 ## 1. Freeze and back up the old system
 
@@ -71,6 +72,16 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 
 ### Evaluator & Generator
 
+- Seed six eligible rows in deterministic queue order. Confirm the first five
+  form the fixed batch, the sixth is untouched, and the loop never backfills.
+- Repeat with zero, one, two, three, and four eligible rows. Confirm zero is a
+  successful no-op and every available row is processed once.
+- Confirm each selected row gets a distinct just-in-time `_System` claim,
+  Review Queue claim, evaluation, optional generation, guarded commit, and
+  exact persistence confirmation before the next row begins.
+- Force one selected row to fail at the provider or persistence boundary and
+  confirm the other four continue. The failed row must end in bounded `error`
+  evidence or fail closed without an unguarded second write.
 - Good fit: confirm a ready pack and deterministically validated message produce `ready_to_apply`.
 - Promising gap/question: confirm `review_needed`, bounded reason, and required input.
 - Hard disqualifier/low fit: confirm `skip`.
@@ -80,6 +91,11 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 - Select `Approve` and confirm it returns through the same pack/message gates.
 - Change action/version after a claim and confirm the stale commit is rejected.
 - Fail a retry after a previously valid message and confirm the old message remains stored but the row is not alert-eligible.
+- Exercise one initial rejection and confirm exactly one delayed repair request,
+  no third request, no automatic Groq HTTP retry, and at most two provider
+  requests for that job.
+- Repeat or overlap the execution and confirm no duplicate claims, result
+  commits, application messages, ready states, or downstream Slack alerts.
 
 ### Actions and moves
 

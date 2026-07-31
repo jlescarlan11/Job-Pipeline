@@ -14,6 +14,7 @@ const [
   deployment,
   alerts,
   acceptance,
+  generatorBatchVerification,
   schema,
   searchPlan,
   runtime,
@@ -29,6 +30,7 @@ const [
   loadText("../docs/n8n-deployment.md"),
   loadText("../docs/alerts.md"),
   loadText("../docs/acceptance-matrix.md"),
+  loadText("../docs/generator-batch-verification-2026-07-31.md"),
   loadJson("../config/pipeline-schema.json"),
   loadJson("../config/search-plan.json"),
   loadJson("../config/runtime.json"),
@@ -167,6 +169,32 @@ test("deployment docs and policy agree on capacity, retention, and bindings", ()
   assert.match(deployment, /policy-only/i);
 });
 
+test("Generator batch docs cover the five-job runtime, provider envelope, and production gate", () => {
+  for (const document of [
+    readme,
+    architecture,
+    operations,
+    deployment,
+    generatorBatchVerification
+  ]) {
+    assert.match(document, /five|5/);
+    assert.match(document, /sequential/i);
+  }
+  assert.match(generatorBatchVerification, /17 trigger boundaries/i);
+  assert.match(generatorBatchVerification, /170\s+logical requests/i);
+  assert.match(generatorBatchVerification, /189 seconds/i);
+  assert.match(generatorBatchVerification, /openai\/gpt-oss-120b/);
+  assert.match(generatorBatchVerification, /openai\/gpt-oss-20b/);
+  assert.match(generatorBatchVerification, /sixth untouched/i);
+  assert.match(generatorBatchVerification, /groq-live-benchmark\.json/i);
+  assert.match(generatorBatchVerification, /groq-permission-validation\.json/i);
+  assert.match(generatorBatchVerification, /n8n-import-validation\.json/i);
+  assert.match(generatorBatchVerification, /present on\s+`main`/i);
+  for (const issue of [47, 48, 49]) {
+    assert.match(acceptance, new RegExp(`Issue #${issue}`));
+  }
+});
+
 test("alert docs preserve safe eligibility, fidelity, idempotency, and independence", () => {
   for (const required of [
     "ready_to_apply",
@@ -192,7 +220,10 @@ test("acceptance accounting covers every criterion and labels live gates honestl
     [42, 16],
     [43, 16],
     [44, 14],
-    [45, 20]
+    [45, 20],
+    [47, 13],
+    [48, 22],
+    [49, 22]
   ]);
   for (const [issue, expected] of expectedCounts) {
     const start = acceptance.indexOf(`## Issue #${issue}`);
@@ -207,6 +238,19 @@ test("acceptance accounting covers every criterion and labels live gates honestl
   }
   assert.match(acceptance, /every Issue #45 live gate (?:is|are) completed/i);
   assert.match(acceptance, /authorized production cutover/i);
+  assert.equal(
+    [...acceptance.matchAll(/47-AC-\d+[^\n]*SATISFIED/g)].length,
+    13
+  );
+  assert.equal(
+    [...acceptance.matchAll(/48-AC-\d+[^\n]*SATISFIED/g)].length,
+    22
+  );
+  assert.match(acceptance, /49-AC-02[^\n]*BLOCKED/);
+  assert.match(
+    acceptance,
+    /delivery instruction[\s\S]{0,100}forbids deployment/i
+  );
 });
 
 test("completed cutover report records sanitized live evidence", async () => {

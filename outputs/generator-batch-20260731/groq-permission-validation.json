@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "verified_on": "2026-07-31",
+  "raw_responses_included": false,
+  "credentials_included": false,
+  "models": [
+    {
+      "model": "openai/gpt-oss-120b",
+      "permitted": true,
+      "http_status": 200,
+      "observed_requests_per_day_limit": 1000,
+      "observed_tokens_per_minute_limit": 8000
+    },
+    {
+      "model": "openai/gpt-oss-20b",
+      "permitted": true,
+      "http_status": 200,
+      "observed_requests_per_day_limit": 1000,
+      "observed_tokens_per_minute_limit": 8000
+    }
+  ]
+}

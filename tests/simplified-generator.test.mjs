@@ -9,6 +9,7 @@ import {
   applyValidatedGeneration,
   claimGeneratorRecord,
   commitGeneratorResult,
+  confirmGeneratorClaimPersisted,
   confirmGeneratorResultPersisted,
   evaluateAndRoute,
   prepareApplicationGeneration,
@@ -111,7 +112,7 @@ test("new rows are claimed once in deterministic order", () => {
     runtime,
     now
   );
-  assert.equal(selected.length, runtime.per_run_cap);
+  assert.equal(selected.length, 2);
   assert.equal(selected[0].record.canonical_job_id, earlier.canonical_job_id);
   assert.equal(selected[0].stage, "evaluation");
   const firstClaim = claimGeneratorRecord(
@@ -148,6 +149,192 @@ test("new rows are claimed once in deterministic order", () => {
   assert.equal(expired.length, 1);
   assert.equal(expired[0].record.canonical_job_id, earlier.canonical_job_id);
   assert.equal(expired[0].stage, "evaluation");
+});
+
+test("selection freezes the first five eligible jobs and leaves a sixth untouched", () => {
+  const rows = Array.from({ length: 6 }, (_, index) =>
+    recordFromDescription(3201 + index, {
+      overrides: {
+        created_at: new Date(
+          Date.parse("2026-07-31T07:00:00.000Z") + index * 60_000
+        ).toISOString()
+      }
+    })
+  );
+  const selected = selectGeneratorCandidate(rows, schema, runtime, now);
+  assert.deepEqual(
+    selected.map((entry) => entry.record.canonical_job_id),
+    rows.slice(0, 5).map((row) => row.canonical_job_id)
+  );
+  assert.equal(selected.length, 5);
+  assert.equal(rows[5].pipeline_status, "new");
+  assert.equal(rows[5].processing_token || "", "");
+
+  for (let count = 0; count <= 4; count += 1) {
+    assert.equal(
+      selectGeneratorCandidate(rows.slice(0, count), schema, runtime, now)
+        .length,
+      count
+    );
+  }
+});
+
+test("five sequential candidates isolate a failed job and persist mixed outcomes", () => {
+  const inputs = [
+    recordFromDescription(3210),
+    recordFromDescription(3211, {
+      html: null,
+      title: "Application Support Developer",
+      description:
+        "Maintain production JavaScript and SQL services. PHP is preferred."
+    }),
+    recordFromDescription(3212),
+    recordFromDescription(3213, {
+      html: null,
+      title: "Senior WordPress Lead",
+      description:
+        "Five years of WordPress, Shopify, PHP, and Laravel are required."
+    }),
+    recordFromDescription(3214, {
+      html: null,
+      description: "",
+      overrides: { source_availability: "unavailable" }
+    })
+  ].map((row, index) => ({
+    ...row,
+    created_at: new Date(
+      Date.parse("2026-07-31T07:00:00.000Z") + index * 60_000
+    ).toISOString()
+  }));
+  for (const row of inputs) row.state_guard = stateGuard(row);
+
+  const selected = selectGeneratorCandidate(inputs, schema, runtime, now);
+  const results = [];
+  for (const [index, entry] of selected.entries()) {
+    const claimed = claimGeneratorRecord(
+      entry.record,
+      entry.stage,
+      `batch-execution:${index}`,
+      now,
+      runtime.claim_lease_ms
+    ).record;
+    let proposed;
+    try {
+      if (index === 2) throw new Error("provider timeout");
+      const evaluated = evaluateAndRoute(
+        claimed,
+        profile,
+        rankingPolicy,
+        now
+      );
+      if (
+        evaluated.pipeline_status === "processing" &&
+        evaluated.processing_stage === "generation"
+      ) {
+        const prepared = prepareApplicationGeneration(
+          evaluated,
+          profile,
+          applicationPolicy,
+          packPolicy,
+          groqPolicy,
+          now
+        );
+        proposed = prepared.provider_required
+          ? applyValidatedGeneration(
+              evaluated,
+              prepared.pack,
+              validMessage,
+              profile,
+              applicationPolicy,
+              packPolicy,
+              now
+            )
+          : prepared.record;
+      } else {
+        proposed = evaluated;
+      }
+    } catch (error) {
+      proposed = recordGeneratorFailure(claimed, error, runtime, now);
+    }
+    results.push(
+      commitGeneratorResult(claimed, claimed, proposed, schema, now)
+    );
+  }
+
+  assert.equal(results.length, 5);
+  assert.deepEqual(
+    new Set(results.map((record) => record.pipeline_status)),
+    new Set([
+      "ready_to_apply",
+      "review_needed",
+      "error",
+      "skip",
+      "unavailable"
+    ])
+  );
+  assert.equal(
+    results.filter((record) => record.generated_message).length,
+    1
+  );
+  assert.equal(new Set(results.map((record) => record.canonical_job_id)).size, 5);
+  assert.equal(results[2].pipeline_status, "error");
+  assert.equal(results.filter((_, index) => index !== 2).length, 4);
+});
+
+test("a Generator claim must be reread exactly before model or commit work", () => {
+  const original = recordFromDescription(3220);
+  const planned = claim(original);
+  const claimFields = [
+    "canonical_job_id",
+    "pipeline_status",
+    "record_version",
+    "state_guard",
+    "processing_stage",
+    "processing_token",
+    "processing_started_at",
+    "review_approved_at",
+    "review_approval_note",
+    "updated_at"
+  ];
+  assert.equal(
+    confirmGeneratorClaimPersisted(
+      planned,
+      [{ ...planned }],
+      schema,
+      claimFields
+    ).processing_token,
+    planned.processing_token
+  );
+  assert.throws(
+    () =>
+      confirmGeneratorClaimPersisted(
+        planned,
+        [{ ...planned, processing_token: "another-owner" }],
+        schema,
+        claimFields
+      ),
+    /claim confirmation mismatch/
+  );
+  assert.throws(
+    () =>
+      confirmGeneratorClaimPersisted(
+        planned,
+        [{ ...planned, notes: "operator changed this row" }],
+        schema,
+        claimFields
+    ),
+    /claim confirmation mismatch/
+  );
+  assert.throws(
+    () =>
+      confirmGeneratorClaimPersisted(
+        planned,
+        [{ ...planned }, { ...planned, row_number: 8 }],
+        schema,
+        claimFields
+      ),
+    /identity is missing or ambiguous/
+  );
 });
 
 test("strong fit proceeds to generation, then only validated output becomes ready", () => {

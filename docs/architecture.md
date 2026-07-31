@@ -11,7 +11,7 @@ Scraper (4h, rolling 24h)
       v
 Review Queue  <----- user actions
       |
-      +--> Evaluator & Generator (90m, one row)
+      +--> Evaluator & Generator (90m, up to five rows)
       |         |
       |         +--> ready_to_apply
       |         +--> review_needed
@@ -27,7 +27,7 @@ Review Queue  <----- user actions
 
 ## Trust boundaries
 
-`Review Queue` is authoritative active state. There is no projection owner and no hidden `Sheet1`. `Applied Jobs` and `Archive` are authoritative terminal stores. `_System` contains only expiring append-winner claims used to arbitrate overlapping discovery, movement, and alert work.
+`Review Queue` is authoritative active state. There is no projection owner and no hidden `Sheet1`. `Applied Jobs` and `Archive` are authoritative terminal stores. `_System` contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
 
 Google Sheet validation improves usability, but workflow-side contract validation is authoritative. Generated fields use warning-only protection; an API or pasted value is still validated again before any status change, alert, or move.
 
@@ -52,7 +52,9 @@ Canonical source ID and canonical URL are compared across Review Queue, Applied 
 
 ## Evaluator & Generator
 
-The workflow selects one due row, writes a versioned claim, and rereads current state before committing. A stale token, version, state guard, identity, or user action rejects the commit. It then rereads the saved row and verifies every committed machine field; a missing, ambiguous, partial, or mismatched write fails visibly.
+The workflow freezes the first five due rows, or every due row when fewer than five exist, and never backfills that batch. It then processes the frozen identities sequentially, one at a time. Each candidate independently appends a scoped `_System` claim, proves that it owns the earliest unexpired claim, writes the Review Queue claim, and exactly rereads the persisted claim before evaluation or provider work. The sixth eligible row is untouched until a later execution.
+
+Each candidate retains its own version, state guard, identity, claim token, user action, and persistence result. A stale token, version, state guard, identity, or user action rejects that candidate's commit without ending the loop. The workflow then rereads the saved row and verifies every committed machine field; a missing, ambiguous, partial, or mismatched write fails closed for that candidate. Provider, validation, Sheet, and stale-write failures are isolated, so later frozen candidates still run.
 
 Deterministic evaluation uses the full source description and current candidate/ranking policy:
 
@@ -64,7 +66,7 @@ Deterministic evaluation uses the full source description and current candidate/
 
 `Approve` means “reconsider through normal generation.” The approval timestamp and a bounded snapshot of the reviewer note are retained as untrusted operator context. Approval does not waive proof selection, instruction sanitization, pack validation, or message validation. Prompt-injection requests, private-data requests, unsupported claims, unsupported automatic actions, and unresolved application requirements cannot become ready.
 
-The model path permits one initial request. If deterministic message validation rejects that draft, it permits exactly one delayed repair containing the complete rejected draft and validation errors. The repaired draft must pass the same pack and message gates; there is no third request or automatic HTTP retry.
+The model path permits one initial `openai/gpt-oss-120b` request per candidate. If deterministic message validation rejects that draft, it permits exactly one delayed `openai/gpt-oss-20b` repair containing the complete rejected draft, every validation error, and only the compact proof/instruction context needed to validate the repaired message. The full job description is not resent. The repaired draft must pass the same pack and message gates; there is no third request or automatic HTTP retry.
 
 A failed retry retains an earlier valid message/provenance but the row remains `error`, so it cannot alert or be marked applied until a fresh validated result becomes ready.
 
@@ -98,3 +100,9 @@ All workflows use `Asia/Manila`, remain inactive in source control, retain faile
 | Alerter & Mover | 15 min, offset 14 | 120 s | 180 s |
 
 The timeout-weighted demand is 0.2847 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.
+
+The Generator has 17 conservative daily trigger boundaries and a nominal
+capacity of 80 jobs per 24 hours. At five jobs and at most two model requests
+per job, the schedule permits at most 170 logical Groq requests across those
+boundaries. Twenty-one-second request pacing bounds the all-repair path to 189
+seconds, inside the unchanged 480-second execution timeout.

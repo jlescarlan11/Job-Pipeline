@@ -179,6 +179,9 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   for (const symbol of [
     "selectGeneratorCandidate",
     "claimGeneratorRecord",
+    "confirmGeneratorClaimPersisted",
+    "createSystemClaim",
+    "selectWinningSystemClaims",
     "evaluateAndRoute",
     "prepareApplicationGeneration",
     "applyValidatedGeneration",
@@ -190,6 +193,11 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
     assert.match(code, new RegExp(symbol));
   }
   node(workflow, "Persist Generator Claim");
+  node(workflow, "Append Generator System Claim");
+  node(workflow, "Confirm Generator System Claim");
+  node(workflow, "Get Review Queue Before Candidate Claim");
+  node(workflow, "Aggregate Review Queue Before Candidate Claim");
+  node(workflow, "Confirm Generator Claim Persisted");
   node(workflow, "Get Review Queue Before Commit");
   node(workflow, "Guard and Commit Generator Result");
   node(workflow, "Get Review Queue After Commit");
@@ -214,6 +222,10 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
     undefined
   );
   assert.equal(workflow.meta.maximumModelRequestsPerItem, 2);
+  assert.equal(workflow.meta.maximumItemsPerExecution, 5);
+  assert.equal(workflow.meta.sequentialBatchSize, 1);
+  assert.equal(workflow.meta.initialModel, "openai/gpt-oss-120b");
+  assert.equal(workflow.meta.repairModel, "openai/gpt-oss-20b");
   assert.equal(workflow.meta.boundedRepairEnabled, true);
   assert.equal(node(workflow, "Fetch Job Detail").maxTries, 3);
   const claimUpdate = node(workflow, "Persist Generator Claim");
@@ -229,6 +241,101 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   ]);
   assert.equal("user_action" in resultUpdate.parameters.columns.value, true);
   assert.equal("notes" in resultUpdate.parameters.columns.value, false);
+});
+
+test("Evaluator & Generator loops over a fixed batch sequentially without cross-item first references", () => {
+  const workflow = workflows["generator.json"];
+  const loop = node(workflow, "Process Candidates Sequentially");
+  assert.equal(loop.type, "n8n-nodes-base.splitInBatches");
+  assert.equal(loop.typeVersion, 3);
+  assert.equal(loop.parameters.batchSize, 1);
+  assert.equal(
+    workflow.connections["Select Generator Candidates"].main[0][0].node,
+    loop.name
+  );
+  assert.equal(
+    workflow.connections[loop.name].main[0][0].node,
+    "Summarize Generator Run"
+  );
+  assert.equal(
+    workflow.connections[loop.name].main[1][0].node,
+    "Create Generator System Claim"
+  );
+  assert.equal(
+    workflow.connections["Finalize Candidate"].main[0][0].node,
+    loop.name
+  );
+  assert.equal(
+    [
+      ...node(
+        workflow,
+        "Select Generator Candidates"
+      ).parameters.jsCode.matchAll(/claimGeneratorRecord\(/g)
+    ].length,
+    1,
+    "selection may bundle the helper definition but must not invoke it"
+  );
+  assert.equal(
+    workflow.connections["Confirm Generator System Claim"].main[0][0].node,
+    "Generator System Claim Won"
+  );
+  assert.equal(
+    workflow.connections["Generator System Claim Won"].main[0][0].node,
+    "Get Review Queue Before Candidate Claim"
+  );
+  assert.equal(
+    workflow.connections["Aggregate Review Queue Before Candidate Claim"]
+      .main[0][0].node,
+    "Claim Current Candidate"
+  );
+  assert.match(
+    node(workflow, "Claim Current Candidate").parameters.jsCode,
+    /Review Queue identity is missing or ambiguous/
+  );
+  assert.match(
+    node(workflow, "Claim Current Candidate").parameters.jsCode,
+    /no longer eligible in the frozen stage/
+  );
+  assert.equal(
+    workflow.connections["Confirm Generator Claim Persisted"].main[0][0].node,
+    "Review Queue Claim Verified"
+  );
+  for (const entry of workflow.nodes.filter(
+    (candidate) => candidate.type === "n8n-nodes-base.code"
+  )) {
+    assert.doesNotMatch(
+      entry.parameters.jsCode,
+      /\$\('[^']+'\)\.first\(\)/,
+      `${entry.name} must use current-item linkage instead of .first()`
+    );
+  }
+  const initialBody = node(
+    workflow,
+    "Generate Initial Application with Groq"
+  ).parameters.jsonBody;
+  const repairBody = node(
+    workflow,
+    "Generate Application Repair with Groq"
+  ).parameters.jsonBody;
+  assert.match(initialBody, /openai\/gpt-oss-120b/);
+  assert.doesNotMatch(initialBody, /openai\/gpt-oss-20b/);
+  assert.match(repairBody, /openai\/gpt-oss-20b/);
+  assert.doesNotMatch(repairBody, /openai\/gpt-oss-120b/);
+  assert.equal(
+    workflow.connections["Provider Required"].main[0][0].node,
+    "Needs Provider Pacing Delay"
+  );
+  assert.equal(
+    workflow.connections["Needs One Repair"].main[0][0].node,
+    "Wait Before Repair"
+  );
+  assert.equal(
+    [
+      ...allCode(workflow).matchAll(/event:\s*'generator_result'/g)
+    ].length,
+    1,
+    "every attempted candidate must emit exactly one sanitized result event"
+  );
 });
 
 test("Alerter & Mover plans terminal copies independently of Slack and confirms before delete", () => {
@@ -318,7 +425,11 @@ test("network calls and critical Sheet writes remain bounded and fail closed", (
         )
       ) {
         assert.equal(entry.retryOnFail, undefined, entry.name);
-        if (workflow.meta.workflowRole === "alerter_mover") {
+        if (
+          ["alerter_mover", "evaluator_generator"].includes(
+            workflow.meta.workflowRole
+          )
+        ) {
           assert.equal(
             entry.onError,
             "continueRegularOutput",

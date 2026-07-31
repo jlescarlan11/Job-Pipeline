@@ -10,6 +10,13 @@ The validator rejects missing or duplicate signatures, any active retired workfl
 
 The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 120-second timeout. This deployment policy does not authorize or automate application submission.
 
+The Generator freezes at most five eligible Review Queue rows and processes
+them sequentially. Its conservative 17 daily trigger boundaries yield 80
+nominal jobs per day and at most 170 logical Groq requests per day. The initial
+and repair requests use separate production models and are validated against
+each model's documented and live-observed quota; the five-job all-repair pacing
+path remains inside the 480-second timeout.
+
 ## Required bindings
 
 Instance/runtime values must match the policy exactly. The production-context validator also requires:
@@ -37,6 +44,12 @@ npm run validate:deployment -- --policy-only
 ```
 
 Run without `--policy-only` inside the actual production environment before activation.
+
+Deployment of a rebuilt Generator is permitted only from the exact generated
+commit already present on `main`. Update workflow
+`TRUqD9atneyDyMNx` in place, retain its active state, schedule, timezone,
+timeout, and workbook binding, and reject any operation that would create a
+fourth active pipeline workflow or a duplicate Generator.
 
 ## Cutover inventory
 

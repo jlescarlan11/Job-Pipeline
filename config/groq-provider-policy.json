@@ -1,18 +1,19 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-07-31/v9",
+  "policy_version": "2026-07-31/v10",
   "provider": "groq",
-  "last_verified_on": "2026-07-30",
+  "last_verified_on": "2026-07-31",
   "selected_model": "openai/gpt-oss-120b",
+  "repair_model": "openai/gpt-oss-20b",
   "generation": {
     "temperature": 0.2,
-    "maximum_output_tokens": 1024,
-    "maximum_combined_input_characters": 15000,
-    "repair_reserve_characters": 6000,
+    "maximum_output_tokens": 480,
+    "maximum_combined_input_characters": 5500,
+    "repair_reserve_characters": 1000,
     "maximum_prompt_proofs": 2,
     "character_estimate_divisor": 3,
     "maximum_requests_per_item": 2,
-    "request_interval_ms": 65000,
+    "request_interval_ms": 21000,
     "reasoning_format": "hidden"
   },
   "activation_gate": {
@@ -21,7 +22,7 @@
     "required_valid_rate": 1,
     "candidate_models": [
       "openai/gpt-oss-120b",
-      "qwen/qwen3.6-27b"
+      "openai/gpt-oss-20b"
     ],
     "comparison_models_must_be_measured": true
   },
@@ -48,6 +49,34 @@
       },
       "official_sources": [
         "https://console.groq.com/docs/model/openai/gpt-oss-120b",
+        "https://console.groq.com/docs/reasoning",
+        "https://console.groq.com/docs/rate-limits",
+        "https://console.groq.com/docs/prompt-caching",
+        "https://console.groq.com/docs/deprecations"
+      ]
+    },
+    {
+      "id": "openai/gpt-oss-20b",
+      "reasoning_effort": "low",
+      "lifecycle": "production",
+      "artifact_approved": true,
+      "production_activation": "ready",
+      "shutdown_on": null,
+      "context_window_tokens": 131072,
+      "provider_maximum_output_tokens": 65536,
+      "developer_base_limits": {
+        "requests_per_minute": 30,
+        "requests_per_day": 1000,
+        "tokens_per_minute": 8000,
+        "tokens_per_day": 200000
+      },
+      "pricing_usd_per_million_tokens": {
+        "input": 0.075,
+        "cached_input": 0.037,
+        "output": 0.3
+      },
+      "official_sources": [
+        "https://console.groq.com/docs/model/openai/gpt-oss-20b",
         "https://console.groq.com/docs/reasoning",
         "https://console.groq.com/docs/rate-limits",
         "https://console.groq.com/docs/prompt-caching",
