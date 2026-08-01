@@ -25,6 +25,10 @@ function stableValue(value) {
   return value;
 }
 
+function jsonClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
 export function sheetContextVersion(value) {
   const input = JSON.stringify(stableValue(value));
   let left = 2166136261;
@@ -305,7 +309,7 @@ function parseApplicationPreferences(
     banned_phrases: bannedPhrases
   };
   const policy = {
-    ...structuredClone(basePolicy),
+    ...jsonClone(basePolicy),
     policy_version: sheetContextVersion(source),
     candidate_profile_version: profile.profile_version,
     max_body_words: maxBodyWords,
@@ -361,7 +365,7 @@ function parseJobPreferences(rows, profile, basePolicy) {
     throw new Error("Job Preferences requires at least one enabled salary band");
   }
   salaryBands.sort((left, right) => right.minimum - left.minimum);
-  const policy = structuredClone(basePolicy);
+  const policy = jsonClone(basePolicy);
   policy.policy_version = sheetContextVersion(sourceRows.map((row) => ({
     type: normalizedText(row.type),
     group: normalizedText(row.group),
@@ -397,7 +401,7 @@ export function compileSheetContext(
     rankingPolicy
   );
   const effectivePackPolicy = {
-    ...structuredClone(packPolicy),
+    ...jsonClone(packPolicy),
     candidate_profile_version: profile.profile_version,
     application_policy_version: effectiveApplicationPolicy.policy_version
   };

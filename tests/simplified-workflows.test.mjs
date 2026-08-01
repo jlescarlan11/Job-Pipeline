@@ -79,6 +79,11 @@ test("all generated Code nodes are syntactically valid", () => {
         () => new Function(entry.parameters.jsCode),
         `${workflow.name}/${entry.name}`
       );
+      assert.doesNotMatch(
+        entry.parameters.jsCode,
+        /\bstructuredClone\b/,
+        `${workflow.name}/${entry.name} uses an unsupported n8n sandbox global`
+      );
     }
   }
 });
