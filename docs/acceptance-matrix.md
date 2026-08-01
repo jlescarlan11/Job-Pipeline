@@ -54,7 +54,7 @@ Evidence labels:
 5. **Unavailable distinct:** Automated unavailable source fixture.
 6. **Invalid/stale/quarantined pack cannot ready:** Automated shared message-safety and alert suppression suites.
 7. **Injection/private/unsupported/auto-action fail closed:** Automated malicious pack and generation safety fixtures.
-8. **Approve does not bypass:** Automated approved malicious/non-ready pack fixture plus bounded approval timestamp/note snapshot.
+8. **Approve is bounded:** Automated fixtures prove only allow-listed warnings can become sanitized manual reminders, unsafe employer text remains outside generation, unusable descriptions remain non-ready, and the approval timestamp/note snapshot is bounded.
 9. **Failed retry preserves safe prior message without readiness:** Automated failure recovery fixture.
 10. **No stale/double overwrite:** Automated overlap claim and version/action commit rejection plus exact post-write reread, partial mismatch, and ambiguous identity rejection.
 11. **Bounded sanitized retry:** Automated one-initial/one-repair proof, cap/backoff/category/redaction fixture.
@@ -177,7 +177,7 @@ The authorized production cutover and every Issue #45 live gate are completed. T
 15. **48-AC-15 — Invalid drafts never ready — SATISFIED:** Automated initial and repaired validation failures.
 16. **48-AC-16 — Overlap idempotency — SATISFIED:** Automated `_System` earliest-active-row winner and repeated-execution fixtures.
 17. **48-AC-17 — Downstream alert idempotency — SATISFIED:** Five-job E2E ready-key selection and repeated Alerter no-replay suite.
-18. **48-AC-18 — Approve safety — SATISFIED:** Automated approval-context path through unchanged pack and message gates.
+18. **48-AC-18 — Approve safety — SATISFIED:** Automated approval-context path acknowledges only configured warnings, excludes unsafe source segments, and preserves proof, pack, and message gates.
 19. **48-AC-19 — Existing behavior — SATISFIED:** Automated unavailable, exhausted retry, prior-safe-message, and no-auto-submit regressions.
 20. **48-AC-20 — Structural regression — SATISFIED:** Generated-workflow loop, linkage, retry, single-event, and model-route assertions.
 21. **48-AC-21 — Direct/integration coverage — SATISFIED:** Automated zero through six, mixed, failure, stale, repeat, overlap, and downstream alert cases.
@@ -311,8 +311,8 @@ sanitized permanent record is
 10. **56-AC-10 — Invalid keyword gate — SATISFIED:** Workflow topology retains configuration validation before requests, claims, or writes.
 11. **56-AC-11 — Generator store isolation — SATISFIED:** Source, claim, commit, and confirmation code/graph use only `Scraped Jobs`.
 12. **56-AC-12 — Five-item sequence — SATISFIED:** Batch cap, ordering, no-backfill, and pacing tests remain green.
-13. **56-AC-13 — Approved reconsideration — SATISFIED:** Returned `Approve` records remain eligible with bounded review context.
-14. **56-AC-14 — Approval safety gates — SATISFIED:** Evaluation, proof, instruction, pack, message, stale-write, and confirmation gates are reused.
+13. **56-AC-13 — Approved reconsideration — SATISFIED:** Returned `Approve` records remain eligible, review-only questions become manual-submission reminders, and the completed path reaches `To Apply`.
+14. **56-AC-14 — Approval safety gates — SATISFIED:** Only configured warnings are acknowledged; unsafe text stays excluded and proof, pack, message, stale-write, and confirmation gates remain enforced.
 15. **56-AC-15 — Complete outcomes — SATISFIED:** Result fixtures clear ownership for business and operational outcomes.
 16. **56-AC-16 — Commit before routing — SATISFIED:** Generator commits results only to `Scraped Jobs`; movement owns subsequent routes.
 17. **56-AC-17 — Failure isolation — SATISFIED:** A failed candidate does not stop later frozen candidates.

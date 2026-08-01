@@ -49,6 +49,7 @@ const JOB_PIPELINE_SETUP = {
         "company",
         "opportunity_score",
         "decision_reason",
+        "required_input",
         "generated_message",
         "canonical_url",
         "posted_at",

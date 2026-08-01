@@ -1,6 +1,6 @@
 {
   "schema_version": 6,
-  "view_version": "2026-08-01/v6",
+  "view_version": "2026-08-01/v7",
   "timezone": "Asia/Manila",
   "sheets": {
     "scraped_jobs": {
@@ -49,6 +49,7 @@
         "company",
         "opportunity_score",
         "decision_reason",
+        "required_input",
         "generated_message",
         "canonical_url",
         "posted_at",

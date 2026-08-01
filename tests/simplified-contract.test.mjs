@@ -307,6 +307,10 @@ test("blank setup creates separate Main and Configuration workbooks", () => {
       user_action: { values: ["I Applied", "Skip"], allow_blank: true }
     }
   );
+  const toApply = main.sheets.find((sheet) => sheet.name === "To Apply");
+  assert.equal(toApply.hiddenColumns.includes("required_input"), false);
+  assert.equal(toApply.protectedColumns.includes("required_input"), true);
+  assert.equal(toApply.protectedColumns.includes("notes"), false);
   assert.deepEqual(
     main.sheets.find((sheet) => sheet.name === "Scraped Jobs").validations,
     {}

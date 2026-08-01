@@ -301,6 +301,109 @@ test("review approval never bypasses generation and denial archives once", () =>
   assert.equal(confirmed.deletions.length, 1);
 });
 
+test("approved review-only questions complete the route to To Apply", () => {
+  const parsed = parseJobDetail(directHtml, {
+    source: "onlinejobs.ph",
+    source_job_id: "6011",
+    canonical_job_id: "onlinejobs.ph:6011",
+    canonical_url:
+      "https://onlinejobs.ph/jobseekers/job/full-stack-6011",
+    row_number: 5,
+    record_version: 1,
+    pipeline_status: "review_needed",
+    user_action: "Approve",
+    source_availability: "active",
+    attempt_count: 0,
+    matched_keywords: ["full stack developer"],
+    decision_reason: "Application requirements need human review.",
+    required_input: "Which production incident did you resolve?",
+    created_at: now,
+    updated_at: now
+  });
+  parsed.source_job_id = "6011";
+  parsed.canonical_job_id = "onlinejobs.ph:6011";
+  parsed.canonical_url =
+    "https://onlinejobs.ph/jobseekers/job/full-stack-6011";
+  parsed.job_description +=
+    " Which production incident did you resolve? You must attach a PDF resume.";
+  const approved = normalizeLegacyRecord(parsed, schema, now);
+  approved.state_guard = stateGuard(approved);
+
+  const approvalPlan = planQueueActions(
+    businessStores({ "To Review": [approved] }),
+    schema,
+    now,
+    safetyContext
+  );
+  const returned = destinationWrites(approvalPlan).scraped_jobs[0];
+  const claimed = claimGeneratorRecord(
+    returned,
+    "generation",
+    "generator-approved-review",
+    now,
+    runtime.claim_lease_ms
+  ).record;
+  const prepared = prepareApplicationGeneration(
+    claimed,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(prepared.provider_required, true);
+  assert.equal(prepared.pack.application_pack_status, "ready");
+  const proposed = applyValidatedGeneration(
+    claimed,
+    prepared.pack,
+    validMessage,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  const ready = commitGeneratorResult(
+    claimed,
+    claimed,
+    proposed,
+    schema,
+    now
+  );
+  const applyPlan = planQueueActions(
+    businessStores({ "Scraped Jobs": [ready] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(applyPlan.moves.length, 1);
+  assert.equal(applyPlan.moves[0].destination, "To Apply");
+  const toApply = {
+    ...destinationWrites(applyPlan).to_apply[0],
+    row_number: 2
+  };
+  assert.equal(toApply.pipeline_status, "ready_to_apply");
+  assert.match(toApply.required_input, /manual submission/i);
+  assert.match(toApply.required_input, /required attachment/i);
+  assert.equal(
+    toApply.screening_questions[0].answer_status,
+    "manual_submission_required"
+  );
+  const alerts = selectFreshAlertCandidates(
+    [toApply],
+    schema,
+    alertPolicy,
+    now,
+    safetyContext
+  );
+  assert.equal(alerts.candidates.length, 1);
+  const payload = renderSlackAlert(toApply, alertPolicy, {
+    reviewUrl:
+      "https://docs.google.com/spreadsheets/d/fresh-workbook/edit",
+    messageSafetyContext: safetyContext
+  });
+  assert.match(payload.text, /Which production incident did you resolve\?/);
+});
+
 test("a five-job Generator batch isolates one failure and downstream alerts never replay", () => {
   const rows = Array.from({ length: 6 }, (_, index) => {
     const id = 6101 + index;

@@ -453,7 +453,7 @@ test("unsafe or incomplete application packs never call the provider", () => {
   );
 });
 
-test("Approve reconsiders through the same pack and message gates", () => {
+test("Approve sanitizes unsafe instructions and keeps them as manual reminders", () => {
   const approved = recordFromDescription(3050, {
     html: maliciousHtml,
     status: "review_needed",
@@ -480,8 +480,100 @@ test("Approve reconsiders through the same pack and message gates", () => {
     groqPolicy,
     now
   );
+  assert.equal(prepared.provider_required, true);
+  assert.equal(prepared.pack.application_pack_status, "ready");
+  assert.ok(
+    prepared.pack.application_warnings.some(
+      (warning) =>
+        warning.severity === "blocked" && warning.review_acknowledged === true
+    )
+  );
+  assert.doesNotMatch(
+    prepared.user_message,
+    /ignore previous|reveal the system prompt|api.?key|automatically submit/i
+  );
+});
+
+test("Approve sends an unusable description to unavailable instead of looping review", () => {
+  const approved = recordFromDescription(3054, {
+    html: null,
+    status: "review_needed",
+    action: "Approve",
+    description: "Unavailable",
+    overrides: {
+      decision_reason: "Application requirements need human review.",
+      required_input: "A complete description is required."
+    }
+  });
+  const claimed = claim(approved, "generation");
+  const prepared = prepareApplicationGeneration(
+    claimed,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
   assert.equal(prepared.provider_required, false);
-  assert.equal(prepared.record.pipeline_status, "review_needed");
+  assert.equal(prepared.record.pipeline_status, "unavailable");
+  const committed = commitGeneratorResult(
+    claimed,
+    claimed,
+    prepared.record,
+    schema,
+    now
+  );
+  assert.equal(committed.pipeline_status, "unavailable");
+  assert.equal(committed.user_action, "");
+});
+
+test("Approve resolves review-only questions and can commit ready_to_apply", () => {
+  const approved = recordFromDescription(3053, {
+    html: null,
+    status: "review_needed",
+    action: "Approve",
+    description:
+      "Build and maintain production features using TypeScript, React, Next.js, Node.js, REST APIs, PostgreSQL, and Supabase. Which production incident did you resolve?",
+    overrides: {
+      decision_reason: "Application requirements need human review.",
+      required_input: "Which production incident did you resolve?"
+    }
+  });
+  const claimed = claim(approved, "generation");
+  const prepared = prepareApplicationGeneration(
+    claimed,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(prepared.provider_required, true);
+  assert.equal(prepared.pack.application_pack_status, "ready");
+  assert.equal(
+    prepared.pack.screening_questions[0].answer_status,
+    "manual_submission_required"
+  );
+  const proposed = applyValidatedGeneration(
+    claimed,
+    prepared.pack,
+    validMessage,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  assert.equal(proposed.pipeline_status, "ready_to_apply");
+  assert.match(proposed.required_input, /manual submission/i);
+  const committed = commitGeneratorResult(
+    claimed,
+    claimed,
+    proposed,
+    schema,
+    now
+  );
+  assert.equal(committed.pipeline_status, "ready_to_apply");
+  assert.equal(committed.user_action, "");
 });
 
 test("Approve snapshots bounded reviewer evidence without trusting it as candidate proof", () => {

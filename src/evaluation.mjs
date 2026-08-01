@@ -1947,6 +1947,34 @@ export function validateApplicationPackPolicy(packPolicy, profile, applicationPo
       errors.push(`invalid unsafe instruction category: ${category}`);
     }
   }
+  const reviewApproval = packPolicy.review_approval;
+  if (
+    !reviewApproval ||
+    typeof reviewApproval !== "object" ||
+    Array.isArray(reviewApproval)
+  ) {
+    errors.push("review_approval configuration is required");
+  } else {
+    const codes = reviewApproval.acknowledgeable_warning_codes;
+    if (
+      !Array.isArray(codes) ||
+      codes.length === 0 ||
+      codes.some((code) => typeof code !== "string" || !code.trim()) ||
+      new Set(codes).size !== codes.length
+    ) {
+      errors.push(
+        "review_approval.acknowledgeable_warning_codes must be a unique non-empty string array"
+      );
+    }
+    if (
+      reviewApproval.screening_question_answer_status !==
+      "manual_submission_required"
+    ) {
+      errors.push(
+        "review_approval.screening_question_answer_status must be manual_submission_required"
+      );
+    }
+  }
   return errors;
 }
 
@@ -1963,6 +1991,31 @@ function packSegments(description, packPolicy) {
   )
     .map((segment) => normalizeText(segment).slice(0, packPolicy.maximum_item_characters))
     .filter(Boolean);
+}
+
+const NON_SCREENING_QUESTION_PATTERNS = [
+  /^what to expect\??$/i,
+  /^don['’]?t meet every single requirement\??$/i,
+  /^why (?:join|work with) us\??$/i,
+  /^who (?:we are|are we)\??$/i,
+  /^what (?:we offer|you['’]?(?:ll| will) do)\??$/i
+];
+
+function isCandidateDirectedQuestion(segment) {
+  const question = normalizeText(segment);
+  if (!question.endsWith("?")) return false;
+  if (NON_SCREENING_QUESTION_PATTERNS.some((pattern) => pattern.test(question))) {
+    return false;
+  }
+  return /\b(?:you|your|yours|yourself)\b/i.test(question);
+}
+
+function hasReviewApproval(job) {
+  return Boolean(
+    job?.pipeline_status === "review_needed" &&
+      job?.user_action === "Approve" &&
+      Number.isFinite(Date.parse(job?.review_approved_at || ""))
+  );
 }
 
 function extractSubjectValue(text) {
@@ -2051,7 +2104,7 @@ export function buildApplicationPack(
     if (unsafeSegments.has(index)) continue;
     const required = containsMarker(segment, packPolicy.required_markers);
     const ambiguous = containsMarker(segment, packPolicy.ambiguous_markers);
-    if (segment.endsWith("?")) {
+    if (isCandidateDirectedQuestion(segment)) {
       if (questions.length < packPolicy.maximum_questions) {
         questions.push({
           id: `question-${questions.length + 1}`,
@@ -2157,25 +2210,56 @@ export function buildApplicationPack(
     });
   }
 
-  const status = warnings.some((warning) => warning.severity === "blocked")
+  const approvedReview = hasReviewApproval(job);
+  const acknowledgeableWarnings = new Set(
+    packPolicy.review_approval.acknowledgeable_warning_codes
+  );
+  if (approvedReview) {
+    for (const question of questions) {
+      question.answer_status =
+        packPolicy.review_approval.screening_question_answer_status;
+      question.review_acknowledged = true;
+    }
+    for (const [index, warning] of warnings.entries()) {
+      if (acknowledgeableWarnings.has(warning.code)) {
+        warnings[index] = {
+          ...warning,
+          review_acknowledged: true
+        };
+      }
+    }
+  }
+
+  const status = warnings.some(
+    (warning) =>
+      warning.severity === "blocked" && !warning.review_acknowledged
+  )
     ? "blocked"
-    : warnings.some((warning) => warning.severity === "review")
+    : warnings.some(
+          (warning) =>
+            warning.severity === "review" && !warning.review_acknowledged
+        )
       ? "review_required"
       : "ready";
+  const questionTexts = new Set(questions.map((question) => question.text));
   return {
     application_instructions: instructions,
     screening_questions: questions,
     selected_proof_refs: selectedProofs.map((proof) => proof.reference),
     selected_proofs: selectedProofs,
     safe_job_description: segments
-      .filter((_, index) => !unsafeSegments.has(index))
+      .filter(
+        (segment, index) =>
+          !unsafeSegments.has(index) && !questionTexts.has(segment)
+      )
       .join(" "),
     application_warnings: warnings,
     application_pack_status: status,
     application_pack_version: packPolicy.pack_version,
     application_pack_profile_version: profile.profile_version,
     application_pack_policy_version: packPolicy.policy_version,
-    application_pack_generated_at: now
+    application_pack_generated_at: now,
+    review_approved_at: approvedReview ? job.review_approved_at : ""
   };
 }
 
@@ -2241,7 +2325,13 @@ export function validateApplicationPack(pack, profile, packPolicy) {
     if (
       pack?.application_pack_status === "ready" &&
       instruction.required &&
-      ["attachment", "test"].includes(instruction.type)
+      ["attachment", "test"].includes(instruction.type) &&
+      !(pack?.application_warnings ?? []).some(
+        (warning) =>
+          warning.code === "unsupported_external_action" &&
+          warning.instruction_id === instruction.id &&
+          warning.review_acknowledged === true
+      )
     ) {
       errors.push("a ready pack cannot contain a required external action");
     }
@@ -2249,16 +2339,25 @@ export function validateApplicationPack(pack, profile, packPolicy) {
   for (const question of pack?.screening_questions ?? []) {
     if (
       typeof question?.text !== "string" ||
-      question.text.length > packPolicy.maximum_item_characters
+      question.text.length > packPolicy.maximum_item_characters ||
+      !["manual_review_required", "manual_submission_required"].includes(
+        question?.answer_status
+      )
     ) {
       errors.push("screening_questions contains an invalid item");
     }
   }
   if (
     pack?.application_pack_status === "ready" &&
-    (pack?.screening_questions?.length ?? 0) > 0
+    (pack?.screening_questions ?? []).some(
+      (question) =>
+        question.answer_status !== "manual_submission_required" ||
+        question.review_acknowledged !== true
+    )
   ) {
-    errors.push("a ready pack cannot contain unanswered screening questions");
+    errors.push(
+      "a ready pack cannot contain unacknowledged screening questions"
+    );
   }
   for (const warning of pack?.application_warnings ?? []) {
     if (
@@ -2267,6 +2366,23 @@ export function validateApplicationPack(pack, profile, packPolicy) {
       typeof warning?.summary !== "string"
     ) {
       errors.push("application_warnings contains an invalid item");
+    }
+    if (
+      warning?.review_acknowledged !== undefined &&
+      (!["review", "blocked"].includes(warning.severity) ||
+        warning.review_acknowledged !== true)
+    ) {
+      errors.push("application_warnings contains an invalid review acknowledgment");
+    }
+    if (
+      warning?.review_acknowledged === true &&
+      !packPolicy.review_approval.acknowledgeable_warning_codes.includes(
+        warning.code
+      )
+    ) {
+      errors.push(
+        "application_warnings acknowledges a warning that approval cannot resolve"
+      );
     }
     if (
       Object.values(packPolicy.unsafe_instruction_categories).some((markers) =>
@@ -2292,11 +2408,26 @@ export function validateApplicationPack(pack, profile, packPolicy) {
     errors.push("application_pack_generated_at must be a valid timestamp");
   }
   const hasBlockingWarning = (pack?.application_warnings ?? []).some(
-    (warning) => warning.severity === "blocked"
+    (warning) =>
+      warning.severity === "blocked" && warning.review_acknowledged !== true
   );
   const hasReviewWarning = (pack?.application_warnings ?? []).some(
-    (warning) => warning.severity === "review"
+    (warning) =>
+      warning.severity === "review" && warning.review_acknowledged !== true
   );
+  const hasReviewAcknowledgment =
+    (pack?.application_warnings ?? []).some(
+      (warning) => warning.review_acknowledged === true
+    ) ||
+    (pack?.screening_questions ?? []).some(
+      (question) => question.review_acknowledged === true
+    );
+  if (
+    hasReviewAcknowledgment &&
+    !Number.isFinite(Date.parse(pack?.review_approved_at || ""))
+  ) {
+    errors.push("review acknowledgment requires a persisted approval timestamp");
+  }
   if (pack?.application_pack_status === "ready" && (hasBlockingWarning || hasReviewWarning)) {
     errors.push("a ready pack cannot contain unresolved warnings");
   }
@@ -2401,6 +2532,16 @@ export function buildApplicationUserMessage(
           : {})
       }))
     : pack.application_instructions;
+  const unresolvedQuestions = Array.isArray(pack.screening_questions)
+    ? pack.screening_questions.filter(
+        (question) => question.review_acknowledged !== true
+      )
+    : pack.screening_questions;
+  const unresolvedWarnings = Array.isArray(pack.application_warnings)
+    ? pack.application_warnings.filter(
+        (warning) => warning.review_acknowledged !== true
+      )
+    : pack.application_warnings;
   const approvalContext = normalizeText(
     String(job.review_approval_note || "")
   ).slice(0, 300);
@@ -2414,10 +2555,10 @@ Company: ${job.company || "Unknown"}${promptSection(
     promptInstructions
   )}${promptSection(
     "SCREENING QUESTIONS REQUIRING MANUAL REVIEW",
-    pack.screening_questions
+    unresolvedQuestions
   )}${promptSection(
     "APPLICATION WARNINGS — INTERNAL ONLY",
-    pack.application_warnings
+    unresolvedWarnings
   )}${promptSection(
     "UNSUPPORTED REQUIREMENTS — EXCLUDE FROM THE MESSAGE",
     job.requirement_gaps

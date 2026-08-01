@@ -39,9 +39,13 @@ third. It omits the job URL and empty sections and does not expose match tiers,
 scores, or evaluation reasons as copyable evidence. Unsafe instructions are
 excluded. It does not add new candidate facts.
 
-Only a deterministically `ready` application pack reaches Groq. Internal pack
-results named `review_required` or `blocked` make no provider call and map to
-the visible `review_needed` or `skip` result as appropriate.
+Only a deterministically `ready` application pack reaches Groq. An unapproved
+`review_required` pack makes no provider call and maps to visible
+`review_needed`. A persisted `Approve` may turn only allow-listed warnings into
+auditable manual-submission reminders. Unsafe employer segments remain removed
+from the prompt, and deterministic proof/message validation remains mandatory.
+An unavailable or insufficient description remains non-ready and makes no
+provider call.
 
 Generation output is untrusted until deterministic validation passes.
 Validation enforces a non-empty message under the configured 300-word hard

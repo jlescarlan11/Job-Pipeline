@@ -1711,6 +1711,99 @@ test("screening, ambiguous, conflicting, and unsupported requests cannot become 
   assert.equal(ambiguousPack.application_pack_status, "review_required");
 });
 
+test("rhetorical headings are not screening questions", () => {
+  const pack = buildApplicationPack(
+    {
+      job_title: "Test Engineer",
+      role_families: ["full-stack"],
+      source_availability: "active",
+      job_description:
+        "What to expect? Don't meet every single requirement? Build and test React and TypeScript product features with Node.js and PostgreSQL."
+    },
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.deepEqual(pack.screening_questions, []);
+  assert.equal(pack.application_pack_status, "ready");
+});
+
+test("Approve converts safely handled warnings into manual-submission reminders", () => {
+  const approvedJob = {
+    job_title: "TypeScript Developer",
+    role_families: ["full-stack"],
+    source_availability: "active",
+    pipeline_status: "review_needed",
+    user_action: "Approve",
+    review_approved_at: now,
+    job_description:
+      "Build React, TypeScript, Node.js, and PostgreSQL features. Which production incident did you resolve?"
+  };
+  const approvedPack = buildApplicationPack(
+    approvedJob,
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(approvedPack.application_pack_status, "ready");
+  assert.equal(
+    approvedPack.screening_questions[0].answer_status,
+    "manual_submission_required"
+  );
+  assert.equal(
+    approvedPack.screening_questions[0].review_acknowledged,
+    true
+  );
+  assert.ok(
+    approvedPack.application_warnings.every(
+      (warning) =>
+        warning.severity !== "review" || warning.review_acknowledged === true
+    )
+  );
+  assert.deepEqual(
+    validateApplicationPack(approvedPack, profile, packPolicy),
+    []
+  );
+
+  const blockedPack = buildApplicationPack(
+    {
+      ...approvedJob,
+      job_description:
+        "Build React and TypeScript applications. You must complete a coding test and attach a PDF resume."
+    },
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(blockedPack.application_pack_status, "ready");
+  assert.ok(
+    blockedPack.application_warnings.some(
+      (warning) =>
+        warning.severity === "blocked" && warning.review_acknowledged === true
+    )
+  );
+
+  const unavailablePack = buildApplicationPack(
+    {
+      ...approvedJob,
+      job_description: "",
+      source_availability: "unavailable"
+    },
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(unavailablePack.application_pack_status, "blocked");
+  assert.equal(
+    unavailablePack.application_warnings[0].review_acknowledged,
+    undefined
+  );
+});
+
 test("non-ready packs return to human review without calling generation or discarding warnings", () => {
   const record = {
     canonical_job_id: "onlinejobs.ph:pack-review",

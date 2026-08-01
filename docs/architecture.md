@@ -79,7 +79,7 @@ policy:
 - missing source content becomes `unavailable`;
 - provider, network, or validation failures become `error`, never `skip`.
 
-`Approve` in `To Review` means “return to `Scraped Jobs` and reconsider through normal generation.” The approval timestamp and a bounded snapshot of the reviewer note are retained as untrusted operator context. Approval does not waive proof selection, instruction sanitization, pack validation, or message validation. Prompt-injection requests, private-data requests, unsupported claims, unsupported automatic actions, and unresolved application requirements cannot become ready.
+`Approve` in `To Review` means “return to `Scraped Jobs`, acknowledge allow-listed warnings, and reconsider through normal generation.” The approval timestamp and a bounded snapshot of the reviewer note are retained; the note remains untrusted operator context. Candidate-directed screening questions and external actions remain visible as manual-submission reminders, while rhetorical headings are ignored. Unsafe employer segments stay excluded from the provider prompt, and approval does not waive proof selection, pack validation, or message validation. A missing or unusable description becomes `unavailable` instead of cycling through review again.
 
 The model path permits one initial `openai/gpt-oss-120b` request per candidate. If deterministic message validation rejects that draft, it permits exactly one delayed `openai/gpt-oss-20b` repair containing the complete rejected draft, every validation error, and only the compact proof/instruction context needed to validate the repaired message. The full job description is not resent. The repaired draft must pass the same pack and message gates; there is no third request or automatic HTTP retry.
 

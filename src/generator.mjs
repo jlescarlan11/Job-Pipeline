@@ -246,6 +246,25 @@ function packRequiredInput(pack) {
   return boundedText([...questions, ...warnings].join("; "));
 }
 
+function readyRequiredInput(pack) {
+  const questions = (pack.screening_questions ?? [])
+    .filter((question) => question.review_acknowledged === true)
+    .map((question) => question.text)
+    .filter(Boolean);
+  const warnings = (pack.application_warnings ?? [])
+    .filter(
+      (warning) =>
+        warning.review_acknowledged === true &&
+        warning.code !== "screening_question_requires_review"
+    )
+    .map((warning) => warning.summary)
+    .filter(Boolean);
+  const reminders = [...questions, ...warnings];
+  return reminders.length > 0
+    ? boundedText(`Manual submission reminder: ${reminders.join("; ")}`)
+    : "";
+}
+
 export function prepareApplicationGeneration(
   claimedRecord,
   profile,
@@ -272,6 +291,9 @@ export function prepareApplicationGeneration(
     throw new Error(`Application pack validation failed: ${boundedText(packErrors.join("; "))}`);
   }
   if (pack.application_pack_status !== "ready") {
+    const descriptionUnavailable = pack.application_warnings?.some(
+      (warning) => warning.code === "description_unavailable"
+    );
     return {
       provider_required: false,
       pack,
@@ -290,8 +312,12 @@ export function prepareApplicationGeneration(
         generated_message: claimedRecord.generated_message || "",
         message_validation_status:
           claimedRecord.message_validation_status || "",
-        pipeline_status: "review_needed",
-        decision_reason: "Application requirements need human review.",
+        pipeline_status: descriptionUnavailable
+          ? "unavailable"
+          : "review_needed",
+        decision_reason: descriptionUnavailable
+          ? "A complete active job description is required."
+          : "Application requirements need human review.",
         required_input: packRequiredInput(pack),
         processing_stage: "",
         error_category: "",
@@ -434,9 +460,12 @@ export function applyValidatedGeneration(
     message_validation_status: "valid",
     generated_at: now,
     decision_reason: boundedText(
-      claimedRecord.decision_reason || "Validated application message is ready."
+      readyRequiredInput(pack)
+        ? "Approved after human review; the validated message is ready with manual submission reminders."
+        : claimedRecord.decision_reason ||
+            "Validated application message is ready."
     ),
-    required_input: "",
+    required_input: readyRequiredInput(pack),
     processing_stage: "",
     error_category: "",
     error_summary: "",

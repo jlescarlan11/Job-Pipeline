@@ -111,7 +111,10 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 - Missing/unavailable source: confirm `unavailable`, not `skip`.
 - Provider timeout/rate limit/auth/invalid output: confirm bounded `error` evidence, retries, and no ready status.
 - Unsafe instructions/prompt injection/private-data/auto-action/unsupported claims: confirm no provider path or no ready commit.
-- Select `Approve` in `To Review`, confirm Alerter & Mover first returns it to `Scraped Jobs` with bounded review context, then confirm Generator sends it through the same pack/message gates.
+- Select `Approve` for a review-only screening question, confirm Alerter & Mover first returns it to `Scraped Jobs` with bounded review context, then confirm Generator acknowledges the question, produces a validated message, and routes the row to `To Apply` with a manual-submission reminder.
+- Select `Approve` for an unsafe employer instruction or required external action and confirm the unsafe text stays outside the provider prompt while `To Apply` shows only its sanitized manual reminder.
+- Confirm a missing or unusable description remains `unavailable` and cannot produce an application message.
+- Confirm rhetorical headings such as `What to expect?` and `Don't meet every single requirement?` are not extracted as screening questions.
 - Change action/version after a claim and confirm the stale commit is rejected.
 - Fail a retry after a previously valid message and confirm the old message remains stored but the row is not alert-eligible.
 - Exercise one initial rejection and confirm exactly one delayed repair request,
@@ -124,7 +127,9 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 
 - From `Scraped Jobs`, confirm blank `review_needed` moves to `To Review`, blank `ready_to_apply` moves to `To Apply`, and blank `skip` moves to Archive.
 - In `To Review`, test only `Approve` and `Deny`.
-- In `To Apply`, test only `I Applied` and `Skip`.
+- In `To Apply`, test only `I Applied` and `Skip`; confirm an approved review
+  row shows its system reminder in visible `required_input` while preserving
+  any user-owned `notes`.
 - Paste forged/unsupported values and confirm no mutation.
 - Confirm `I Applied` fails without current pack/message provenance unless the exact stored message has a confirmed prior Slack delivery; changing that message after delivery must still fail closed.
 - Confirm automatic `skip`, user `Skip`, and `Deny` use their exact archive reasons.

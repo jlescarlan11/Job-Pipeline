@@ -40,7 +40,7 @@ Operational conditions are separate from those recommendations:
 | Applied Jobs / `ready_to_apply` | blank |
 | Archive / `skip`, `review_needed`, or `ready_to_apply` | blank |
 
-Unsupported store/status/action combinations are invalid even if a Sheet validation rule is bypassed. `Approve` returns a review-needed row to controlled generation; it does not waive pack or message validation. `I Applied` records a fact after the user submits manually; no workflow opens or submits an application form. Terminal movement clears `user_action` after preserving the appropriate audit timestamp/reason.
+Unsupported store/status/action combinations are invalid even if a Sheet validation rule is bypassed. `Approve` returns a review-needed row to controlled generation and acknowledges only warning codes allow-listed by the active application-pack policy. Acknowledged screening questions and external actions remain stored as manual-submission reminders. Unsafe employer segments stay excluded, and proof and message validation cannot be overridden. A missing or unusable description remains non-generatable. `I Applied` records a fact after the user submits manually; no workflow opens or submits an application form. Terminal movement clears `user_action` after preserving the appropriate audit timestamp/reason.
 
 Archive reasons are exact and machine-readable: `automatic_skip` for a system
 skip, `user_skip` for the user’s Skip action, and `review_denied` for Deny.
@@ -53,7 +53,7 @@ Errors and operational logs use bounded categories and sanitized summaries. They
 
 `record_version`, `state_guard`, persisted processing/alert claim tokens, and expiring append-winner `_System` claims prevent a stale worker from overwriting a newer user action or duplicating destination/Slack work. Every route upserts by canonical identity, confirms all planned destination fields, and only then deletes unchanged source state. `I Applied` passes the current shared persisted-message gate, or—after a later profile/configuration change—must carry a confirmed successful alert whose idempotency key still matches the exact stored message. Partial active and terminal destinations are repaired without overwriting fields owned by their destination.
 
-An `Approve` action snapshots `review_approved_at` and a bounded `review_approval_note`; that note remains explicitly untrusted prompt context and never becomes candidate evidence. Applied outcomes use `outcome_recorded_value` to distinguish a new operator edit from the last workflow-recorded value without changing the original `applied_at`, message, or notes.
+An `Approve` action snapshots `review_approved_at` and a bounded `review_approval_note`; the timestamp authorizes acknowledgment of allow-listed review warnings, while the note remains explicitly untrusted prompt context and never becomes candidate evidence. Applied outcomes use `outcome_recorded_value` to distinguish a new operator edit from the last workflow-recorded value without changing the original `applied_at`, message, or notes.
 
 ## Fresh-start boundary
 

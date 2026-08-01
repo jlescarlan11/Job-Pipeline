@@ -13,9 +13,10 @@ Each successfully generated pack persists:
 
 - instructions classified as `subject`, `format`, `submission`, `attachment`,
   `test`, or `evidence`;
-- screening questions, each marked for manual review;
+- screening questions marked either for manual review or, after a persisted
+  approval, for manual completion during submission;
 - at most three relevant `experience:<id>` or `projects:<id>` proof references;
-- sanitized unresolved warnings;
+- sanitized warnings with explicit unresolved or acknowledged state;
 - the validated application message;
 - pack, profile, application-policy, and pack-policy versions and timestamp.
 
@@ -27,19 +28,30 @@ generation; only references are persisted with the job.
 
 The pack statuses are internal safety results. `ready` means the message passed
 deterministic validation and the pack has no unresolved extraction warning.
+It may retain review warnings and screening questions only when each carries a
+persisted review acknowledgment tied to `review_approved_at`; those questions
+remain `manual_submission_required` and are shown in the application context.
 `review_required` means the candidate must interpret an ambiguous instruction,
 answer a screening question, resolve conflicting subject requirements, inspect
-truncated input, or accept a proof shortfall. `blocked` means a required
-attachment/test or unsupported evidence cannot be completed by the pipeline,
-the posting is unavailable/insufficient, or an unsafe instruction was rejected.
+truncated input, or accept a proof shortfall. Before approval, `blocked` marks a
+required attachment/test, unsupported evidence, rejected unsafe instruction,
+or unavailable/insufficient description.
 
 A generation commit can enter visible lifecycle `ready_to_apply` only when the
 pack status is `ready` and the persisted message passes the current shared
 content and provenance gate. Internal `review_required` maps to
-`review_needed`; a blocking result maps to `skip` unless the source itself is
-unavailable. Neither is copyable, applicable, or alert-eligible. The candidate
-remains responsible for questions, attachments, tests, external navigation,
-and submission.
+`review_needed`. `Approve` may acknowledge only warning codes explicitly listed
+by `review_approval.acknowledgeable_warning_codes`. Acknowledged unsafe
+instructions remain excluded from the provider prompt; acknowledged questions,
+attachments, tests, and unsupported evidence become visible manual reminders.
+An unavailable/insufficient description is not acknowledgeable and cannot
+generate a message. The candidate remains responsible for every acknowledged
+question, external action, and submission.
+
+Question extraction requires candidate-directed language such as `you` or
+`your` and excludes known rhetorical section headings. This prevents headings
+such as `What to expect?` from creating an approval loop while retaining real
+questions such as `What hourly rate are you seeking?`.
 
 ## Trust boundary
 
