@@ -126,7 +126,7 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 - In `To Review`, test only `Approve` and `Deny`.
 - In `To Apply`, test only `I Applied` and `Skip`.
 - Paste forged/unsupported values and confirm no mutation.
-- Confirm `I Applied` fails without current pack/message provenance.
+- Confirm `I Applied` fails without current pack/message provenance unless the exact stored message has a confirmed prior Slack delivery; changing that message after delivery must still fail closed.
 - Confirm automatic `skip`, user `Skip`, and `Deny` use their exact archive reasons.
 - Fail each active and terminal destination write and confirm its source row remains.
 - Succeed destination write, fail source delete, rerun, and confirm one destination row followed by safe deletion.

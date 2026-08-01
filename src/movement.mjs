@@ -19,6 +19,37 @@ function sanitize(value, maximum = 240) {
     .slice(0, maximum);
 }
 
+function messageHash(value) {
+  const text = String(value || "");
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export function hasConfirmedDeliveredMessage(record) {
+  const canonicalJobId = String(record?.canonical_job_id || "");
+  const generatedAt = String(record?.generated_at || "");
+  const generatedMessage = String(record?.generated_message || "");
+  const idempotencyKey = String(record?.alert_idempotency_key || "");
+  return Boolean(
+    canonicalJobId &&
+      generatedMessage.trim() &&
+      Number.isFinite(Date.parse(generatedAt)) &&
+      record?.message_validation_status === "valid" &&
+      record?.application_pack_status === "ready" &&
+      record?.alert_status === "sent" &&
+      Number.isFinite(Date.parse(record?.alert_sent_at || "")) &&
+      !record?.alert_claim_token &&
+      idempotencyKey.startsWith(`slack:${canonicalJobId}:`) &&
+      idempotencyKey.endsWith(
+        `:${generatedAt}:${messageHash(generatedMessage)}`
+      )
+  );
+}
+
 function indexStore(rows, name) {
   if (!Array.isArray(rows)) throw new Error(`${name} rows must be an array`);
   const index = new Map();
@@ -236,7 +267,10 @@ function classifyQueueRow(sourceSheet, record, messageSafetyContext) {
       record,
       messageSafetyContext
     );
-    if (!safety.safe) {
+    // A later profile/configuration edit must not strand a manual application
+    // fact when this exact persisted message was already delivered by Slack.
+    // Unsent rows still require the current shared safety gate.
+    if (!safety.safe && !hasConfirmedDeliveredMessage(record)) {
       throw new Error(
         `I Applied rejected by shared message-safety gate: ${sanitize(
           safety.reasons.join(",")

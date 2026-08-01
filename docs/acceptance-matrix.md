@@ -69,7 +69,7 @@ Evidence labels:
 3. **Forged actions fail closed:** Automated contract/planner rejection.
 4. **Approve retains context:** Automated generation-request fixture.
 5. **Deny archives with context:** Automated full-field archive fixture.
-6. **I Applied safety gate:** Automated missing-provenance loop through the same shared persisted-message validator used by alerts.
+6. **I Applied safety gate:** Automated missing-provenance loop through the shared persisted-message validator, plus a narrow confirmed-delivery path for the exact stored message after profile/configuration versions change.
 7. **Applied copy/time once:** Automated destination record and rerun fixture.
 8. **User Skip archives:** Automated `user_skip`.
 9. **Automatic skip archives:** Automated `automatic_skip`.
@@ -329,7 +329,7 @@ sanitized permanent record is
 1. **57-AC-01 — Exact route table — SATISFIED:** Movement/E2E fixtures cover all seven supported source/status/action routes.
 2. **57-AC-02 — Invalid combinations fail closed — SATISFIED:** Store validation and planner tests leave invalid sources intact with bounded rejection evidence.
 3. **57-AC-03 — Approve returns for generation — SATISFIED:** Tests prove return to `Scraped Jobs` with context, without readiness or generation.
-4. **57-AC-04 — Applied message gate — SATISFIED:** Unsafe or stale generated-message provenance blocks `I Applied` movement.
+4. **57-AC-04 — Applied message gate — SATISFIED:** Unsafe or stale generated-message provenance blocks `I Applied` movement unless a prior successful alert confirms the exact unchanged stored message.
 5. **57-AC-05 — Copy-confirm-delete — SATISFIED:** Every route uses confirmed upsert, fresh-source guard, partial repair, and retry-safe deletion.
 6. **57-AC-06 — Single ownership under retry — SATISFIED:** Duplicate/conflict and repeated-execution fixtures prevent multiple active or terminal owners.
 7. **57-AC-07 — Scoped expiring claims — SATISFIED:** Claim scope includes source/destination and stale workers cannot commit newer decisions.
