@@ -76,6 +76,11 @@ if (
 ) {
   throw new Error("Segmented active sheet configuration is invalid");
 }
+const latestFirstBusinessSheets = Object.fromEntries(
+  Object.values(review.sheets)
+    .filter((definition) => schema.business_stores.includes(definition.name))
+    .map((definition) => [definition.name, definition.latest_first_column])
+);
 
 function stripModuleSyntax(source) {
   return source
@@ -131,6 +136,7 @@ const alertCore = await bundledCore(
   "src/system-claims.mjs",
   "src/alerter-mover.mjs"
 );
+const sheetOrderCore = await bundledCore("src/sheet-order.mjs");
 const contextSources = [
   ["candidateRows", "candidate", "Candidate", "candidate_rows"],
   ["skillRows", "skills", "Skills", "skill_rows"],
@@ -397,13 +403,20 @@ function httpNode(
     responseFormat = "text",
     fullResponse = false,
     continueOnError = true,
-    interval
+    interval,
+    credentialType
   }
 ) {
   return {
     parameters: {
       method,
       url,
+      ...(credentialType
+        ? {
+            authentication: "predefinedCredentialType",
+            nodeCredentialType: credentialType
+          }
+        : {}),
       sendHeaders: headers.length > 0,
       ...(headers.length > 0
         ? { headerParameters: { parameters: headers } }
@@ -2224,6 +2237,33 @@ return writes.archive.length
       { continueOnError: true }
     ),
     aggregateNode("Aggregate Archive Writes", [2800, 120], "archive_writes"),
+    httpNode("Get Main Workbook Layout", [2900, 360], {
+      url: `=https://sheets.googleapis.com/v4/spreadsheets/{{$env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE}}}?fields=sheets.properties(sheetId,title,gridProperties(rowCount,columnCount))`,
+      timeout: 10000,
+      responseFormat: "json",
+      continueOnError: false,
+      credentialType: "googleSheetsOAuth2Api"
+    }),
+    codeNode(
+      "Prepare Latest-First Sort",
+      [3100, 360],
+      `${sheetOrderCore}
+const requests = latestFirstSortRequests(
+  $json,
+  ${JSON.stringify(schema)},
+  ${JSON.stringify(latestFirstBusinessSheets)}
+);
+return [{ json: { requests } }];`
+    ),
+    httpNode("Sort Business Sheets Latest First", [3300, 360], {
+      url: `=https://sheets.googleapis.com/v4/spreadsheets/{{$env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE}}}:batchUpdate`,
+      method: "POST",
+      timeout: 10000,
+      jsonBody: "={{ JSON.stringify($json) }}",
+      responseFormat: "json",
+      continueOnError: false,
+      credentialType: "googleSheetsOAuth2Api"
+    }),
     readSheet("Get Scraped Jobs After Copies", [3000, 240], scraped),
     aggregateNode("Aggregate Scraped After Copies", [3200, 240], "scraped_rows"),
     readSheet("Get To Review After Copies", [3250, 360], toReview, {
@@ -2764,13 +2804,22 @@ return staged.flatMap((entry) => {
     "Has Archive Writes": {
       main: [
         [connection("Upsert Archive")],
-        [connection("Get Scraped Jobs After Copies")]
+        [connection("Get Main Workbook Layout")]
       ]
     },
     "Upsert Archive": {
       main: [[connection("Aggregate Archive Writes")]]
     },
     "Aggregate Archive Writes": {
+      main: [[connection("Get Main Workbook Layout")]]
+    },
+    "Get Main Workbook Layout": {
+      main: [[connection("Prepare Latest-First Sort")]]
+    },
+    "Prepare Latest-First Sort": {
+      main: [[connection("Sort Business Sheets Latest First")]]
+    },
+    "Sort Business Sheets Latest First": {
       main: [[connection("Get Scraped Jobs After Copies")]]
     },
     "Get Scraped Jobs After Copies": {
@@ -2962,6 +3011,8 @@ return staged.flatMap((entry) => {
       manualSubmissionOnly: true,
       movementIndependentOfSlack: true,
       movementBeforeAlertSelection: true,
+      latestFirstBusinessSheets,
+      googleSheetsHttpCredentialType: "googleSheetsOAuth2Api",
       appendWinnerClaims: true,
       executionTimeoutSeconds: config.execution_timeout_seconds,
       scheduleOffsetMinutes: config.schedule_offset_minutes

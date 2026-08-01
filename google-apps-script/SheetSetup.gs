@@ -7,6 +7,7 @@ const JOB_PIPELINE_SETUP = {
       "name": "Scraped Jobs",
       "visible": true,
       "authoritative_for": "scraped",
+      "latest_first_column": "discovered_at",
       "visible_columns": [
         "pipeline_status",
         "job_title",
@@ -26,6 +27,7 @@ const JOB_PIPELINE_SETUP = {
       "name": "To Review",
       "visible": true,
       "authoritative_for": "review",
+      "latest_first_column": "evaluated_at",
       "visible_columns": [
         "user_action",
         "job_title",
@@ -43,6 +45,7 @@ const JOB_PIPELINE_SETUP = {
       "name": "To Apply",
       "visible": true,
       "authoritative_for": "apply",
+      "latest_first_column": "generated_at",
       "visible_columns": [
         "user_action",
         "job_title",
@@ -61,6 +64,7 @@ const JOB_PIPELINE_SETUP = {
       "name": "Applied Jobs",
       "visible": true,
       "authoritative_for": "applied",
+      "latest_first_column": "applied_at",
       "visible_columns": [
         "applied_at",
         "job_title",
@@ -76,6 +80,7 @@ const JOB_PIPELINE_SETUP = {
       "name": "Archive",
       "visible": true,
       "authoritative_for": "archived",
+      "latest_first_column": "archived_at",
       "visible_columns": [
         "archived_at",
         "archive_reason",

@@ -58,7 +58,7 @@ Import only:
 - `workflows/generator.json`
 - `workflows/alerter-mover.json`
 
-Keep all three inactive. Bind Google Sheets credentials, `JOB_PIPELINE_SPREADSHEET_ID` to the disposable non-production Main workbook, and `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` to a separate disposable Configuration workbook. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to the Main workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
+Keep all three inactive. Bind the same Google Sheets OAuth2 credential to every Google Sheets node and to Alerter & Mover's `Get Main Workbook Layout` and `Sort Business Sheets Latest First` HTTP Request nodes. Bind `JOB_PIPELINE_SPREADSHEET_ID` to the disposable non-production Main workbook and `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` to a separate disposable Configuration workbook. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to the Main workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
 
 ## 4. Non-production smoke matrix
 

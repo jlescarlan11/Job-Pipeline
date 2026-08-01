@@ -545,7 +545,6 @@ export function confirmMoveDeletions(
       continue;
     }
     const sourceUnchanged =
-      source.row_number === plan.source_row_number &&
       source.state_guard === plan.source_state_guard &&
       source.record_version === plan.source_record_version &&
       source.pipeline_status === plan.source_status &&

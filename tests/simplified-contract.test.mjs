@@ -71,6 +71,20 @@ test("five business sheets own the segmented record lifecycle", () => {
   assert.equal(review.sheets.to_apply.authoritative_for, "apply");
   assert.equal(review.sheets.applied_jobs.authoritative_for, "applied");
   assert.equal(review.sheets.archive.authoritative_for, "archived");
+  assert.deepEqual(
+    Object.fromEntries(
+      Object.values(review.sheets)
+        .filter((definition) => schema.business_stores.includes(definition.name))
+        .map((definition) => [definition.name, definition.latest_first_column])
+    ),
+    {
+      "Scraped Jobs": "discovered_at",
+      "To Review": "evaluated_at",
+      "To Apply": "generated_at",
+      "Applied Jobs": "applied_at",
+      Archive: "archived_at"
+    }
+  );
   assert.equal(
     review.sheets.search_keywords.authoritative_for,
     "scraper_keywords"

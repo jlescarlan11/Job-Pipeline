@@ -395,6 +395,31 @@ test("copy-confirm-delete succeeds once and uses descending source rows", () => 
   assert.deepEqual(confirmation.rejected, []);
 });
 
+test("copy-confirm-delete resolves fresh row numbers after latest-first sorting", () => {
+  const source = row(4063, "ready_to_apply", "I Applied", { row_number: 12 });
+  source.state_guard = stateGuard(source);
+  const plan = planQueueActions([source], [], [], schema, now);
+  const written = destinationAfterWrite(plan);
+  const sortedSource = { ...source, row_number: 2 };
+  const confirmation = confirmMoveDeletions(
+    plan,
+    businessStores({
+      ...sourceStores([sortedSource]),
+      "Applied Jobs": written.applied
+    }),
+    schema
+  );
+  assert.deepEqual(confirmation.deletions, [
+    {
+      row_number: 2,
+      canonical_job_id: source.canonical_job_id,
+      source_sheet: "To Apply",
+      destination: "Applied Jobs"
+    }
+  ]);
+  assert.deepEqual(confirmation.rejected, []);
+});
+
 test("delete failure is idempotent on rerun and does not duplicate destination", () => {
   const source = row(4070, "ready_to_apply", "I Applied");
   const firstPlan = planQueueActions([source], [], [], schema, now);

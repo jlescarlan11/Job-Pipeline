@@ -62,6 +62,8 @@ Visible columns are `archived_at`, `archive_reason`, `job_title`, `company`, `de
 
 All five business sheets share the exact ordered fields in `config/pipeline-schema.json`. Columns not listed above remain hidden so movement can preserve full safe provenance without a projection transform. Generated and identity fields use warning-only protections; workflow validation remains the security boundary.
 
+The business tabs are kept latest-first as complete rows. `Scraped Jobs` sorts by `discovered_at`, `To Review` by `evaluated_at`, `To Apply` by `generated_at`, `Applied Jobs` by `applied_at`, and `Archive` by `archived_at`. Equal timestamps use `created_at` descending and canonical identity ascending for deterministic order. The header is excluded from sorting, and movement resolves fresh row numbers after the atomic sort before deleting confirmed source rows.
+
 The exact record columns are:
 
 `source`, `source_job_id`, `canonical_job_id`, `record_version`,

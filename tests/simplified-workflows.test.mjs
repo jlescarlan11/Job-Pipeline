@@ -503,6 +503,9 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
     "Upsert To Apply",
     "Upsert Applied Jobs",
     "Upsert Archive",
+    "Get Main Workbook Layout",
+    "Prepare Latest-First Sort",
+    "Sort Business Sheets Latest First",
     "Get Scraped Jobs After Copies",
     "Get To Review After Copies",
     "Get To Apply After Copies",
@@ -533,6 +536,34 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   assert.match(code, /selectWinningSystemClaims/);
   assert.equal(workflow.meta.movementBeforeAlertSelection, true);
   assert.equal(workflow.meta.appendWinnerClaims, true);
+  assert.deepEqual(workflow.meta.latestFirstBusinessSheets, {
+    "Scraped Jobs": "discovered_at",
+    "To Review": "evaluated_at",
+    "To Apply": "generated_at",
+    "Applied Jobs": "applied_at",
+    Archive: "archived_at"
+  });
+  const metadataRead = node(workflow, "Get Main Workbook Layout");
+  const latestFirstSort = node(workflow, "Sort Business Sheets Latest First");
+  for (const entry of [metadataRead, latestFirstSort]) {
+    assert.equal(entry.parameters.authentication, "predefinedCredentialType");
+    assert.equal(entry.parameters.nodeCredentialType, "googleSheetsOAuth2Api");
+    assert.equal(entry.onError, undefined);
+  }
+  assert.equal(latestFirstSort.parameters.method, "POST");
+  assert.match(latestFirstSort.parameters.url, /:batchUpdate$/);
+  assert.match(
+    node(workflow, "Prepare Latest-First Sort").parameters.jsCode,
+    /latestFirstSortRequests/
+  );
+  assert.equal(
+    workflow.connections["Aggregate Archive Writes"].main[0][0].node,
+    "Get Main Workbook Layout"
+  );
+  assert.equal(
+    workflow.connections["Sort Business Sheets Latest First"].main[0][0].node,
+    "Get Scraped Jobs After Copies"
+  );
   assert.equal(
     workflow.connections["Aggregate To Apply Deletion Attempts"].main[0][0].node,
     "Get To Apply After Moves"

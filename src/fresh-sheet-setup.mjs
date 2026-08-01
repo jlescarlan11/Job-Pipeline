@@ -107,6 +107,11 @@ export function validateFreshSheetConfig(review, schema) {
     ) {
       errors.push(`${key} visible_columns must use pipeline record fields`);
     }
+    if (
+      !schema?.timestamp_fields?.includes(definition?.latest_first_column)
+    ) {
+      errors.push(`${key} latest_first_column must use a pipeline timestamp field`);
+    }
   }
   const keywordSheet = review?.sheets?.search_keywords;
   if (
