@@ -14,6 +14,7 @@ import {
   evaluateAndRoute,
   prepareApplicationGeneration,
   recordGeneratorFailure,
+  recordSourceFetchFailure,
   selectGeneratorCandidate
 } from "../src/generator.mjs";
 import {
@@ -847,6 +848,34 @@ test("HTTP 404 bodies cannot be misclassified as provider authentication failure
   );
   assert.equal(failure.error_category, "provider_failure");
   assert.equal(failure.processing_stage, "");
+});
+
+test("permanent source HTTP failures become unavailable without retrying", () => {
+  for (const status of [404, 410]) {
+    const claimed = claim(recordFromDescription(3065 + status));
+    const failure = recordSourceFetchFailure(
+      claimed,
+      new Error(`${status} - <!DOCTYPE html><html>listing removed</html>`),
+      runtime,
+      now
+    );
+    assert.equal(failure.pipeline_status, "unavailable");
+    assert.equal(failure.source_availability, "unavailable");
+    assert.equal(failure.error_category, "source_unavailable");
+    assert.equal(failure.next_retry_at, "");
+    assert.equal(failure.processing_token, "");
+    assert.match(failure.error_summary, new RegExp(`HTTP ${status}`));
+    assert.doesNotMatch(failure.error_summary, /DOCTYPE/);
+  }
+
+  const transient = recordSourceFetchFailure(
+    claim(recordFromDescription(3470)),
+    new Error("503 - temporary upstream failure"),
+    runtime,
+    now
+  );
+  assert.equal(transient.pipeline_status, "error");
+  assert.ok(transient.next_retry_at);
 });
 
 test("provider failures are bounded, observable, and sanitized", () => {

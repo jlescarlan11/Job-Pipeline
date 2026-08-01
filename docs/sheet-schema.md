@@ -54,7 +54,8 @@ Only `outcome` and `notes` are editable. Outcomes are blank, `no_response`, `rep
 
 - a system-owned `skip` as `automatic_skip`;
 - `Skip` from a `ready_to_apply` row as `user_skip`; or
-- `Deny` from a `review_needed` row as `review_denied`.
+- `Deny` from a `review_needed` row as `review_denied`; or
+- a permanently removed source listing (HTTP 404/410) as `source_unavailable`.
 
 Visible columns are `archived_at`, `archive_reason`, `job_title`, `company`, `decision_reason`, `canonical_url`, and `notes`. Only `notes` is editable.
 

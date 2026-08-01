@@ -349,6 +349,9 @@
       ]
     },
     "Archive": {
+      "unavailable": [
+        ""
+      ],
       "ready_to_apply": [
         ""
       ],
@@ -396,7 +399,8 @@
   "archive_reasons": [
     "automatic_skip",
     "user_skip",
-    "review_denied"
+    "review_denied",
+    "source_unavailable"
   ],
   "outcomes": [
     "",

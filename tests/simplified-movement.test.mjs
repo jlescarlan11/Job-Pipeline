@@ -255,6 +255,54 @@ test("automatic skip moves to Archive without an operator action", () => {
   assert.equal(writes.archive[0].decision_reason, "Hard seniority mismatch");
 });
 
+test("permanently unavailable source rows and legacy 404/410 errors move to Archive", () => {
+  const unavailable = row(4031, "unavailable", "", {
+    source_availability: "unavailable",
+    error_category: "source_unavailable",
+    error_summary: "HTTP 410: source job posting is no longer available."
+  });
+  const legacyError = row(4032, "error", "", {
+    error_category: "provider_failure_exhausted",
+    error_summary: '410 - "<!DOCTYPE html><html>listing removed</html>"'
+  });
+  const transient = row(4033, "error", "", {
+    error_category: "provider_timeout",
+    error_summary: "503 - temporary upstream failure"
+  });
+  const plan = planQueueActions(
+    [unavailable, legacyError, transient],
+    [],
+    [],
+    schema,
+    now
+  );
+  const writes = destinationWrites(plan);
+  assert.equal(writes.archive.length, 2);
+  for (const archived of writes.archive) {
+    assert.equal(archived.archive_reason, "source_unavailable");
+    assert.equal(archived.pipeline_status, "unavailable");
+    assert.equal(archived.source_availability, "unavailable");
+    assert.equal(archived.next_retry_at, "");
+  }
+  assert.equal(
+    plan.moves.some(
+      (move) => move.canonical_job_id === transient.canonical_job_id
+    ),
+    false
+  );
+
+  const written = destinationAfterWrite(plan);
+  const confirmation = confirmMoveDeletions(
+    plan,
+    businessStores({
+      ...sourceStores([unavailable, legacyError, transient]),
+      Archive: written.archive
+    }),
+    schema
+  );
+  assert.equal(confirmation.deletions.length, 2);
+});
+
 test("I Applied requires current provenance or a confirmed delivery of the exact stored message", () => {
   const safe = row(4040, "ready_to_apply", "I Applied");
   const plan = planQueueActions([safe], [], [], schema, now);

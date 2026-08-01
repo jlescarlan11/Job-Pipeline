@@ -507,6 +507,49 @@ function classifyFailure(error) {
   return "provider_failure";
 }
 
+function failureStatus(error) {
+  const direct = Number(
+    error?.statusCode ?? error?.status ?? error?.response?.status ?? 0
+  );
+  if (Number.isInteger(direct) && direct >= 100 && direct <= 599) {
+    return direct;
+  }
+  const value = String(error?.message || error || "");
+  const leading = value.match(/^\s*(\d{3})(?:\b|\s*[-:])/u)?.[1];
+  if (leading) return Number(leading);
+  const explicit = value.match(
+    /\b(?:http|status(?:\s+code)?)\s*[:=-]?\s*(\d{3})\b/iu
+  )?.[1];
+  return explicit ? Number(explicit) : 0;
+}
+
+export function recordSourceFetchFailure(
+  claimedRecord,
+  error,
+  runtime,
+  now = new Date().toISOString()
+) {
+  const status = failureStatus(error);
+  if (![404, 410].includes(status)) {
+    return recordGeneratorFailure(claimedRecord, error, runtime, now);
+  }
+  return {
+    ...claimedRecord,
+    source_availability: "unavailable",
+    pipeline_status: "unavailable",
+    processing_stage: "",
+    processing_token: "",
+    processing_started_at: "",
+    attempt_count: Number(claimedRecord.attempt_count || 0) + 1,
+    next_retry_at: "",
+    error_category: "source_unavailable",
+    error_summary: `HTTP ${status}: source job posting is no longer available.`,
+    decision_reason: "Source job posting is no longer available.",
+    required_input: "",
+    updated_at: now
+  };
+}
+
 export function recordGeneratorFailure(
   claimedRecord,
   error,

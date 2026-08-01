@@ -10,7 +10,7 @@ The machine-readable source is `config/pipeline-schema.json` (schema version 3, 
 | `To Review` | `review_needed` records awaiting `Approve` or `Deny` | A validated action is copied and confirmed in Scraped Jobs or Archive |
 | `To Apply` | `ready_to_apply` records awaiting manual `I Applied` or `Skip` | A validated action is copied and confirmed in Applied Jobs or Archive |
 | `Applied Jobs` | Listings the user explicitly marked `I Applied` | Never moved automatically |
-| `Archive` | Automatic skips, user skips, and review denials | Never reactivated automatically |
+| `Archive` | Automatic skips, user skips, review denials, and permanently unavailable source listings | Never reactivated automatically |
 | `_System` (hidden) | Short-lived concurrency claims | Claims expire and are pruned |
 
 Canonical identity is `onlinejobs.ph:<source_job_id>`. When a source ID must be recovered, the canonical OnlineJobs.ph job URL is normalized first. The same identity may appear in only one authoritative store. Ambiguous, malformed, or duplicate identity input stops the affected operation.
@@ -38,12 +38,14 @@ Operational conditions are separate from those recommendations:
 | To Review / `review_needed` | blank, `Approve`, `Deny` |
 | To Apply / `ready_to_apply` | blank, `I Applied`, `Skip` |
 | Applied Jobs / `ready_to_apply` | blank |
-| Archive / `skip`, `review_needed`, or `ready_to_apply` | blank |
+| Archive / `skip`, `review_needed`, `ready_to_apply`, or `unavailable` | blank |
 
 Unsupported store/status/action combinations are invalid even if a Sheet validation rule is bypassed. `Approve` returns a review-needed row to controlled generation and acknowledges only warning codes allow-listed by the active application-pack policy. Acknowledged profile-answerable screening questions become `answer_in_message` and enter the next initial and repair prompts; sensitive commitment questions and external actions remain stored as manual-submission reminders. Unsafe employer segments stay excluded, and proof and message validation cannot be overridden. A missing or unusable description remains non-generatable. `I Applied` records a fact after the user submits manually; no workflow opens or submits an application form. Terminal movement clears `user_action` after preserving the appropriate audit timestamp/reason.
 
 Archive reasons are exact and machine-readable: `automatic_skip` for a system
-skip, `user_skip` for the user’s Skip action, and `review_denied` for Deny.
+skip, `user_skip` for the user’s Skip action, `review_denied` for Deny, and
+`source_unavailable` for a permanently removed source listing such as HTTP 404
+or 410. Temporary provider, network, and source failures remain retryable errors.
 
 ## Safety and provenance
 

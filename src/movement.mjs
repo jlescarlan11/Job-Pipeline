@@ -19,6 +19,23 @@ function sanitize(value, maximum = 240) {
     .slice(0, maximum);
 }
 
+function permanentSourceUnavailable(record) {
+  if (
+    record?.source_availability === "unavailable" ||
+    record?.error_category === "source_unavailable"
+  ) {
+    return true;
+  }
+  if (record?.pipeline_status !== "error") return false;
+  const summary = String(record.error_summary || "");
+  return (
+    /^\s*(?:404|410)(?:\b|\s*[-:])/u.test(summary) ||
+    /\b(?:http|status(?:\s+code)?)\s*[:=-]?\s*(?:404|410)\b/iu.test(
+      summary
+    )
+  );
+}
+
 function messageHash(value) {
   const text = String(value || "");
   let hash = 2166136261;
@@ -116,6 +133,15 @@ function validExistingDestination(source, actual, destination, reason, schema) {
   ) {
     return false;
   }
+  if (
+    destination === "Archive" &&
+    reason === "source_unavailable" &&
+    (actual.pipeline_status !== "unavailable" ||
+      actual.source_availability !== "unavailable" ||
+      actual.next_retry_at)
+  ) {
+    return false;
+  }
   const destinationOwned = new Set([
     "row_number",
     "record_version",
@@ -143,6 +169,11 @@ function validExistingDestination(source, actual, destination, reason, schema) {
     "notes",
     "updated_at"
   ]);
+  if (destination === "Archive" && reason === "source_unavailable") {
+    destinationOwned.add("pipeline_status");
+    destinationOwned.add("source_availability");
+    destinationOwned.add("next_retry_at");
+  }
   return schema.fields.every((field) => {
     if (destinationOwned.has(field)) return true;
     const sourceValue = source[field];
@@ -193,6 +224,11 @@ function destinationRecord(source, destination, reason, now, existing) {
     record.archive_reason = reason;
     record.applied_at = "";
     record.notes = existing ? existing.notes || "" : source.notes || "";
+    if (reason === "source_unavailable") {
+      record.pipeline_status = "unavailable";
+      record.source_availability = "unavailable";
+      record.next_retry_at = "";
+    }
   } else {
     record.applied_at = "";
     record.archived_at = "";
@@ -237,6 +273,13 @@ function destinationRecord(source, destination, reason, now, existing) {
 }
 
 function classifyQueueRow(sourceSheet, record, messageSafetyContext) {
+  if (
+    sourceSheet === "Scraped Jobs" &&
+    !record.user_action &&
+    permanentSourceUnavailable(record)
+  ) {
+    return { destination: "Archive", reason: "source_unavailable" };
+  }
   if (
     sourceSheet === "Scraped Jobs" &&
     record.pipeline_status === "review_needed" &&

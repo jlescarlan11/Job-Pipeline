@@ -1295,7 +1295,7 @@ if (
   return { json: {
     provider_required: false,
     claimed_record: claimed,
-    proposed_record: recordGeneratorFailure(claimed, new Error(errorMessage), RUNTIME, now),
+    proposed_record: recordSourceFetchFailure(claimed, new Error(errorMessage), RUNTIME, now),
     selection_index: context.selection_index,
     provider_requests: 0
   } };

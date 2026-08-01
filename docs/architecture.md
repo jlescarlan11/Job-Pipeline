@@ -77,7 +77,8 @@ policy:
 - a promising gap, required question, or uncertain instruction becomes `review_needed`;
 - a hard disqualifier or low fit becomes `skip`;
 - missing source content becomes `unavailable`;
-- provider, network, or validation failures become `error`, never `skip`.
+- a permanent source HTTP 404/410 becomes `unavailable` and is archived;
+- temporary provider, network, or validation failures become retryable `error`, never `skip`.
 
 `Approve` in `To Review` means “return to `Scraped Jobs`, acknowledge allow-listed warnings, and reconsider through normal generation.” The approval timestamp and a bounded snapshot of the reviewer note are retained; the note remains untrusted operator context. Candidate-directed, profile-answerable screening questions are passed to the next initial and repair prompts and must be answered from selected approved proofs. Questions requesting salary, availability, schedules, time zones, start dates, phone details, or work authorization remain visible as manual-submission reminders; external actions do too, while rhetorical headings are ignored. Unsafe employer segments stay excluded from the provider prompt, and approval does not waive proof selection, pack validation, or message validation. A missing or unusable description becomes `unavailable` instead of cycling through review again.
 
@@ -102,6 +103,7 @@ Moves are:
 | Scraped Jobs | `review_needed` / blank | To Review | focused review queue |
 | Scraped Jobs | `ready_to_apply` / blank | To Apply | focused manual-application queue |
 | Scraped Jobs | `skip` / blank | Archive | `automatic_skip` |
+| Scraped Jobs | permanent source 404/410 / blank | Archive | `source_unavailable` |
 | To Review | `review_needed` / `Approve` | Scraped Jobs | gated reconsideration |
 | To Review | `review_needed` / `Deny` | Archive | `review_denied` |
 | To Apply | `ready_to_apply` / `I Applied` | Applied Jobs | manual application fact |
