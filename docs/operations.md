@@ -111,7 +111,8 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 - Missing/unavailable source: confirm `unavailable`, not `skip`.
 - Provider timeout/rate limit/auth/invalid output: confirm bounded `error` evidence, retries, and no ready status.
 - Unsafe instructions/prompt injection/private-data/auto-action/unsupported claims: confirm no provider path or no ready commit.
-- Select `Approve` for a review-only screening question, confirm Alerter & Mover first returns it to `Scraped Jobs` with bounded review context, then confirm Generator acknowledges the question, produces a validated message, and routes the row to `To Apply` with a manual-submission reminder.
+- Select `Approve` for a profile-answerable screening question, confirm Alerter & Mover first returns it to `Scraped Jobs` with bounded review context, then confirm Generator includes the question in both initial and repair prompts, produces a validated message that answers it from approved proofs, and routes the row to `To Apply` without leaving that question in `required_input`.
+- Repeat with a salary, availability, schedule, time-zone, or start-date question and confirm it remains a manual-submission reminder rather than becoming a generated commitment.
 - Select `Approve` for an unsafe employer instruction or required external action and confirm the unsafe text stays outside the provider prompt while `To Apply` shows only its sanitized manual reminder.
 - Confirm a missing or unusable description remains `unavailable` and cannot produce an application message.
 - Confirm rhetorical headings such as `What to expect?` and `Don't meet every single requirement?` are not extracted as screening questions.

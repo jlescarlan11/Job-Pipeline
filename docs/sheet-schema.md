@@ -36,7 +36,7 @@ Only `notes` is editable. There is no normal user-action dropdown on this sheet.
 
 ## To Apply
 
-`To Apply` owns safely generated `ready_to_apply` records. Its native action dropdown offers exactly `I Applied` and `Skip`, and a blank cell remains valid. Visible columns are `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. `required_input` is the system-owned visible reminder for questions or other review items that the user must handle during manual submission. Only `user_action` and `notes` are editable.
+`To Apply` owns safely generated `ready_to_apply` records. Its native action dropdown offers exactly `I Applied` and `Skip`, and a blank cell remains valid. Visible columns are `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. `required_input` is the system-owned visible reminder only for questions or other review items that still require manual submission work; questions assigned to message generation are removed from this reminder after a successful generation. Only `user_action` and `notes` are editable.
 
 Sheet validation is a usability control. The versioned store/status/action matrix in `config/pipeline-schema.json` remains authoritative when values are pasted or written through the API.
 

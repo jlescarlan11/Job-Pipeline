@@ -1729,7 +1729,7 @@ test("rhetorical headings are not screening questions", () => {
   assert.equal(pack.application_pack_status, "ready");
 });
 
-test("Approve converts safely handled warnings into manual-submission reminders", () => {
+test("Approve routes answerable questions into generation and keeps sensitive questions manual", () => {
   const approvedJob = {
     job_title: "TypeScript Developer",
     role_families: ["full-stack"],
@@ -1750,7 +1750,7 @@ test("Approve converts safely handled warnings into manual-submission reminders"
   assert.equal(approvedPack.application_pack_status, "ready");
   assert.equal(
     approvedPack.screening_questions[0].answer_status,
-    "manual_submission_required"
+    "answer_in_message"
   );
   assert.equal(
     approvedPack.screening_questions[0].review_acknowledged,
@@ -1765,6 +1765,92 @@ test("Approve converts safely handled warnings into manual-submission reminders"
   assert.deepEqual(
     validateApplicationPack(approvedPack, profile, packPolicy),
     []
+  );
+  const approvedPrompt = buildApplicationUserMessage(
+    approvedJob,
+    approvedPack
+  );
+  assert.match(
+    approvedPrompt,
+    /SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE/
+  );
+  assert.match(
+    approvedPrompt,
+    /Which production incident did you resolve\?/
+  );
+
+  const aiQuestionJob = {
+    ...approvedJob,
+    job_title: "AI Implementation Specialist",
+    job_description:
+      "Build practical AI automations for our operations. Tell us: What's the most useful thing you've built or automated using AI? What AI tools do you use daily and for what?"
+  };
+  const aiQuestionPack = buildApplicationPack(
+    aiQuestionJob,
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(aiQuestionPack.screening_questions.length, 2);
+  assert.ok(
+    aiQuestionPack.screening_questions.every(
+      (question) => question.answer_status === "answer_in_message"
+    )
+  );
+  assert.equal(aiQuestionPack.selected_proof_refs[0], "projects:job-pipeline");
+  const aiQuestionPrompt = buildApplicationUserMessage(
+    aiQuestionJob,
+    aiQuestionPack
+  );
+  assert.match(aiQuestionPrompt, /most useful thing you've built or automated/i);
+  assert.match(aiQuestionPrompt, /What AI tools do you use daily and for what\?/i);
+  const aiQuestionMessage = `Hi there,
+
+Question: Tell us: What's the most useful thing you've built or automated using AI?
+Answer: The most useful AI automation I have built is Job Pipeline, a three-workflow n8n system that collects listings and generates tailored application messages through the Groq API.
+
+Question: What AI tools do you use daily and for what?
+Answer: I use n8n to orchestrate automation, the Groq API for message generation, and the Google Sheets API for durable workflow tracking.
+
+I would welcome a conversation about how my experience fits this role.`;
+  assert.equal(
+    validateGeneratedMessage(aiQuestionMessage, {
+      job: aiQuestionJob,
+      profile,
+      policy,
+      pack: aiQuestionPack
+    }).valid,
+    true
+  );
+  assert.ok(
+    validateGeneratedMessage(canonicalValidMessage, {
+      job: aiQuestionJob,
+      profile,
+      policy,
+      pack: aiQuestionPack
+    }).errors.some((error) => /screening question is missing/i.test(error))
+  );
+
+  const sensitivePack = buildApplicationPack(
+    {
+      ...approvedJob,
+      job_description:
+        "Build React and TypeScript applications. What hourly rate are you seeking?"
+    },
+    profile,
+    policy,
+    packPolicy,
+    now
+  );
+  assert.equal(sensitivePack.application_pack_status, "ready");
+  assert.equal(
+    sensitivePack.screening_questions[0].answer_status,
+    "manual_submission_required"
+  );
+  assert.doesNotMatch(
+    buildApplicationUserMessage(approvedJob, sensitivePack),
+    /What hourly rate are you seeking\?/
   );
 
   const blockedPack = buildApplicationPack(
@@ -1840,7 +1926,10 @@ test("non-ready packs return to human review without calling generation or disca
   assert.deepEqual(reviewed.application_warnings, pack.application_warnings);
   assert.equal(reviewed.generated_message, "");
   assert.equal(reviewed.error_category, "application_pack_not_ready");
-  assert.match(reviewed.error_summary, /manual answer|relevant approved proof/i);
+  assert.match(
+    reviewed.error_summary,
+    /review before generation|relevant approved proof/i
+  );
 });
 
 test("prompt injection is rejected without persisting the malicious instruction text", () => {

@@ -51,6 +51,15 @@ LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
 
+const questionAwareValidMessage = `Hi there,
+
+Question: Which production incident did you resolve?
+Answer: I diagnosed N+1 query and database schema bottlenecks, reducing API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
+
+I have also shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase.
+
+I would welcome a conversation about how my experience fits this role.`;
+
 function recordFromDescription(
   id,
   {
@@ -527,7 +536,7 @@ test("Approve sends an unusable description to unavailable instead of looping re
   assert.equal(committed.user_action, "");
 });
 
-test("Approve resolves review-only questions and can commit ready_to_apply", () => {
+test("Approve sends profile-answerable screening questions into message generation", () => {
   const approved = recordFromDescription(3053, {
     html: null,
     status: "review_needed",
@@ -552,19 +561,45 @@ test("Approve resolves review-only questions and can commit ready_to_apply", () 
   assert.equal(prepared.pack.application_pack_status, "ready");
   assert.equal(
     prepared.pack.screening_questions[0].answer_status,
-    "manual_submission_required"
+    "answer_in_message"
+  );
+  assert.match(
+    prepared.user_message,
+    /SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE/
+  );
+  assert.match(
+    prepared.user_message,
+    /Which production incident did you resolve\?/
+  );
+  const repair = assessInitialGenerationDraft(
+    claimed,
+    prepared.pack,
+    "I have a strong foundation in production engineering.",
+    prepared.system_message,
+    prepared.user_message,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(repair.repair_required, true);
+  assert.match(
+    repair.repair_user_message,
+    /Which production incident did you resolve\?/
   );
   const proposed = applyValidatedGeneration(
     claimed,
     prepared.pack,
-    validMessage,
+    questionAwareValidMessage,
     profile,
     applicationPolicy,
     packPolicy,
     now
   );
   assert.equal(proposed.pipeline_status, "ready_to_apply");
-  assert.match(proposed.required_input, /manual submission/i);
+  assert.equal(proposed.required_input, "");
+  assert.match(proposed.decision_reason, /includes answers/i);
   const committed = commitGeneratorResult(
     claimed,
     claimed,

@@ -18,14 +18,17 @@ screening question, including rhetorical section headings such as
   known rhetorical headings are excluded.
 - A persisted `Approve` plus `review_approved_at` acknowledges only warning
   codes explicitly allow-listed in `config/application-pack-policy.json`.
-- Acknowledged questions remain in the record with
-  `answer_status=manual_submission_required` and appear in Slack/Sheet context.
+- Acknowledged profile-answerable questions remain in the record with
+  `answer_status=answer_in_message` and are included in the next initial and
+  repair prompts. Sensitive commitment questions remain
+  `manual_submission_required` and appear in Slack/Sheet context.
 - Required external actions, unsupported evidence, and rejected unsafe
   instructions may become sanitized manual reminders after approval; unsafe
   source text remains excluded from the provider prompt.
 - A ready row carries a visible system-owned `required_input` reminder in `To
-  Apply` containing the acknowledged questions or other manual follow-up. The
-  workflow does not overwrite the user-owned `notes` column.
+  Apply` only for sensitive questions or other manual follow-up. Questions
+  assigned to generation are omitted after a successful message. The workflow
+  does not overwrite the user-owned `notes` column.
 - An unavailable or insufficient description is never acknowledgeable and
   becomes `unavailable` instead of returning to review. Message validation,
   proof provenance, instruction sanitization, and stale-write protection remain
@@ -50,5 +53,6 @@ screening question, including rhetorical section headings such as
 6. After activation, select `Approve` once for the affected rows. Under the
    configured schedules, movement can take up to 15 minutes, generation up to
    90 minutes, and the final move up to another 15 minutes.
-7. Verify the row reaches `To Apply`, retains its screening questions and
-   manual-submission reminder, and receives at most one Slack alert.
+7. Verify the row reaches `To Apply`, retains its screening-question audit
+   context, includes the answers in `generated_message`, omits answered
+   questions from `required_input`, and receives at most one Slack alert.

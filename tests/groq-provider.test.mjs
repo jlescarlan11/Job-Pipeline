@@ -244,8 +244,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   assert.ok(system.length < 6000);
   assert.equal(pack.selected_proofs.length, 3);
   assert.equal(groqPolicy.generation.maximum_prompt_proofs, 2);
-  assert.equal(measurement.combined_characters, 4195);
-  assert.equal(measurement.character_based_token_estimate, 1399);
+  assert.equal(measurement.combined_characters, 4309);
+  assert.equal(measurement.character_based_token_estimate, 1437);
   assert.ok(user.includes(pack.selected_proofs[0].reference));
   assert.ok(user.includes(pack.selected_proofs[1].reference));
   assert.equal(user.includes(pack.selected_proofs[2].reference), false);

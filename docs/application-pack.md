@@ -13,8 +13,9 @@ Each successfully generated pack persists:
 
 - instructions classified as `subject`, `format`, `submission`, `attachment`,
   `test`, or `evidence`;
-- screening questions marked either for manual review or, after a persisted
-  approval, for manual completion during submission;
+- screening questions marked for review, for an approved answer in the next
+  generated message, or for manual completion when they request sensitive
+  commitments such as salary, availability, schedules, or start dates;
 - at most three relevant `experience:<id>` or `projects:<id>` proof references;
 - sanitized warnings with explicit unresolved or acknowledged state;
 - the validated application message;
@@ -29,8 +30,13 @@ generation; only references are persisted with the job.
 The pack statuses are internal safety results. `ready` means the message passed
 deterministic validation and the pack has no unresolved extraction warning.
 It may retain review warnings and screening questions only when each carries a
-persisted review acknowledgment tied to `review_approved_at`; those questions
-remain `manual_submission_required` and are shown in the application context.
+persisted review acknowledgment tied to `review_approved_at`. Profile-answerable
+questions become `answer_in_message` and are supplied verbatim to both the
+initial and repair prompts. Sensitive commitment questions remain
+`manual_submission_required` and are shown in the application context.
+Message validation requires a verbatim `Question:` line and a non-empty
+`Answer:` line for every `answer_in_message` item, so an otherwise valid draft
+cannot silently skip a required answer.
 `review_required` means the candidate must interpret an ambiguous instruction,
 answer a screening question, resolve conflicting subject requirements, inspect
 truncated input, or accept a proof shortfall. Before approval, `blocked` marks a
@@ -42,7 +48,8 @@ pack status is `ready` and the persisted message passes the current shared
 content and provenance gate. Internal `review_required` maps to
 `review_needed`. `Approve` may acknowledge only warning codes explicitly listed
 by `review_approval.acknowledgeable_warning_codes`. Acknowledged unsafe
-instructions remain excluded from the provider prompt; acknowledged questions,
+instructions remain excluded from the provider prompt. Answerable questions
+must be addressed from selected approved proofs; sensitive questions,
 attachments, tests, and unsupported evidence become visible manual reminders.
 An unavailable/insufficient description is not acknowledgeable and cannot
 generate a message. The candidate remains responsible for every acknowledged

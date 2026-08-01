@@ -73,6 +73,15 @@ LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
 
+const questionAwareValidMessage = `Hi there,
+
+Question: Which production incident did you resolve?
+Answer: I diagnosed N+1 query and database schema bottlenecks, reducing API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
+
+I have also shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase.
+
+I would welcome a conversation about how my experience fits this role.`;
+
 function searchCard(id, postedAt) {
   return `<a href="/jobseekers/job/full-stack-${id}">
     <div class="jobpost-cat-box">
@@ -353,10 +362,18 @@ test("approved review-only questions complete the route to To Apply", () => {
   );
   assert.equal(prepared.provider_required, true);
   assert.equal(prepared.pack.application_pack_status, "ready");
+  assert.match(
+    prepared.user_message,
+    /SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE/
+  );
+  assert.match(
+    prepared.user_message,
+    /Which production incident did you resolve\?/
+  );
   const proposed = applyValidatedGeneration(
     claimed,
     prepared.pack,
-    validMessage,
+    questionAwareValidMessage,
     profile,
     applicationPolicy,
     packPolicy,
@@ -386,7 +403,7 @@ test("approved review-only questions complete the route to To Apply", () => {
   assert.match(toApply.required_input, /required attachment/i);
   assert.equal(
     toApply.screening_questions[0].answer_status,
-    "manual_submission_required"
+    "answer_in_message"
   );
   const alerts = selectFreshAlertCandidates(
     [toApply],

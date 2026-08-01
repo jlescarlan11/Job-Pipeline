@@ -27,8 +27,10 @@ The system message instructs Groq to:
 5. Avoid inferred or transformed projects, metrics, URLs, salary, schedules,
    availability, start dates, phone numbers, completion claims, and submission
    claims.
-6. Target at most 260 total words, use one or two selected proofs, return only
-   plain text, and preserve manual review/submission.
+6. Answer each approved screening question supplied by the per-job prompt from
+   selected proofs, while leaving sensitive commitment questions manual.
+7. Target at most 260 total words, use one or two selected proofs, return only
+   plain text, and preserve manual submission.
 
 The per-job user message supplies title, company when known, a bounded stored
 description, non-empty safe structured context, unsupported requirements
@@ -37,33 +39,38 @@ selected under `config/application-pack-policy.json`. The provider policy sends
 only the two highest-ranked proofs even when the durable review pack retains a
 third. It omits the job URL and empty sections and does not expose match tiers,
 scores, or evaluation reasons as copyable evidence. Unsafe instructions are
-excluded. It does not add new candidate facts.
+excluded. After approval, it includes profile-answerable screening questions
+verbatim under an explicit answer-required section. It does not add new
+candidate facts.
 
 Only a deterministically `ready` application pack reaches Groq. An unapproved
 `review_required` pack makes no provider call and maps to visible
 `review_needed`. A persisted `Approve` may turn only allow-listed warnings into
-auditable manual-submission reminders. Unsafe employer segments remain removed
-from the prompt, and deterministic proof/message validation remains mandatory.
-An unavailable or insufficient description remains non-ready and makes no
-provider call.
+auditable follow-up state. Profile-answerable questions enter the initial and
+repair prompts; questions requesting salary, availability, schedules, time
+zones, start dates, phone details, or work authorization remain manual. Unsafe
+employer segments remain removed from the prompt, and deterministic
+proof/message validation remains mandatory. An unavailable or insufficient
+description remains non-ready and makes no provider call.
 
 Generation output is untrusted until deterministic validation passes.
 Validation enforces a non-empty message under the configured 300-word hard
 limit; approved candidate/project URLs; supported projects, technologies, and
 exact numeric evidence; no unapproved schedule, availability, salary, start
 date, phone, completion, submission, or internal-context claims; no configured
-banned phrase; and required-subject compliance. Schedule text is classified
-before generic numeric evidence so time fragments are not reported as the
-primary error.
+banned phrase; required-subject compliance; and a verbatim `Question:` plus
+non-empty `Answer:` block for every question assigned to generation. Schedule
+text is classified before generic numeric evidence so time fragments are not
+reported as the primary error.
 
 The Generator freezes at most five selected rows and processes them
 sequentially. It makes one initial model request for each row that reaches
 generation and, only when deterministic validation rejects that response, at
 most one delayed repair request for that row. The standalone repair contains
 the complete rejected draft, every deterministic validation error, the compact
-selected-proof context, and the safe application instructions needed to
-validate the correction; it does not resend the full job description. The
-repaired output must pass the same gates.
+selected-proof context, approved screening questions, and the safe application
+instructions needed to validate the correction; it does not resend the full
+job description. The repaired output must pass the same gates.
 Invalid output becomes bounded `error` evidence and returns through the normal
 retry schedule; it never stores rejected text or erases a previous valid
 pack/message. A retry is a later claimed execution and must pass the same

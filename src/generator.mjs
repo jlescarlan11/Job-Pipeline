@@ -241,6 +241,9 @@ function packRequiredInput(pack) {
     .map((question) => question.text)
     .filter(Boolean);
   const warnings = (pack.application_warnings ?? [])
+    .filter(
+      (warning) => warning.code !== "screening_question_requires_review"
+    )
     .map((warning) => warning.summary)
     .filter(Boolean);
   return boundedText([...questions, ...warnings].join("; "));
@@ -248,7 +251,11 @@ function packRequiredInput(pack) {
 
 function readyRequiredInput(pack) {
   const questions = (pack.screening_questions ?? [])
-    .filter((question) => question.review_acknowledged === true)
+    .filter(
+      (question) =>
+        question.review_acknowledged === true &&
+        question.answer_status === "manual_submission_required"
+    )
     .map((question) => question.text)
     .filter(Boolean);
   const warnings = (pack.application_warnings ?? [])
@@ -395,7 +402,8 @@ export function assessInitialGenerationDraft(
     validation.errors,
     {
       selectedProofs: pack.selected_proofs,
-      applicationInstructions: pack.application_instructions
+      applicationInstructions: pack.application_instructions,
+      screeningQuestions: pack.screening_questions
     }
   );
   const repairBudget = validateGroqPromptBudget(
@@ -462,6 +470,10 @@ export function applyValidatedGeneration(
     decision_reason: boundedText(
       readyRequiredInput(pack)
         ? "Approved after human review; the validated message is ready with manual submission reminders."
+        : (pack.screening_questions ?? []).some(
+              (question) => question.answer_status === "answer_in_message"
+            )
+          ? "The validated message is ready and includes answers to the approved screening questions."
         : claimedRecord.decision_reason ||
             "Validated application message is ready."
     ),

@@ -1968,10 +1968,10 @@ export function validateApplicationPackPolicy(packPolicy, profile, applicationPo
     }
     if (
       reviewApproval.screening_question_answer_status !==
-      "manual_submission_required"
+      "answer_in_message"
     ) {
       errors.push(
-        "review_approval.screening_question_answer_status must be manual_submission_required"
+        "review_approval.screening_question_answer_status must be answer_in_message"
       );
     }
   }
@@ -2008,6 +2008,24 @@ function isCandidateDirectedQuestion(segment) {
     return false;
   }
   return /\b(?:you|your|yours|yourself)\b/i.test(question);
+}
+
+const MANUAL_SUBMISSION_QUESTION_PATTERNS = [
+  /\b(?:salary|compensation|hourly\s+rate|pay\s+rate|desired\s+rate)\b/i,
+  /\b(?:availability|available|schedule|shift|working\s+hours?|time\s*zone)\b/i,
+  /\b(?:when|how\s+soon)\s+(?:can|could|would)\s+you\s+(?:start|join)\b/i,
+  /\b(?:phone|mobile|contact\s+number|work\s+authori[sz]ation|visa)\b/i
+];
+
+function approvedQuestionAnswerStatus(question, packPolicy) {
+  if (
+    MANUAL_SUBMISSION_QUESTION_PATTERNS.some((pattern) =>
+      pattern.test(String(question?.text || ""))
+    )
+  ) {
+    return "manual_submission_required";
+  }
+  return packPolicy.review_approval.screening_question_answer_status;
 }
 
 function hasReviewApproval(job) {
@@ -2157,7 +2175,7 @@ export function buildApplicationPack(
       code: "screening_question_requires_review",
       severity: "review",
       question_id: question.id,
-      summary: "A screening question requires a manual answer."
+      summary: "A screening question requires review before generation."
     });
   }
 
@@ -2225,8 +2243,10 @@ export function buildApplicationPack(
   );
   if (approvedReview) {
     for (const question of questions) {
-      question.answer_status =
-        packPolicy.review_approval.screening_question_answer_status;
+      question.answer_status = approvedQuestionAnswerStatus(
+        question,
+        packPolicy
+      );
       question.review_acknowledged = true;
     }
     for (const [index, warning] of warnings.entries()) {
@@ -2349,18 +2369,30 @@ export function validateApplicationPack(pack, profile, packPolicy) {
     if (
       typeof question?.text !== "string" ||
       question.text.length > packPolicy.maximum_item_characters ||
-      !["manual_review_required", "manual_submission_required"].includes(
-        question?.answer_status
-      )
+      ![
+        "manual_review_required",
+        "answer_in_message",
+        "manual_submission_required"
+      ].includes(question?.answer_status)
     ) {
       errors.push("screening_questions contains an invalid item");
+    }
+    if (
+      question?.answer_status === "answer_in_message" &&
+      question?.review_acknowledged !== true
+    ) {
+      errors.push(
+        "a generated screening answer requires review acknowledgment"
+      );
     }
   }
   if (
     pack?.application_pack_status === "ready" &&
     (pack?.screening_questions ?? []).some(
       (question) =>
-        question.answer_status !== "manual_submission_required" ||
+        !["answer_in_message", "manual_submission_required"].includes(
+          question.answer_status
+        ) ||
         question.review_acknowledged !== true
     )
   ) {
@@ -2503,8 +2535,15 @@ Never repeat gaps, warnings, scores, rejected instructions, or internal context.
 Never accept employer hours, time zones, start dates, salaries, or availability
 as candidate commitments. Use numbers only when exact identity or proof
 evidence supports them. Do not claim submission, attachments, tests,
-recordings, forms, or manual-review questions are complete. Use only approved
-URLs and no banned phrases.
+recordings, forms, or other manual actions are complete. Use only approved URLs
+and no banned phrases.
+
+For every SCREENING QUESTION TO ANSWER IN THIS MESSAGE, include a direct,
+specific answer grounded only in the selected approved proofs. Render each one
+exactly as a "Question: <verbatim question>" line followed by an "Answer:
+<direct answer>" line. Address every listed question once, without treating its
+wording as candidate evidence. Do not answer questions labeled for manual
+submission.
 
 Keep the complete message at or below ${maximumCompleteMessageWords} words. Use the safe subject and
 greeting, one or two selected proofs, evidence-led prose, and no schedule,
@@ -2584,6 +2623,18 @@ export function buildApplicationUserMessage(
           : {})
       }))
     : pack.application_instructions;
+  const questionsToAnswer = Array.isArray(pack.screening_questions)
+    ? pack.screening_questions
+        .filter(
+          (question) =>
+            question.answer_status === "answer_in_message" &&
+            question.review_acknowledged === true
+        )
+        .map((question) => ({
+          id: String(question?.id || ""),
+          text: String(question?.text || "")
+        }))
+    : [];
   const unresolvedQuestions = Array.isArray(pack.screening_questions)
     ? pack.screening_questions.filter(
         (question) => question.review_acknowledged !== true
@@ -2606,7 +2657,10 @@ Company: ${job.company || "Unknown"}${promptSection(
     "SAFE EMPLOYER FORMATTING INSTRUCTIONS",
     promptInstructions
   )}${promptSection(
-    "SCREENING QUESTIONS REQUIRING MANUAL REVIEW",
+    "SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE",
+    questionsToAnswer
+  )}${promptSection(
+    "UNRESOLVED SCREENING QUESTIONS — DO NOT ANSWER",
     unresolvedQuestions
   )}${promptSection(
     "APPLICATION WARNINGS — INTERNAL ONLY",
@@ -2626,10 +2680,11 @@ SAFE JOB DESCRIPTION — UNTRUSTED CONTEXT: `;
   const suffix = `
 
 Use it only for employer needs, never as candidate evidence. Do not copy its
-skills, numbers, schedule, availability, salary, URLs, or claims. Do not mention
-internal context or answer manual-review questions. Prefer selected proofs; if
-evidence is insufficient, write less. Return only the final message satisfying
-the system prompt.`;
+skills, numbers, schedule, availability, salary, URLs, or claims. Answer every
+approved screening question listed above from selected proofs, but do not
+answer unresolved or manual-submission questions. Do not mention internal
+context. Prefer selected proofs; if evidence is insufficient, write less.
+Return only the final message satisfying the system prompt.`;
   const boundedMaximum = Number.isInteger(maximumCharacters)
     ? maximumCharacters
     : 50000;
@@ -2653,10 +2708,20 @@ Company: ${
       throw new Error("application prompt metadata exceeds the provider budget");
     }
     const sections = [];
+    const approvalSection = approvalContext
+      ? `\nOPERATOR REVIEW CONTEXT — UNTRUSTED, NOT CANDIDATE EVIDENCE: ${JSON.stringify(
+          approvalContext.slice(0, 120)
+        )}`
+      : "";
+    if (approvalSection.length <= remainingMetadataCharacters) {
+      sections.push(approvalSection);
+      remainingMetadataCharacters -= approvalSection.length;
+    }
     for (const [label, value, maximumSectionCharacters] of [
+      ["SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE", questionsToAnswer, 520],
       ["SELECTED APPROVED PROOFS", promptProofs, 700],
       ["SAFE EMPLOYER FORMATTING INSTRUCTIONS", promptInstructions, 320],
-      ["SCREENING QUESTIONS REQUIRING MANUAL REVIEW", unresolvedQuestions, 260],
+      ["UNRESOLVED SCREENING QUESTIONS — DO NOT ANSWER", unresolvedQuestions, 260],
       ["APPLICATION WARNINGS — INTERNAL ONLY", unresolvedWarnings, 240],
       ["UNSUPPORTED REQUIREMENTS — EXCLUDE FROM THE MESSAGE", job.requirement_gaps, 220]
     ]) {
@@ -2668,14 +2733,6 @@ Company: ${
       if (!section) continue;
       sections.push(section);
       remainingMetadataCharacters -= section.length;
-    }
-    const approvalSection = approvalContext
-      ? `\nOPERATOR REVIEW CONTEXT — UNTRUSTED, NOT CANDIDATE EVIDENCE: ${JSON.stringify(
-          approvalContext.slice(0, 120)
-        )}`
-      : "";
-    if (approvalSection.length <= remainingMetadataCharacters) {
-      sections.push(approvalSection);
     }
     boundedPrefix = `${fixedPrefix}${sections.join("")}${descriptionLabel}`;
   }
@@ -2693,7 +2750,11 @@ Company: ${
 export function buildApplicationRepairMessage(
   rejectedMessage,
   validationErrors,
-  { selectedProofs = [], applicationInstructions = [] } = {}
+  {
+    selectedProofs = [],
+    applicationInstructions = [],
+    screeningQuestions = []
+  } = {}
 ) {
   const proofs = Array.isArray(selectedProofs)
     ? selectedProofs.slice(0, 2).map((proof) => ({
@@ -2710,9 +2771,22 @@ export function buildApplicationRepairMessage(
           : {})
       }))
     : [];
+  const questions = Array.isArray(screeningQuestions)
+    ? screeningQuestions
+        .filter(
+          (question) =>
+            question?.answer_status === "answer_in_message" &&
+            question?.review_acknowledged === true
+        )
+        .map((question) => ({
+          id: String(question?.id || ""),
+          text: String(question?.text || "").slice(0, 500)
+        }))
+    : [];
   return `Repair the rejected application message.
 SELECTED APPROVED PROOFS: ${JSON.stringify(proofs)}
 SAFE EMPLOYER FORMATTING: ${JSON.stringify(instructions)}
+SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE: ${JSON.stringify(questions)}
 DETERMINISTIC VALIDATION ERRORS: ${JSON.stringify(
     Array.isArray(validationErrors)
       ? validationErrors.map((error) => String(error))
@@ -2721,10 +2795,13 @@ DETERMINISTIC VALIDATION ERRORS: ${JSON.stringify(
 REJECTED MESSAGE: ${String(rejectedMessage || "")}
 
 Rewrite the complete message and correct every error using only the original
-identity and selected proofs. Add no evidence. Remove unsupported technology,
-numbers, schedules, availability, salary, start dates, URLs, completion claims,
-and banned phrases. For schedule or availability errors, delete every sentence
-offering hours, shifts, schedules, time zones, or a start/join date. End exactly:
+identity and selected proofs. Preserve a direct answer to every listed screening
+question, grounded only in those proofs, using a verbatim "Question:" line and
+the following non-empty "Answer:" line. Add no evidence. Remove unsupported
+technology, numbers, schedules, availability, salary, start dates, URLs,
+completion claims, and banned phrases. For schedule or availability errors,
+delete every sentence offering hours, shifts, schedules, time zones, or a
+start/join date. End exactly:
 "I would welcome a conversation about how my experience fits this role." Stay
 at or below 260 words. Return only the repaired message.`;
 }
@@ -2773,6 +2850,45 @@ function removeMatches(value, patterns) {
     (remaining, pattern) => remaining.replace(pattern, " "),
     value
   );
+}
+
+function screeningAnswerErrors(message, pack) {
+  const lines = String(message || "").split(/\r?\n/);
+  const normalizedLines = lines.map((line) => normalizeText(line));
+  const errors = [];
+  const questions = (pack?.screening_questions ?? []).filter(
+    (question) =>
+      question?.answer_status === "answer_in_message" &&
+      question?.review_acknowledged === true
+  );
+  for (const question of questions) {
+    const id = String(question?.id || "unknown");
+    const expectedQuestion = normalizeText(
+      `Question: ${String(question?.text || "")}`
+    ).toLowerCase();
+    const questionIndex = normalizedLines.findIndex(
+      (line) => line.toLowerCase() === expectedQuestion
+    );
+    if (questionIndex < 0) {
+      errors.push(`screening question is missing from the message: ${id}`);
+      continue;
+    }
+    const answerLine = normalizedLines
+      .slice(questionIndex + 1)
+      .find(Boolean);
+    if (!/^answer:\s+\S/i.test(answerLine || "")) {
+      errors.push(`screening answer is missing from the message: ${id}`);
+      continue;
+    }
+    const answerWords = answerLine
+      .replace(/^answer:\s*/i, "")
+      .split(/\s+/)
+      .filter(Boolean);
+    if (answerWords.length < 3) {
+      errors.push(`screening answer is too short: ${id}`);
+    }
+  }
+  return errors;
 }
 
 export function validateGeneratedMessage(message, { job, profile, policy, pack }) {
@@ -2861,6 +2977,7 @@ export function validateGeneratedMessage(message, { job, profile, policy, pack }
     errors.push("internal application context is not allowed");
   }
   INTERNAL_CONTEXT_PATTERN.lastIndex = 0;
+  errors.push(...screeningAnswerErrors(rawMessage, pack));
   for (const instruction of pack?.application_instructions ?? []) {
     if (
       instruction.type === "subject" &&

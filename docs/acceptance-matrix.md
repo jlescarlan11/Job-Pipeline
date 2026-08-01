@@ -311,7 +311,7 @@ sanitized permanent record is
 10. **56-AC-10 — Invalid keyword gate — SATISFIED:** Workflow topology retains configuration validation before requests, claims, or writes.
 11. **56-AC-11 — Generator store isolation — SATISFIED:** Source, claim, commit, and confirmation code/graph use only `Scraped Jobs`.
 12. **56-AC-12 — Five-item sequence — SATISFIED:** Batch cap, ordering, no-backfill, and pacing tests remain green.
-13. **56-AC-13 — Approved reconsideration — SATISFIED:** Returned `Approve` records remain eligible, review-only questions become manual-submission reminders, and the completed path reaches `To Apply`.
+13. **56-AC-13 — Approved reconsideration — SATISFIED:** Returned `Approve` records remain eligible, profile-answerable questions enter message generation, sensitive questions remain manual-submission reminders, and the completed path reaches `To Apply`.
 14. **56-AC-14 — Approval safety gates — SATISFIED:** Only configured warnings are acknowledged; unsafe text stays excluded and proof, pack, message, stale-write, and confirmation gates remain enforced.
 15. **56-AC-15 — Complete outcomes — SATISFIED:** Result fixtures clear ownership for business and operational outcomes.
 16. **56-AC-16 — Commit before routing — SATISFIED:** Generator commits results only to `Scraped Jobs`; movement owns subsequent routes.
