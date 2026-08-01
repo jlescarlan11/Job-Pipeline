@@ -3,6 +3,7 @@ import {
   buildApplicationRepairMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
+  cleanGeneratedMessage,
   evaluateJob,
   validateApplicationPack,
   validateGeneratedMessage
@@ -377,7 +378,8 @@ export function assessInitialGenerationDraft(
   providerPolicy,
   now = new Date().toISOString()
 ) {
-  const validation = validateGeneratedMessage(message, {
+  const cleanedMessage = cleanGeneratedMessage(message);
+  const validation = validateGeneratedMessage(cleanedMessage, {
     job: claimedRecord,
     profile,
     policy: applicationPolicy,
@@ -389,7 +391,7 @@ export function assessInitialGenerationDraft(
       proposed_record: applyValidatedGeneration(
         claimedRecord,
         pack,
-        message,
+        cleanedMessage,
         profile,
         applicationPolicy,
         packPolicy,
@@ -398,7 +400,7 @@ export function assessInitialGenerationDraft(
     };
   }
   const repairUserMessage = buildApplicationRepairMessage(
-    message,
+    cleanedMessage,
     validation.errors,
     {
       selectedProofs: pack.selected_proofs,
@@ -432,8 +434,9 @@ export function applyValidatedGeneration(
   packPolicy,
   now = new Date().toISOString()
 ) {
+  const cleanedMessage = cleanGeneratedMessage(message);
   const packErrors = validateApplicationPack(pack, profile, packPolicy);
-  const messageValidation = validateGeneratedMessage(message, {
+  const messageValidation = validateGeneratedMessage(cleanedMessage, {
     job: claimedRecord,
     profile,
     policy: applicationPolicy,
@@ -462,7 +465,7 @@ export function applyValidatedGeneration(
     application_pack_policy_version: pack.application_pack_policy_version,
     application_pack_generated_at: pack.application_pack_generated_at,
     pipeline_status: "ready_to_apply",
-    generated_message: String(message || "").trim(),
+    generated_message: cleanedMessage,
     message_profile_version: profile.profile_version,
     message_policy_version: applicationPolicy.policy_version,
     message_validation_status: "valid",

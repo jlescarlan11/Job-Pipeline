@@ -11,6 +11,7 @@ import {
   buildApplicationRepairMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
+  cleanGeneratedMessage,
   classifyExternalError,
   confirmGenerationCommitResults,
   confirmGenerationClaimMarkers,
@@ -1807,11 +1808,9 @@ test("Approve routes answerable questions into generation and keeps sensitive qu
   assert.match(aiQuestionPrompt, /What AI tools do you use daily and for what\?/i);
   const aiQuestionMessage = `Hi there,
 
-Question: Tell us: What's the most useful thing you've built or automated using AI?
-Answer: The most useful AI automation I have built is Job Pipeline, a three-workflow n8n system that collects listings and generates tailored application messages through the Groq API.
+The most useful thing I've built or automated using AI is Job Pipeline, a three-workflow n8n system that collects listings and generates tailored application messages through the Groq API.
 
-Question: What AI tools do you use daily and for what?
-Answer: I use n8n to orchestrate automation, the Groq API for message generation, and the Google Sheets API for durable workflow tracking.
+The AI tools I use daily are n8n for automation orchestration, the Groq API for message generation, and the Google Sheets API for durable workflow tracking.
 
 I would welcome a conversation about how my experience fits this role.`;
   assert.equal(
@@ -1829,7 +1828,43 @@ I would welcome a conversation about how my experience fits this role.`;
       profile,
       policy,
       pack: aiQuestionPack
-    }).errors.some((error) => /screening question is missing/i.test(error))
+    }).errors.some((error) => /screening answer is not woven/i.test(error))
+  );
+
+  const providerDraftWithArtifacts = `Hi there,
+
+I built a three-workflow automation system called **Job Pipeline**.
+
+Question: Tell us: What's the most useful thing you've built or automated using AI?
+Answer: The Job Pipeline automation system, which collects job listings, generates tailored application messages through the Groq API, and archives them.
+
+Question: What AI tools do you use daily and for what?
+Answer: I use the Groq API daily to generate customized application messages for the Job Pipeline workflow.
+
+I would welcome a conversation about how my experience fits this role.`;
+  const cleanedProviderDraft = cleanGeneratedMessage(
+    providerDraftWithArtifacts
+  );
+  assert.doesNotMatch(cleanedProviderDraft, /\*\*|Question:|Answer:/i);
+  assert.match(
+    cleanedProviderDraft,
+    /The most useful thing I've built or automated using AI is the Job Pipeline automation system/
+  );
+  assert.match(cleanedProviderDraft, /I use the Groq API daily/);
+  assert.equal(
+    cleanGeneratedMessage(
+      "Question: What AI tools do you use daily and for what?"
+    ),
+    ""
+  );
+  assert.equal(
+    validateGeneratedMessage(providerDraftWithArtifacts, {
+      job: aiQuestionJob,
+      profile,
+      policy,
+      pack: aiQuestionPack
+    }).valid,
+    false
   );
 
   const sensitivePack = buildApplicationPack(

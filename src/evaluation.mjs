@@ -2538,18 +2538,18 @@ evidence supports them. Do not claim submission, attachments, tests,
 recordings, forms, or other manual actions are complete. Use only approved URLs
 and no banned phrases.
 
-For every SCREENING QUESTION TO ANSWER IN THIS MESSAGE, include a direct,
-specific answer grounded only in the selected approved proofs. Render each one
-exactly as a "Question: <verbatim question>" line followed by an "Answer:
-<direct answer>" line. Address every listed question once, without treating its
-wording as candidate evidence. Do not answer questions labeled for manual
-submission.
+For each SCREENING QUESTION TO ANSWER IN THIS MESSAGE, weave a direct,
+first-person answer into natural prose using only selected approved proofs.
+Echo its subject without repeating it. Never use "Question:" or "Answer:"
+labels. Address each question once; never use its wording as candidate evidence.
+Do not answer questions marked for manual submission.
 
 Keep the complete message at or below ${maximumCompleteMessageWords} words. Use the safe subject and
 greeting, one or two selected proofs, evidence-led prose, and no schedule,
 availability, shift, time-zone, start, or join commitment. End exactly:
 "I would welcome a conversation about how my experience fits this role."
-Return plain text and only the final message. Silently verify every constraint.`;
+Return only the plain-text final message. Use no Markdown or asterisks. Silently
+verify every constraint.`;
 }
 
 function promptSection(label, value) {
@@ -2681,10 +2681,12 @@ SAFE JOB DESCRIPTION — UNTRUSTED CONTEXT: `;
 
 Use it only for employer needs, never as candidate evidence. Do not copy its
 skills, numbers, schedule, availability, salary, URLs, or claims. Answer every
-approved screening question listed above from selected proofs, but do not
-answer unresolved or manual-submission questions. Do not mention internal
-context. Prefer selected proofs; if evidence is insufficient, write less.
-Return only the final message satisfying the system prompt.`;
+approved screening question listed above from selected proofs by weaving each
+answer into natural first-person prose. Do not repeat the question and do not
+use Question/Answer labels. Do not answer unresolved or manual-submission
+questions. Do not mention internal context. Prefer selected proofs; if evidence
+is insufficient, write less. Return only the plain-text final message satisfying
+the system prompt.`;
   const boundedMaximum = Number.isInteger(maximumCharacters)
     ? maximumCharacters
     : 50000;
@@ -2796,14 +2798,110 @@ REJECTED MESSAGE: ${String(rejectedMessage || "")}
 
 Rewrite the complete message and correct every error using only the original
 identity and selected proofs. Preserve a direct answer to every listed screening
-question, grounded only in those proofs, using a verbatim "Question:" line and
-the following non-empty "Answer:" line. Add no evidence. Remove unsupported
-technology, numbers, schedules, availability, salary, start dates, URLs,
-completion claims, and banned phrases. For schedule or availability errors,
-delete every sentence offering hours, shifts, schedules, time zones, or a
-start/join date. End exactly:
+question, grounded only in those proofs, and weave it into natural first-person
+prose that echoes enough of the question's subject to remain clear. Do not
+repeat the question or use Question/Answer labels. Add no evidence. Remove
+Markdown, asterisks, unsupported technology, numbers, schedules, availability,
+salary, start dates, URLs, completion claims, and banned phrases. For schedule
+or availability errors, delete every sentence offering hours, shifts, schedules,
+time zones, or a start/join date. End exactly:
 "I would welcome a conversation about how my experience fits this role." Stay
-at or below 260 words. Return only the repaired message.`;
+at or below 260 words. Return only the plain-text repaired message.`;
+}
+
+function stripGeneratedMarkdown(value) {
+  return String(value || "")
+    .replace(/^\s*```[^\n]*$/gm, "")
+    .replace(/\*\*([^*\n]+)\*\*/g, "$1")
+    .replace(/__([^_\n]+)__/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/\*\*|__/g, "");
+}
+
+function firstPersonQuestionSubject(question) {
+  const normalized = normalizeText(question)
+    .replace(/^(?:please\s+)?tell\s+us\s*:\s*/i, "")
+    .replace(/\?+$/, "");
+  const match = normalized.match(/^what(?:'s| is)\s+(.+)$/i);
+  if (!match) return "";
+  const subject = match[1]
+    .replace(/\byou've\b/gi, "I've")
+    .replace(/\byou have\b/gi, "I have")
+    .replace(/\byour\b/gi, "my")
+    .replace(/\byou\b/gi, "I");
+  return subject.charAt(0).toUpperCase() + subject.slice(1);
+}
+
+function naturalizeScreeningAnswer(question, answer) {
+  const cleanedAnswer = normalizeText(stripGeneratedMarkdown(answer))
+    .replace(/^answer\s*:\s*/i, "")
+    .trim();
+  if (!cleanedAnswer) return "";
+  const looksLikeCompleteSentence =
+    /^(?:I\b|I've\b|I'm\b|My\b|We\b|Our\b|It\b|This\b|That\b|The\s+most\b)/i.test(
+      cleanedAnswer
+    ) ||
+    /^(?:[A-Z][\w&.-]*\s+){0,4}(?:is|are|was|were|has|have|helped|gave|uses|includes)\b/.test(
+      cleanedAnswer
+    );
+  if (looksLikeCompleteSentence) return cleanedAnswer;
+  const subject = firstPersonQuestionSubject(question);
+  if (!subject) return cleanedAnswer;
+  const complement = cleanedAnswer.replace(/^The\s+/, "the ");
+  return `${subject} is ${complement}`;
+}
+
+/**
+ * Removes presentation artifacts before a provider response is validated or
+ * persisted. Legacy Question/Answer blocks retain only their answer prose; a
+ * common "What's ...?" fragment is converted into a first-person sentence.
+ */
+export function cleanGeneratedMessage(message) {
+  const lines = stripGeneratedMarkdown(message)
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const cleaned = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trimEnd();
+    const questionMatch = line.trim().match(/^question\s*:\s*(.*)$/i);
+    if (questionMatch) {
+      let answerIndex = index + 1;
+      while (answerIndex < lines.length && !lines[answerIndex].trim()) {
+        answerIndex += 1;
+      }
+      const answerMatch = stripGeneratedMarkdown(lines[answerIndex] || "")
+        .trim()
+        .match(/^answer\s*:\s*(.*)$/i);
+      if (answerMatch) {
+        const answerParts = [answerMatch[1]];
+        let continuationIndex = answerIndex + 1;
+        while (
+          continuationIndex < lines.length &&
+          lines[continuationIndex].trim() &&
+          !/^question\s*:/i.test(lines[continuationIndex].trim())
+        ) {
+          answerParts.push(lines[continuationIndex].trim());
+          continuationIndex += 1;
+        }
+        const naturalAnswer = naturalizeScreeningAnswer(
+          questionMatch[1],
+          answerParts.join(" ")
+        );
+        if (naturalAnswer) cleaned.push(naturalAnswer);
+        index = continuationIndex - 1;
+        continue;
+      }
+      // A labeled question without an answer is not application prose. Drop it
+      // so the screening-answer validator can fail closed on the missing reply.
+      continue;
+    }
+    cleaned.push(line.replace(/^answer\s*:\s*/i, ""));
+  }
+  return cleaned
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function extractUrls(message) {
@@ -2852,9 +2950,29 @@ function removeMatches(value, patterns) {
   );
 }
 
+const SCREENING_QUESTION_STOP_WORDS = new Set([
+  "about", "answer", "been", "built", "could", "describe", "does",
+  "have", "most", "please", "tell", "that", "their", "thing", "this",
+  "using", "what", "when", "where", "which", "with", "would", "you",
+  "your"
+]);
+
+function screeningQuestionKeywords(question) {
+  return [
+    ...normalizeText(question)
+      .toLowerCase()
+      .matchAll(/[a-z0-9]+/g)
+  ]
+    .map((match) => match[0])
+    .filter(
+      (token) =>
+        (token.length >= 4 || token === "ai") &&
+        !SCREENING_QUESTION_STOP_WORDS.has(token)
+    );
+}
+
 function screeningAnswerErrors(message, pack) {
-  const lines = String(message || "").split(/\r?\n/);
-  const normalizedLines = lines.map((line) => normalizeText(line));
+  const normalizedMessage = normalizeText(message).toLowerCase();
   const errors = [];
   const questions = (pack?.screening_questions ?? []).filter(
     (question) =>
@@ -2863,29 +2981,15 @@ function screeningAnswerErrors(message, pack) {
   );
   for (const question of questions) {
     const id = String(question?.id || "unknown");
-    const expectedQuestion = normalizeText(
-      `Question: ${String(question?.text || "")}`
-    ).toLowerCase();
-    const questionIndex = normalizedLines.findIndex(
-      (line) => line.toLowerCase() === expectedQuestion
+    const keywords = [...new Set(screeningQuestionKeywords(question?.text))];
+    const matchedKeywords = keywords.filter((keyword) =>
+      new RegExp(`\\b${keyword}\\b`, "i").test(normalizedMessage)
     );
-    if (questionIndex < 0) {
-      errors.push(`screening question is missing from the message: ${id}`);
-      continue;
-    }
-    const answerLine = normalizedLines
-      .slice(questionIndex + 1)
-      .find(Boolean);
-    if (!/^answer:\s+\S/i.test(answerLine || "")) {
-      errors.push(`screening answer is missing from the message: ${id}`);
-      continue;
-    }
-    const answerWords = answerLine
-      .replace(/^answer:\s*/i, "")
-      .split(/\s+/)
-      .filter(Boolean);
-    if (answerWords.length < 3) {
-      errors.push(`screening answer is too short: ${id}`);
+    const requiredMatches = Math.min(2, keywords.length);
+    if (requiredMatches > 0 && matchedKeywords.length < requiredMatches) {
+      errors.push(
+        `screening answer is not woven into natural prose: ${id}`
+      );
     }
   }
   return errors;
@@ -2902,6 +3006,13 @@ export function validateGeneratedMessage(message, { job, profile, policy, pack }
       .map((line) => normalizeText(line))
       .find(Boolean) ?? "";
   if (!output) return { valid: false, errors: ["message is empty"] };
+
+  if (/\*\*|__|^\s*```|^\s{0,3}#{1,6}\s+/m.test(rawMessage)) {
+    errors.push("Markdown formatting is not allowed");
+  }
+  if (/^\s*(?:Question|Answer)\s*:/im.test(rawMessage)) {
+    errors.push("Question/Answer labels are not allowed");
+  }
 
   const words = output.split(/\s+/).filter(Boolean);
   if (words.length > policy.max_body_words) {
@@ -3063,8 +3174,9 @@ export function applyGeneratedApplicationPack(
   packPolicy,
   now = new Date().toISOString()
 ) {
+  const cleanedMessage = cleanGeneratedMessage(message);
   const packErrors = validateApplicationPack(pack, profile, packPolicy);
-  const messageValidation = validateGeneratedMessage(message, {
+  const messageValidation = validateGeneratedMessage(cleanedMessage, {
     job: record,
     profile,
     policy: applicationPolicy,
@@ -3098,7 +3210,7 @@ export function applyGeneratedApplicationPack(
       application_pack_policy_version: packPolicy.policy_version,
       application_pack_generated_at: now,
       pipeline_status: "ready",
-      generated_message: String(message || "").trim(),
+      generated_message: cleanedMessage,
       message_profile_version: profile.profile_version,
       message_policy_version: applicationPolicy.policy_version,
       message_validation_status: "valid",
@@ -3121,11 +3233,12 @@ export function applyGeneratedMessage(
   profile,
   now = new Date().toISOString()
 ) {
+  const cleanedMessage = cleanGeneratedMessage(message);
   return releaseClaim(
     {
       ...record,
       pipeline_status: "ready",
-      generated_message: String(message || "").trim(),
+      generated_message: cleanedMessage,
       message_profile_version: profile.profile_version,
       message_validation_status: "valid",
       generated_at: now,

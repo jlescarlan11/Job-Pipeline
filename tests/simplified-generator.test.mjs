@@ -54,7 +54,7 @@ Portfolio: https://johnlesterescarlan.pro`;
 const questionAwareValidMessage = `Hi there,
 
 Question: Which production incident did you resolve?
-Answer: I diagnosed N+1 query and database schema bottlenecks, reducing API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
+Answer: The production incident I resolved involved N+1 query and database schema bottlenecks, and fixing them reduced API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
 
 I have also shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase.
 
@@ -600,6 +600,8 @@ test("Approve sends profile-answerable screening questions into message generati
   assert.equal(proposed.pipeline_status, "ready_to_apply");
   assert.equal(proposed.required_input, "");
   assert.match(proposed.decision_reason, /includes answers/i);
+  assert.doesNotMatch(proposed.generated_message, /Question:|Answer:|\*\*/i);
+  assert.match(proposed.generated_message, /The production incident I resolved/i);
   const committed = commitGeneratorResult(
     claimed,
     claimed,

@@ -6,6 +6,7 @@ import {
   buildApplicationRepairMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
+  cleanGeneratedMessage,
   evaluateJob,
   parseJobDetail,
   validateApplicationPack,
@@ -193,7 +194,7 @@ async function benchmarkCase({
     userMessage: initialPrompt,
     fetchImpl
   });
-  let finalMessage = initial.message;
+  let finalMessage = cleanGeneratedMessage(initial.message);
   let validation = validateGeneratedMessage(finalMessage, {
     job: evaluated,
     profile,
@@ -210,7 +211,8 @@ async function benchmarkCase({
       validation.errors,
       {
         selectedProofs: pack.selected_proofs,
-        applicationInstructions: pack.application_instructions
+        applicationInstructions: pack.application_instructions,
+        screeningQuestions: pack.screening_questions
       }
     );
     if (!validateGroqPromptBudget(policy, systemMessage, repairPrompt).valid) {
@@ -243,7 +245,7 @@ async function benchmarkCase({
       fetchImpl
     });
     calls.push(repair);
-    finalMessage = repair.message;
+    finalMessage = cleanGeneratedMessage(repair.message);
     validation = validateGeneratedMessage(finalMessage, {
       job: evaluated,
       profile,

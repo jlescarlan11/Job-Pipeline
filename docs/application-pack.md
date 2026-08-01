@@ -31,12 +31,12 @@ The pack statuses are internal safety results. `ready` means the message passed
 deterministic validation and the pack has no unresolved extraction warning.
 It may retain review warnings and screening questions only when each carries a
 persisted review acknowledgment tied to `review_approved_at`. Profile-answerable
-questions become `answer_in_message` and are supplied verbatim to both the
-initial and repair prompts. Sensitive commitment questions remain
+questions become `answer_in_message` and are supplied to both the initial and
+repair prompts. Sensitive commitment questions remain
 `manual_submission_required` and are shown in the application context.
-Message validation requires a verbatim `Question:` line and a non-empty
-`Answer:` line for every `answer_in_message` item, so an otherwise valid draft
-cannot silently skip a required answer.
+Message validation requires every `answer_in_message` item to be woven into
+natural first-person prose and rejects Markdown or `Question:`/`Answer:` labels,
+so an otherwise valid draft cannot silently skip a required answer.
 `review_required` means the candidate must interpret an ambiguous instruction,
 answer a screening question, resolve conflicting subject requirements, inspect
 truncated input, or accept a proof shortfall. Before approval, `blocked` marks a

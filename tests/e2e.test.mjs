@@ -76,7 +76,7 @@ Portfolio: https://johnlesterescarlan.pro`;
 const questionAwareValidMessage = `Hi there,
 
 Question: Which production incident did you resolve?
-Answer: I diagnosed N+1 query and database schema bottlenecks, reducing API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
+Answer: The production incident I resolved involved N+1 query and database schema bottlenecks, and fixing them reduced API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
 
 I have also shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase.
 

@@ -40,8 +40,7 @@ only the two highest-ranked proofs even when the durable review pack retains a
 third. It omits the job URL and empty sections and does not expose match tiers,
 scores, or evaluation reasons as copyable evidence. Unsafe instructions are
 excluded. After approval, it includes profile-answerable screening questions
-verbatim under an explicit answer-required section. It does not add new
-candidate facts.
+under an explicit answer-required section. It does not add new candidate facts.
 
 Only a deterministically `ready` application pack reaches Groq. An unapproved
 `review_required` pack makes no provider call and maps to visible
@@ -58,10 +57,10 @@ Validation enforces a non-empty message under the configured 300-word hard
 limit; approved candidate/project URLs; supported projects, technologies, and
 exact numeric evidence; no unapproved schedule, availability, salary, start
 date, phone, completion, submission, or internal-context claims; no configured
-banned phrase; required-subject compliance; and a verbatim `Question:` plus
-non-empty `Answer:` block for every question assigned to generation. Schedule
-text is classified before generic numeric evidence so time fragments are not
-reported as the primary error.
+banned phrase; required-subject compliance; plain-text output without Markdown
+or `Question:`/`Answer:` labels; and a natural prose answer for every question
+assigned to generation. Schedule text is classified before generic numeric
+evidence so time fragments are not reported as the primary error.
 
 The Generator freezes at most five selected rows and processes them
 sequentially. It makes one initial model request for each row that reaches
