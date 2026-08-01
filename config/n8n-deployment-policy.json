@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-08-01/v4",
+  "policy_version": "2026-08-01/v6",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-08-01",
   "official_sources": [
@@ -27,9 +27,11 @@
     "N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL": "true",
     "N8N_METRICS_INCLUDE_QUEUE_METRICS": "false",
     "N8N_HTTP_RESPONSE_BODY_READ_TIMEOUT": "20000",
-    "N8N_RUNNERS_MODE": "internal",
+    "N8N_RUNNERS_MODE": "external",
     "N8N_RUNNERS_MAX_CONCURRENCY": "3",
-    "N8N_RUNNERS_TASK_TIMEOUT": "300"
+    "N8N_RUNNERS_TASK_TIMEOUT": "300",
+    "N8N_RUNNERS_TASK_REQUEST_TIMEOUT": "60",
+    "N8N_RUNNERS_HEARTBEAT_INTERVAL": "15"
   },
   "capacity": {
     "production_concurrency_limit": 3,

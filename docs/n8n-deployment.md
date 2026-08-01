@@ -35,6 +35,7 @@ Instance/runtime values must match the policy exactly. The production-context va
 - `JOB_PIPELINE_REVIEW_URL` — HTTPS deep link to the production `To Apply` tab (the environment-variable name is retained for deployment compatibility);
 - `JOB_PIPELINE_GROQ_API_KEY`;
 - `JOB_PIPELINE_SLACK_WEBHOOK_URL`.
+- `N8N_RUNNERS_AUTH_TOKEN` — shared n8n/runner secret, stored in macOS Keychain by the managed deployment.
 
 Values are checked but never printed or stored in cutover evidence. Workflow exports contain environment-variable expressions and no credential binding.
 
@@ -42,7 +43,10 @@ Values are checked but never printed or stored in cutover evidence. Workflow exp
 
 The final schedules produce 826 executions per week: 42 Scraper, 112 Generator, and 672 Alerter & Mover. Timeout-weighted demand is 0.2847. The maximum scheduled overlap is two against production concurrency 3.
 
-The 336 hours (fourteen days) of all-failure retention is 1,652 executions, below the 10,000-count pruning cap. Failure and manual execution data are retained; successful production payloads and per-node progress are not.
+The 336 hours (fourteen days) of all-failure retention is 1,652 executions, below the 10,000-count pruning cap. Failure and manual execution data are retained; successful production payloads and per-node progress are not. Successful scheduled runs are confirmed through the internal workflow-labelled metrics.
+
+Production uses n8n's external JavaScript task-runner mode. The n8n service and runner are separate `launchd` jobs, both configured with `KeepAlive`; the shared authentication token is read from the `io.codex.job-pipeline.runners-auth-token` Keychain service and is never committed. The runner waits for the local task broker at `127.0.0.1:5679`, obtains a short-lived grant, and reconnects automatically after a service restart.
+The deployable startup scripts and LaunchAgent definitions are checked in under `outputs/cutover-20260731/`; install the scripts in `~/Library/Application Support/Job-Pipeline/` and the plists in `~/Library/LaunchAgents/` when rebuilding the host.
 
 Metrics must remain internal, include workflow IDs, and be accompanied by saved failures/log ingestion. Required structured events cover discovery, generator result, movement plan/confirmation, alert selection, and alert delivery.
 

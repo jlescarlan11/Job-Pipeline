@@ -42,8 +42,16 @@ const processEnvironment = execFileSync(
 const slackMatch = processEnvironment.match(
   /(?:^|\s)JOB_PIPELINE_SLACK_WEBHOOK_URL=([^\s]+)/u
 );
+const configSpreadsheetMatch = processEnvironment.match(
+  /(?:^|\s)JOB_PIPELINE_CONFIG_SPREADSHEET_ID=([^\s]+)/u
+);
 if (!slackMatch?.[1]) {
   throw new Error("Running n8n process has no Slack webhook environment value");
+}
+if (!configSpreadsheetMatch?.[1]) {
+  throw new Error(
+    "Running n8n process has no configuration workbook environment value"
+  );
 }
 
 const rawCredential = JSON.parse(
@@ -79,7 +87,9 @@ const environment = {
   N8N_RUNNERS_BROKER_PORT: "5681",
   N8N_RUNNERS_MAX_CONCURRENCY: "3",
   N8N_RUNNERS_TASK_TIMEOUT: "300",
+  N8N_RUNNERS_TASK_REQUEST_TIMEOUT: "60",
   JOB_PIPELINE_SPREADSHEET_ID: options.spreadsheetId,
+  JOB_PIPELINE_CONFIG_SPREADSHEET_ID: configSpreadsheetMatch[1],
   JOB_PIPELINE_OLD_SPREADSHEET_ID: options.oldSpreadsheetId,
   JOB_PIPELINE_REVIEW_URL: options.reviewUrl,
   JOB_PIPELINE_GROQ_API_KEY: groqApiKey,

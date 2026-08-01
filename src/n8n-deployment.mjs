@@ -266,7 +266,8 @@ export function validateN8nDeploymentEnvironment(policy, environment) {
     "JOB_PIPELINE_OLD_SPREADSHEET_ID",
     "JOB_PIPELINE_REVIEW_URL",
     "JOB_PIPELINE_GROQ_API_KEY",
-    "JOB_PIPELINE_SLACK_WEBHOOK_URL"
+    "JOB_PIPELINE_SLACK_WEBHOOK_URL",
+    "N8N_RUNNERS_AUTH_TOKEN"
   ]) {
     if (!String(environment?.[key] || "").trim()) {
       errors.push(`${key} is required`);

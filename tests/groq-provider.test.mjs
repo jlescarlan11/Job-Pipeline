@@ -274,6 +274,60 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
     true
   );
 
+  const oversizedMetadata = buildApplicationUserMessage(
+    {
+      ...job,
+      job_title: "Senior ".repeat(100),
+      company: "Example Company ".repeat(100),
+      requirement_gaps: Array.from(
+        { length: 30 },
+        (_, index) => `Unsupported requirement ${index}: ${"detail ".repeat(80)}`
+      )
+    },
+    {
+      ...pack,
+      application_instructions: Array.from(
+        { length: 30 },
+        (_, index) => ({
+          type: "manual_external_action",
+          text: `Instruction ${index}: ${"manual step ".repeat(80)}`,
+          value: "external value ".repeat(40)
+        })
+      ),
+      screening_questions: Array.from(
+        { length: 30 },
+        (_, index) => ({
+          text: `Question ${index}: ${"answer manually ".repeat(80)}`,
+          answer_status: "manual_submission_required"
+        })
+      ),
+      application_warnings: Array.from(
+        { length: 30 },
+        (_, index) => ({
+          code: `review_${index}`,
+          severity: "review",
+          summary: `Warning ${index}: ${"review detail ".repeat(80)}`
+        })
+      ),
+      safe_job_description: "TypeScript ".repeat(10000)
+    },
+    {
+      maximumCharacters: userBudget,
+      maximumProofs: groqPolicy.generation.maximum_prompt_proofs
+    }
+  );
+  assert.equal(oversizedMetadata.length, userBudget);
+  assert.equal(
+    validateGroqPromptBudget(groqPolicy, system, oversizedMetadata).valid,
+    true
+  );
+  assert.ok(oversizedMetadata.endsWith("the system prompt."));
+  assert.match(oversizedMetadata, /SELECTED APPROVED PROOFS/);
+  assert.doesNotMatch(
+    oversizedMetadata,
+    /application prompt metadata exceeds the provider budget/
+  );
+
   const repair = buildApplicationRepairMessage(
     "Subject line: Developer Application\n\nI can work Pacific Time.",
     ["unsupported availability or schedule commitment"],

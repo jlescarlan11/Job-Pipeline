@@ -576,6 +576,69 @@ test("Approve resolves review-only questions and can commit ready_to_apply", () 
   assert.equal(committed.user_action, "");
 });
 
+test("a temporary generation error retains consumed review approval on retry", () => {
+  const approved = recordFromDescription(3054, {
+    html: null,
+    status: "review_needed",
+    action: "Approve",
+    description:
+      "Build and maintain production features using TypeScript, React, Next.js, Node.js, REST APIs, PostgreSQL, and Supabase. Which production incident did you resolve?",
+    overrides: {
+      decision_reason: "Application requirements need human review.",
+      required_input: "Which production incident did you resolve?",
+      application_pack_status: "review_required",
+      application_pack_version: "2026-07-28/v1"
+    }
+  });
+  const firstClaim = claim(approved, "generation");
+  const failedProposal = recordGeneratorFailure(
+    firstClaim,
+    new Error("temporary provider failure"),
+    runtime,
+    now
+  );
+  const failed = commitGeneratorResult(
+    firstClaim,
+    firstClaim,
+    failedProposal,
+    schema,
+    now
+  );
+  assert.equal(failed.pipeline_status, "error");
+  assert.equal(failed.user_action, "");
+  const retryAt = new Date(
+    Date.parse(now) + runtime.retry.backoff_ms + 1
+  ).toISOString();
+  const retryClaim = claimGeneratorRecord(
+    failed,
+    "evaluation",
+    "retry-after-approved-review",
+    retryAt,
+    runtime.claim_lease_ms
+  ).record;
+  const evaluated = evaluateAndRoute(
+    retryClaim,
+    profile,
+    rankingPolicy,
+    retryAt
+  );
+  const prepared = prepareApplicationGeneration(
+    evaluated,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    retryAt
+  );
+  assert.equal(prepared.provider_required, true);
+  assert.equal(prepared.pack.application_pack_status, "ready");
+  assert.equal(
+    prepared.pack.screening_questions[0].review_acknowledged,
+    true
+  );
+  assert.equal(prepared.pack.review_approved_at, now);
+});
+
 test("Approve snapshots bounded reviewer evidence without trusting it as candidate proof", () => {
   const approved = recordFromDescription(3051, {
     status: "review_needed",

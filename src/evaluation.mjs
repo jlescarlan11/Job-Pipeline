@@ -2011,10 +2011,19 @@ function isCandidateDirectedQuestion(segment) {
 }
 
 function hasReviewApproval(job) {
-  return Boolean(
+  if (!Number.isFinite(Date.parse(job?.review_approved_at || ""))) {
+    return false;
+  }
+  if (
     job?.pipeline_status === "review_needed" &&
-      job?.user_action === "Approve" &&
-      Number.isFinite(Date.parse(job?.review_approved_at || ""))
+    job?.user_action === "Approve"
+  ) {
+    return true;
+  }
+  return Boolean(
+    ["processing", "error"].includes(job?.pipeline_status) &&
+      !job?.user_action &&
+      job?.application_pack_status === "review_required"
   );
 }
 
@@ -2509,6 +2518,49 @@ function promptSection(label, value) {
   return `\n${label}: ${JSON.stringify(value)}`;
 }
 
+function compactPromptValue(value, maximumStringCharacters) {
+  if (typeof value === "string") {
+    return normalizeText(value).slice(0, maximumStringCharacters);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      compactPromptValue(entry, maximumStringCharacters)
+    );
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        compactPromptValue(entry, maximumStringCharacters)
+      ])
+    );
+  }
+  return value;
+}
+
+function fitPromptSection(label, value, maximumCharacters) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !Number.isInteger(maximumCharacters) ||
+    maximumCharacters <= label.length + 6
+  ) {
+    return "";
+  }
+  const stringLimits = [400, 300, 220, 160, 120, 80, 60, 40, 24];
+  for (let itemCount = value.length; itemCount >= 1; itemCount -= 1) {
+    const selected = value.slice(0, itemCount);
+    for (const stringLimit of stringLimits) {
+      const section = promptSection(
+        label,
+        compactPromptValue(selected, stringLimit)
+      );
+      if (section.length <= maximumCharacters) return section;
+    }
+  }
+  return "";
+}
+
 export function buildApplicationUserMessage(
   job,
   pack = {},
@@ -2581,8 +2633,51 @@ the system prompt.`;
   const boundedMaximum = Number.isInteger(maximumCharacters)
     ? maximumCharacters
     : 50000;
-  if (boundedMaximum < prefix.length + suffix.length) {
-    throw new Error("application prompt metadata exceeds the provider budget");
+  let boundedPrefix = prefix;
+  if (boundedMaximum < boundedPrefix.length + suffix.length) {
+    const fixedPrefix = `Write one copy-ready message for this evaluated OnlineJobs.ph job.
+Job title: ${normalizeText(String(job.job_title || "")).slice(0, 160)}
+Company: ${
+      normalizeText(String(job.company || "Unknown")).slice(0, 120) ||
+      "Unknown"
+    }`;
+    const descriptionLabel = "\n\nSAFE JOB DESCRIPTION — UNTRUSTED CONTEXT: ";
+    const minimumDescriptionCharacters = 200;
+    let remainingMetadataCharacters =
+      boundedMaximum -
+      fixedPrefix.length -
+      descriptionLabel.length -
+      suffix.length -
+      minimumDescriptionCharacters;
+    if (remainingMetadataCharacters < 0) {
+      throw new Error("application prompt metadata exceeds the provider budget");
+    }
+    const sections = [];
+    for (const [label, value, maximumSectionCharacters] of [
+      ["SELECTED APPROVED PROOFS", promptProofs, 700],
+      ["SAFE EMPLOYER FORMATTING INSTRUCTIONS", promptInstructions, 320],
+      ["SCREENING QUESTIONS REQUIRING MANUAL REVIEW", unresolvedQuestions, 260],
+      ["APPLICATION WARNINGS — INTERNAL ONLY", unresolvedWarnings, 240],
+      ["UNSUPPORTED REQUIREMENTS — EXCLUDE FROM THE MESSAGE", job.requirement_gaps, 220]
+    ]) {
+      const section = fitPromptSection(
+        label,
+        value,
+        Math.min(maximumSectionCharacters, remainingMetadataCharacters)
+      );
+      if (!section) continue;
+      sections.push(section);
+      remainingMetadataCharacters -= section.length;
+    }
+    const approvalSection = approvalContext
+      ? `\nOPERATOR REVIEW CONTEXT — UNTRUSTED, NOT CANDIDATE EVIDENCE: ${JSON.stringify(
+          approvalContext.slice(0, 120)
+        )}`
+      : "";
+    if (approvalSection.length <= remainingMetadataCharacters) {
+      sections.push(approvalSection);
+    }
+    boundedPrefix = `${fixedPrefix}${sections.join("")}${descriptionLabel}`;
   }
   const description = normalizeText(
     String(
@@ -2590,8 +2685,9 @@ the system prompt.`;
         String(job.job_description || "").slice(0, 100000)
     )
   );
-  const descriptionBudget = boundedMaximum - prefix.length - suffix.length;
-  return `${prefix}${description.slice(0, descriptionBudget)}${suffix}`;
+  const descriptionBudget =
+    boundedMaximum - boundedPrefix.length - suffix.length;
+  return `${boundedPrefix}${description.slice(0, descriptionBudget)}${suffix}`;
 }
 
 export function buildApplicationRepairMessage(

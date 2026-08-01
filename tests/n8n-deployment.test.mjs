@@ -45,6 +45,8 @@ test("deployment policy matches three-role runtime and capacity", () => {
     }
   });
   assert.equal(policy.capacity.minimum_scheduled_burst_headroom, 1);
+  assert.equal(policy.environment.N8N_RUNNERS_MODE, "external");
+  assert.equal(policy.environment.EXECUTIONS_DATA_SAVE_ON_SUCCESS, "none");
 });
 
 test("deployment policy has exactly three signatures and all retired markers", () => {
@@ -73,7 +75,8 @@ test("production environment requires exact runtime values and separate workbook
     JOB_PIPELINE_REVIEW_URL:
       "https://docs.google.com/spreadsheets/d/new-workbook/edit",
     JOB_PIPELINE_GROQ_API_KEY: "present-but-never-logged",
-    JOB_PIPELINE_SLACK_WEBHOOK_URL: "present-but-never-logged"
+    JOB_PIPELINE_SLACK_WEBHOOK_URL: "present-but-never-logged",
+    N8N_RUNNERS_AUTH_TOKEN: "present-but-never-logged"
   };
   assert.deepEqual(
     validateN8nDeploymentEnvironment(policy, environment),
