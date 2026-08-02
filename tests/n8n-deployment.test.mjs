@@ -36,7 +36,7 @@ test("deployment policy matches three-role runtime and capacity", () => {
   assert.deepEqual(deploymentCapacity(configs), {
     maximum_simultaneous_scheduled_executions: 2,
     peak_roles: ["generator", "scraper"],
-    timeout_weighted_concurrency: 0.2847,
+    timeout_weighted_concurrency: 0.4847,
     scheduled_runs_per_week: 826,
     runs_by_role: {
       scraper: 42,

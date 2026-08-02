@@ -109,33 +109,55 @@ test("profile helpers are bundled wherever evaluation code uses them", () => {
   }
 });
 
-test("Generator and Alerter freeze Sheet context without embedded personal facts", () => {
-  for (const file of ["generator.json", "alerter-mover.json"]) {
-    const workflow = workflows[file];
+test("Generator freezes context eagerly while Alerter loads it lazily without embedded personal facts", () => {
+  const generator = workflows["generator.json"];
+  assert.equal(
+    generator.connections["Schedule Trigger"].main[0][0].node,
+    "Get Candidate Context"
+  );
+  for (const name of [
+    "Candidate",
+    "Skills",
+    "Experience",
+    "Projects",
+    "Education",
+    "Awards",
+    "Job Preferences",
+    "Application Settings",
+    "Required Style",
+    "Banned Phrases"
+  ]) {
+    const read = node(generator, `Get ${name} Context`);
+    assert.equal(read.parameters.sheetName.value, name);
     assert.equal(
-      workflow.connections["Schedule Trigger"].main[0][0].node,
-      "Get Candidate Context"
+      read.parameters.documentId.value,
+      "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}"
     );
-    for (const name of [
-      "Candidate",
-      "Skills",
-      "Experience",
-      "Projects",
-      "Education",
-      "Awards",
-      "Job Preferences",
-      "Application Settings",
-      "Required Style",
-      "Banned Phrases"
-    ]) {
-      const read = node(workflow, `Get ${name} Context`);
-      assert.equal(read.parameters.sheetName.value, name);
-      assert.equal(
-        read.parameters.documentId.value,
-        "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}"
-      );
-    }
-    node(workflow, "Compile Candidate Context");
+  }
+  node(generator, "Compile Candidate Context");
+
+  const alerter = workflows["alerter-mover.json"];
+  assert.equal(
+    alerter.connections["Schedule Trigger"].main[0][0].node,
+    "Capture Alerter Execution Start"
+  );
+  assert.equal(
+    alerter.connections["Capture Alerter Execution Start"].main[0][0].node,
+    "Get Business Snapshot"
+  );
+  const contextRead = node(alerter, "Get Alert Configuration Snapshot");
+  assert.match(contextRead.parameters.url, /JOB_PIPELINE_CONFIG_SPREADSHEET_ID/);
+  assert.equal(
+    alerter.connections["Has Potential Alert Work"].main[0][0].node,
+    "Get Alert Configuration Snapshot"
+  );
+  assert.equal(
+    alerter.connections["Has Potential Alert Work"].main[1][0].node,
+    "Summarize Alerter & Mover Run"
+  );
+  node(alerter, "Compile Alert Configuration");
+
+  for (const workflow of [generator, alerter]) {
     const serialized = JSON.stringify(workflow);
     for (const personalFact of [
       "John Lester Escarlan",
@@ -495,7 +517,11 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   const code = allCode(workflow);
   assert.equal(workflow.meta.movementIndependentOfSlack, true);
   for (const name of [
+    "Get Business Snapshot",
+    "Normalize Business Snapshot",
     "Plan Independent Moves",
+    "Has Eligible Work",
+    "Has Movement Work",
     "Append Movement Claims",
     "Keep Winning Movement Claims",
     "Upsert Scraped Jobs",
@@ -506,25 +532,52 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
     "Get Main Workbook Layout",
     "Prepare Latest-First Sort",
     "Sort Business Sheets Latest First",
-    "Get Scraped Jobs After Copies",
-    "Get To Review After Copies",
-    "Get To Apply After Copies",
-    "Get Applied Jobs After Copies",
-    "Get Archive After Copies",
+    "Get Touched Business Stores After Copies",
+    "Normalize Touched Business Snapshot",
     "Confirm Destination Copies",
     "Delete Confirmed Scraped Jobs Rows",
     "Delete Confirmed To Review Rows",
     "Delete Confirmed To Apply Rows",
-    "Get To Apply After Moves",
+    "Prepare Post-Movement Alert Snapshot",
+    "Needs Fresh To Apply Snapshot",
+    "Get Fresh To Apply Snapshot",
+    "Use Initial To Apply Snapshot",
+    "Preselect Persisted Alert Work",
+    "Has Potential Alert Work",
+    "Get Alert Configuration Snapshot",
+    "Compile Alert Configuration",
     "Select Fresh Alerts",
     "Append Alert Claims",
     "Keep Winning Alert Claims",
+    "Evaluate Provider Commit Headroom",
+    "Get Alert Receipt Authorization Snapshot",
+    "Authorize Pending Alert Receipts",
+    "Upsert New Pending Receipts",
+    "Verify Pending Alert Receipts",
+    "CAS Sending Alert Receipts",
+    "Verify Sending Alert Receipts",
     "Persist Alert Sending States",
     "Get To Apply After Alert Claims",
     "Confirm and Render Alerts",
+    "Recheck Provider Commit Headroom",
     "Send Slack Alert",
-    "Get To Apply Before Alert Commit",
-    "Guard and Commit Slack Results"
+    "CAS Provider Receipt Outcomes",
+    "Verify Provider Receipt Outcomes",
+    "CAS Provider Ambiguity Fallbacks",
+    "Get Alert Owners After Provider",
+    "Plan Provider Business Reconciliation",
+    "Persist Provider To Apply Updates",
+    "Persist Provider Applied Updates",
+    "Persist Provider Archive Updates",
+    "Get Provider Business Confirmation",
+    "CAS Provider Delivered Reconciliation",
+    "Finalize Alert Delivery Results",
+    "Get Receipt Recovery Snapshot",
+    "Plan Expired Sending Receipts",
+    "Plan Receipt Business Recovery",
+    "Get Recovery Business Confirmation",
+    "CAS Delivered Receipt Reconciliation",
+    "Finalize Receipt Recovery"
   ]) {
     node(workflow, name);
   }
@@ -532,7 +585,9 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   assert.match(code, /confirmMoveDeletions/);
   assert.match(code, /selectFreshAlertCandidates/);
   assert.match(code, /renderSlackAlert/);
-  assert.match(code, /applySlackProviderResult/);
+  assert.match(code, /createPendingAlertReceipt/);
+  assert.match(code, /applyProviderResultToAlertReceipt/);
+  assert.match(code, /planAlertReceiptBusinessReconciliation/);
   assert.match(code, /selectWinningSystemClaims/);
   assert.equal(workflow.meta.movementBeforeAlertSelection, true);
   assert.equal(workflow.meta.appendWinnerClaims, true);
@@ -562,23 +617,92 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   );
   assert.equal(
     workflow.connections["Sort Business Sheets Latest First"].main[0][0].node,
-    "Get Scraped Jobs After Copies"
+    "Get Touched Business Stores After Copies"
   );
   assert.equal(
     workflow.connections["Aggregate To Apply Deletion Attempts"].main[0][0].node,
-    "Get To Apply After Moves"
+    "Prepare Post-Movement Alert Snapshot"
   );
   assert.equal(
-    workflow.connections["Aggregate To Apply After Moves"].main[0][0].node,
-    "Select Fresh Alerts"
+    workflow.connections["Use Initial To Apply Snapshot"].main[0][0].node,
+    "Preselect Persisted Alert Work"
   );
+  assert.equal(
+    workflow.connections["Has Eligible Work"].main[1][0].node,
+    "Summarize Alerter & Mover Run"
+  );
+  assert.equal(
+    workflow.connections["Has Movement Work"].main[1][0].node,
+    "Use Initial To Apply Snapshot"
+  );
+  assert.match(
+    node(workflow, "Get Business Snapshot").parameters.url,
+    /values:batchGet/
+  );
+  assert.match(
+    node(workflow, "Get Business Snapshot").parameters.url,
+    /Scraped%20Jobs.*To%20Review.*To%20Apply.*Applied%20Jobs.*Archive/
+  );
+  assert.match(
+    node(workflow, "Normalize Business Snapshot").parameters.jsCode,
+    /sheet_read_request_count:\s*1/
+  );
+  assert.match(
+    node(workflow, "Prepare Latest-First Sort").parameters.jsCode,
+    /touched_sheets/
+  );
+  assert.deepEqual(workflow.meta.googleSheetsReadRequestBudgets, {
+    idle: 2,
+    movementOnly: 6,
+    fullAlert: 10
+  });
+  assert.equal(workflow.meta.consolidatedBusinessSnapshot, true);
+  assert.equal(workflow.meta.lazyConfigurationSnapshot, true);
+  assert.equal(workflow.meta.touchedSheetConfirmationOnly, true);
+  assert.equal(workflow.meta.durableReceiptBeforeProvider, true);
+  assert.equal(workflow.meta.recoverProviderOutcomesBeforeSelection, true);
+  assert.equal(workflow.meta.terminalizeAmbiguousProviderOutcomes, true);
+  assert.equal(
+    workflow.meta.alertReceiptStoreEnvironmentVariable,
+    "JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID"
+  );
+  const idleReadNodes = ["Get Business Snapshot"];
+  const maximumMovementOnlyReadNodes = [
+    "Get Business Snapshot",
+    "Get System Claims",
+    "Get Main Workbook Layout",
+    "Get Touched Business Stores After Copies",
+    "Get Fresh To Apply Snapshot"
+  ];
+  assert.ok(idleReadNodes.length <= workflow.meta.googleSheetsReadRequestBudgets.idle);
+  assert.ok(
+    maximumMovementOnlyReadNodes.length <=
+      workflow.meta.googleSheetsReadRequestBudgets.movementOnly
+  );
+  for (const readName of maximumMovementOnlyReadNodes) node(workflow, readName);
+  for (const excluded of [
+    "Get System Claims",
+    "Get Main Workbook Layout",
+    "Sort Business Sheets Latest First",
+    "Get Touched Business Stores After Copies",
+    "Get Alert Configuration Snapshot",
+    "Send Slack Alert"
+  ]) {
+    assert.notEqual(
+      workflow.connections["Has Eligible Work"].main[1][0].node,
+      excluded,
+      `idle branch must bypass ${excluded}`
+    );
+  }
   assert.match(
     node(workflow, "Send Slack Alert").parameters.url,
     /JOB_PIPELINE_SLACK_WEBHOOK_URL/
   );
   for (const updateName of [
     "Persist Alert Sending States",
-    "Update Alert Results"
+    "Persist Provider To Apply Updates",
+    "Persist Provider Applied Updates",
+    "Persist Provider Archive Updates"
   ]) {
     const update = node(workflow, updateName);
     assert.deepEqual(update.parameters.columns.matchingColumns, [
@@ -594,8 +718,148 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   );
   assert.equal(
     slack.parameters.options.response.response.fullResponse,
-    true
+    false
   );
+  assert.match(
+    node(workflow, "Stage Slack Result").parameters.jsCode,
+    /String\(\$json\?\.data \|\| ''\)\.trim\(\) === 'ok'/
+  );
+
+  for (const retired of [
+    "Aggregate Slack Results",
+    "Get To Apply Before Alert Commit",
+    "Guard and Commit Slack Results",
+    "Update Alert Results"
+  ]) {
+    assert.equal(
+      workflow.nodes.some((entry) => entry.name === retired),
+      false,
+      retired
+    );
+  }
+
+  const receiptNodes = workflow.nodes.filter(
+    (entry) => entry.type === "n8n-nodes-base.dataTable"
+  );
+  assert.ok(receiptNodes.length >= 10);
+  for (const receiptNode of receiptNodes) {
+    assert.equal(receiptNode.typeVersion, 1.1, receiptNode.name);
+    assert.equal(
+      receiptNode.parameters.dataTableId.value,
+      "={{ $env.JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID }}",
+      receiptNode.name
+    );
+    assert.equal(receiptNode.onError, "continueRegularOutput", receiptNode.name);
+  }
+  for (const name of [
+    "CAS Expired Sending Receipts",
+    "CAS Retry Pending Receipts",
+    "CAS Sending Alert Receipts",
+    "CAS Provider Receipt Outcomes",
+    "CAS Provider Ambiguity Fallbacks",
+    "CAS Delivered Receipt Reconciliation",
+    "CAS Provider Delivered Reconciliation"
+  ]) {
+    assert.deepEqual(
+      node(workflow, name).parameters.filters.conditions.map((entry) => entry.keyName),
+      ["receipt_id", "receipt_version"],
+      name
+    );
+  }
+
+  const predecessor = new Map();
+  for (const [source, outputs] of Object.entries(workflow.connections)) {
+    for (const branch of outputs.main || []) {
+      for (const destination of branch) {
+        const entries = predecessor.get(destination.node) || [];
+        entries.push(source);
+        predecessor.set(destination.node, entries);
+      }
+    }
+  }
+  const ancestors = new Set();
+  const queue = [...(predecessor.get("Send Slack Alert") || [])];
+  while (queue.length) {
+    const current = queue.shift();
+    if (ancestors.has(current)) continue;
+    ancestors.add(current);
+    queue.push(...(predecessor.get(current) || []));
+  }
+  for (const required of [
+    "Verify Pending Alert Receipts",
+    "Verify Sending Alert Receipts",
+    "Persist Alert Sending States",
+    "Get To Apply After Alert Claims",
+    "Confirm and Render Alerts",
+    "Recheck Provider Commit Headroom"
+  ]) {
+    assert.ok(ancestors.has(required), required);
+  }
+
+  const alerterReadNames = [
+    "Get Business Snapshot",
+    "Get Recovery Business Confirmation",
+    "Get System Claims",
+    "Get Main Workbook Layout",
+    "Get Touched Business Stores After Copies",
+    "Get Fresh To Apply Snapshot",
+    "Get Alert Configuration Snapshot",
+    "Get Alert System Claims",
+    "Get To Apply After Alert Claims",
+    "Get Alert Owners After Provider",
+    "Get Provider Business Confirmation"
+  ];
+  for (const name of alerterReadNames) {
+    const read = node(workflow, name);
+    assert.equal(read.retryOnFail, undefined, name);
+    assert.equal(read.maxTries, undefined, name);
+    assert.equal(read.waitBetweenTries, undefined, name);
+  }
+  assert.equal(
+    node(workflow, "Get Business Snapshot").onError,
+    "continueRegularOutput"
+  );
+  const quotaWait = node(workflow, "Wait for Sheets Quota Window");
+  assert.equal(quotaWait.type, "n8n-nodes-base.wait");
+  assert.equal(quotaWait.parameters.amount, 65);
+  assert.equal(quotaWait.parameters.unit, "seconds");
+  const quotaRetry = node(workflow, "Retry Business Snapshot");
+  assert.equal(quotaRetry.retryOnFail, undefined);
+  assert.equal(
+    workflow.connections["Schedule Trigger"].main[0][0].node,
+    "Capture Alerter Execution Start"
+  );
+  assert.equal(
+    workflow.connections["Capture Alerter Execution Start"].main[0][0].node,
+    "Get Business Snapshot"
+  );
+  assert.match(
+    node(workflow, "Normalize Business Snapshot").parameters.jsCode,
+    /Capture Alerter Execution Start/
+  );
+  assert.equal(
+    workflow.connections["Business Snapshot Quota Limited"].main[0][0].node,
+    "Wait for Sheets Quota Window"
+  );
+  const fullMovementAndAlertReads = alerterReadNames.filter(
+    (name) => name !== "Get Recovery Business Confirmation"
+  );
+  assert.equal(fullMovementAndAlertReads.length, 10);
+  const recoveryAndMovementReads = [
+    "Get Business Snapshot",
+    "Get Recovery Business Confirmation",
+    "Get System Claims",
+    "Get Main Workbook Layout",
+    "Get Touched Business Stores After Copies",
+    "Get Fresh To Apply Snapshot"
+  ];
+  assert.equal(recoveryAndMovementReads.length, 6);
+  assert.match(
+    node(workflow, "Preselect Persisted Alert Work").parameters.jsCode,
+    /skip_new_alerts/
+  );
+  assert.ok(workflow.meta.googleSheetsReadRetry.quota_window_delay_ms >= 60_000);
+  assert.ok(workflow.meta.minimumProviderCommitHeadroomMs >= 120_000);
 });
 
 test("network calls and critical Sheet writes remain bounded and fail closed", () => {

@@ -39,7 +39,7 @@
     "maximum_utilization_ratio": 0.67,
     "maximum_simultaneous_scheduled_executions": 2,
     "minimum_scheduled_burst_headroom": 1,
-    "timeout_weighted_concurrency": 0.2847
+    "timeout_weighted_concurrency": 0.4847
   },
   "execution_retention": {
     "maximum_age_hours": 336,

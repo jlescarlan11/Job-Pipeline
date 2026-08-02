@@ -142,7 +142,7 @@ test("Generator runtime enforces production-safe per-candidate Sheet pacing", ()
 });
 
 test("generator and alerter schedules retain worst-case timeout separation", () => {
-  assert.equal(runtime.alerter_mover.schedule_offset_minutes, 14);
+  assert.equal(runtime.alerter_mover.schedule_offset_minutes, 10);
   assert.match(
     validateRuntimeConfig({
       ...runtime,

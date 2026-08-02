@@ -28,7 +28,7 @@ Scraped Jobs
 
 ## Trust boundaries
 
-The Main workbook has five visible authoritative business stores: `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. Alerter & Mover atomically sorts complete business rows by their store-specific lifecycle timestamp before rereading destinations and resolving deletion row numbers, so newest records stay directly below each header without weakening copy-confirm-delete. Its hidden `_System` tab contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
+The Main workbook has five visible authoritative business stores: `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. Alerter & Mover atomically sorts complete business rows in movement-touched stores by their store-specific lifecycle timestamp before rereading those stores and resolving deletion row numbers, so newest records stay directly below each header without weakening copy-confirm-delete. Its hidden `_System` tab contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
 
 The separate Configuration workbook contains the eleven visible operator-owned tabs: `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases`. None is a business-record store. Workflows read these tabs directly from the Configuration workbook; the Main workbook contains no configuration copies or `IMPORTRANGE` bridge.
 
@@ -88,11 +88,13 @@ A failed retry retains an earlier valid message/provenance but the row remains `
 
 ## Alerter & Mover
 
-Alerter & Mover first freezes the same ten-tab Configuration-workbook context and fails before moves
-or alerts when it is invalid. Movement then reads all five business stores and
-finishes before alert selection rereads `To Apply`. Each movement and alert first appends a source/destination-scoped `_System` claim; the earliest unexpired sheet row is the only winner. Individual destination, delete, or Slack failures continue as bounded result items, so one failed branch cannot cancel unrelated work. The configured movement cap applies to the combined, deterministically ordered route set.
+Alerter & Mover first reads all five business stores through one Google Sheets batch snapshot, normalizes header-only tabs to empty arrays, rejects ambiguous canonical ownership, and plans outcomes, movement, and potential alerts from persisted fields. An idle run exits before `_System`, Configuration, writes, sorting, or Slack. Movement completes before alert selection; only movement-touched stores are confirmed and sorted. If `To Apply` was touched it is refreshed once, otherwise the validated initial snapshot is reused. The same ten-tab Configuration context is loaded through one batch request only after persisted fields identify potential alert work, so invalid Configuration can block alert delivery without cancelling completed movement or outcome work.
+
+Each movement and alert first appends a source/destination-scoped `_System` claim; the earliest unexpired sheet row is the only winner. Individual destination, delete, receipt, or Slack failures continue as bounded result items, so one failed branch cannot cancel unrelated work. The configured movement cap applies to the combined, deterministically ordered route set. The instrumented idle, movement/recovery, and full movement-plus-alert read budgets are two, six, and ten Google Sheets API requests respectively. The initial five-store snapshot has one explicit 65-second quota-window retry. Later reads never use n8n's capped five-second automatic retry; they fail closed and defer recovery to the next 15-minute schedule. Provider work requires 150 seconds of remaining execution headroom. Provider telemetry, rather than visual node count, is authoritative during rollout.
 
 Alert eligibility requires a fresh, unacted `ready_to_apply` row with a current ready pack and validated message. The idempotency key includes canonical identity, policy version, generation timestamp, and message digest. A successful key is never replayed. An expired `sending` claim and an ambiguous timeout are terminal because delivery may have occurred; neither is automatically resent.
+
+Delivery evidence has a transport-neutral durable contract in an instance-local n8n Data Table, separate from the quota-sensitive Main workbook. One receipt identity equals one alert idempotency key. Atomic create-if-absent and receipt-version compare-and-swap transitions enforce `pending → sending → delivered → reconciled` plus bounded rejection and terminal-ambiguity outcomes. Every write is reread, and duplicate identity rows fail closed. Startup recovery terminalizes expired `sending` evidence and reconciles all definite provider outcomes before new selection. Slack is reachable only after durable `sending`, a matching fresh Sheet claim, render safety, and a fresh headroom gate. Its outcome is persisted before business reconciliation; an unprovable post-send write is terminal ambiguity. Delivered receipts reconcile into the matching key's single current owner across `To Apply`, `Applied Jobs`, and `Archive` without another provider call. The strict column allowlist excludes message, job-description, profile, credential, webhook, authorization, and raw-provider content. The Data Table is part of the n8n durability and backup boundary; delivered rows cannot be pruned before reconciliation.
 
 Slack contains scores, decision reason, gaps, instructions, questions, proofs, warnings, the exact stored message in a code block, and open-only `To Apply`/source links. It contains no action webhook.
 
@@ -119,9 +121,9 @@ All workflows use `Asia/Manila`, remain inactive in source control, retain faile
 | --- | ---: | ---: | ---: |
 | Scraper | 240 min, offset 8 | 900 s | 1,200 s |
 | Evaluator & Generator | 90 min, offset 2 | 480 s | 600 s |
-| Alerter & Mover | 15 min, offset 14 | 120 s | 180 s |
+| Alerter & Mover | 15 min, offset 10 | 300 s | 360 s |
 
-The timeout-weighted demand is 0.2847 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.
+The timeout-weighted demand is 0.4847 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.
 
 The Generator has 17 conservative daily trigger boundaries and a nominal
 capacity of 80 jobs per 24 hours. At five jobs and at most two model requests

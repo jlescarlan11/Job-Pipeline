@@ -8,7 +8,7 @@
 
 The validator rejects missing or duplicate signatures, any active retired workflow, a mixed old/new inventory, wrong workbook binding, insufficient capacity, stale execution counts, disabled pruning, or execution-data settings that retain successful production payloads.
 
-The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 120-second timeout. This deployment policy does not authorize or automate application submission.
+The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 300-second timeout. This deployment policy does not authorize or automate application submission.
 
 The Generator freezes at most five eligible `Scraped Jobs` rows and processes
 them sequentially, with a 20-second post-candidate interval for production
@@ -41,7 +41,7 @@ Values are checked but never printed or stored in cutover evidence. Workflow exp
 
 ## Capacity and retention
 
-The final schedules produce 826 executions per week: 42 Scraper, 112 Generator, and 672 Alerter & Mover. Timeout-weighted demand is 0.2847. The maximum scheduled overlap is two against production concurrency 3.
+The final schedules produce 826 executions per week: 42 Scraper, 112 Generator, and 672 Alerter & Mover. Timeout-weighted demand is 0.4847. The maximum scheduled overlap is two against production concurrency 3.
 
 The 336 hours (fourteen days) of all-failure retention is 1,652 executions, below the 10,000-count pruning cap. Failure and manual execution data are retained; successful production payloads and per-node progress are not. Successful scheduled runs are confirmed through the internal workflow-labelled metrics.
 

@@ -16,8 +16,9 @@
     "validate:cutover": "node scripts/validate-n8n-cutover.mjs",
     "validate:segmented-cutover": "node scripts/validate-segmented-queue-cutover.mjs",
     "validate:deployment": "node scripts/validate-n8n-deployment.mjs",
+    "validate:receipts": "node scripts/validate-alert-receipt-store.mjs",
     "validate:policy": "node scripts/validate-n8n-deployment.mjs --policy-only",
-    "validate": "npm run check:artifacts && npm run validate:policy && npm test"
+    "validate": "npm run check:artifacts && npm run validate:policy && npm run validate:receipts && npm test"
   },
   "engines": {
     "node": ">=20"

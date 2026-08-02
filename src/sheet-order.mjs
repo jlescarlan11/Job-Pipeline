@@ -20,37 +20,48 @@ export function latestFirstSortRequests(metadata, schema, latestFirstBySheet) {
     throw new Error("Latest-first sorting requires created_at and canonical_job_id");
   }
 
-  return schema.business_stores.map((name) => {
-    const properties = metadataByTitle.get(name);
-    const latestIndex = fields.indexOf(latestFirstBySheet?.[name]);
-    const rowCount = Number(properties?.gridProperties?.rowCount);
-    const columnCount = Number(properties?.gridProperties?.columnCount);
-    if (
-      latestIndex < 0 ||
-      !integer(properties?.sheetId) ||
-      !integer(rowCount) ||
-      rowCount < 2 ||
-      !integer(columnCount) ||
-      columnCount < fields.length
-    ) {
-      throw new Error(`Latest-first sorting found invalid metadata for ${name}`);
-    }
-
-    return {
-      sortRange: {
-        range: {
-          sheetId: properties.sheetId,
-          startRowIndex: 1,
-          endRowIndex: rowCount,
-          startColumnIndex: 0,
-          endColumnIndex: fields.length
-        },
-        sortSpecs: [
-          { dimensionIndex: latestIndex, sortOrder: "DESCENDING" },
-          { dimensionIndex: createdAtIndex, sortOrder: "DESCENDING" },
-          { dimensionIndex: identityIndex, sortOrder: "ASCENDING" }
-        ]
+  const configuredSheets = Object.keys(latestFirstBySheet ?? {});
+  const unknownSheets = configuredSheets.filter(
+    (name) => !schema.business_stores.includes(name)
+  );
+  if (unknownSheets.length > 0) {
+    throw new Error(
+      `Latest-first sorting received unknown business sheets: ${unknownSheets.join(", ")}`
+    );
+  }
+  return schema.business_stores
+    .filter((name) => Object.hasOwn(latestFirstBySheet ?? {}, name))
+    .map((name) => {
+      const properties = metadataByTitle.get(name);
+      const latestIndex = fields.indexOf(latestFirstBySheet?.[name]);
+      const rowCount = Number(properties?.gridProperties?.rowCount);
+      const columnCount = Number(properties?.gridProperties?.columnCount);
+      if (
+        latestIndex < 0 ||
+        !integer(properties?.sheetId) ||
+        !integer(rowCount) ||
+        rowCount < 2 ||
+        !integer(columnCount) ||
+        columnCount < fields.length
+      ) {
+        throw new Error(`Latest-first sorting found invalid metadata for ${name}`);
       }
-    };
-  });
+
+      return {
+        sortRange: {
+          range: {
+            sheetId: properties.sheetId,
+            startRowIndex: 1,
+            endRowIndex: rowCount,
+            startColumnIndex: 0,
+            endColumnIndex: fields.length
+          },
+          sortSpecs: [
+            { dimensionIndex: latestIndex, sortOrder: "DESCENDING" },
+            { dimensionIndex: createdAtIndex, sortOrder: "DESCENDING" },
+            { dimensionIndex: identityIndex, sortOrder: "ASCENDING" }
+          ]
+        }
+      };
+    });
 }

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "policy_version": "2026-08-02/v1",
+  "store": {
+    "kind": "n8n_data_table",
+    "table_name": "Job Pipeline Alert Receipts",
+    "environment_variable": "JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID"
+  },
+  "statuses": [
+    "pending",
+    "sending",
+    "delivered",
+    "reconciled",
+    "retryable_rejection",
+    "terminal_rejection",
+    "terminal_ambiguity"
+  ],
+  "provider_classifications": [
+    "not_attempted",
+    "accepted",
+    "retryable_rejection",
+    "definite_rejection",
+    "ambiguous"
+  ],
+  "maximum_attempts": 3,
+  "bounds": {
+    "receipt_id": 500,
+    "idempotency_key": 500,
+    "canonical_job_id": 240,
+    "execution_id": 120,
+    "provider_reference": 120,
+    "error_category": 80,
+    "error_summary": 240,
+    "timestamp": 40
+  },
+  "retention": {
+    "prune_delivered_before_reconciliation": false,
+    "backup_required": true
+  }
+}

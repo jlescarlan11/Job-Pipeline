@@ -368,3 +368,77 @@ messages, and complete migration plans remain outside the repository.
 18. **58-AC-18 — Production claims/logs — SATISFIED:** Four scheduled boundaries succeeded; the final snapshot had zero expired/malformed claims and zero unexplained workflow failures.
 19. **58-AC-19 — Rollback proof — SATISFIED:** An owner-only workbook restore matched every legacy tab byte-for-byte while an isolated n8n user folder restored the three prior compatible workflow IDs.
 20. **58-AC-20 — Permanent evidence/runbook — SATISFIED:** The runbook, production report, strict validator, deliberately failing example, and validator-passing sanitized evidence are committed together.
+
+## Issue #60 — quota-safe Sheet phases
+
+1. **60-AC-01 — Consolidated business snapshot — SATISFIED:** `Get Business Snapshot` performs one five-range API read; batch-parser and workflow tests prove exact ownership/header reconstruction.
+2. **60-AC-02 — Header-only stores — SATISFIED:** `sheet-batch.test.mjs` proves header-only ranges become empty arrays without placeholder identities.
+3. **60-AC-03 — Cross-store ambiguity — SATISFIED:** phase-planner, discovery, movement, and batch fixtures reject duplicate canonical ownership before writes.
+4. **60-AC-04 — Complete idle short circuit — SATISFIED:** graph tests prove `Has Eligible Work=false` reaches the final summary without claims, writes, deletes, sort/layout, post-copy, Configuration, or Slack nodes.
+5. **60-AC-05 — Idle read budget — SATISFIED:** summary instrumentation and graph accounting prove one normal idle Sheet read, within the declared maximum of two.
+6. **60-AC-06 — Movement read budget — SATISFIED:** movement phase accounting proves at most six read requests, including fresh `To Apply` only when touched.
+7. **60-AC-07 — Lazy Configuration — SATISFIED:** persisted-field preselection and graph tests place the single Configuration batch read strictly behind `Has Potential Alert Work`.
+8. **60-AC-08 — Touched-only confirmation/sort — SATISFIED:** dynamic ranges and `latestFirstSortRequests` tests use only `touched_sheets`.
+9. **60-AC-09 — Movement regressions — SATISFIED:** route caps, append-winner claims, repair, stale-source, descending-delete, failure-isolation, and E2E suites remain green.
+10. **60-AC-10 — Explicit no-work summary — SATISFIED:** planner/summary tests report store/status counts and `no_eligible_work`.
+11. **60-AC-11 — Shape/budget regression protection — SATISFIED:** `simplified-workflows.test.mjs` asserts bypass branches, lazy reads, touched ranges, and the two/six request budgets.
+12. **60-AC-12 — Artifact/repository gates — SATISFIED:** generated drift checks and the complete validation suite pass against commit `3954a59` and the integrated state.
+
+## Issue #61 — durable delivery receipt contract
+
+1. **61-AC-01 — Deterministic unique identity — SATISFIED:** one receipt ID equals the alert idempotency key; concurrent create and duplicate-row fixtures prove one current identity and fail closed otherwise.
+2. **61-AC-02 — Strict bounded contract — SATISFIED:** policy/record validation covers canonical identity, execution ID, attempt/version integers, timestamps, status, and provider classification.
+3. **61-AC-03 — Complete forward lifecycle — SATISFIED:** table-driven tests cover pending/sending/delivered/reconciled, retryable/terminal rejection, and terminal ambiguity.
+4. **61-AC-04 — Invalid transition protection — SATISFIED:** backward, duplicate, stale-version, stale-time, cap, and corrupted-write tests preserve newer evidence.
+5. **61-AC-05 — Provider-free delivered recovery — SATISFIED:** reconciliation plans expose `provider_send=false` and a guarded sent-state update.
+6. **61-AC-06 — Moved-owner recovery — SATISFIED:** To Apply, Applied Jobs, and Archive fixtures pass; within/cross-store duplicates fail.
+7. **61-AC-07 — Reconciled idempotency — SATISFIED:** repeated reconciliation returns no receipt or business mutation.
+8. **61-AC-08 — Ambiguity is terminal — SATISFIED:** transition tests reject `terminal_ambiguity → pending` and every other backward path.
+9. **61-AC-09 — Legacy compatibility — SATISFIED:** missing-receipt planning is mutation-free and does not authorize provider work.
+10. **61-AC-10 — Persistence allowlist/privacy — SATISFIED:** the exact 20-column Data Table schema excludes message, description, profile, webhook, credential, authorization, and raw-response fields.
+11. **61-AC-11 — Bounded sanitized provider evidence — SATISFIED:** secret-bearing references collapse to `accepted`; errors use fixed generic summaries and configured bounds.
+12. **61-AC-12 — Unit/persistence coverage — SATISFIED:** transition, concurrency, duplicate, restart, moved-owner, ambiguity, redaction, corruption, and compatibility fixtures pass.
+13. **61-AC-13 — Mutation-free repository validation — SATISFIED:** `npm run validate:receipts` validates policy/provisioning shape and explicitly performs no production Data Table mutation.
+
+## Issue #62 — integrated quota-safe delivery and reconciliation
+
+1. **62-AC-01 — Recover before select/no Slack — SATISFIED:** startup graph orders receipt query, stale-send transition, business confirmation, and receipt reconciliation before `Plan Independent Moves`; recovery sets `skip_new_alerts`.
+2. **62-AC-02 — All current owners — SATISFIED:** generic recovery plus To Apply/Applied/Archive write branches and owner fixtures cover every allowed owner.
+3. **62-AC-03 — Ambiguous ownership blocks mutation/provider — SATISFIED:** domain uniqueness throws before plan output; recovery records a bounded error and blocks new alerts while leaving movement available.
+4. **62-AC-04 — Durable pre-send evidence — SATISFIED:** graph/field tests require exact post-write rereads of pending and compare-and-swapped sending receipts before the Sheet sending state or Slack.
+5. **62-AC-05 — Fresh provider guard — SATISFIED:** Slack ancestors include winning claim, durable sending verification, persisted Sheet update, fresh To Apply read, exact identity/version/guard/status/token/key/attempt/blank-action checks, message rendering, and a fresh headroom gate.
+6. **62-AC-06 — Receipt before business update — SATISFIED:** Slack flows directly to generic provider classification and receipt CAS/reread before any owner lookup or Sheet result write.
+7. **62-AC-07 — Sheet-failure recovery/no replay — SATISFIED:** restart integration fixture leaves the Sheet unchanged after delivered persistence, then reconciles it with one total provider call.
+8. **62-AC-08 — Uncertain receipt is terminal — SATISFIED:** generated fallback attempts `sending → terminal_ambiguity`; unconfirmed fallback still produces terminal business state and never re-enters pending.
+9. **62-AC-09 — Bounded definite retry — SATISFIED:** 429/5xx receipt and business fixtures retain completed movement and set bounded retry metadata without an in-execution Slack replay.
+10. **62-AC-10 — Timeout/unknown ambiguity — SATISFIED:** provider classification tests and generated fallback route unknown/no-status outcomes to terminal ambiguity.
+11. **62-AC-11 — Quota-window retry — SATISFIED:** the initial consolidated business read has exactly two total attempts separated by an explicit 65-second Wait node; final-artifact disposable execution `6971` observed 429 then 200 65.9 seconds apart. Later reads have no n8n automatic retry and therefore cannot collapse to the runtime's five-second cap; they fail closed for next-schedule recovery.
+12. **62-AC-12 — Provider headroom/defer — SATISFIED:** capacity validation reserves 150,000 ms; pre- and immediate pre-Slack gates block the provider, and already-sending unattempted receipts receive a definite bounded deferral.
+13. **62-AC-13 — Ten-read full budget — SATISFIED:** topology accounting enumerates exactly ten possible full movement-plus-alert reads; recovery and new delivery are mutually exclusive for a run.
+14. **62-AC-14 — Movement/outcome failure isolation — SATISFIED:** movement finishes before Configuration/Slack/new-receipt work; receipt and reconciliation nodes continue with bounded errors, and read-failure branches preserve prior business work.
+15. **62-AC-15 — Ineligible rows never send — SATISFIED:** existing sent/terminal/suppressed/acted/provenance/pack/message eligibility fixtures remain green, and Slack has only the guarded predecessor path.
+16. **62-AC-16 — Complete sanitized summary — SATISFIED:** the single summary derives execution/store/status/movement/outcome/alert/read/retry/provider/error fields from whichever bounded branch ran.
+17. **62-AC-17 — No sensitive receipt/log fields — SATISFIED:** allowlist/redaction tests and generated Data Table schema exclude secret/private/raw-provider data; structured events contain categories/counts only.
+18. **62-AC-18 — Existing alert/movement/manual boundaries — SATISFIED:** exact-copy renderer, safe-link, caps, claims, successful-key no-replay, movement, E2E, and no-application-endpoint suites remain green.
+19. **62-AC-19 — Generated/repository validation — SATISFIED:** inactive n8n import/export round trip preserved 175 nodes and 17 Data Table nodes; graph reachability, code syntax, drift, policy, receipt validation, and all 240 repository tests pass (12 intentional legacy skips).
+
+## Issue #63 — production quota-safe Alerter rollout
+
+1. **63-AC-01 — Prerequisites and release identity — SATISFIED:** #60, #61, and #62 are anchored at `3954a59`, `de04bf6`, and `6507a1c`; the final inactive 179-node artifact SHA-256 is `f7a756f59b483988dedd28ccb9d9127cdf87377a0de44c0b19185542e0e0e33b`.
+2. **63-AC-02 — Repository gates — SATISFIED:** drift, policy, receipt, generated Code, no-auto-apply, and full `npm run validate` gates pass with 247 tests, 235 passes, 12 intentional skips, and zero failures.
+3. **63-AC-03 — Restorable backups — SATISFIED:** permission-restricted workflow and integrity-checked n8n/receipt backups have recorded SHA-256 values; private Main and Configuration Drive copies were reread; restore steps are documented.
+4. **63-AC-04 — Disposable matrix — SATISFIED:** executions `6953`, `6954`, `6960`, `6961`, `6963`–`6966`, and final-artifact `6971`, plus the complete route regression suite, cover no-op, movement, delivery, replay, rejection, restart, post-Slack Sheet failure, reconciliation, actual 429 delay, and privacy.
+5. **63-AC-05 — Failure isolation — SATISFIED:** every failure injection builder rejects a schedule trigger and targets only disposable/loopback resources; production received only the authorized labelled canary.
+6. **63-AC-06 — Update in place — SATISFIED:** `QO6OLK3pHetgGIGq` retained its ID, 33 Google-capable credential bindings, Slack environment destination, 10/25/40/55 schedule, `Asia/Manila`, 300-second timeout, and required environment bindings.
+7. **63-AC-07 — Exactly three active — SATISFIED:** post-cutover and post-observation inventory contains only one active Scraper, one Evaluator & Generator, and one Alerter & Mover; health is 200.
+8. **63-AC-08 — Scheduled no-op — SATISFIED:** scheduled execution `6952` emitted `no_eligible_work`, made no mutation/provider request, used one logical Sheet read, and reported zero errors.
+9. **63-AC-09 — Scheduled movement — SATISFIED:** scheduled execution `6949` completed three copy-confirm-delete moves with four reads and no error; `6951` independently completed the canary's terminal move.
+10. **63-AC-10 — Scheduled alert — SATISFIED:** scheduled execution `6950` called Slack once, persisted accepted/200, and reached durable `delivered → reconciled` and Sheet `sent` with attempt 1.
+11. **63-AC-11 — Replay safety — SATISFIED:** `6951` made zero provider calls with the receipt unchanged; `6952` then produced neither another move nor another Slack call from the unchanged Archive state.
+12. **63-AC-12 — Disposable Slack failure — SATISFIED:** `6963` persisted a definite 503 as bounded `retryable_rejection`; restart `6964` made no duplicate provider request and movement-independence regressions remain green.
+13. **63-AC-13 — Slack-success/Sheet-failure recovery — SATISFIED:** `6965` retained durable delivered evidence after the Sheet result write failed; `6966` reconciled after restart with one total provider request.
+14. **63-AC-14 — Request budgets — SATISFIED:** production observed one read for no-op, four/five for movement, and six for full alert; final disposable 429 proof made exactly one additional attempt after 65.9 seconds with no unexplained 429.
+15. **63-AC-15 — Claims resolved — SATISFIED:** exact post-verification cleanup removed the synthetic business row and expired claim; `_System` reread contained only its header.
+16. **63-AC-16 — Sanitized evidence — SATISFIED:** committed evidence contains bounded IDs/counts/hashes/statuses only; secret scan found no workbook/receipt IDs, webhook, OAuth token, authorization value, message, description, or raw provider body.
+17. **63-AC-17 — Rollback demonstrated — SATISFIED:** the old 120-node workflow restored under the same ID in the disposable rehearsal, the receipt backup passed integrity, and the rebuilt artifact then reimported under that ID.
+18. **63-AC-18 — Operations documentation — SATISFIED:** the runbook covers private binding, observation retention, explicit quota wait, later-read deferral, exact Slack acknowledgement, receipt restore, verification, failure handling, and rollback.

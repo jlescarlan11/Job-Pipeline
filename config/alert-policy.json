@@ -3,15 +3,15 @@
   "policy_version": "2026-07-31/v1",
   "channel": "slack",
   "schedule_minutes": 15,
-  "schedule_offset_minutes": 14,
+  "schedule_offset_minutes": 10,
   "per_run_cap": 5,
-  "execution_timeout_seconds": 120,
-  "claim_lease_ms": 180000,
+  "execution_timeout_seconds": 300,
+  "claim_lease_ms": 360000,
   "provider_timeout_ms": 10000,
   "provider_request_interval_ms": 1100,
   "retry": {
     "max_attempts": 3,
-    "backoff_ms": 180000,
+    "backoff_ms": 360000,
     "ambiguous_timeout_terminal": true
   },
   "eligibility": {
