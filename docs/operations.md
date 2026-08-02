@@ -1,6 +1,10 @@
-# Fresh three-workflow cutover runbook
+# Requirement-aware in-place workflow cutover runbook
 
-This runbook is a gated operator procedure. Repository work must not activate n8n, provision a production workbook, send a real Slack message, or modify the old workbook.
+This runbook is a gated operator procedure for updating the existing segmented
+Main and Configuration workbooks in place. Repository work must not activate
+n8n, mutate a production workbook, send a real Slack message, or modify the old
+workbook. The exact reviewed commit must first be merged to `main`; an open pull
+request is not a deployment commit.
 
 Stop at any failed gate. Never run old and replacement workflows against either workbook at the same time.
 
@@ -12,18 +16,46 @@ rows and processes them sequentially without backfill, waiting 20 seconds
 after every handled candidate to stay within production Sheet request
 capacity.
 
-## 1. Freeze and back up the old system
+## 1. Freeze and back up the current compatibility unit
 
 Before creating or activating anything:
 
-1. Record the old production workbook ID and a timestamped recoverable backup/reference ID.
-2. Export every currently imported n8n pipeline workflow, including duplicate and inactive copies. Store the export bundle in the approved encrypted backup location and record its reference.
-3. Capture the instance-wide workflow inventory, not only name search results.
-4. Record every prior workflow ID needed for rollback.
-5. Record the old workbook modification timestamp/checksum and its current active binding count.
-6. Do not delete or reorganize the old workbook. It remains rollback/reference state.
+1. Record the current Main, Configuration, and retained old workbook IDs and
+   prove all three differ.
+2. Export the three pinned production workflows and every duplicate/inactive
+   pipeline copy. Record each target workflow ID and exact pre-deployment
+   version ID.
+3. Back up the Main workbook, Configuration workbook, retained old workbook,
+   n8n database, alert receipt store, and runtime/launcher configuration in the
+   approved encrypted location.
+4. Verify every backup is readable and perform the documented isolated restore
+   check before any import. Record an opaque reference and SHA-256 digest, not a
+   local path containing private account information.
+5. Capture the complete instance-wide workflow inventory, not only name search
+   results. Confirm exactly the three pinned workflow IDs are active and no
+   retired signature is active.
+6. Record the old workbook modification timestamp/checksum and confirm it has
+   zero active replacement bindings. Do not delete or reorganize it.
+7. Build the private unsent `To Apply` snapshot with the current Configuration
+   profile/application policy, then generate only the sanitized compatibility
+   inventory:
 
-Do not put workbook content, generated messages, private profile payloads, API keys, authorization headers, or Slack webhook URLs in evidence.
+   ```bash
+   npm run inventory:unsent -- private-unsent-snapshot.json sanitized-unsent-inventory.json
+   ```
+
+8. Populate `docs/cutover-target-map.example.json` outside the repository and
+   capture the `pre_deployment` phase. This phase records the currently active
+   versions before they are replaced:
+
+   ```bash
+   npm run capture:cutover -- pre_deployment target-map.json pre-deployment.json
+   npm run validate:cutover -- pre-deployment.json
+   ```
+
+Do not put workbook content, generated messages, job descriptions, reviewer
+notes, private profile payloads, API keys, authorization headers, credential
+identifiers, Slack webhook URLs, or raw provider responses in evidence.
 
 ## 2. Provision blank non-production workbooks
 
@@ -91,22 +123,38 @@ Import only:
 
 Keep all three inactive. Bind the same Google Sheets OAuth2 credential to every Google Sheets node and to Alerter & Mover's `Get Main Workbook Layout` and `Sort Business Sheets Latest First` HTTP Request nodes. Bind `JOB_PIPELINE_SPREADSHEET_ID` to the disposable non-production Main workbook, `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` to a separate disposable Configuration workbook, and `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID` to the validated disposable receipt Data Table. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to the Main workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
 
-## 3A. Update the production Alerter in place
+## 3A. Build all three production updates in place
 
-Use `scripts/build-bound-alerter-rollout.mjs` to copy the one unambiguous live
-Google credential reference onto every credential-capable node in the generated
-artifact while preserving workflow ID `QO6OLK3pHetgGIGq`. The builder rejects
-an active source artifact, a different live ID, duplicate node names, an
-ambiguous live credential, or any missing binding. Keep the bound output in a
-permission-restricted temporary directory; it contains credential references
-and must never be committed.
+For Scraper, Evaluator & Generator, and Alerter & Mover, run
+`scripts/build-bound-workflow-rollout.mjs` with the reviewed generated artifact
+and its current live export. The builder identifies the role from the policy,
+requires the pinned production ID, requires the exact reviewed artifact digest,
+copies exactly one unambiguous Google credential reference to every
+Google-capable node, assigns a new version, and keeps the result inactive. The
+expected credential-bound node counts are 13, 19, and 33 respectively.
+It rejects any credential field in the repository artifact, any live node
+without the common reference, and any credential object containing fields
+other than the safe n8n reference `id` and optional `name`; the deployable output
+retains only the validated `id`.
+
+```bash
+node scripts/build-bound-workflow-rollout.mjs workflows/scraper.json live-scraper.json private-bound-scraper.json
+node scripts/build-bound-workflow-rollout.mjs workflows/generator.json live-generator.json private-bound-generator.json
+node scripts/build-bound-workflow-rollout.mjs workflows/alerter-mover.json live-alerter.json private-bound-alerter.json
+```
+
+Keep bound outputs in a permission-restricted temporary directory. They contain
+credential references and must never be committed or copied into cutover
+evidence.
 
 Before import, stop n8n and its task runner, confirm no execution is `running`
 or `waiting`, and back up the live workflow, Main/Configuration workbooks, n8n
-database, launcher/configuration, and receipt table. Import and publish the
-inactive bound workflow under the existing ID, restart n8n and the task runner,
-then verify health, exactly three active workflows, 33 bound Google-capable
-nodes, the 300-second timeout, `Asia/Manila`, and the 10/25/40/55 schedule.
+database, launcher/configuration, and receipt table. Import all three bound
+workflows under their existing IDs while inactive, restart n8n and the task
+runner, then verify health and that all three remain inactive. Capture the
+`pre_activation` phase only after each live workflow digest, version, schedule,
+timeout, timezone, workbook binding, and hashed Google credential binding
+matches policy.
 
 For a bounded observation window only,
 `scripts/build-rollout-observation-workflow.mjs` may create a private artifact
@@ -258,27 +306,33 @@ This live provider acceptance is not satisfied by unit tests alone.
 
 Explicitly cover source-page failure, Groq/provider failure, stale/concurrent action, destination-write failure, source-delete failure, Slack rejection, Slack timeout, repeated schedules, empty queues, and recovery. Inspect saved failed executions and sanitized logs for secrets/private payloads.
 
-## 5. Provision the blank production workbook
+## 5. Validate the existing production workbooks
 
 Only after non-production passes:
 
-1. Create a new Main workbook and a separate Configuration workbook, both distinct from old and non-production IDs.
-2. Run setup twice and repeat the exact structure/idempotency/zero-row checks, then verify the Configuration workbook contains Search Keywords and all ten context tabs.
-3. Record `verified_empty_before_activation=true`, `setup_runs>=2`, initial row counts of zero, and `old_rows_imported=false`.
-4. Set production `JOB_PIPELINE_SPREADSHEET_ID`, set `JOB_PIPELINE_CONFIG_SPREADSHEET_ID`, and set `JOB_PIPELINE_REVIEW_URL` to the production Main workbook's `To Apply` deep link.
-5. Set `JOB_PIPELINE_OLD_SPREADSHEET_ID` only for validation/rollback comparison; replacement workflows never read it, and all three workbook IDs must differ.
-6. Run `npm run validate:deployment` inside the actual production environment.
+1. Do not provision a new blank workbook or reset existing rows. Confirm the
+   current Main workbook still has the exact five business sheets and hidden
+   `_System`, with all 74 ordered record fields.
+2. Confirm the separate Configuration workbook still has `Search Keywords` and
+   all ten context tabs with exact headers, and reconstructs a valid current
+   profile/application context without exposing it in evidence.
+3. Confirm Main, Configuration, and retained old workbook IDs are distinct and
+   the old workbook has zero active replacement bindings.
+4. Confirm `JOB_PIPELINE_REVIEW_URL` still targets the current Main workbook's
+   `To Apply` tab. Do not change any workbook or URL merely to satisfy evidence.
+5. Run `npm run validate:deployment` inside the exact production environment.
+   It must match deployment policy `2026-08-03/v2` without printing values.
 
 ## 6. Pre-activation inventory gate
 
-Before capturing workflow cutover evidence, freeze profile/configuration edits
-and inventory every unsent `To Apply` row through the current message-safety
-gate. Record only canonical identity, record version, guard/digest,
-compatibility versions, safe/unsafe result, and bounded reason codes. For each
-incompatible row, record one guarded disposition: normal regeneration, return
-to review, or quarantine. Re-read the row immediately before mutation and do
-not overwrite a newer action, version, guard, or profile snapshot. The
-unhandled incompatible count must be zero before activation.
+Freeze profile/configuration edits and regenerate the sanitized unsent
+compatibility inventory from a fresh private snapshot. The inventory tool uses
+the same persisted-message safety gate as Slack and emits only identity/guard
+digests, record and compatibility versions, bounded reason codes, and guarded
+dispositions. For each incompatible row, use normal regeneration, return to
+review, or quarantine. Re-read immediately before any disposition and never
+overwrite a newer action, version, guard, or profile snapshot. The unhandled
+incompatible count must be zero before activation.
 
 Create the target map using `docs/cutover-target-map.example.json`. Capture and validate:
 
@@ -287,16 +341,27 @@ npm run capture:cutover -- pre_activation target-map.json pre-activation.json
 npm run validate:cutover -- pre-activation.json
 ```
 
-The gate requires:
+The schema-v3 gate requires:
 
-- exact IDs for the three replacement targets;
+- the exact 40-character reviewed deployment commit and application
+  compatibility unit;
+- exact pinned IDs, imported artifact digests, version IDs, schedules,
+  timeouts, timezone, and hashed common Google credential binding for all three
+  targets;
 - complete instance-wide pagination;
 - all replacement targets inactive;
-- every superseded/duplicate Scraper, Generator, Alerter, Reviewer, Archiver, Analytics, and Recommender inactive;
-- all three targets bound to the fresh production workbook;
-- fresh/old IDs distinct;
-- workbook and workflow backups recorded;
-- every smoke boolean true;
+- every renamed or pipeline-bound copy and every superseded/duplicate Scraper,
+  Generator, Alerter, Reviewer, Archiver, Analytics, and Recommender inactive;
+- every unresolved dynamic Google Sheets writer classified as pipeline-ambiguous
+  and inactive unless its unrelated workflow ID is explicitly approved in the
+  reviewed deployment policy;
+- all three targets bound to the current Main and Configuration workbooks;
+- exact segmented Main and Configuration contracts, with all workbook IDs
+  distinct;
+- readable, restore-verified workflow/workbook/database/receipt/runtime backups;
+- zero unhandled incompatible unsent records;
+- every required disposable case tied to a sanitized n8n execution ID;
+- all deployment checks true;
 - rollback documented and verified.
 
 ## 7. Activation
@@ -306,8 +371,11 @@ Within one controlled window:
 1. Reconfirm every superseded workflow inactive.
 2. Activate exactly one Alerter & Mover, then one Evaluator & Generator, then one Scraper. This order starts consumers before the producer.
 3. Do not activate a second copy to “test” failover.
-4. Capture post-activation inventory immediately.
-5. Validate post-activation evidence. Exactly three recognized pipeline workflows must be active.
+4. Capture a read-only immediate inventory and confirm exactly three recognized
+   pipeline workflows are active. This is an activation check, not final
+   `post_activation` evidence.
+5. Begin the required observation window; do not mark the deployment complete
+   from the immediate inventory.
 
 No step authorizes application submission or deletion of the old workbook.
 
@@ -329,6 +397,22 @@ Observe at least one real schedule boundary for every role. Confirm:
 
 Record the old workbook checksum/modification time again and prove it is unchanged and has zero active replacement bindings.
 
+Record one scheduled execution ID for every role, one bounded production record
+digest, and the authorized Slack canary's matching stored/payload digests and
+receipt digest. Then capture and validate the final phase:
+
+```bash
+npm run capture:cutover -- post_activation target-map.json post-activation.json
+npm run validate:cutover -- post-activation.json
+```
+
+The validator rejects an observation shorter than 240 minutes or completed
+after capture, a missing role boundary, a production/Slack execution unrelated
+to its recorded scheduled role execution, mismatched production/Slack identity,
+an unsafe or replayed Slack canary, incomplete record provenance, stale active
+or artifact versions, an active renamed/pipeline-bound duplicate, or any
+unhandled incompatible unsent record.
+
 ## 9. Rollback
 
 Rollback triggers include wrong workbook binding, unexpected old-workbook write, duplicate role/row/alert, unsafe ready message, repeated stale claims, destination/source inconsistency, or deployment validation failure.
@@ -342,15 +426,29 @@ compatible workflow/policy set.
 
 1. Disable all three replacement workflows.
 2. Wait for their maximum claim leases to expire and verify no execution remains running/waiting.
-3. Preserve the fresh workbook for diagnosis; do not merge its rows into the old workbook.
-4. Restore the recorded prior workflow exports/IDs and old workbook binding only through the approved rollback change.
-5. Activate old roles only after every replacement is inactive.
+3. Preserve the current Main and Configuration workbooks for diagnosis; do not
+   merge their rows into the retained old workbook.
+4. Restore the three recorded prior versions under the same pinned workflow IDs
+   together with the matching runtime, database, and receipt-store assets.
+5. Reactivate prior versions only after every replacement version is inactive
+   and all new-compatibility unsent records are reconciled or quarantined.
 6. Recheck the complete instance-wide inventory and old workbook integrity.
 
-Because the new pipeline intentionally starts fresh, rollback does not merge new jobs or reconstruct retired analytics/recommendation state. Any manually submitted application during the observation window must be reconciled by a human before returning to the old workflow.
+This update preserves the existing segmented workbooks in place. Rollback does
+not erase or rewrite rows created under the new application compatibility unit;
+those rows must first be reconciled or quarantined. Any manually submitted
+application during the observation window must be reconciled by a human before
+restoring prior workflow versions.
 
 ## Evidence status
 
-Repository validation proves deterministic fixtures, generated artifacts, policy consistency, and rejection behavior. Actual workbook backups/provisioning, n8n imports/bindings/activation, a real scheduled boundary, and authorized Slack delivery require external credentials and operator authority. Leave their checkboxes open until captured evidence passes `validate:cutover`.
+Repository validation proves deterministic fixtures, exact generated-artifact
+digests, policy consistency, sanitizer behavior, and rejection paths. A valid
+`pre_deployment` record additionally requires readable current backups and a
+fresh sanitized unsent inventory. Inactive imports, disposable execution IDs,
+guarded dispositions, activation, the 240-minute observation, a bounded
+production record, and authorized Slack delivery remain external gates. Leave
+them open until all three evidence phases pass `validate:cutover` against the
+exact commit on `main`.
 
 The in-place migration from the legacy single active queue to the segmented contract is a separate compatibility-unit procedure. Follow `docs/segmented-queue-cutover.md`; do not reuse the historical fresh-workbook evidence as proof of that migration.

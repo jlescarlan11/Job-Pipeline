@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 
+import { reviewedMainDeploymentCommit } from "../src/deployment-provenance.mjs";
 import {
   captureWorkflowCutoverEvidence,
   validateWorkflowCutoverEvidence
@@ -8,7 +9,7 @@ import {
 const [phase, targetMapPath, outputPath] = process.argv.slice(2);
 if (!phase || !targetMapPath || !outputPath) {
   throw new Error(
-    "Usage: npm run capture:cutover -- <pre_activation|post_activation> <target-map.json> <new-evidence.json>"
+    "Usage: npm run capture:cutover -- <pre_deployment|pre_activation|post_activation> <target-map.json> <new-evidence.json>"
   );
 }
 
@@ -18,6 +19,10 @@ const [policy, targetMap] = await Promise.all(
     targetMapPath
   ].map(async (path) => JSON.parse(await readFile(path, "utf8")))
 );
+const expectedDeploymentCommit = await reviewedMainDeploymentCommit();
+if (targetMap.deployment_commit !== expectedDeploymentCommit) {
+  throw new Error("target map deployment_commit does not match reviewed main");
+}
 
 const evidence = await captureWorkflowCutoverEvidence({
   policy,
@@ -26,7 +31,9 @@ const evidence = await captureWorkflowCutoverEvidence({
   apiKey: process.env.N8N_API_KEY,
   targetMap
 });
-const errors = validateWorkflowCutoverEvidence(policy, evidence);
+const errors = validateWorkflowCutoverEvidence(policy, evidence, {
+  expectedDeploymentCommit
+});
 if (errors.length > 0) {
   throw new Error(`Unsafe workflow cutover:\n- ${errors.join("\n- ")}`);
 }

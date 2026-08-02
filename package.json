@@ -9,6 +9,7 @@
     "build:sheet-setup": "node scripts/build-sheet-setup.mjs",
     "benchmark:groq": "node scripts/benchmark-groq-models.mjs",
     "capture:cutover": "node scripts/capture-n8n-cutover-evidence.mjs",
+    "inventory:unsent": "node scripts/build-unsent-compatibility-inventory.mjs",
     "plan:segmented-queues": "node scripts/plan-segmented-queue-migration.mjs",
     "check:artifacts": "npm run check:workflows && node scripts/build-sheet-setup.mjs --check",
     "check:workflows": "node scripts/build-workflows.mjs --check",

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 
+import { reviewedMainDeploymentCommit } from "../src/deployment-provenance.mjs";
 import { validateWorkflowCutoverEvidence } from "../src/workflow-cutover.mjs";
 
 const [evidencePath] = process.argv.slice(2);
@@ -15,7 +16,10 @@ const [policy, evidence] = await Promise.all(
     evidencePath
   ].map(async (path) => JSON.parse(await readFile(path, "utf8")))
 );
-const errors = validateWorkflowCutoverEvidence(policy, evidence);
+const expectedDeploymentCommit = await reviewedMainDeploymentCommit();
+const errors = validateWorkflowCutoverEvidence(policy, evidence, {
+  expectedDeploymentCommit
+});
 if (errors.length > 0) {
   throw new Error(`Unsafe workflow cutover:\n- ${errors.join("\n- ")}`);
 }

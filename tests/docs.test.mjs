@@ -185,7 +185,7 @@ test("runbook contains the release, observation, Slack, and rollback gates", () 
     "Import replacements inactive",
     "Non-production smoke matrix",
     "issue #22 evidence gate",
-    "blank production workbook",
+    "Validate the existing production workbooks",
     "Pre-activation inventory gate",
     "Activation",
     "Initial scheduled observation",
@@ -194,7 +194,10 @@ test("runbook contains the release, observation, Slack, and rollback gates", () 
     assert.match(operations, new RegExp(required, "i"), `missing runbook gate: ${required}`);
   }
   assert.match(operations, /byte-for-byte/i);
-  assert.match(operations, /exactly three recognized pipeline workflows/i);
+  assert.match(
+    operations,
+    /exactly (?:the )?three pinned workflow IDs|exactly three recognized pipeline workflows/i
+  );
   assert.match(operations, /Never run old and replacement workflows/i);
   assert.match(operations, /live provider acceptance is not satisfied by unit tests alone/i);
 });
@@ -1059,11 +1062,24 @@ test("requirement-aware Generator accounting covers implementation and honest li
     );
     assert.doesNotMatch(section, /\b(?:UNVERIFIED|PARTIAL|BLOCKED)\b/);
   }
-  assert.match(requirementAwareVerification, /69-AC-02 \| BLOCKED/);
+  assert.match(requirementAwareVerification, /69-AC-02 \| PARTIAL/);
   assert.match(requirementAwareVerification, /69-AC-05 \| PARTIAL/);
-  assert.match(requirementAwareVerification, /not authorized to deploy/i);
+  assert.match(requirementAwareVerification, /not authorized to .*deploy/i);
   assert.match(operations, /240 minutes/i);
+  assert.match(operations, /in-place workflow cutover/i);
+  assert.match(operations, /inventory:unsent/);
+  assert.match(operations, /pre_deployment/);
+  assert.match(operations, /build-bound-workflow-rollout\.mjs/);
+  assert.doesNotMatch(operations, /## 5\. Provision the blank production workbook/i);
   assert.match(deployment, /application compatibility unit/i);
+  assert.match(deployment, /Cutover evidence schema v3/i);
+  assert.match(requirementAwareVerification, /287 tests: 275 pass/);
+  assert.equal(deploymentPolicy.policy_version, "2026-08-03/v2");
+  assert.equal(deploymentPolicy.workflow_cutover.schema_version, 3);
+  assert.equal(
+    deploymentPolicy.workbook_binding.deployment_mode,
+    "in_place_segmented_update"
+  );
   assert.equal(
     deploymentPolicy.application_compatibility.coverage_contract_version,
     "2026-08-03/v1"

@@ -1,8 +1,15 @@
 import {
   minuteIntervalExecutionMinutes,
+  minuteIntervalScheduleRules,
   validateMinuteIntervalSchedule
 } from "./schedules.mjs";
 import { scheduledRunsPerWeek, validateRuntimeConfig } from "./runtime.mjs";
+import {
+  googleCredentialNodeNames,
+  validateN8nPublicApiUrl,
+  validateWorkflowCutoverPolicy,
+  workflowDeploymentDigest
+} from "./workflow-cutover.mjs";
 
 const ROLES = ["scraper", "generator", "alerter_mover"];
 const WORKFLOW_ROLES = ["scraper", "evaluator_generator", "alerter_mover"];
@@ -118,7 +125,8 @@ export function validateN8nDeploymentPolicy(
     pipelineSchema,
     candidateProfile,
     applicationPolicy,
-    applicationPackPolicy
+    applicationPackPolicy,
+    generatedWorkflows
   }
 ) {
   const errors = [];
@@ -266,21 +274,57 @@ export function validateN8nDeploymentPolicy(
   }
 
   const roles = policy?.workflow_cutover?.roles ?? [];
+  errors.push(
+    ...validateWorkflowCutoverPolicy(policy).map(
+      (error) => `workflow cutover: ${error}`
+    )
+  );
   if (
-    policy?.workflow_cutover?.schema_version !== 2 ||
     roles.length !== 3 ||
     new Set(roles.map((entry) => entry.role)).size !== 3 ||
-    !WORKFLOW_ROLES.every((role) =>
-      roles.some((entry) => entry.role === role)
-    )
+    !WORKFLOW_ROLES.every((role) => roles.some((entry) => entry.role === role))
   ) {
     errors.push("cutover policy must define exactly the three replacement roles");
   }
-  if (
-    !Array.isArray(policy?.workflow_cutover?.retired_role_markers) ||
-    policy.workflow_cutover.retired_role_markers.length < 7
-  ) {
-    errors.push("cutover policy must identify all retired workflow signatures");
+  for (const role of roles) {
+    const runtimeRole =
+      role.role === "evaluator_generator" ? "generator" : role.role;
+    const runtimeConfig = runtime?.[runtimeRole];
+    const expectedSchedule = runtimeConfig
+      ? minuteIntervalScheduleRules(runtimeConfig, runtimeRole)
+          .map((entry) => entry.expression)
+          .sort()
+      : [];
+    if (
+      role.execution_timeout_seconds !== runtimeConfig?.execution_timeout_seconds ||
+      role.timezone !== runtime?.timezone ||
+      JSON.stringify([...(role.schedule_expressions ?? [])].sort()) !==
+        JSON.stringify(expectedSchedule)
+    ) {
+      errors.push(`${role.role} cutover runtime signature is stale`);
+    }
+    const matches = (generatedWorkflows ?? []).filter((workflow) => {
+      const nodeNames = new Set((workflow?.nodes ?? []).map((node) => node?.name));
+      return (
+        role.name_markers.every((marker) =>
+          String(workflow?.name || "").includes(marker)
+        ) &&
+        role.required_node_names.every((name) => nodeNames.has(name))
+      );
+    });
+    if (matches.length !== 1) {
+      errors.push(`${role.role} generated artifact signature must match exactly once`);
+      continue;
+    }
+    const workflow = matches[0];
+    if (
+      workflow.active !== false ||
+      role.artifact_digest !== workflowDeploymentDigest(workflow) ||
+      role.google_credential_node_count !==
+        googleCredentialNodeNames(workflow).length
+    ) {
+      errors.push(`${role.role} cutover artifact signature is stale`);
+    }
   }
   if (
     policy?.workbook_binding?.queue_spreadsheet_environment_variable !==
@@ -288,7 +332,12 @@ export function validateN8nDeploymentPolicy(
     policy?.workbook_binding?.configuration_spreadsheet_environment_variable !==
       "JOB_PIPELINE_CONFIG_SPREADSHEET_ID" ||
     policy?.workbook_binding?.all_workbook_ids_must_differ !== true ||
-    policy?.workbook_binding?.queue_workbook_must_start_empty !== true
+    policy?.workbook_binding?.deployment_mode !==
+      "in_place_segmented_update" ||
+    policy?.workbook_binding?.queue_workbook_requires_current_storage_contract !==
+      true ||
+    policy?.workbook_binding
+      ?.configuration_workbook_requires_current_contract !== true
   ) {
     errors.push("queue and configuration workbook binding policy is incomplete");
   }
@@ -337,6 +386,7 @@ export function validateN8nDeploymentEnvironment(policy, environment) {
     "JOB_PIPELINE_REVIEW_URL",
     "JOB_PIPELINE_GROQ_API_KEY",
     "JOB_PIPELINE_SLACK_WEBHOOK_URL",
+    "JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID",
     "N8N_RUNNERS_AUTH_TOKEN"
   ]) {
     if (!String(environment?.[key] || "").trim()) {
@@ -353,11 +403,47 @@ export function validateN8nDeploymentEnvironment(policy, environment) {
   }
   if (
     environment?.JOB_PIPELINE_REVIEW_URL &&
-    !/^https:\/\/docs\.google\.com\/spreadsheets\//i.test(
+    (!/^https:\/\/docs\.google\.com\/spreadsheets\/d\//i.test(
       environment.JOB_PIPELINE_REVIEW_URL
-    )
+    ) ||
+      !environment.JOB_PIPELINE_REVIEW_URL.includes(
+        `/d/${environment.JOB_PIPELINE_SPREADSHEET_ID}/`
+      ) ||
+      !/#gid=\d+$/.test(environment.JOB_PIPELINE_REVIEW_URL))
   ) {
-    errors.push("JOB_PIPELINE_REVIEW_URL must be an HTTPS Google Sheets URL");
+    errors.push(
+      "JOB_PIPELINE_REVIEW_URL must be an HTTPS deep link to the current Main workbook"
+    );
+  }
+  if (environment?.JOB_PIPELINE_GROQ_API_KEY) {
+    if (!/^gsk_[A-Za-z0-9_-]{16,}$/.test(environment.JOB_PIPELINE_GROQ_API_KEY)) {
+      errors.push("JOB_PIPELINE_GROQ_API_KEY format is invalid");
+    }
+  }
+  if (environment?.JOB_PIPELINE_SLACK_WEBHOOK_URL) {
+    let slackUrl;
+    try {
+      slackUrl = new URL(environment.JOB_PIPELINE_SLACK_WEBHOOK_URL);
+    } catch {
+      slackUrl = null;
+    }
+    if (
+      !slackUrl ||
+      slackUrl.protocol !== "https:" ||
+      slackUrl.hostname !== "hooks.slack.com" ||
+      slackUrl.username ||
+      slackUrl.password ||
+      slackUrl.search ||
+      slackUrl.hash ||
+      !/^\/services\/[A-Za-z0-9_-]{6,}\/[A-Za-z0-9_-]{6,}\/[A-Za-z0-9_-]{12,}$/.test(
+        slackUrl.pathname
+      )
+    ) {
+      errors.push("JOB_PIPELINE_SLACK_WEBHOOK_URL is not an approved Slack webhook URL");
+    }
+  }
+  if (environment?.N8N_PUBLIC_API_URL) {
+    errors.push(...validateN8nPublicApiUrl(policy, environment.N8N_PUBLIC_API_URL));
   }
   return errors;
 }

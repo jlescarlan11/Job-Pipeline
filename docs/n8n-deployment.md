@@ -1,6 +1,7 @@
 # n8n deployment policy
 
-`config/n8n-deployment-policy.json` validates a self-hosted regular-mode n8n instance for exactly three workflow roles:
+`config/n8n-deployment-policy.json` policy `2026-08-03/v2` validates a
+self-hosted regular-mode n8n instance for exactly three workflow roles:
 
 - Scraper (`scraper`)
 - Evaluator & Generator (`evaluator_generator`)
@@ -43,6 +44,8 @@ Instance/runtime values must match the policy exactly. The production-context va
 - `JOB_PIPELINE_REVIEW_URL` — HTTPS deep link to the production `To Apply` tab (the environment-variable name is retained for deployment compatibility);
 - `JOB_PIPELINE_GROQ_API_KEY`;
 - `JOB_PIPELINE_SLACK_WEBHOOK_URL`.
+- `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID` — durable n8n Data Table for bounded
+  Slack delivery receipts;
 - `N8N_RUNNERS_AUTH_TOKEN` — shared n8n/runner secret, stored in macOS Keychain by the managed deployment.
 
 Values are checked but never printed or stored in cutover evidence. Workflow exports contain environment-variable expressions and no credential binding.
@@ -66,8 +69,8 @@ npm run validate:deployment -- --policy-only
 
 Run without `--policy-only` inside the actual production environment before activation.
 
-Deployment of a rebuilt Generator is permitted only from the exact reviewed
-generated commit after it is present on `main`. Before activation, inventory
+Deployment of the rebuilt compatibility unit is permitted only from the exact
+reviewed generated commit after it is present on `main`. Before activation, inventory
 every unsent `To Apply` record with the current shared message-safety gate.
 Records with missing, malformed, stale, unresolved, or forged coverage/plan
 state must be regenerated through guarded lifecycle transitions, returned to
@@ -84,12 +87,46 @@ provider responses, credentials, or reviewer notes.
 
 ## Cutover inventory
 
-`capture:n8n`-style evidence is intentionally sanitized to workflow ID, name, active flag, node names, and separately supplied workbook binding. Node parameters, credentials, headers, webhook values, and API keys are never captured.
+Cutover evidence schema v3 has three phases: `pre_deployment` records the
+currently active versions and readable rollback assets; `pre_activation`
+records the exact reviewed versions after in-place inactive import and all
+disposable gates; `post_activation` records the final 240-minute observation.
+
+Capture stores target workflow ID/name/state and node names, while unrelated
+workflow names and node names are replaced by bounded pipeline classifications
+and a SHA-256 surface digest. It also stores version/timestamp, schedule,
+timeout, timezone, exact credential-free artifact digest, actual per-workflow
+environment-binding modes, workbook IDs, and a SHA-256 digest of the common
+Google credential reference. Node
+parameters, credential IDs/names, headers, webhooks, API keys, job descriptions,
+messages, reviewer notes, profile payloads, and provider responses are never
+captured. The same Google credential must cover 13 Scraper, 19 Generator, and
+33 Alerter Google-capable nodes.
+
+The capture client sends its API key only to the policy-approved loopback n8n
+origins and rejects redirects and URL userinfo/query/fragment values. Before
+any API read, repository provenance must be clean and `HEAD` must equal both
+local `main` and `origin/main`; the target-map commit must equal that exact
+commit. Production environment validation also requires the Slack value to use
+the official webhook host/path and the review URL to deep-link to the current
+Main workbook.
 
 The cutover gate requires a complete instance-wide inventory; a name-filtered
 or partially paginated response is invalid.
 
-Pre-activation evidence requires all replacement and retired copies inactive. Post-activation evidence permits exactly one active replacement for each of the three roles and no active retired signature.
+The policy pins the existing production IDs and credential-free digests for all
+three reviewed artifacts. Use `scripts/build-bound-workflow-rollout.mjs` to
+build permission-restricted inactive imports under those IDs. Pre-activation
+evidence requires all three targets and every detected pipeline-bound or
+retired copy inactive. A write-capable Google node with a dynamic unresolved
+destination is pipeline-ambiguous unless its unrelated workflow ID is explicitly
+approved in policy. The builder rejects credential-bearing repository artifacts,
+requires every live Google-capable node to expose the same reference, and copies
+only the validated credential `id`, never its display name or other fields.
+Post-activation evidence permits exactly one active target for each role and no
+active renamed, pipeline-bound, duplicate, or retired signature. Active version
+IDs must match the imported reviewed versions, while pre-deployment rollback
+versions must match the versions actually active at capture time.
 
 For the requirement-aware Generator, do not pass this gate until the unsent
 compatibility inventory has zero unhandled records and disposable verification
@@ -98,3 +135,12 @@ unrelated non-Claude control, adjacent/partial/missing/manual coverage, invalid
 initial and repair drafts, provider failures, stale commits, and forged
 persisted state. Repository tests are prerequisite evidence, not a substitute
 for inactive imported-workflow and disposable-workbook evidence.
+
+Generate the compatibility inventory from a private current `To Apply`
+snapshot with `npm run inventory:unsent`; only digests, versions, bounded reason
+codes, and guarded dispositions may enter the target map. Schema-v3 validation
+also requires exact current Main/Configuration workbook contracts, nine
+readable restore-verified backup kinds, sanitized execution IDs for every
+required disposable case, one scheduled boundary per role, bounded production
+record provenance, and one non-replayed Slack canary whose payload digest equals
+the stored-message digest.

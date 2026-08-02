@@ -52,9 +52,20 @@ npm run validate:deployment
 Cutover evidence is captured and validated separately:
 
 ```bash
-npm run capture:cutover -- pre_activation target-map.json evidence.json
+npm run inventory:unsent -- private-unsent-snapshot.json sanitized-unsent-inventory.json
+npm run capture:cutover -- pre_deployment target-map.json pre-deployment.json
+npm run capture:cutover -- pre_activation target-map.json pre-activation.json
+npm run capture:cutover -- post_activation target-map.json post-activation.json
 npm run validate:cutover -- evidence.json
 ```
+
+Capture accepts only the loopback n8n API origins approved by deployment
+policy, requires a clean `HEAD` equal to both local and remote `main`, and never
+retains raw names or node names for unrelated workflows.
+
+The current deployment path updates the existing segmented Main and
+Configuration workbooks and three pinned workflow IDs in place. It does not
+provision a replacement production workbook or reset existing rows.
 
 The segmented in-place migration has its own offline dry-run command. Its input may contain private job data, so neither snapshots nor generated plans are committed:
 

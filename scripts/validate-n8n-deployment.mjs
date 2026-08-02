@@ -29,6 +29,11 @@ const [
   loadJson("../config/application-policy.json"),
   loadJson("../config/application-pack-policy.json")
 ]);
+const generatedWorkflows = await Promise.all(
+  ["scraper", "generator", "alerter-mover"].map((name) =>
+    loadJson(`../workflows/${name}.json`)
+  )
+);
 
 const policyErrors = validateN8nDeploymentPolicy(policy, {
   runtime,
@@ -37,7 +42,8 @@ const policyErrors = validateN8nDeploymentPolicy(policy, {
   pipelineSchema,
   candidateProfile,
   applicationPolicy,
-  applicationPackPolicy
+  applicationPackPolicy,
+  generatedWorkflows
 });
 if (policyErrors.length > 0) {
   throw new Error(

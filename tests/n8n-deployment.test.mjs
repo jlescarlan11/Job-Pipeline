@@ -21,6 +21,11 @@ const applicationPolicy = await loadJson("../config/application-policy.json");
 const applicationPackPolicy = await loadJson(
   "../config/application-pack-policy.json"
 );
+const generatedWorkflows = await Promise.all(
+  ["scraper", "generator", "alerter-mover"].map((name) =>
+    loadJson(`../workflows/${name}.json`)
+  )
+);
 const compatibilityContext = {
   runtime,
   searchPlan,
@@ -28,7 +33,8 @@ const compatibilityContext = {
   pipelineSchema,
   candidateProfile,
   applicationPolicy,
-  applicationPackPolicy
+  applicationPackPolicy,
+  generatedWorkflows
 };
 
 test("deployment policy matches three-role runtime and capacity", () => {
@@ -76,6 +82,15 @@ test("deployment policy has exactly three signatures and all retired markers", (
     "JOB_PIPELINE_CONFIG_SPREADSHEET_ID"
   );
   assert.equal(policy.workbook_binding.all_workbook_ids_must_differ, true);
+  assert.equal(
+    policy.workbook_binding.deployment_mode,
+    "in_place_segmented_update"
+  );
+  assert.equal(policy.workflow_cutover.schema_version, 3);
+  assert.equal(
+    new Set(policy.workflow_cutover.roles.map((role) => role.target_workflow_id)).size,
+    3
+  );
   assert.deepEqual(policy.application_compatibility, {
     pipeline_schema_version: pipelineSchema.schema_version,
     storage_version: pipelineSchema.storage_version,
@@ -111,10 +126,13 @@ test("production environment requires exact runtime values and separate workbook
     JOB_PIPELINE_CONFIG_SPREADSHEET_ID: "configuration-workbook",
     JOB_PIPELINE_OLD_SPREADSHEET_ID: "old-workbook",
     JOB_PIPELINE_REVIEW_URL:
-      "https://docs.google.com/spreadsheets/d/new-workbook/edit",
-    JOB_PIPELINE_GROQ_API_KEY: "present-but-never-logged",
-    JOB_PIPELINE_SLACK_WEBHOOK_URL: "present-but-never-logged",
-    N8N_RUNNERS_AUTH_TOKEN: "present-but-never-logged"
+      "https://docs.google.com/spreadsheets/d/new-workbook/edit#gid=12345",
+    JOB_PIPELINE_GROQ_API_KEY: "gsk_testvalue1234567890",
+    JOB_PIPELINE_SLACK_WEBHOOK_URL:
+      "https://hooks.slack.com/services/T00000000/B00000000/abc123XYZ789token",
+    JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID: "receipt-table-id",
+    N8N_RUNNERS_AUTH_TOKEN: "present-but-never-logged",
+    N8N_PUBLIC_API_URL: "http://127.0.0.1:5678/api/v1"
   };
   assert.deepEqual(
     validateN8nDeploymentEnvironment(policy, environment),
@@ -127,6 +145,14 @@ test("production environment requires exact runtime values and separate workbook
       N8N_CONCURRENCY_PRODUCTION_LIMIT: "9"
     }).join(";"),
     /must differ|does not match/
+  );
+  assert.match(
+    validateN8nDeploymentEnvironment(policy, {
+      ...environment,
+      JOB_PIPELINE_SLACK_WEBHOOK_URL: "https://attacker.example/collect",
+      N8N_PUBLIC_API_URL: "https://attacker.example/api/v1"
+    }).join(";"),
+    /not an approved Slack webhook URL|origin is not approved/
   );
 });
 
@@ -143,6 +169,27 @@ test("policy drift in role count, schedules, retention, or headroom fails", () =
     validateN8nDeploymentPolicy(badPolicy, compatibilityContext).join(";"),
     /three replacement roles|simultaneous|weekly execution/
   );
+});
+
+test("deployment policy pins exact inactive workflow artifacts and runtime signatures", () => {
+  for (const field of [
+    "artifact_digest",
+    "schedule_expressions",
+    "execution_timeout_seconds",
+    "google_credential_node_count"
+  ]) {
+    const stale = structuredClone(policy);
+    stale.workflow_cutover.roles[1][field] =
+      field === "schedule_expressions"
+        ? ["0 0 * * * *"]
+        : field === "artifact_digest"
+          ? `sha256:${"0".repeat(64)}`
+          : 1;
+    assert.match(
+      validateN8nDeploymentPolicy(stale, compatibilityContext).join(";"),
+      /runtime signature|artifact signature/
+    );
+  }
 });
 
 test("deployment policy rejects a partially deployed application compatibility unit", () => {

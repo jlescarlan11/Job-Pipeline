@@ -1,75 +1,251 @@
 {
-  "target_workflow_ids": {
-    "scraper": "REPLACE_WITH_SCRAPER_WORKFLOW_ID",
-    "evaluator_generator": "REPLACE_WITH_GENERATOR_WORKFLOW_ID",
-    "alerter_mover": "REPLACE_WITH_ALERTER_MOVER_WORKFLOW_ID"
+  "deployment_commit": "REPLACE_WITH_EXACT_40_CHARACTER_COMMIT",
+  "main_workbook": {
+    "id": "REPLACE_WITH_MAIN_WORKBOOK_ID",
+    "schema_version": 3,
+    "storage_version": "2026-07-31-segmented-queues-v3",
+    "pipeline_contract_digest": "pipeline-v1:704cb162",
+    "business_sheets": [
+      "Scraped Jobs",
+      "To Review",
+      "To Apply",
+      "Applied Jobs",
+      "Archive"
+    ],
+    "business_headers_exact": false,
+    "system_sheet_hidden": false
   },
-  "workflow_bindings": {
-    "REPLACE_WITH_SCRAPER_WORKFLOW_ID": {
-      "spreadsheet_id": "REPLACE_WITH_FRESH_WORKBOOK_ID"
-    },
-    "REPLACE_WITH_GENERATOR_WORKFLOW_ID": {
-      "spreadsheet_id": "REPLACE_WITH_FRESH_WORKBOOK_ID"
-    },
-    "REPLACE_WITH_ALERTER_MOVER_WORKFLOW_ID": {
-      "spreadsheet_id": "REPLACE_WITH_FRESH_WORKBOOK_ID"
-    }
-  },
-  "fresh_workbook": {
-    "id": "REPLACE_WITH_FRESH_WORKBOOK_ID",
-    "verified_empty_before_activation": true,
-    "setup_runs": 2,
-    "old_rows_imported": false,
-    "initial_data_rows": {
-      "Review Queue": 0,
-      "Applied Jobs": 0,
-      "Archive": 0
-    }
+  "configuration_workbook": {
+    "id": "REPLACE_WITH_CONFIGURATION_WORKBOOK_ID",
+    "sheets": [
+      "Search Keywords",
+      "Candidate",
+      "Skills",
+      "Experience",
+      "Projects",
+      "Education",
+      "Awards",
+      "Job Preferences",
+      "Application Settings",
+      "Required Style",
+      "Banned Phrases"
+    ],
+    "headers_exact": false,
+    "context_valid": false
   },
   "old_workbook": {
-    "id": "REPLACE_WITH_OLD_WORKBOOK_ID",
-    "backup_id": "REPLACE_WITH_BACKUP_REFERENCE",
+    "id": "REPLACE_WITH_RETAINED_OLD_WORKBOOK_ID",
     "retained": true,
     "active_binding_count": 0
   },
-  "workflow_backup": {
-    "reference": "REPLACE_WITH_ENCRYPTED_BACKUP_REFERENCE",
-    "complete": true
+  "backup_assets": [
+    {
+      "kind": "workflow_scraper",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "workflow_evaluator_generator",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "workflow_alerter_mover",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "main_workbook",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "configuration_workbook",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "old_workbook",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "n8n_database",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "alert_receipt_store",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    },
+    {
+      "kind": "runtime_configuration",
+      "reference": "REPLACE_WITH_OPAQUE_BACKUP_REFERENCE",
+      "sha256": "REPLACE_WITH_SHA256_DIGEST",
+      "readable": false,
+      "restore_verified": false
+    }
+  ],
+  "compatibility_inventory": {
+    "captured_at": "REPLACE_WITH_INVENTORY_TIMESTAMP",
+    "total_records": -1,
+    "compatible_records": -1,
+    "incompatible_records": -1,
+    "unhandled_incompatible_records": -1,
+    "records": []
   },
-  "smoke": {
-    "blank_setup_zero_rows": false,
-    "setup_rerun_idempotent": false,
-    "no_old_row_import": false,
-    "fixed_window_single_clock": false,
-    "window_start_inclusive": false,
-    "window_end_inclusive": false,
-    "old_listing_excluded": false,
-    "future_listing_excluded": false,
-    "missing_timestamp_excluded": false,
-    "unique_and_duplicate_discovery": false,
-    "ready_route": false,
-    "review_needed_route": false,
-    "approval_route": false,
-    "denial_move": false,
-    "automatic_skip_move": false,
-    "user_skip_move": false,
-    "i_applied_move": false,
-    "empty_queues": false,
-    "source_page_failure": false,
-    "provider_failure": false,
-    "stale_action": false,
-    "destination_write_failure": false,
-    "source_delete_failure": false,
-    "slack_rejection": false,
-    "slack_timeout": false,
-    "repeated_scheduler_runs": false,
-    "safe_recovery": false,
-    "slack_copy_fidelity": false,
-    "links_open_only": false,
-    "no_automatic_submission": false,
+  "verification_runs": [
+    {
+      "case_id": "structured_posting",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "adjacent_job_pipeline",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "reported_nonanswer_rejected",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "corrected_adjacent_authorized",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "exact_evidence_control",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "non_claude_control",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "coverage_route_matrix",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "invalid_initial_and_repair",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "provider_timeout",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "provider_rate_limit",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "provider_malformed_response",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "sheet_failure",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "stale_guard",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "persisted_safety_matrix",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "operator_action_matrix",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "movement_partial_failure",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "receipt_restart_and_replay",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "slack_fidelity_nonproduction",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "no_automatic_submission",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    },
+    {
+      "case_id": "existing_lifecycle_regression",
+      "execution_id": "REPLACE_WITH_DISPOSABLE_EXECUTION_ID",
+      "observed_at": "REPLACE_WITH_OBSERVATION_TIMESTAMP",
+      "passed": false
+    }
+  ],
+  "deployment_checks": {
+    "inactive_import_completed": false,
+    "application_compatibility_unit_complete": false,
+    "runtime_contract_preserved": false,
+    "provider_bounds_preserved": false,
+    "credential_bindings_preserved": false,
+    "workbook_bindings_preserved": false,
+    "manual_submission_boundary_preserved": false,
     "secret_scan_clean": false
   },
   "observations": {
+    "exactly_one_active_role_each": false,
+    "one_scheduled_boundary_each": false,
     "no_out_of_window_jobs": false,
     "no_duplicate_jobs": false,
     "no_duplicate_alerts": false,
@@ -77,14 +253,60 @@
     "no_duplicate_archive_rows": false,
     "no_stuck_claims": false,
     "no_old_workbook_writes": false,
-    "old_workbook_unchanged": false
+    "old_workbook_unchanged": false,
+    "no_unhandled_incompatible_records": false,
+    "successful_sheet_state_confirmed": false,
+    "saved_failures_sanitized": false,
+    "started_at": "REPLACE_WITH_OBSERVATION_START",
+    "completed_at": "REPLACE_WITH_OBSERVATION_END",
+    "scheduled_execution_ids": {
+      "scraper": "REPLACE_WITH_EXECUTION_ID",
+      "evaluator_generator": "REPLACE_WITH_EXECUTION_ID",
+      "alerter_mover": "REPLACE_WITH_EXECUTION_ID"
+    }
+  },
+  "production_record": {
+    "identity_digest": "REPLACE_WITH_SHA256_DIGEST",
+    "execution_id": "REPLACE_WITH_EXECUTION_ID",
+    "focused_store": "REPLACE_WITH_FOCUSED_STORE",
+    "contract_complete": false,
+    "coverage_complete": false,
+    "message_provenance_complete": false,
+    "required_input_verified": false
+  },
+  "slack_canary": {
+    "identity_digest": "REPLACE_WITH_SHA256_DIGEST",
+    "execution_id": "REPLACE_WITH_EXECUTION_ID",
+    "stored_message_digest": "REPLACE_WITH_SHA256_DIGEST",
+    "payload_message_digest": "REPLACE_WITH_SHA256_DIGEST",
+    "receipt_digest": "REPLACE_WITH_SHA256_DIGEST",
+    "delivery_attempts": 0,
+    "automatic_replays": -1,
+    "message_safety_passed": false,
+    "links_open_only": false
   },
   "rollback": {
     "documented": true,
     "verified": false,
-    "prior_workflow_ids": [
-      "REPLACE_WITH_PRIOR_WORKFLOW_IDS"
+    "disable_order": [
+      "alerter_mover",
+      "evaluator_generator",
+      "scraper"
     ],
-    "old_workbook_id": "REPLACE_WITH_OLD_WORKBOOK_ID"
+    "prior_workflow_versions": [
+      {
+        "workflow_id": "qxPbOzNs5StaPY8B",
+        "version_id": "REPLACE_WITH_PREDEPLOYMENT_VERSION_ID"
+      },
+      {
+        "workflow_id": "TRUqD9atneyDyMNx",
+        "version_id": "REPLACE_WITH_PREDEPLOYMENT_VERSION_ID"
+      },
+      {
+        "workflow_id": "QO6OLK3pHetgGIGq",
+        "version_id": "REPLACE_WITH_PREDEPLOYMENT_VERSION_ID"
+      }
+    ],
+    "old_workbook_id": "REPLACE_WITH_RETAINED_OLD_WORKBOOK_ID"
   }
 }

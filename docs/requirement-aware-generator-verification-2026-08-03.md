@@ -4,11 +4,15 @@ Comparison base: `581d1561e31b433242918d44954a3c7409c35ccf`.
 Implementation branch: `codex/requirement-aware-generator`.
 
 This record covers Issues #65–#69. Repository implementation and validation
-are complete for #65–#68. Issue #69 remains blocked at its explicitly live
-deployment criteria because this run is not authorized to deploy or mutate
-production. No n8n workflow was imported or activated, no production workbook
-was read or changed, no Slack message was sent, and no application was opened
-or submitted.
+are complete for #65–#68, and the safe cutover tooling for #69 is complete.
+Issue #69 remains incomplete at its explicitly live deployment criteria because
+this run is not authorized to merge, deploy, or mutate production. Read-only
+checks confirmed that the local n8n service is healthy, the three pinned
+production workflow IDs are active, the required runtime environment is
+present and policy-compatible, and the live workflow definitions differ from
+the reviewed replacement artifacts. No n8n workflow was imported or activated,
+no production workbook was read or changed, no Slack message was sent, and no
+application was opened or submitted.
 
 ## Verified root causes and architecture
 
@@ -141,10 +145,10 @@ same-version header/schema shape from passing compatibility checks.
 
 | ID | Status | Repository mapping/evidence | Live limitation |
 | --- | --- | --- | --- |
-| 69-AC-01 | PARTIAL | Candidate branch artifacts rebuild and full validation pass | No exact deployment commit exists yet; the gate must be rerun on that eventual commit |
-| 69-AC-02 | BLOCKED | Runbook defines sanitized workflow/policy/schema/unsent inventory | Requires authorized production reads/backups |
-| 69-AC-03 | BLOCKED | Existing cutover rollback contract plus compatibility rollback order | Requires readable live exports/identifiers |
-| 69-AC-04 | BLOCKED | Inactive artifacts retain schedules/timeouts/caps/pacing/timezone | Requires authorized n8n import/binding |
+| 69-AC-01 | PARTIAL | Exact candidate artifacts rebuild; 287-test validation passes; the production service environment passes policy v2 validation read-only | PR #70 is unmerged, so the exact reviewed deployment commit is not on `main` and cannot be used for cutover |
+| 69-AC-02 | PARTIAL | Read-only checks captured the healthy n8n service, exactly three pinned active workflow IDs and versions, required runtime variables, distinct workbook IDs, and artifact drift; schema-v3 evidence requires current workbook contracts and a sanitized unsent inventory | No authorized workbook read, backup set, or pre-deployment evidence artifact exists |
+| 69-AC-03 | BLOCKED | Schema-v3 gate requires nine readable, digest-bound, restore-verified backup assets and exact prior workflow versions in safe rollback order | Current production backups and restore checks require separate deployment authority |
+| 69-AC-04 | BLOCKED | Generic rollout builder pins all three target IDs, exact reviewed artifact digests, schedules, timeouts, timezone, and one hashed Google credential binding while retaining inactive state | Importing and binding the reviewed artifacts mutates production and is not authorized |
 | 69-AC-05 | PARTIAL | Structured fixture proves extraction and responsibility exclusion | Disposable imported n8n/workbook execution unavailable |
 | 69-AC-06 | PARTIAL | Job Pipeline adjacent coverage and Groq/Claude difference are deterministic | Disposable imported workflow evidence unavailable |
 | 69-AC-07 | SATISFIED | Exact reported non-answer fails complete validation | No live provider required for deterministic rejection |
@@ -153,7 +157,7 @@ same-version header/schema shape from passing compatibility checks.
 | 69-AC-10 | SATISFIED | Exact/adjacent/partial/missing/manual/ambiguous/unavailable/malicious routes tested | Repository evidence is deterministic |
 | 69-AC-11 | SATISFIED | One bounded repair; invalid repair cannot become ready | Generator/Groq tests |
 | 69-AC-12 | SATISFIED | Provider, Sheet, stale-guard, malformed-response failures remain visible/fail closed | Generator/workflow/E2E tests |
-| 69-AC-13 | BLOCKED | Guard-safe inventory/disposition procedure documented | Requires current production `To Apply` snapshot and authority |
+| 69-AC-13 | BLOCKED | Sanitized inventory tool applies the shared persisted-message safety gate, emits digest-only identities/guards, and requires explicit disposition before activation | Requires an authorized private snapshot of current unsent production `To Apply` rows |
 | 69-AC-14 | SATISFIED | Persisted safety rejects legacy/stale/missing/unsupported/forged records | Message-safety and Alerter tests |
 | 69-AC-15 | BLOCKED | Cutover validator requires exactly one active role each | Requires production activation/inventory |
 | 69-AC-16 | BLOCKED | Complete persisted record contract is repository-tested | Requires bounded production record |
@@ -164,20 +168,26 @@ same-version header/schema shape from passing compatibility checks.
 | 69-AC-21 | SATISFIED | Operations/deployment docs define 240-minute observation, triggers/order/risks | Documentation tests and review |
 
 Risk: **HIGH** — deployment, rollback, external services, durable live state,
-and disclosure. Repository-safe work is complete. The exact blocker is absent
-authorization/credentials for production inventory, backups, inactive import,
-workbook/Groq/Slack verification, activation, observation, and rollback-ready
-evidence; deployment is also explicitly prohibited by this run.
+and disclosure. Repository-safe work is complete. Production credentials and
+runtime configuration exist, but possession is not authorization: PR #70 has
+not been reviewed and merged to `main`, while this run explicitly prohibits
+merge, deployment, and production mutation. Current backups, sanitized workbook
+and unsent-row inventory, inactive imports, disposable workflow executions,
+activation, the 240-minute observation, one bounded production record, one
+non-replayed Slack canary, and final rollback-ready evidence therefore remain
+unperformed.
 
 ## Validation evidence
 
 - Focused extraction, coverage, generation, persistence, movement, alert, Groq,
   deployment, and E2E tests pass after the latest fixes.
-- The final integrated suite contains 274 tests: 262 pass and 12 explicitly
+- The final integrated suite contains 287 tests: 275 pass and 12 explicitly
   retired legacy paths are skipped; there are zero failures.
 - `npm run build` rebuilds all three inactive workflows and Sheet setup.
 - `npm run validate:deployment -- --policy-only` accepts deployment policy
-  `2026-08-03/v1` and its pinned application compatibility unit.
+  `2026-08-03/v2` and its pinned application compatibility unit. A read-only
+  validation using the service process environment also passes without printing
+  secret values.
 - The final full `npm run validate` result is the release evidence for the
   integrated branch; production-only checks remain deliberately unclaimed.
 
@@ -191,10 +201,14 @@ evidence; deployment is also explicitly prohibited by this run.
 | `src/alerter-mover.mjs`, `src/alert-receipts.mjs` | #68 | Recomputed protected-state guard, explicit action race check, Slack selection/result, and receipt reconciliation | High | REVIEWED_AFTER_FIX |
 | pipeline/review schema, contracts, setup artifact | #68 | JSON bounds, complete row order, guards, idempotent setup, compatibility | High | REVIEWED_AFTER_FIX |
 | `src/message-safety.mjs`, Alerter artifact | #68 | Canonical rehydration, persisted authorization, Slack eligibility | High | REVIEWED_AFTER_FIX |
-| deployment policy/validator/script | #69 | Exact compatibility unit, schedules, bindings, inactive cutover boundary | High | REVIEWED_AFTER_FIX |
-| evaluation/Generator/Groq/safety/contract/movement/discovery/alert/E2E tests and fixture | #65–#69 | Positive, negative, malformed, stale, compaction, lifecycle, regression behavior | Moderate | REVIEWED_AFTER_FIX |
+| deployment policy/validator/script | #69 | Exact compatibility unit, artifact digests, schedules, bindings, receipt table, and inactive cutover boundary | High | REVIEWED_AFTER_FIX |
+| schema-v3 cutover capture/validator and target-map template | #69 | Three evidence phases, repository-HEAD binding, pinned in-place workflow and active-version lineage, per-workflow pipeline classification, current workbook contracts, strict sanitized evidence, nine backups, disposable cases, rollback, 240-minute observation, role-bound production record, and Slack canary | High | REVIEWED_AFTER_FIX |
+| `src/deployment-provenance.mjs` and tests | #69 | Clean worktree, exact local/remote `main` identity, and pre-request deployment-commit binding | High | REVIEWED_AFTER_FIX |
+| generic bound-workflow rollout builder | #69 | Exact target/artifact identity, inactive import, credential-free source artifact, complete single-reference live binding, safe reference-field projection, and secret-free output | High | REVIEWED_AFTER_FIX |
+| sanitized unsent-compatibility inventory builder and `inventory:unsent` package command | #68–#69 | Shared persisted-message safety gate, digest-only identity/state evidence, compatibility counts, explicit guarded disposition, owner-only new output | High | REVIEWED_AFTER_FIX |
+| evaluation/Generator/Groq/safety/contract/movement/discovery/alert/E2E plus deployment-provenance/n8n-deployment/workflow-cutover/workflow-rollout/unsent-compatibility tests and fixture | #65–#69 | Positive, negative, malformed, stale, compaction, lifecycle, credential-injection, dynamic-writer, dirty/non-main provenance, version-lineage, premature-evidence, URL-exfiltration, and regression behavior | Moderate | REVIEWED_AFTER_FIX |
 | generated workflows and Sheet setup | #68–#69 | Source parity, inactive state, syntax, topology, environment bindings, no auto-submit | High | REVIEWED_AFTER_FIX |
-| application-pack/prompt/data/sheet/architecture/alerts/operations/deployment docs | #65–#69 | Product contract, trust boundary, operator gates, rollback, live limitations | Moderate | REVIEWED_AFTER_FIX |
+| `README.md` plus application-pack/prompt/data/sheet/architecture/alerts/operations/deployment docs | #65–#69 | Public command interface, product contract, API/credential trust boundary, operator gates, rollback, live limitations | Moderate | REVIEWED_AFTER_FIX |
 | This verification record | #65–#69 | Criterion-level evidence and honest blocked live gates | Low | REVIEWED_CLEAN |
 
 No dependency, lockfile, migration, binary, rename, or deletion is part of the
@@ -253,28 +267,70 @@ change set.
     authentication cookies, connection strings, and cloud access-key IDs could
     evade narrow secret labels; category-level secret detection now blocks and
     sanitizes those variants before prompting or persistence.
+17. The original cutover evidence assumed a retired three-sheet `Review Queue`
+    workbook and blank provisioning, and it omitted exact artifact, credential,
+    unsent compatibility, disposable-case, observation, bounded-record, and
+    Slack-receipt proof. Schema v3 now validates the current five-store Main and
+    separate 11-tab Configuration workbooks in place and requires each missing
+    proof before its applicable phase can pass.
+18. The existing binding helper covered only Alerter. The generic rollout
+    builder now covers all three pinned roles, verifies the reviewed artifact
+    digest and target ID, binds exactly one existing Google credential to every
+    required node, and leaves each output inactive.
+19. Active and rollback version identifiers were present but independent.
+    Pre-deployment rollback versions must now equal the versions actually
+    active at capture, and post-activation versions must equal the reviewed
+    imported versions.
+20. Exact role-name/node signatures could miss a renamed duplicate. Capture now
+    derives per-workflow pipeline binding classifications from node parameters,
+    scrubs unrelated names/node names, and rejects any active non-target
+    pipeline-bound, marked, current-signature, or retired workflow.
+21. Observation completion could occur after evidence capture, while production
+    and Slack executions and identities were unrelated. The gate now orders
+    timestamps and cross-binds the production identity and Generator/Alerter
+    scheduled executions to the Slack canary.
+22. Credential-free artifact digests allowed unexpected artifact credentials or
+    broad live credential objects to be copied. Rollout now requires a
+    credential-free reviewed artifact, a complete common live binding, and an
+    exact safe `id`/optional `name` projection.
+23. Bounded strings and caller-supplied URLs could retain private material or
+    receive the n8n API key. Evidence fields now use strict identifier/privacy
+    grammars, capture permits only policy-approved loopback origins with no
+    redirects, and deployment validation restricts Slack and review URLs.
+24. A renamed Google Sheets writer with fully dynamic document and tab values
+    had no textual pipeline marker. Dynamic write destinations are now
+    pipeline-ambiguous and fail the active-workflow gate unless the unrelated
+    workflow ID is explicitly approved in reviewed policy.
+25. Provider-token and filesystem deny-lists missed other token families and
+    absolute roots, while credential display names could carry private values.
+    Broader positive field grammars now reject those values, and deployable
+    credential bindings retain only a validated n8n credential ID.
+26. Matching an arbitrary dirty feature-branch `HEAD` did not prove a reviewed
+    release. Capture and validation now fail before any API request unless the
+    worktree is clean and `HEAD`, local `main`, and `origin/main` are identical.
 
 ## High-assurance review status
 
-- **PASS — Lane A (Security, Privacy, and Trust):** independent adversarial
-  review confirmed secret/instruction sanitization, zero-proof and contact-line
-  fail-closed behavior, relation/quantity preservation, downstream persisted
-  authorization, truthful adjacent evidence, inactive workflows, and absence
-  of application-submission or embedded-secret paths. Its focused run contained
-  115 tests: 108 pass, seven intentional skips, and zero failures.
+- **PASS — Lane A (Security, Privacy, and Trust):** independent exploit replay
+  confirmed dynamic/renamed writer rejection, credential-field projection,
+  broad private-value rejection, exact commit/main/clean-worktree provenance,
+  approved-origin and redirect controls, version and Slack provenance binding,
+  and unrelated-name scrubbing. Ten focused adversarial cases and the full
+  suite passed; no production contact or mutation occurred.
 - **PASS — Lane B (Data, State, Failure, and Operations):** independent review
-  accounted for all 74 schema fields across 67 guarded fields and seven explicit
-  operator/async exclusions, then confirmed operator actions, rediscovery,
-  concurrency checks, partial-repair/copy-confirm-delete behavior, bounded JSON,
-  receipts, failure recovery, and generated-artifact parity in a focused
-  100-test lifecycle run.
+  confirmed all three phase semantics, exact nine-asset rollback coverage,
+  active/rollback version lineage, dynamic-writer approval behavior, ordered
+  observation and execution/identity linkage, current in-place workbook
+  bindings, and clean-main provenance. The full suite and diff check passed.
 - **PASS — criterion and change-set accounting:** independent review confirmed
-  every #65–#69 criterion, all source/artifact/doc changes, adversarial relation
-  and quantity tests, zero-proof behavior, and the integrated result of 274
-  tests: 262 pass, 12 intentional skips, and zero failures.
+  the sequential 14/16/20/20/21 criterion matrices, honest #69 live statuses,
+  policy v2, every source/script/config/doc/package/test unit, findings 19–26,
+  and the integrated result of 287 tests: 275 pass, 12 intentional skips, and
+  zero failures.
 
-These PASS verdicts cover the repository implementation and reproducible local
-evidence for Issues #65–#69. They do not convert production-only Issue #69 gates
-to PASS: deployment inventory, backup, inactive import, live workbook/Groq/Slack
-verification, activation, observation, and rollback-ready evidence remain
-explicitly PARTIAL or BLOCKED pending separate authorization and credentials.
+These PASS verdicts cover repository implementation and reproducible local
+evidence only. They do not convert production-only Issue #69 gates to PASS:
+current workbook and unsent-row inventory, backups, inactive import, live
+workbook/Groq/Slack verification, activation, observation, and rollback-ready
+evidence remain explicitly PARTIAL or BLOCKED pending merge and separate
+deployment authorization.
