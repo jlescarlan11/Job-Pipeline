@@ -18,6 +18,7 @@ import {
   workflowExecutionDataSettings
 } from "../src/runtime.mjs";
 import { minuteIntervalScheduleRules } from "../src/schedules.mjs";
+import { googleSheetsBatchRanges } from "../src/sheet-batch.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const checkOnly = process.argv.includes("--check");
@@ -134,9 +135,11 @@ const alertCore = await bundledCore(
   "src/evaluation.mjs",
   "src/message-safety.mjs",
   "src/system-claims.mjs",
+  "src/movement.mjs",
   "src/alerter-mover.mjs"
 );
 const sheetOrderCore = await bundledCore("src/sheet-order.mjs");
+const sheetBatchCore = await bundledCore("src/sheet-batch.mjs");
 const contextSources = [
   ["candidateRows", "candidate", "Candidate", "candidate_rows"],
   ["skillRows", "skills", "Skills", "skill_rows"],
@@ -545,6 +548,32 @@ function readSheet(
     waitBetweenTries: runtime.google_sheets.read_retry.backoff_ms,
     ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
+}
+
+function batchReadSheets(
+  name,
+  position,
+  sheetNames,
+  {
+    workbookEnvironmentVariable = QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE,
+    urlExpression,
+    continueOnError = false
+  } = {}
+) {
+  const ranges = googleSheetsBatchRanges(sheetNames);
+  const query = ranges
+    .map((range) => `ranges=${encodeURIComponent(range)}`)
+    .join("&");
+  const url = urlExpression ||
+    `=https://sheets.googleapis.com/v4/spreadsheets/{{$env.${workbookEnvironmentVariable}}}/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&${query}`;
+  return httpNode(name, position, {
+    url,
+    timeout: 10000,
+    retry: runtime.google_sheets.read_retry,
+    responseFormat: "json",
+    continueOnError,
+    credentialType: "googleSheetsOAuth2Api"
+  });
 }
 
 function writeSheet(
@@ -1907,105 +1936,115 @@ function buildAlerterMover() {
   const archive = review.sheets.archive.name;
   const system = review.sheets.system.name;
   const config = runtime.alerter_mover;
+  const businessDefinitions = schema.business_stores.map((name) => ({
+    name,
+    fields: schema.fields
+  }));
+  const alertContextDefinitions = contextSources.map(([, sheetKey]) => ({
+    name: review.sheets[sheetKey].name,
+    fields: review.sheets[sheetKey].fields
+  }));
   const nodes = [
     scheduleNode("alerter_mover", [-6000, 240], config),
-    ...contextSnapshotNodes(
-      -5800,
-      240,
-      "f3ad0000-0000-4000-8000"
+    batchReadSheets(
+      "Get Business Snapshot",
+      [-5800, 240],
+      schema.business_stores
     ),
-    readSheet("Get Fresh Scraped Jobs", [-2000, 240], scraped),
-    aggregateNode("Aggregate Fresh Scraped Jobs", [-1800, 240], "scraped_rows"),
-    readSheet("Get Fresh To Review", [-1700, 400], toReview, {
-      explicitId: "f3a20000-0000-4000-8000-000000000001"
-    }),
-    aggregateNode(
-      "Aggregate Fresh To Review",
-      [-1500, 400],
-      "to_review_rows",
-      "f3a20000-0000-4000-8000-000000000002"
+    codeNode(
+      "Normalize Business Snapshot",
+      [-5600, 240],
+      `${sheetBatchCore}
+${alertCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const DEFINITIONS = ${JSON.stringify(businessDefinitions)};
+const now = new Date().toISOString();
+const rawStores = parseBatchSheetRows($json, DEFINITIONS);
+const stores = Object.fromEntries(
+  SCHEMA.business_stores.map((store) => [
+    store,
+    rawStores[store].map((row) => normalizeLegacyRecord(row, SCHEMA, now))
+  ])
+);
+return [{ json: {
+  stores,
+  now,
+  sheet_read_request_count: 1,
+  quota_retry_count: 0
+} }];`
     ),
-    readSheet("Get Fresh To Apply", [-1400, 400], toApply, {
-      explicitId: "f3a20000-0000-4000-8000-000000000003"
-    }),
-    aggregateNode(
-      "Aggregate Fresh To Apply",
-      [-1200, 400],
-      "to_apply_rows",
-      "f3a20000-0000-4000-8000-000000000004"
-    ),
-    readSheet("Get Applied Jobs", [-1600, 240], applied),
-    aggregateNode("Aggregate Applied Jobs", [-1400, 240], "applied_rows"),
-    readSheet("Get Archive", [-1200, 240], archive),
-    aggregateNode("Aggregate Archive", [-1000, 240], "archive_rows"),
     codeNode(
       "Plan Independent Moves",
-      [-800, 240],
-      `${movementCore}
+      [-5400, 240],
+      `${alertCore}
 const SCHEMA = ${JSON.stringify(schema)};
-const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
-const PROFILE = SHEET_CONTEXT.profile;
-const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
-const PACK_POLICY = SHEET_CONTEXT.pack_policy;
+const POLICY = ${JSON.stringify(alertPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
-const now = new Date().toISOString();
-const scrapedRows = ($('Aggregate Fresh Scraped Jobs').first().json.scraped_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
-const toReviewRows = ($('Aggregate Fresh To Review').first().json.to_review_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
-const toApplyRows = ($('Aggregate Fresh To Apply').first().json.to_apply_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
-const appliedRows = ($('Aggregate Applied Jobs').first().json.applied_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
-const archiveRows = ($('Aggregate Archive').first().json.archive_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
-const safety = {
-  profile: PROFILE,
-  applicationPolicy: APPLICATION_POLICY,
-  packPolicy: PACK_POLICY
-};
-const movement = planQueueActions(
-  {
-    'Scraped Jobs': scrapedRows,
-    'To Review': toReviewRows,
-    'To Apply': toApplyRows,
-    'Applied Jobs': appliedRows,
-    Archive: archiveRows
-  },
+const snapshot = $('Normalize Business Snapshot').first().json;
+const plan = planAlerterMoverPhases(
+  snapshot.stores,
   SCHEMA,
-  now,
-  safety,
+  POLICY,
+  snapshot.now,
   { movementPerRunCap: RUNTIME.movement_per_run_cap }
 );
-const outcome = planOutcomeUpdates(appliedRows, SCHEMA, now);
 console.log(JSON.stringify({
   event: 'movement_plan',
-  moves: movement.moves.length,
-  rejected: movement.rejected.map((entry) => entry.reason),
-  outcome_updates: outcome.updates.length
+  moves: plan.movement.moves.length,
+  rejected: plan.movement.rejected.map((entry) => entry.reason),
+  outcome_updates: plan.outcome.updates.length,
+  potential_alerts: plan.potential_alerts.candidates.length,
+  sheet_read_requests: snapshot.sheet_read_request_count
 }));
-return [{ json: { movement, outcome, now } }];`
+return [{ json: {
+  ...plan,
+  stores: snapshot.stores,
+  now: snapshot.now,
+  sheet_read_request_count: snapshot.sheet_read_request_count,
+  quota_retry_count: snapshot.quota_retry_count
+} }];`
+    ),
+    ifNode(
+      "Has Eligible Work",
+      [-5200, 240],
+      "={{ $json.has_work === true }}"
+    ),
+    codeNode(
+      "Summarize Alerter & Mover Run",
+      [-5000, 520],
+      `${alertCore}
+const plan = $('Plan Independent Moves').first().json;
+const current = $json || {};
+const summary = summarizeAlerterMoverRun({
+  plan,
+  sheetReadRequests: Number(current.sheet_read_request_count || plan.sheet_read_request_count || 1),
+  quotaRetries: Number(current.quota_retry_count || plan.quota_retry_count || 0),
+  alerts: current.alerts || {},
+  errorCategories: current.error_categories || []
+});
+console.log(JSON.stringify({ event: 'alerter_mover_summary', ...summary }));
+return [{ json: summary }];`
     ),
     codeNode(
       "Prepare Outcome Updates",
-      [-600, 240],
+      [-5000, 240],
       `const rows = $('Plan Independent Moves').first().json.outcome.updates || [];
 return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
     ),
-    ifNode("Has Outcome Updates", [-400, 240], "={{ $json._noop !== true }}"),
+    ifNode("Has Outcome Updates", [-4800, 240], "={{ $json._noop !== true }}"),
     writeSheet(
       "Update Applied Outcomes",
-      [-200, 120],
+      [-4600, 120],
       applied,
       "update",
       outcomeStateFields,
       ["canonical_job_id"],
       { continueOnError: true }
+    ),
+    ifNode(
+      "Has Movement Work",
+      [-4400, 240],
+      "={{ $('Plan Independent Moves').first().json.has_movement_work === true }}"
     ),
     codeNode(
       "Emit Movement Claims",
@@ -2251,7 +2290,10 @@ return writes.archive.length
 const requests = latestFirstSortRequests(
   $json,
   ${JSON.stringify(schema)},
-  ${JSON.stringify(latestFirstBusinessSheets)}
+  Object.fromEntries(
+    Object.entries(${JSON.stringify(latestFirstBusinessSheets)})
+      .filter(([sheet]) => $('Plan Independent Moves').first().json.touched_sheets.includes(sheet))
+  )
 );
 return [{ json: { requests } }];`
     ),
@@ -2264,30 +2306,35 @@ return [{ json: { requests } }];`
       continueOnError: false,
       credentialType: "googleSheetsOAuth2Api"
     }),
-    readSheet("Get Scraped Jobs After Copies", [3000, 240], scraped),
-    aggregateNode("Aggregate Scraped After Copies", [3200, 240], "scraped_rows"),
-    readSheet("Get To Review After Copies", [3250, 360], toReview, {
-      explicitId: "f3a20000-0000-4000-8000-000000000017"
-    }),
-    aggregateNode(
-      "Aggregate To Review After Copies",
-      [3300, 360],
-      "to_review_rows",
-      "f3a20000-0000-4000-8000-000000000018"
+    batchReadSheets(
+      "Get Touched Business Stores After Copies",
+      [3500, 360],
+      schema.business_stores,
+      {
+        urlExpression: `={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE} + '/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&' + $('Plan Independent Moves').first().json.touched_sheets.map((sheet) => 'ranges=' + encodeURIComponent("'" + sheet.replace(/'/g, "''") + "'")).join('&') }}`
+      }
     ),
-    readSheet("Get To Apply After Copies", [3350, 420], toApply, {
-      explicitId: "f3a20000-0000-4000-8000-000000000019"
-    }),
-    aggregateNode(
-      "Aggregate To Apply After Copies",
-      [3400, 420],
-      "to_apply_rows",
-      "f3a20000-0000-4000-8000-000000000020"
+    codeNode(
+      "Normalize Touched Business Snapshot",
+      [3700, 360],
+      `${sheetBatchCore}
+${alertCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const allDefinitions = ${JSON.stringify(businessDefinitions)};
+const plan = $('Plan Independent Moves').first().json;
+const definitions = allDefinitions.filter((entry) => plan.touched_sheets.includes(entry.name));
+const touched = parseBatchSheetRows($json, definitions);
+const stores = { ...plan.stores };
+for (const definition of definitions) {
+  stores[definition.name] = touched[definition.name]
+    .map((row) => normalizeLegacyRecord(row, SCHEMA, plan.now));
+}
+return [{ json: {
+  stores,
+  sheet_read_request_count: Number(plan.sheet_read_request_count || 1) + 3,
+  quota_retry_count: Number(plan.quota_retry_count || 0)
+} }];`
     ),
-    readSheet("Get Applied Jobs After Copies", [3400, 240], applied),
-    aggregateNode("Aggregate Applied After Copies", [3600, 240], "applied_rows"),
-    readSheet("Get Archive After Copies", [3800, 240], archive),
-    aggregateNode("Aggregate Archive After Copies", [4000, 240], "archive_rows"),
     codeNode(
       "Confirm Destination Copies",
       [4200, 240],
@@ -2296,23 +2343,7 @@ const SCHEMA = ${JSON.stringify(schema)};
 const plans = $('Keep Winning Movement Claims').first().json.movement;
 const result = confirmMoveDeletions(
   plans,
-  {
-    'Scraped Jobs': ($('Aggregate Scraped After Copies').first().json.scraped_rows || [])
-      .filter((row) => row && Object.keys(row).length)
-      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
-    'To Review': ($('Aggregate To Review After Copies').first().json.to_review_rows || [])
-      .filter((row) => row && Object.keys(row).length)
-      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
-    'To Apply': ($('Aggregate To Apply After Copies').first().json.to_apply_rows || [])
-      .filter((row) => row && Object.keys(row).length)
-      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
-    'Applied Jobs': ($('Aggregate Applied After Copies').first().json.applied_rows || [])
-      .filter((row) => row && Object.keys(row).length)
-      .map((row) => normalizeLegacyRecord(row, SCHEMA)),
-    Archive: ($('Aggregate Archive After Copies').first().json.archive_rows || [])
-      .filter((row) => row && Object.keys(row).length)
-      .map((row) => normalizeLegacyRecord(row, SCHEMA))
-  },
+  $('Normalize Touched Business Snapshot').first().json.stores,
   SCHEMA
 );
 console.log(JSON.stringify({
@@ -2320,7 +2351,11 @@ console.log(JSON.stringify({
   confirmed: result.deletions.length,
   rejected: result.rejected.map((entry) => entry.reason)
 }));
-return [{ json: result }];`
+return [{ json: {
+  ...result,
+  sheet_read_request_count: $('Normalize Touched Business Snapshot').first().json.sheet_read_request_count,
+  quota_retry_count: $('Normalize Touched Business Snapshot').first().json.quota_retry_count
+} }];`
     ),
     codeNode(
       "Prepare Scraped Jobs Deletions",
@@ -2407,21 +2442,112 @@ return selected.length
       "deletions",
       "f3a20000-0000-4000-8000-000000000028"
     ),
-    readSheet("Get To Apply After Moves", [5200, 240], toApply),
-    aggregateNode("Aggregate To Apply After Moves", [5400, 240], "to_apply_rows"),
+    codeNode(
+      "Prepare Post-Movement Alert Snapshot",
+      [5500, 400],
+      `const plan = $('Plan Independent Moves').first().json;
+return [{ json: {
+  needs_fresh_to_apply: plan.touched_sheets.includes('To Apply'),
+  sheet_read_request_count: Number($json.sheet_read_request_count || 4),
+  quota_retry_count: Number($json.quota_retry_count || 0)
+} }];`
+    ),
+    ifNode(
+      "Needs Fresh To Apply Snapshot",
+      [5700, 400],
+      "={{ $json.needs_fresh_to_apply === true }}"
+    ),
+    batchReadSheets(
+      "Get Fresh To Apply Snapshot",
+      [5900, 300],
+      [toApply]
+    ),
+    codeNode(
+      "Normalize Fresh To Apply Snapshot",
+      [6100, 300],
+      `${sheetBatchCore}
+${alertCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const plan = $('Plan Independent Moves').first().json;
+const parsed = parseBatchSheetRows($json, ${JSON.stringify([
+        { name: toApply, fields: schema.fields }
+      ])});
+return [{ json: {
+  to_apply_rows: parsed['To Apply'].map((row) => normalizeLegacyRecord(row, SCHEMA, plan.now)),
+  sheet_read_request_count: Number($('Prepare Post-Movement Alert Snapshot').first().json.sheet_read_request_count || 4) + 1,
+  quota_retry_count: Number($('Prepare Post-Movement Alert Snapshot').first().json.quota_retry_count || 0)
+} }];`
+    ),
+    codeNode(
+      "Use Initial To Apply Snapshot",
+      [5900, 500],
+      `const plan = $('Plan Independent Moves').first().json;
+return [{ json: {
+  to_apply_rows: plan.stores['To Apply'] || [],
+  sheet_read_request_count: Number($json.sheet_read_request_count || plan.sheet_read_request_count || 1),
+  quota_retry_count: Number($json.quota_retry_count || plan.quota_retry_count || 0)
+} }];`
+    ),
+    codeNode(
+      "Preselect Persisted Alert Work",
+      [6300, 400],
+      `${alertCore}
+const selected = preselectPersistedAlertCandidates(
+  $json.to_apply_rows || [],
+  ${JSON.stringify(schema)},
+  ${JSON.stringify(alertPolicy)},
+  new Date().toISOString()
+);
+return [{ json: {
+  ...$json,
+  potential_alerts: selected,
+  has_potential_alerts: selected.candidates.length > 0
+} }];`
+    ),
+    ifNode(
+      "Has Potential Alert Work",
+      [6500, 400],
+      "={{ $json.has_potential_alerts === true }}"
+    ),
+    batchReadSheets(
+      "Get Alert Configuration Snapshot",
+      [6700, 300],
+      contextSources.map(([, sheetKey]) => review.sheets[sheetKey].name),
+      { workbookEnvironmentVariable: CONFIG_WORKBOOK_ENVIRONMENT_VARIABLE }
+    ),
+    codeNode(
+      "Compile Alert Configuration",
+      [6900, 300],
+      `${sheetBatchCore}
+${sheetContextCore}
+const parsed = parseBatchSheetRows($json, ${JSON.stringify(alertContextDefinitions)});
+const rows = {
+${contextSources.map(([property, , label]) => `  ${property}: parsed[${JSON.stringify(label)}] || []`).join(",\n")}
+};
+const context = compileSheetContext(rows, {
+  rankingPolicy: ${JSON.stringify(rankingPolicy)},
+  applicationPolicy: ${JSON.stringify(applicationPolicy)},
+  packPolicy: ${JSON.stringify(packPolicy)}
+});
+const preselection = $('Preselect Persisted Alert Work').first().json;
+return [{ json: {
+  context,
+  to_apply_rows: preselection.to_apply_rows,
+  sheet_read_request_count: Number(preselection.sheet_read_request_count || 1) + 1,
+  quota_retry_count: Number(preselection.quota_retry_count || 0)
+} }];`
+    ),
     codeNode(
       "Select Fresh Alerts",
-      [5600, 240],
+      [7100, 300],
       `${alertCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const POLICY = ${JSON.stringify(alertPolicy)};
-const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const SHEET_CONTEXT = $('Compile Alert Configuration').first().json.context;
 const PROFILE = SHEET_CONTEXT.profile;
 const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
 const PACK_POLICY = SHEET_CONTEXT.pack_policy;
-const rows = ($('Aggregate To Apply After Moves').first().json.to_apply_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, SCHEMA));
+const rows = $('Compile Alert Configuration').first().json.to_apply_rows || [];
 const selected = selectFreshAlertCandidates(
   rows,
   SCHEMA,
@@ -2435,7 +2561,11 @@ console.log(JSON.stringify({
   state_updates: selected.state_updates.length,
   rejected: selected.rejected.map((entry) => entry.reasons)
 }));
-return [{ json: selected }];`
+return [{ json: {
+  ...selected,
+  sheet_read_request_count: $('Compile Alert Configuration').first().json.sheet_read_request_count,
+  quota_retry_count: $('Compile Alert Configuration').first().json.quota_retry_count
+} }];`
     ),
     codeNode(
       "Prepare Terminal Alert States",
@@ -2554,7 +2684,7 @@ return rows.length
       [9000, 240],
       `${alertCore}
 const POLICY = ${JSON.stringify(alertPolicy)};
-const SHEET_CONTEXT = $('Compile Candidate Context').all()[0].json;
+const SHEET_CONTEXT = $('Compile Alert Configuration').first().json.context;
 const PROFILE = SHEET_CONTEXT.profile;
 const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
 const PACK_POLICY = SHEET_CONTEXT.pack_policy;
@@ -2669,31 +2799,21 @@ return staged.flatMap((entry) => {
     )
   ];
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Candidate Context")]] },
-    "Get Fresh Scraped Jobs": {
-      main: [[connection("Aggregate Fresh Scraped Jobs")]]
+    "Schedule Trigger": { main: [[connection("Get Business Snapshot")]] },
+    "Get Business Snapshot": {
+      main: [[connection("Normalize Business Snapshot")]]
     },
-    "Aggregate Fresh Scraped Jobs": {
-      main: [[connection("Get Fresh To Review")]]
+    "Normalize Business Snapshot": {
+      main: [[connection("Plan Independent Moves")]]
     },
-    "Get Fresh To Review": {
-      main: [[connection("Aggregate Fresh To Review")]]
-    },
-    "Aggregate Fresh To Review": {
-      main: [[connection("Get Fresh To Apply")]]
-    },
-    "Get Fresh To Apply": {
-      main: [[connection("Aggregate Fresh To Apply")]]
-    },
-    "Aggregate Fresh To Apply": {
-      main: [[connection("Get Applied Jobs")]]
-    },
-    "Get Applied Jobs": { main: [[connection("Aggregate Applied Jobs")]] },
-    "Aggregate Applied Jobs": { main: [[connection("Get Archive")]] },
-    "Get Archive": { main: [[connection("Aggregate Archive")]] },
-    "Aggregate Archive": { main: [[connection("Plan Independent Moves")]] },
     "Plan Independent Moves": {
-      main: [[connection("Prepare Outcome Updates")]]
+      main: [[connection("Has Eligible Work")]]
+    },
+    "Has Eligible Work": {
+      main: [
+        [connection("Prepare Outcome Updates")],
+        [connection("Summarize Alerter & Mover Run")]
+      ]
     },
     "Prepare Outcome Updates": {
       main: [[connection("Has Outcome Updates")]]
@@ -2701,11 +2821,17 @@ return staged.flatMap((entry) => {
     "Has Outcome Updates": {
       main: [
         [connection("Update Applied Outcomes")],
-        [connection("Emit Movement Claims")]
+        [connection("Has Movement Work")]
       ]
     },
     "Update Applied Outcomes": {
-      main: [[connection("Emit Movement Claims")]]
+      main: [[connection("Has Movement Work")]]
+    },
+    "Has Movement Work": {
+      main: [
+        [connection("Emit Movement Claims")],
+        [connection("Use Initial To Apply Snapshot")]
+      ]
     },
     "Emit Movement Claims": {
       main: [[connection("Has Movement Claims")]]
@@ -2820,36 +2946,12 @@ return staged.flatMap((entry) => {
       main: [[connection("Sort Business Sheets Latest First")]]
     },
     "Sort Business Sheets Latest First": {
-      main: [[connection("Get Scraped Jobs After Copies")]]
+      main: [[connection("Get Touched Business Stores After Copies")]]
     },
-    "Get Scraped Jobs After Copies": {
-      main: [[connection("Aggregate Scraped After Copies")]]
+    "Get Touched Business Stores After Copies": {
+      main: [[connection("Normalize Touched Business Snapshot")]]
     },
-    "Aggregate Scraped After Copies": {
-      main: [[connection("Get To Review After Copies")]]
-    },
-    "Get To Review After Copies": {
-      main: [[connection("Aggregate To Review After Copies")]]
-    },
-    "Aggregate To Review After Copies": {
-      main: [[connection("Get To Apply After Copies")]]
-    },
-    "Get To Apply After Copies": {
-      main: [[connection("Aggregate To Apply After Copies")]]
-    },
-    "Aggregate To Apply After Copies": {
-      main: [[connection("Get Applied Jobs After Copies")]]
-    },
-    "Get Applied Jobs After Copies": {
-      main: [[connection("Aggregate Applied After Copies")]]
-    },
-    "Aggregate Applied After Copies": {
-      main: [[connection("Get Archive After Copies")]]
-    },
-    "Get Archive After Copies": {
-      main: [[connection("Aggregate Archive After Copies")]]
-    },
-    "Aggregate Archive After Copies": {
+    "Normalize Touched Business Snapshot": {
       main: [[connection("Confirm Destination Copies")]]
     },
     "Confirm Destination Copies": {
@@ -2898,12 +3000,39 @@ return staged.flatMap((entry) => {
       main: [[connection("Aggregate To Apply Deletion Attempts")]]
     },
     "Aggregate To Apply Deletion Attempts": {
-      main: [[connection("Get To Apply After Moves")]]
+      main: [[connection("Prepare Post-Movement Alert Snapshot")]]
     },
-    "Get To Apply After Moves": {
-      main: [[connection("Aggregate To Apply After Moves")]]
+    "Prepare Post-Movement Alert Snapshot": {
+      main: [[connection("Needs Fresh To Apply Snapshot")]]
     },
-    "Aggregate To Apply After Moves": {
+    "Needs Fresh To Apply Snapshot": {
+      main: [
+        [connection("Get Fresh To Apply Snapshot")],
+        [connection("Use Initial To Apply Snapshot")]
+      ]
+    },
+    "Get Fresh To Apply Snapshot": {
+      main: [[connection("Normalize Fresh To Apply Snapshot")]]
+    },
+    "Normalize Fresh To Apply Snapshot": {
+      main: [[connection("Preselect Persisted Alert Work")]]
+    },
+    "Use Initial To Apply Snapshot": {
+      main: [[connection("Preselect Persisted Alert Work")]]
+    },
+    "Preselect Persisted Alert Work": {
+      main: [[connection("Has Potential Alert Work")]]
+    },
+    "Has Potential Alert Work": {
+      main: [
+        [connection("Get Alert Configuration Snapshot")],
+        [connection("Summarize Alerter & Mover Run")]
+      ]
+    },
+    "Get Alert Configuration Snapshot": {
+      main: [[connection("Compile Alert Configuration")]]
+    },
+    "Compile Alert Configuration": {
       main: [[connection("Select Fresh Alerts")]]
     },
     "Select Fresh Alerts": {
@@ -2927,7 +3056,7 @@ return staged.flatMap((entry) => {
     "Has Alert Claims": {
       main: [
         [connection("Append Alert Claims")],
-        [connection("Get Alert System Claims")]
+        [connection("Summarize Alerter & Mover Run")]
       ]
     },
     "Append Alert Claims": {
@@ -2970,7 +3099,10 @@ return staged.flatMap((entry) => {
       main: [[connection("Has Provider Alerts")]]
     },
     "Has Provider Alerts": {
-      main: [[connection("Send Slack Alert")], []]
+      main: [
+        [connection("Send Slack Alert")],
+        [connection("Summarize Alerter & Mover Run")]
+      ]
     },
     "Send Slack Alert": { main: [[connection("Stage Slack Result")]] },
     "Stage Slack Result": {
@@ -2987,9 +3119,11 @@ return staged.flatMap((entry) => {
     },
     "Guard and Commit Slack Results": {
       main: [[connection("Update Alert Results")]]
+    },
+    "Update Alert Results": {
+      main: [[connection("Summarize Alerter & Mover Run")]]
     }
   };
-  connectContextSnapshot(connections, "Get Fresh Scraped Jobs");
   return {
     name: "(Alerter & Mover) Job Pipeline - Slack and Terminal Moves",
     nodes,
@@ -3000,7 +3134,7 @@ return staged.flatMap((entry) => {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-07-31/v3",
+      workflowContractVersion: "2026-08-02/v4",
       alertPolicyVersion: alertPolicy.policy_version,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
@@ -3011,6 +3145,14 @@ return staged.flatMap((entry) => {
       manualSubmissionOnly: true,
       movementIndependentOfSlack: true,
       movementBeforeAlertSelection: true,
+      consolidatedBusinessSnapshot: true,
+      lazyConfigurationSnapshot: true,
+      touchedSheetConfirmationOnly: true,
+      googleSheetsReadRequestBudgets: {
+        idle: 2,
+        movementOnly: 6,
+        fullAlert: 10
+      },
       latestFirstBusinessSheets,
       googleSheetsHttpCredentialType: "googleSheetsOAuth2Api",
       appendWinnerClaims: true,

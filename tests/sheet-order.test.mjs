@@ -67,6 +67,25 @@ test("all business sheets sort newest lifecycle events first with stable ties", 
   });
 });
 
+test("latest-first sorting can be limited to movement-touched stores", () => {
+  const requests = latestFirstSortRequests(metadata(), schema, {
+    "Scraped Jobs": "discovered_at",
+    "To Review": "evaluated_at"
+  });
+  assert.equal(requests.length, 2);
+  assert.deepEqual(
+    requests.map((request) => request.sortRange.range.sheetId),
+    [100, 101]
+  );
+  assert.throws(
+    () =>
+      latestFirstSortRequests(metadata(), schema, {
+        Unknown: "created_at"
+      }),
+    /unknown business sheets/
+  );
+});
+
 test("latest-first sorting fails closed on incomplete workbook metadata", () => {
   const incomplete = metadata();
   incomplete.sheets = incomplete.sheets.filter(

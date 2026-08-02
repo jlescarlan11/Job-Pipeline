@@ -2,11 +2,13 @@ import {
   normalizeCanonicalUrl,
   parseHttpUrl,
   stateGuard,
-  validateRecordStoreContract
+  validateRecordStoreContract,
+  validateUniqueIdentityAcrossStores
 } from "./contracts.mjs";
 import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 import {
   destinationWrites,
+  planOutcomeUpdates,
   planQueueActions
 } from "./movement.mjs";
 
@@ -147,6 +149,179 @@ function retryDue(record, policy, nowMs) {
   }
   const retryAt = Date.parse(record.alert_next_retry_at || "");
   return !record.alert_next_retry_at || !Number.isFinite(retryAt) || retryAt <= nowMs;
+}
+
+export function preselectPersistedAlertCandidates(
+  rows,
+  schema,
+  policy,
+  now = new Date().toISOString()
+) {
+  if (!Array.isArray(rows)) {
+    throw new Error("Persisted alert preselection requires To Apply rows");
+  }
+  const nowMs = Date.parse(now);
+  if (!Number.isFinite(nowMs)) {
+    throw new Error("Persisted alert preselection requires a valid timestamp");
+  }
+  const candidates = [];
+  const rejected = [];
+  const identities = new Set();
+  for (const record of rows) {
+    const errors = validateRecordStoreContract(record, "To Apply", schema);
+    if (errors.length > 0) {
+      rejected.push({
+        canonical_job_id: String(record?.canonical_job_id || ""),
+        reason: "invalid_record"
+      });
+      continue;
+    }
+    const identity = String(record.canonical_job_id)
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US");
+    if (identities.has(identity)) {
+      throw new Error("Alert preselection rejected ambiguous To Apply identity");
+    }
+    identities.add(identity);
+
+    if (record.alert_status === "sending") {
+      const attemptedAt = Date.parse(record.alert_last_attempt_at || "");
+      if (
+        !Number.isFinite(attemptedAt) ||
+        nowMs - attemptedAt >= policy.claim_lease_ms
+      ) {
+        candidates.push(record);
+      }
+      continue;
+    }
+
+    const expectedKey = alertIdempotencyKey(record, policy);
+    if (
+      record.pipeline_status !== "ready_to_apply" ||
+      record.user_action ||
+      record.application_pack_status !== "ready" ||
+      record.message_validation_status !== "valid" ||
+      (record.alert_status === "sent" &&
+        record.alert_idempotency_key === expectedKey) ||
+      ["terminal_failure", "suppressed"].includes(record.alert_status) ||
+      !retryDue(record, policy, nowMs)
+    ) {
+      continue;
+    }
+    candidates.push(record);
+  }
+  return { candidates, rejected };
+}
+
+function countSnapshot(stores, schema) {
+  const storeCounts = {};
+  const statusCounts = {};
+  for (const store of schema.business_stores) {
+    const rows = stores[store];
+    storeCounts[store] = rows.length;
+    statusCounts[store] = {};
+    for (const row of rows) {
+      const status = String(row.pipeline_status || "unknown");
+      statusCounts[store][status] =
+        Number(statusCounts[store][status] || 0) + 1;
+    }
+  }
+  return { store_counts: storeCounts, status_counts: statusCounts };
+}
+
+export function planAlerterMoverPhases(
+  stores,
+  schema,
+  policy,
+  now = new Date().toISOString(),
+  movementOptions
+) {
+  const uniquenessErrors = validateUniqueIdentityAcrossStores(
+    stores,
+    schema,
+    now
+  );
+  if (uniquenessErrors.length > 0) {
+    throw new Error(
+      `Alerter & Mover rejected ambiguous business ownership: ${uniquenessErrors.join("; ")}`
+    );
+  }
+  const movement = planQueueActions(
+    stores,
+    schema,
+    now,
+    undefined,
+    movementOptions
+  );
+  const outcome = planOutcomeUpdates(stores["Applied Jobs"], schema, now);
+  const potentialAlerts = preselectPersistedAlertCandidates(
+    stores["To Apply"],
+    schema,
+    policy,
+    now
+  );
+  const touched = new Set();
+  for (const plan of movement.moves) {
+    touched.add(plan.source_sheet);
+    touched.add(plan.destination);
+  }
+  const touchedSheets = schema.business_stores.filter((store) =>
+    touched.has(store)
+  );
+  const counts = countSnapshot(stores, schema);
+  const hasMovementWork = movement.moves.length > 0;
+  const hasPotentialAlerts = potentialAlerts.candidates.length > 0;
+  const hasOutcomeWork = outcome.updates.length > 0;
+  return {
+    movement,
+    outcome,
+    potential_alerts: potentialAlerts,
+    touched_sheets: touchedSheets,
+    has_movement_work: hasMovementWork,
+    has_potential_alerts: hasPotentialAlerts,
+    has_outcome_work: hasOutcomeWork,
+    has_work: hasMovementWork || hasPotentialAlerts || hasOutcomeWork,
+    execution_classification:
+      hasMovementWork || hasPotentialAlerts || hasOutcomeWork
+        ? "eligible_work"
+        : "no_eligible_work",
+    ...counts
+  };
+}
+
+export function summarizeAlerterMoverRun({
+  plan,
+  sheetReadRequests = 0,
+  quotaRetries = 0,
+  alerts = {},
+  errorCategories = []
+}) {
+  const movementCount = Number(plan?.movement?.moves?.length || 0);
+  const outcomeCount = Number(plan?.outcome?.updates?.length || 0);
+  const selected = Number(alerts.selected || 0);
+  const delivered = Number(alerts.delivered || 0);
+  const reconciled = Number(alerts.reconciled || 0);
+  const retryable = Number(alerts.retryable || 0);
+  const terminal = Number(alerts.terminal || 0);
+  const hasErrors = errorCategories.length > 0;
+  const classification = hasErrors
+    ? "completed_with_errors"
+    : movementCount + outcomeCount + selected + reconciled > 0
+      ? "completed_with_work"
+      : "no_eligible_work";
+  return {
+    execution_classification: classification,
+    store_counts: plan?.store_counts || {},
+    status_counts: plan?.status_counts || {},
+    movement_count: movementCount,
+    outcome_update_count: outcomeCount,
+    alerts: { selected, delivered, reconciled, retryable, terminal },
+    sheet_read_request_count: Number(sheetReadRequests || 0),
+    quota_retry_count: Number(quotaRetries || 0),
+    error_categories: [...new Set(errorCategories.map((value) => sanitize(value, 80)))]
+      .filter(Boolean)
+      .slice(0, 20)
+  };
 }
 
 export function evaluateAlertEligibility(

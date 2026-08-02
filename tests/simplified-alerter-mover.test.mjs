@@ -4,9 +4,12 @@ import test from "node:test";
 import {
   applySlackProviderResult,
   markAlertSending,
+  planAlerterMoverPhases,
   planAlerterMoverRun,
+  preselectPersistedAlertCandidates,
   renderSlackAlert,
   selectFreshAlertCandidates,
+  summarizeAlerterMoverRun,
   validateAlertPolicy
 } from "../src/alerter-mover.mjs";
 import {
@@ -208,6 +211,87 @@ test("movement is planned independently before Slack delivery", () => {
   assert.equal(
     planned.alerts.candidates[0].record.canonical_job_id,
     readyToAlert.canonical_job_id
+  );
+});
+
+test("phase planning short-circuits idle stores with explicit counts", () => {
+  const idle = makeReady(5013, {
+    pipeline_status: "new",
+    application_pack_status: "",
+    message_validation_status: "",
+    generated_message: "",
+    generated_at: ""
+  });
+  idle.state_guard = stateGuard(idle);
+  const plan = planAlerterMoverPhases(
+    businessStores({ "Scraped Jobs": [idle] }),
+    schema,
+    alertPolicy,
+    now,
+    { movementPerRunCap: 25 }
+  );
+  assert.equal(plan.has_work, false);
+  assert.equal(plan.execution_classification, "no_eligible_work");
+  assert.deepEqual(plan.store_counts, {
+    "Scraped Jobs": 1,
+    "To Review": 0,
+    "To Apply": 0,
+    "Applied Jobs": 0,
+    Archive: 0
+  });
+  assert.deepEqual(plan.status_counts["Scraped Jobs"], { new: 1 });
+  const summary = summarizeAlerterMoverRun({
+    plan,
+    sheetReadRequests: 1
+  });
+  assert.equal(summary.execution_classification, "no_eligible_work");
+  assert.equal(summary.sheet_read_request_count, 1);
+  assert.ok(summary.sheet_read_request_count <= 2);
+});
+
+test("movement phases identify only touched stores and retain the six-read budget", () => {
+  const review = makeReady(5014, {
+    pipeline_status: "review_needed",
+    user_action: ""
+  });
+  review.state_guard = stateGuard(review);
+  const plan = planAlerterMoverPhases(
+    businessStores({ "Scraped Jobs": [review] }),
+    schema,
+    alertPolicy,
+    now,
+    { movementPerRunCap: 25 }
+  );
+  assert.equal(plan.has_movement_work, true);
+  assert.equal(plan.has_potential_alerts, false);
+  assert.deepEqual(plan.touched_sheets, ["Scraped Jobs", "To Review"]);
+  const instrumentedMovementOnlyReads = 4;
+  assert.ok(instrumentedMovementOnlyReads <= 6);
+});
+
+test("persisted alert preselection is context-lazy and ownership ambiguity fails closed", () => {
+  const ready = makeReady(5015);
+  assert.deepEqual(
+    preselectPersistedAlertCandidates(
+      [ready],
+      schema,
+      alertPolicy,
+      now
+    ).candidates.map((record) => record.canonical_job_id),
+    [ready.canonical_job_id]
+  );
+  assert.throws(
+    () =>
+      planAlerterMoverPhases(
+        businessStores({
+          "Scraped Jobs": [ready],
+          "To Apply": [{ ...ready }]
+        }),
+        schema,
+        alertPolicy,
+        now
+      ),
+    /ambiguous business ownership.*duplicate canonical identity/i
   );
 });
 

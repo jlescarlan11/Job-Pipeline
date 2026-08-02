@@ -19,6 +19,8 @@ There are no Approve, Deny, Skip, Apply, or state-changing webhook links. The us
 
 The Alerter & Mover never submits an application.
 
+Before loading candidate/application context, Alerter & Mover batch-reads all five business stores and performs a persisted-field preselection. With no outcomes, moves, or potential alerts it emits `no_eligible_work` with store/status counts and makes no Configuration or Slack request. Configuration is retrieved through one batch request only for potential alert work. Movement confirmation and latest-first sorting are restricted to stores touched by that execution.
+
 The idempotency key is derived from canonical job identity, alert policy version, generation timestamp, and a message digest. Before the source row enters `sending`, the workflow appends a scoped `_System` claim and only the earliest unexpired row may continue. The winning claim token is also persisted in `To Apply` and must match at render and result commit.
 
 A recorded success is not replayed. Rate limits and 5xx responses retry within the configured cap. A request timeout is terminal because Slack delivery is ambiguous and an automatic retry could duplicate the notification. A `sending` row whose claim lease expires is also converted to terminal `ambiguous_delivery` state without another provider request.
