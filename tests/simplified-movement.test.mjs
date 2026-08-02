@@ -100,7 +100,7 @@ function row(id, status, action = "", overrides = {}) {
       decision_reason: "Auditable decision",
       generated_message:
         status === "ready_to_apply"
-          ? "Hi there,\n\nI build TypeScript and React applications using approved profile evidence.\n\nPortfolio: https://johnlesterescarlan.pro"
+          ? `Subject line: Job ${id} Application — John Lester Escarlan\n\nHi there,\n\nI build TypeScript and React applications using approved profile evidence.\n\nPortfolio: https://johnlesterescarlan.pro`
           : "",
       message_validation_status:
         status === "ready_to_apply" ? "valid" : "",
@@ -116,10 +116,25 @@ function row(id, status, action = "", overrides = {}) {
         status === "ready_to_apply" ? profile.profile_version : "",
       application_pack_policy_version:
         status === "ready_to_apply" ? packPolicy.policy_version : "",
+      coverage_contract_version:
+        status === "ready_to_apply" ? packPolicy.coverage_contract_version : "",
+      message_plan_version:
+        status === "ready_to_apply" ? packPolicy.message_plan_version : "",
       application_pack_generated_at:
         status === "ready_to_apply" ? now : "",
       application_instructions: [],
       screening_questions: [],
+      requirement_coverage: [],
+      application_message_plan:
+        status === "ready_to_apply"
+          ? [
+              {
+                version: packPolicy.message_plan_version,
+                subject_line: `Subject line: Job ${id} Application — John Lester Escarlan`,
+                requirements: []
+              }
+            ]
+          : [],
       selected_proof_refs:
         status === "ready_to_apply"
           ? ["experience:upwork", "projects:job-pipeline"]
@@ -195,6 +210,47 @@ test("Approve moves to Scraped Jobs for gated generation with context intact", (
   assert.equal(approved.notes, "Reviewer accepts reconsideration");
 });
 
+test("partial approval destinations are repaired before review sources are deleted", () => {
+  const approved = row(4013, "review_needed", "Approve", {
+    notes: "Approved after evidence review"
+  });
+  const initial = planQueueActions([approved], [], [], schema, now);
+  const complete = destinationAfterWrite(initial).scraped_jobs[0];
+  const partial = {
+    ...complete,
+    review_approved_at: "",
+    review_approval_guard: ""
+  };
+  partial.state_guard = stateGuard(partial);
+
+  const recovery = planQueueActionsRaw(
+    businessStores({
+      "To Review": [approved],
+      "Scraped Jobs": [partial]
+    }),
+    schema,
+    "2026-07-31T10:05:00.000Z",
+    safetyContext
+  );
+  assert.equal(recovery.moves[0].write_required, true);
+  assert.ok(recovery.moves[0].destination_record.review_approved_at);
+  assert.match(
+    recovery.moves[0].destination_record.review_approval_guard,
+    /^review-v1:[a-f0-9]{64}$/
+  );
+
+  const confirmation = confirmMoveDeletions(
+    initial,
+    businessStores({
+      "To Review": [approved],
+      "Scraped Jobs": [partial]
+    }),
+    schema
+  );
+  assert.deepEqual(confirmation.deletions, []);
+  assert.equal(confirmation.rejected[0].reason, "destination_unconfirmed");
+});
+
 test("blank generator results route from Scraped Jobs to focused queues", () => {
   const review = row(4011, "review_needed");
   const ready = row(4012, "ready_to_apply");
@@ -237,6 +293,31 @@ test("Deny and user Skip retain full context in Archive", () => {
   );
   assert.equal(skippedCopy.archive_reason, "user_skip");
   assert.equal(skippedCopy.generated_message, skipped.generated_message);
+});
+
+test("direct operator actions route without requiring an impossible guard edit", () => {
+  for (const [id, status, action, destination] of [
+    [4022, "review_needed", "Approve", "Scraped Jobs"],
+    [4023, "review_needed", "Deny", "Archive"],
+    [4024, "ready_to_apply", "I Applied", "Applied Jobs"],
+    [4025, "ready_to_apply", "Skip", "Archive"]
+  ]) {
+    const persisted = row(id, status);
+    const operatorEdited = {
+      ...persisted,
+      user_action: action,
+      notes: `operator chose ${action}`
+    };
+    assert.equal(operatorEdited.state_guard, stateGuard(operatorEdited));
+    const plan = planQueueActionsRaw(
+      businessStores(sourceStores([operatorEdited])),
+      schema,
+      now,
+      safetyContext
+    );
+    assert.equal(plan.rejected.length, 0, action);
+    assert.equal(plan.moves[0].destination, destination, action);
+  }
 });
 
 test("automatic skip moves to Archive without an operator action", () => {
@@ -386,6 +467,18 @@ test("copy-confirm-delete succeeds once and uses descending source rows", () => 
   third.state_guard = stateGuard(third);
   const plan = planQueueActions([first, second, third], [], [], schema, now);
   const written = destinationAfterWrite(plan);
+  assert.deepEqual(
+    written.applied[0].requirement_coverage,
+    first.requirement_coverage
+  );
+  assert.deepEqual(
+    written.applied[0].application_message_plan,
+    first.application_message_plan
+  );
+  assert.equal(
+    written.applied[0].coverage_contract_version,
+    first.coverage_contract_version
+  );
   const confirmation = confirmMoveDeletions(
     plan,
     businessStores({
@@ -586,6 +679,22 @@ test("last-minute source changes prevent deletion", () => {
   );
   assert.deepEqual(confirmation.deletions, []);
   assert.equal(confirmation.rejected[0].reason, "stale_source");
+
+  const directEditWithStaleGuard = {
+    ...source,
+    job_description: "A newer description entered directly in the Sheet",
+    state_guard: source.state_guard
+  };
+  const staleGuardConfirmation = confirmMoveDeletions(
+    plan,
+    businessStores({
+      ...sourceStores([directEditWithStaleGuard]),
+      "Applied Jobs": written.applied
+    }),
+    schema
+  );
+  assert.deepEqual(staleGuardConfirmation.deletions, []);
+  assert.equal(staleGuardConfirmation.rejected[0].reason, "stale_source");
 
   const noteChanged = { ...source, notes: "operator added context" };
   const noteConfirmation = confirmMoveDeletions(

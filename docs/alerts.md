@@ -5,8 +5,16 @@ The Alerter & Mover sends a Slack notification only for a current `ready_to_appl
 - no pending user action;
 - `application_pack_status=ready`;
 - `message_validation_status=valid`;
-- current candidate, application-policy, and pack-policy versions;
-- a message that passes deterministic content validation again.
+- current candidate, application-policy, pack-policy, coverage-contract, and
+  message-plan versions;
+- bounded coverage and exactly one persisted message plan whose canonical
+  proof references resolve against the current profile;
+- a pack with no unresolved or forged mandatory coverage and a message that
+  passes the same deterministic plan, grounding, and content validation again.
+
+Legacy, missing, malformed, stale, unsupported, or forged coverage/plan state
+is not alert-compatible. It is suppressed before any receipt or Slack send and
+remains identifiable for guarded regeneration or review.
 
 The alert includes job and company context, qualification/opportunity/confidence, the decision reason, gaps, application instructions, questions, proofs, warnings, and the exact stored generated message inside one Slack code block. The live smoke check compares the code-block contents byte-for-byte with the Sheet value.
 

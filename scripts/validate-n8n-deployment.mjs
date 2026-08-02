@@ -10,17 +10,34 @@ const loadJson = async (relativePath) =>
     await readFile(new URL(relativePath, import.meta.url), "utf8")
   );
 
-const [policy, runtime, searchPlan, alertPolicy] = await Promise.all([
+const [
+  policy,
+  runtime,
+  searchPlan,
+  alertPolicy,
+  pipelineSchema,
+  candidateProfile,
+  applicationPolicy,
+  applicationPackPolicy
+] = await Promise.all([
   loadJson("../config/n8n-deployment-policy.json"),
   loadJson("../config/runtime.json"),
   loadJson("../config/search-plan.json"),
-  loadJson("../config/alert-policy.json")
+  loadJson("../config/alert-policy.json"),
+  loadJson("../config/pipeline-schema.json"),
+  loadJson("../config/candidate-profile.json"),
+  loadJson("../config/application-policy.json"),
+  loadJson("../config/application-pack-policy.json")
 ]);
 
 const policyErrors = validateN8nDeploymentPolicy(policy, {
   runtime,
   searchPlan,
-  alertPolicy
+  alertPolicy,
+  pipelineSchema,
+  candidateProfile,
+  applicationPolicy,
+  applicationPackPolicy
 });
 if (policyErrors.length > 0) {
   throw new Error(

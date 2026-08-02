@@ -13,7 +13,7 @@ import {
   validateKeywordSheetRows,
   validateSearchPlan
 } from "../src/discovery.mjs";
-import { normalizeLegacyRecord } from "../src/contracts.mjs";
+import { normalizeLegacyRecord, stateGuard } from "../src/contracts.mjs";
 
 const plan = JSON.parse(
   await readFile(new URL("../config/search-plan.json", import.meta.url))
@@ -304,6 +304,23 @@ test("rediscovery updates each active owner without resetting downstream state",
             user_action: "I Applied",
             generated_message: "Preserve this safe message",
             application_pack_status: "ready",
+            requirement_coverage: [
+              {
+                id: "coverage-221",
+                requirement_id: "instruction-1",
+                classification: "exact",
+                evidence_refs: ["projects:job-pipeline"]
+              }
+            ],
+            application_message_plan: [
+              {
+                version: "2026-08-03/v1",
+                subject_line: "Subject line: Preserve",
+                requirements: []
+              }
+            ],
+            coverage_contract_version: "2026-08-03/v1",
+            message_plan_version: "2026-08-03/v1",
             alert_status: "sent",
             notes: "application note"
           }),
@@ -332,9 +349,22 @@ test("rediscovery updates each active owner without resetting downstream state",
   assert.equal(applyUpdate.user_action, "I Applied");
   assert.equal(applyUpdate.generated_message, "Preserve this safe message");
   assert.equal(applyUpdate.application_pack_status, "ready");
+  assert.equal(applyUpdate.requirement_coverage[0].id, "coverage-221");
+  assert.equal(
+    applyUpdate.application_message_plan[0].subject_line,
+    "Subject line: Preserve"
+  );
+  assert.equal(applyUpdate.coverage_contract_version, "2026-08-03/v1");
+  assert.equal(applyUpdate.message_plan_version, "2026-08-03/v1");
   assert.equal(applyUpdate.alert_status, "sent");
   assert.equal(applyUpdate.notes, "application note");
   assert.ok(result.active_updates.every((record) => record.record_version === 1));
+  assert.ok(
+    result.active_updates.every(
+      (record) => record.state_guard === stateGuard(record)
+    ),
+    "asynchronous seen metadata must not invalidate protected state"
+  );
 });
 
 test("Applied Jobs and Archive identities suppress rediscovery", () => {

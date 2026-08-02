@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  STATE_GUARD_EXCLUDED_FIELDS,
+  STATE_GUARD_FIELDS,
   canonicalJobId,
   canTransition,
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
+  stateGuard,
   transitionRecord,
   validatePipelineSchema,
   validateRecordContract,
@@ -62,6 +65,121 @@ test("simplified schema has exactly three business results and separate operatio
     "error",
     "unavailable"
   ]);
+});
+
+test("persisted requirement coverage and message plans are bounded JSON contracts", () => {
+  const record = validRecord({
+    requirement_coverage: [
+      {
+        id: "coverage-1",
+        requirement_id: "instruction-1",
+        element: "x".repeat(31000)
+      }
+    ],
+    application_message_plan: []
+  });
+  assert.match(
+    validateRecordContract(record, schema).join("\n"),
+    /requirement_coverage exceeds 30000 serialized characters/
+  );
+  const invalidSchema = structuredClone(schema);
+  delete invalidSchema.json_field_maximum_characters.requirement_coverage;
+  assert.match(
+    validatePipelineSchema(invalidSchema).join("\n"),
+    /json field maximum is invalid for requirement_coverage/
+  );
+});
+
+test("coverage and message-plan changes invalidate the record state guard", () => {
+  assert.deepEqual(
+    [...STATE_GUARD_FIELDS].sort(),
+    schema.fields
+      .filter((field) => !STATE_GUARD_EXCLUDED_FIELDS.includes(field))
+      .sort(),
+    "the guard field allowlist must cover every system-owned synchronous field"
+  );
+  const record = validRecord({
+    requirement_coverage: [{ id: "coverage-1", classification: "exact" }],
+    application_message_plan: [{ version: "2026-08-03/v1", requirements: [] }],
+    coverage_contract_version: "2026-08-03/v1",
+    message_plan_version: "2026-08-03/v1"
+  });
+  const baseline = stateGuard(record);
+  assert.match(baseline, /\|[a-f0-9]{64}$/);
+  assert.notEqual(
+    stateGuard({
+      ...record,
+      requirement_coverage: [{ id: "coverage-1", classification: "adjacent" }]
+    }),
+    baseline
+  );
+  assert.notEqual(
+    stateGuard({
+      ...record,
+      application_message_plan: [
+        { version: "2026-08-03/v1", requirements: [{ id: "forged" }] }
+      ]
+    }),
+    baseline
+  );
+  const guardedMutations = {
+    canonical_url: "https://onlinejobs.ph/jobseekers/job/changed-9999",
+    job_title: "Changed outbound title",
+    company: "Changed Company",
+    job_description: "changed employer requirements",
+    salary_text: "PHP 999,999 / month",
+    source_availability: "unavailable",
+    qualification_score: 1,
+    opportunity_score: 2,
+    ranking_confidence: "low",
+    decision_reason: "changed Slack reason",
+    requirement_gaps: ["changed Slack gap"],
+    generated_message: "changed outbound message",
+    message_validation_status: "invalid",
+    application_instructions: [{ id: "instruction-forged" }],
+    screening_questions: [{ id: "question-forged" }],
+    selected_proof_refs: ["projects:rent-n-roll"],
+    application_warnings: [{ code: "forged" }],
+    application_pack_status: "blocked",
+    application_pack_generated_at: "2026-08-03T01:00:00.000Z",
+    review_approval_guard: `review-v1:${"1".repeat(64)}`
+  };
+  for (const [field, value] of Object.entries(guardedMutations)) {
+    assert.notEqual(
+      stateGuard({ ...record, [field]: value }),
+      baseline,
+      `${field} must invalidate the state guard`
+    );
+  }
+  for (const [field, value] of Object.entries({
+    user_action: "Approve",
+    outcome: "interview",
+    notes: "operator note changed",
+    matched_keywords: ["rediscovered keyword"],
+    last_seen_at: "2026-08-03T02:00:00.000Z",
+    updated_at: "2026-08-03T02:00:00.000Z"
+  })) {
+    assert.equal(
+      stateGuard({ ...record, [field]: value }),
+      baseline,
+      `${field} is compared by its owning workflow rather than the persisted digest`
+    );
+  }
+
+  const sparse = {
+    source: record.source,
+    source_job_id: record.source_job_id,
+    canonical_job_id: record.canonical_job_id,
+    canonical_url: record.canonical_url
+  };
+  const sheetRoundTrip = Object.fromEntries(
+    schema.fields.map((field) => [field, sparse[field] ?? ""])
+  );
+  assert.equal(
+    stateGuard(sparse),
+    stateGuard(sheetRoundTrip),
+    "blank Sheet cells and absent sparse fields must produce the same guard"
+  );
 });
 
 test("five business sheets own the segmented record lifecycle", () => {

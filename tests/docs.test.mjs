@@ -21,6 +21,7 @@ const [
   searchKeywordsProductionVerification,
   searchKeywordsVerificationReport,
   generatorBatchVerification,
+  requirementAwareVerification,
   productionPredeploymentBaseline,
   productionDeploymentVerification,
   schema,
@@ -52,6 +53,7 @@ const [
   ),
   loadText("../docs/search-keywords-verification-2026-07-31.md"),
   loadText("../docs/generator-batch-verification-2026-07-31.md"),
+  loadText("../docs/requirement-aware-generator-verification-2026-08-03.md"),
   loadJson(
     "../outputs/generator-batch-20260731/production-predeployment-baseline.json"
   ),
@@ -1026,6 +1028,46 @@ test("acceptance accounting covers every criterion and labels live gates honestl
   );
   assert.doesNotMatch(issue49Section, /\b(?:BLOCKED|PARTIAL)\b/);
   assert.match(issue49Section, /final deployed source is commit/i);
+});
+
+test("requirement-aware Generator accounting covers implementation and honest live blockers", () => {
+  for (const [issue, expected] of [
+    [65, 14],
+    [66, 16],
+    [67, 20],
+    [68, 20],
+    [69, 21]
+  ]) {
+    const entries = [
+      ...requirementAwareVerification.matchAll(
+        new RegExp(`^\\| ${issue}-AC-\\d+ \\|`, "gm")
+      )
+    ];
+    assert.equal(entries.length, expected, `issue #${issue} criterion count`);
+  }
+  for (const issue of [65, 66, 67, 68]) {
+    const start = requirementAwareVerification.indexOf(
+      `## Issue #${issue} acceptance-criteria matrix`
+    );
+    const end = requirementAwareVerification.indexOf(
+      "\n## Issue #",
+      start + 1
+    );
+    const section = requirementAwareVerification.slice(
+      start,
+      end === -1 ? undefined : end
+    );
+    assert.doesNotMatch(section, /\b(?:UNVERIFIED|PARTIAL|BLOCKED)\b/);
+  }
+  assert.match(requirementAwareVerification, /69-AC-02 \| BLOCKED/);
+  assert.match(requirementAwareVerification, /69-AC-05 \| PARTIAL/);
+  assert.match(requirementAwareVerification, /not authorized to deploy/i);
+  assert.match(operations, /240 minutes/i);
+  assert.match(deployment, /application compatibility unit/i);
+  assert.equal(
+    deploymentPolicy.application_compatibility.coverage_contract_version,
+    "2026-08-03/v1"
+  );
 });
 
 test("completed cutover report records sanitized live evidence", async () => {

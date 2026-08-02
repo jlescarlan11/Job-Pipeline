@@ -8,6 +8,14 @@
 
 The validator rejects missing or duplicate signatures, any active retired workflow, a mixed old/new inventory, wrong workbook binding, insufficient capacity, stale execution counts, disabled pruning, or execution-data settings that retain successful production payloads.
 
+It also pins one application compatibility unit: pipeline/storage schema,
+the deterministic pipeline contract digest, candidate profile, application
+policy, application-pack policy, pack,
+requirement-coverage, and message-plan versions. Policy-only validation fails if
+any one of those values drifts. Generator and Alerter & Mover must therefore be
+built, reviewed, imported inactive, and rolled back together; activating a new
+Generator against an old message-safety consumer is forbidden.
+
 The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 300-second timeout. This deployment policy does not authorize or automate application submission.
 
 The Generator freezes at most five eligible `Scraped Jobs` rows and processes
@@ -58,11 +66,21 @@ npm run validate:deployment -- --policy-only
 
 Run without `--policy-only` inside the actual production environment before activation.
 
-Deployment of a rebuilt Generator is permitted only from the exact generated
-commit already present on `main`. Update workflow
-`TRUqD9atneyDyMNx` in place, retain its active state, schedule, timezone,
-timeout, and workbook binding, and reject any operation that would create a
+Deployment of a rebuilt Generator is permitted only from the exact reviewed
+generated commit after it is present on `main`. Before activation, inventory
+every unsent `To Apply` record with the current shared message-safety gate.
+Records with missing, malformed, stale, unresolved, or forged coverage/plan
+state must be regenerated through guarded lifecycle transitions, returned to
+review, or quarantined; direct message or contract edits are forbidden. Update
+workflow `TRUqD9atneyDyMNx` in place while it is inactive; preserve its
+identity, schedule, timezone, timeout, and workbook binding, and keep it
+inactive until the controlled activation gate. Reject any operation that would create a
 fourth active pipeline workflow or a duplicate Generator.
+
+The sanitized compatibility inventory may retain canonical identity, record
+version, state guard/digest, version values, and bounded reason codes. It must
+not retain job descriptions, generated messages, candidate-profile content,
+provider responses, credentials, or reviewer notes.
 
 ## Cutover inventory
 
@@ -72,3 +90,11 @@ The cutover gate requires a complete instance-wide inventory; a name-filtered
 or partially paginated response is invalid.
 
 Pre-activation evidence requires all replacement and retired copies inactive. Post-activation evidence permits exactly one active replacement for each of the three roles and no active retired signature.
+
+For the requirement-aware Generator, do not pass this gate until the unsent
+compatibility inventory has zero unhandled records and disposable verification
+has covered the reported structured posting, an exact-evidence control, an
+unrelated non-Claude control, adjacent/partial/missing/manual coverage, invalid
+initial and repair drafts, provider failures, stale commits, and forged
+persisted state. Repository tests are prerequisite evidence, not a substitute
+for inactive imported-workflow and disposable-workbook evidence.

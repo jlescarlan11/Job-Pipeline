@@ -1,7 +1,63 @@
 import {
+  buildApplicationPack,
   validateApplicationPack,
   validateGeneratedMessage
 } from "./evaluation.mjs";
+import { profileEvidenceText } from "./profile.mjs";
+
+function hydratedPersistedPack(record, profile) {
+  const planEntries = Array.isArray(record?.application_message_plan)
+    ? record.application_message_plan
+    : [];
+  const messagePlan =
+    planEntries.length === 1 &&
+    planEntries[0] &&
+    typeof planEntries[0] === "object" &&
+    !Array.isArray(planEntries[0])
+      ? planEntries[0]
+      : null;
+  const selectedProofs = (record?.selected_proof_refs ?? [])
+    .map((reference) => {
+      const [kind, id] = String(reference).split(":");
+      const entry =
+        kind === "projects"
+          ? profile.projects?.find((project) => project.id === id)
+          : kind === "experience"
+            ? profile.experience?.find((experience) => experience.id === id)
+            : null;
+      if (!entry) return null;
+      return {
+        reference,
+        label:
+          kind === "projects"
+            ? entry.name
+            : `${entry.title} — ${entry.organization}`,
+        evidence: profileEvidenceText(entry)
+      };
+    })
+    .filter(Boolean);
+  return {
+    ...record,
+    message_plan: messagePlan,
+    selected_proofs: selectedProofs
+  };
+}
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableValue(value[key])])
+    );
+  }
+  return value;
+}
+
+function sameContractValue(left, right) {
+  return JSON.stringify(stableValue(left)) === JSON.stringify(stableValue(right));
+}
 
 export function evaluatePersistedMessageSafety(
   record,
@@ -57,8 +113,72 @@ export function evaluatePersistedMessageSafety(
   ) {
     reasons.push("pack_policy_mismatch");
   }
+  if (record?.coverage_contract_version !== packPolicy.coverage_contract_version) {
+    reasons.push("coverage_version_mismatch");
+  }
+  if (record?.message_plan_version !== packPolicy.message_plan_version) {
+    reasons.push("message_plan_version_mismatch");
+  }
+  if (!Array.isArray(record?.requirement_coverage)) {
+    reasons.push("coverage_missing");
+  }
+  if (
+    !Array.isArray(record?.application_message_plan) ||
+    record.application_message_plan.length !== 1
+  ) {
+    reasons.push("message_plan_missing");
+  }
 
-  const packErrors = validateApplicationPack(record, profile, packPolicy);
+  let canonicalPack = null;
+  try {
+    canonicalPack = buildApplicationPack(
+      {
+        ...record,
+        pipeline_status: record?.review_approved_at
+          ? "review_needed"
+          : record?.pipeline_status,
+        user_action: record?.review_approved_at ? "Approve" : record?.user_action
+      },
+      profile,
+      applicationPolicy,
+      packPolicy,
+      record?.application_pack_generated_at || new Date(0).toISOString()
+    );
+  } catch {
+    reasons.push("pack_recomputation_failed");
+  }
+  if (canonicalPack) {
+    const canonicalFields = [
+      ["application_instructions", canonicalPack.application_instructions],
+      ["screening_questions", canonicalPack.screening_questions],
+      ["requirement_coverage", canonicalPack.requirement_coverage],
+      ["application_message_plan", [canonicalPack.message_plan]],
+      ["selected_proof_refs", canonicalPack.selected_proof_refs],
+      ["application_warnings", canonicalPack.application_warnings],
+      ["application_pack_status", canonicalPack.application_pack_status],
+      ["application_pack_version", canonicalPack.application_pack_version],
+      [
+        "application_pack_profile_version",
+        canonicalPack.application_pack_profile_version
+      ],
+      [
+        "application_pack_policy_version",
+        canonicalPack.application_pack_policy_version
+      ],
+      ["coverage_contract_version", canonicalPack.coverage_contract_version],
+      ["message_plan_version", canonicalPack.message_plan.version]
+    ];
+    if (
+      canonicalFields.some(([field, expected]) =>
+        !sameContractValue(record?.[field], expected)
+      )
+    ) {
+      reasons.push("pack_not_canonical");
+    }
+  }
+
+  const hydratedPack = hydratedPersistedPack(record, profile);
+  const packErrors = validateApplicationPack(hydratedPack, profile, packPolicy);
   if (packErrors.length > 0) reasons.push("pack_invalid");
   const messageValidation = validateGeneratedMessage(
     record?.generated_message,
@@ -66,7 +186,7 @@ export function evaluatePersistedMessageSafety(
       job: record,
       profile,
       policy: applicationPolicy,
-      pack: record
+      pack: hydratedPack
     }
   );
   if (!messageValidation.valid) reasons.push("message_content_invalid");

@@ -14,7 +14,7 @@ import {
   parseSearchResults,
   reconcileDiscovery
 } from "../src/discovery.mjs";
-import { parseJobDetail } from "../src/evaluation.mjs";
+import { buildApplicationPack, parseJobDetail } from "../src/evaluation.mjs";
 import {
   applyValidatedGeneration,
   claimGeneratorRecord,
@@ -63,9 +63,11 @@ function businessStores(overrides = {}) {
     ...overrides
   };
 }
-const validMessage = `Hi there,
+const validMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
 
-I reduced API response time from 800 milliseconds to 150 milliseconds by fixing query and schema bottlenecks, and I have shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase. Rent N Roll also gave me experience building marketplace and PayMongo webhook workflows.
+Hi there,
+
+I build and maintain full-stack features for an online learning platform and diagnose production issues involving React, TypeScript, Node.js APIs, and PostgreSQL. Rent N Roll also gave me direct experience building marketplace and PayMongo webhook workflows.
 
 I would welcome a conversation about how my experience fits this role.
 
@@ -73,12 +75,13 @@ LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
 
-const questionAwareValidMessage = `Hi there,
+const questionAwareValidMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
 
-Question: Which production incident did you resolve?
-Answer: The production incident I resolved involved N+1 query and database schema bottlenecks, and fixing them reduced API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
+Hi there,
 
-I have also shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase.
+The production incident I resolved involved N+1 query and database schema bottlenecks, and fixing them reduced API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
+
+I also delivered five production features using C# and ASP.NET Core MVC within an established client codebase.
 
 I would welcome a conversation about how my experience fits this role.`;
 
@@ -335,6 +338,28 @@ test("approved review-only questions complete the route to To Apply", () => {
     "https://onlinejobs.ph/jobseekers/job/full-stack-6011";
   parsed.job_description +=
     " Which production incident did you resolve? You must attach a PDF resume.";
+  const reviewPack = buildApplicationPack(
+    { ...parsed, user_action: "" },
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  Object.assign(parsed, {
+    application_instructions: reviewPack.application_instructions,
+    screening_questions: reviewPack.screening_questions,
+    requirement_coverage: reviewPack.requirement_coverage,
+    application_message_plan: [reviewPack.message_plan],
+    selected_proof_refs: reviewPack.selected_proof_refs,
+    application_warnings: reviewPack.application_warnings,
+    application_pack_status: reviewPack.application_pack_status,
+    application_pack_version: reviewPack.application_pack_version,
+    application_pack_profile_version: reviewPack.application_pack_profile_version,
+    application_pack_policy_version: reviewPack.application_pack_policy_version,
+    coverage_contract_version: reviewPack.coverage_contract_version,
+    message_plan_version: reviewPack.message_plan.version,
+    application_pack_generated_at: reviewPack.application_pack_generated_at
+  });
   const approved = normalizeLegacyRecord(parsed, schema, now);
   approved.state_guard = stateGuard(approved);
 
@@ -362,14 +387,13 @@ test("approved review-only questions complete the route to To Apply", () => {
   );
   assert.equal(prepared.provider_required, true);
   assert.equal(prepared.pack.application_pack_status, "ready");
-  assert.match(
-    prepared.user_message,
-    /SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE/
-  );
+  assert.match(prepared.user_message, /REQUIREMENT-AWARE MESSAGE PLAN/);
   assert.match(
     prepared.user_message,
     /Which production incident did you resolve\?/
   );
+  assert.match(prepared.user_message, /Delivered five production features/i);
+  assert.match(prepared.user_message, /N\+1 query patterns/i);
   const proposed = applyValidatedGeneration(
     claimed,
     prepared.pack,

@@ -72,16 +72,18 @@ The exact record columns are:
 `salary_text`, `posted_at`, `discovered_at`, `last_seen_at`,
 `matched_keywords`, `source_availability`, `pipeline_status`, `user_action`,
 `decision_reason`, `required_input`, `review_approved_at`,
-`review_approval_note`, `qualification_score`,
+`review_approval_note`, `review_approval_guard`, `qualification_score`,
 `opportunity_score`, `ranking_confidence`, `match_reasons`,
 `requirement_gaps`, `profile_version`, `policy_version`, `evaluated_at`,
 `processing_stage`, `processing_token`, `processing_started_at`,
 `attempt_count`, `next_retry_at`, `error_category`, `error_summary`,
 `generated_message`, `message_validation_status`, `message_profile_version`,
 `message_policy_version`, `generated_at`, `application_instructions`,
-`screening_questions`, `selected_proof_refs`, `application_warnings`,
+`screening_questions`, `requirement_coverage`, `application_message_plan`,
+`selected_proof_refs`, `application_warnings`,
 `application_pack_status`, `application_pack_version`,
 `application_pack_profile_version`, `application_pack_policy_version`,
+`coverage_contract_version`, `message_plan_version`,
 `application_pack_generated_at`, `alert_status`, `alert_idempotency_key`,
 `alert_claim_token`,
 `alert_attempt_count`, `alert_last_attempt_at`, `alert_next_retry_at`,
@@ -89,6 +91,20 @@ The exact record columns are:
 `alert_error_summary`, `applied_at`, `archived_at`, `archive_reason`,
 `outcome`, `outcome_recorded_value`, `outcome_at`, `notes`, `created_at`, and
 `updated_at`.
+
+The five application JSON fields are stored as bounded arrays. Requirement
+coverage contains classifications and canonical evidence references, while
+`application_message_plan` contains exactly one plan object for a current
+ready message. Both remain hidden, protected system fields; daily review uses
+the sanitized `required_input`, instructions, warnings, and message. Their
+versions and serialized values move with the complete row and participate in
+the stale-state guard. `review_approval_guard` is a system-owned digest binding
+approval to the exact reviewed strategy; it is never candidate evidence.
+`state_guard` protects synchronous system-owned fields and is stable across
+blank-cell round trips. Operator-owned `user_action`, `outcome`, and `notes`
+and independently written seen metadata are outside that digest; their owning
+workflows validate and compare them explicitly so ordinary Sheet edits remain
+actionable without permitting stale generated-state commits.
 
 `_System` contains only `claim_key`, `canonical_job_id`, `stage`, `token`, `created_at`, and `expires_at`. It is not a business-data store.
 

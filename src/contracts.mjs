@@ -97,33 +97,182 @@ export function canonicalJobId(record) {
   return `${source}:url:${digest}`;
 }
 
+function stableContractValue(value) {
+  if (Array.isArray(value)) return value.map(stableContractValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableContractValue(value[key])])
+    );
+  }
+  return value;
+}
+
+function contractDigest(value) {
+  const serialized = JSON.stringify(stableContractValue(value));
+  const input = new TextEncoder().encode(serialized);
+  const paddedLength = Math.ceil((input.length + 9) / 64) * 64;
+  const bytes = new Uint8Array(paddedLength);
+  bytes.set(input);
+  bytes[input.length] = 0x80;
+  const bitLength = input.length * 8;
+  const lengthView = new DataView(bytes.buffer);
+  lengthView.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000));
+  lengthView.setUint32(paddedLength - 4, bitLength >>> 0);
+  const constants = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+    0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+    0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+    0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+    0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+    0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+    0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+    0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+    0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+  const rotateRight = (value, amount) =>
+    (value >>> amount) | (value << (32 - amount));
+  const state = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+  ];
+  const schedule = new Uint32Array(64);
+  for (let offset = 0; offset < paddedLength; offset += 64) {
+    const view = new DataView(bytes.buffer, offset, 64);
+    for (let index = 0; index < 16; index += 1) {
+      schedule[index] = view.getUint32(index * 4);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const previous15 = schedule[index - 15];
+      const previous2 = schedule[index - 2];
+      const sigma0 =
+        rotateRight(previous15, 7) ^
+        rotateRight(previous15, 18) ^
+        (previous15 >>> 3);
+      const sigma1 =
+        rotateRight(previous2, 17) ^
+        rotateRight(previous2, 19) ^
+        (previous2 >>> 10);
+      schedule[index] =
+        (schedule[index - 16] + sigma0 + schedule[index - 7] + sigma1) >>> 0;
+    }
+    let [a, b, c, d, e, f, g, h] = state;
+    for (let index = 0; index < 64; index += 1) {
+      const upper1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+      const choice = (e & f) ^ (~e & g);
+      const temporary1 =
+        (h + upper1 + choice + constants[index] + schedule[index]) >>> 0;
+      const upper0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+      const majority = (a & b) ^ (a & c) ^ (b & c);
+      const temporary2 = (upper0 + majority) >>> 0;
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temporary1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temporary1 + temporary2) >>> 0;
+    }
+    state[0] = (state[0] + a) >>> 0;
+    state[1] = (state[1] + b) >>> 0;
+    state[2] = (state[2] + c) >>> 0;
+    state[3] = (state[3] + d) >>> 0;
+    state[4] = (state[4] + e) >>> 0;
+    state[5] = (state[5] + f) >>> 0;
+    state[6] = (state[6] + g) >>> 0;
+    state[7] = (state[7] + h) >>> 0;
+  }
+  return state
+    .map((word) => word.toString(16).padStart(8, "0"))
+    .join("");
+}
+
+/**
+ * Binds a human review approval to the exact application strategy that was
+ * visible at review time. Operator notes and timestamps are intentionally not
+ * included: neither is authoritative evidence for the generated message.
+ */
+export function applicationReviewGuard(record) {
+  return `review-v1:${contractDigest({
+    application_instructions: record?.application_instructions ?? [],
+    screening_questions: record?.screening_questions ?? [],
+    requirement_coverage: record?.requirement_coverage ?? [],
+    application_message_plan: record?.application_message_plan ?? [],
+    selected_proof_refs: record?.selected_proof_refs ?? [],
+    application_warnings: record?.application_warnings ?? [],
+    application_pack_status: record?.application_pack_status ?? "",
+    application_pack_version: record?.application_pack_version ?? "",
+    application_pack_profile_version:
+      record?.application_pack_profile_version ?? "",
+    application_pack_policy_version:
+      record?.application_pack_policy_version ?? "",
+    coverage_contract_version: record?.coverage_contract_version ?? "",
+    message_plan_version: record?.message_plan_version ?? ""
+  })}`;
+}
+
+/**
+ * Operator-owned Sheet columns are intentionally excluded from the persisted
+ * digest. A Google Sheets edit cannot atomically refresh `state_guard`, so
+ * guarding these values would make every legitimate action or note look like
+ * system-state corruption. Workflows validate the values against the owning
+ * store and compare them explicitly at their commit boundaries instead.
+ */
+export const OPERATOR_EDITABLE_STATE_FIELDS = ["user_action", "outcome", "notes"];
+export const ASYNC_DISCOVERY_STATE_FIELDS = [
+  "last_seen_at",
+  "matched_keywords",
+  "updated_at"
+];
+export const STATE_GUARD_EXCLUDED_FIELDS = [
+  "state_guard",
+  ...OPERATOR_EDITABLE_STATE_FIELDS,
+  ...ASYNC_DISCOVERY_STATE_FIELDS
+];
+
+export const STATE_GUARD_FIELDS = [
+  "source", "source_job_id", "canonical_job_id", "record_version",
+  "canonical_url", "job_title", "company", "job_description", "salary_text",
+  "posted_at", "discovered_at",
+  "source_availability", "pipeline_status", "decision_reason",
+  "required_input", "review_approved_at", "review_approval_note",
+  "review_approval_guard", "qualification_score", "opportunity_score",
+  "ranking_confidence", "match_reasons", "requirement_gaps", "profile_version",
+  "policy_version", "evaluated_at", "processing_stage", "processing_token",
+  "processing_started_at", "attempt_count", "next_retry_at", "error_category",
+  "error_summary", "generated_message", "message_validation_status",
+  "message_profile_version", "message_policy_version", "generated_at",
+  "application_instructions", "screening_questions", "requirement_coverage",
+  "application_message_plan", "selected_proof_refs", "application_warnings",
+  "application_pack_status", "application_pack_version",
+  "application_pack_profile_version", "application_pack_policy_version",
+  "coverage_contract_version", "message_plan_version",
+  "application_pack_generated_at", "alert_status", "alert_idempotency_key",
+  "alert_claim_token", "alert_attempt_count", "alert_last_attempt_at",
+  "alert_next_retry_at", "alert_sent_at", "alert_provider_reference",
+  "alert_error_category", "alert_error_summary", "applied_at", "archived_at",
+  "archive_reason", "outcome_recorded_value", "outcome_at",
+  "created_at"
+];
+
 export function stateGuard(record) {
   const canonicalId = String(record.canonical_job_id || canonicalJobId(record) || "");
   if (!canonicalId) return "";
-  const state = [
-    canonicalId,
-    String(record.pipeline_status || ""),
-    String(record.user_action || ""),
-    String(record.record_version || ""),
-    String(record.processing_stage || ""),
-    String(record.processing_token || ""),
-    String(record.review_approved_at || ""),
-    String(record.review_approval_note || ""),
-    String(record.generated_at || ""),
-    String(record.alert_status || ""),
-    String(record.alert_claim_token || ""),
-    String(record.outcome || ""),
-    String(record.outcome_recorded_value || ""),
-    String(record.applied_at || ""),
-    String(record.archived_at || ""),
-    String(record.archive_reason || "")
-  ].join("\u001f");
-  let hash = 2166136261;
-  for (let index = 0; index < state.length; index += 1) {
-    hash ^= state.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `${canonicalId}|${(hash >>> 0).toString(16).padStart(8, "0")}`;
+  const guardedRecord = Object.fromEntries(
+    // A missing top-level field becomes a blank Sheet cell on persistence.
+    // Canonicalizing it here keeps digests stable across that round trip.
+    STATE_GUARD_FIELDS.map((field) => [field, record?.[field] ?? ""])
+  );
+  return `${canonicalId}|${contractDigest(guardedRecord)}`;
 }
 
 export function rankingPriorityValue(record) {
@@ -275,6 +424,7 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   record.outcome_recorded_value = record.outcome_recorded_value || "";
   record.user_action = record.user_action || "";
   record.review_approval_note = record.review_approval_note || "";
+  record.review_approval_guard = record.review_approval_guard || "";
   record.alert_claim_token = record.alert_claim_token || "";
   record.state_guard = record.state_guard || stateGuard(record);
   return record;
@@ -336,6 +486,16 @@ export function validateRecordContract(record, schema) {
   for (const field of schema?.json_array_fields ?? []) {
     const value = record?.[field];
     if (value !== undefined && !Array.isArray(value)) errors.push(`${field} must be a JSON array`);
+    const maximum = schema?.json_field_maximum_characters?.[field];
+    if (value !== undefined && Number.isInteger(maximum)) {
+      try {
+        if (JSON.stringify(value).length > maximum) {
+          errors.push(`${field} exceeds ${maximum} serialized characters`);
+        }
+      } catch {
+        errors.push(`${field} must be JSON serializable`);
+      }
+    }
   }
   if (Array.isArray(record?.outcome_events)) {
     const seen = new Set();
@@ -498,6 +658,21 @@ export function validatePipelineSchema(schema) {
         new RegExp(rule.pattern);
       } catch {
         errors.push(`string field rule has invalid pattern for ${field}`);
+      }
+    }
+  }
+  const jsonFieldLimits = schema?.json_field_maximum_characters;
+  if (!jsonFieldLimits || typeof jsonFieldLimits !== "object" || Array.isArray(jsonFieldLimits)) {
+    errors.push("json_field_maximum_characters must be an object");
+  } else {
+    for (const field of schema?.json_array_fields ?? []) {
+      if (!Number.isInteger(jsonFieldLimits[field]) || jsonFieldLimits[field] < 1) {
+        errors.push(`json field maximum is invalid for ${field}`);
+      }
+    }
+    for (const field of Object.keys(jsonFieldLimits)) {
+      if (!(schema?.json_array_fields ?? []).includes(field)) {
+        errors.push(`json field maximum references non-JSON field: ${field}`);
       }
     }
   }
@@ -670,16 +845,17 @@ export function claimRecord(record, { stage, token, now, leaseMs }) {
   if (record.processing_token && !isStaleClaim(record, nowMs, leaseMs)) {
     return { claimed: false, record };
   }
+  const claimedRecord = {
+    ...record,
+    processing_stage: stage,
+    processing_token: token,
+    processing_commit_guard: processingCommitGuard(token),
+    processing_started_at: now,
+    updated_at: now
+  };
   return {
     claimed: true,
-    record: {
-      ...record,
-      processing_stage: stage,
-      processing_token: token,
-      processing_commit_guard: processingCommitGuard(token),
-      processing_started_at: now,
-      updated_at: now
-    }
+    record: { ...claimedRecord, state_guard: stateGuard(claimedRecord) }
   };
 }
 

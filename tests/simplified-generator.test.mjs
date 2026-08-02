@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  buildApplicationPack,
   parseJobDetail
 } from "../src/evaluation.mjs";
 import {
@@ -18,6 +19,7 @@ import {
   selectGeneratorCandidate
 } from "../src/generator.mjs";
 import {
+  applicationReviewGuard,
   normalizeLegacyRecord,
   stateGuard
 } from "../src/contracts.mjs";
@@ -42,9 +44,11 @@ const maliciousHtml = await readFile(
 );
 const now = "2026-07-31T08:00:00.000Z";
 
-const validMessage = `Hi there,
+const validMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
 
-I reduced API response time from 800 milliseconds to 150 milliseconds by fixing query and schema bottlenecks, and I have shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase. Rent N Roll also gave me experience building marketplace and PayMongo webhook workflows.
+Hi there,
+
+I build and maintain full-stack features for an online learning platform and diagnose production issues involving React, TypeScript, Node.js APIs, and PostgreSQL. Rent N Roll also gave me direct experience building marketplace and PayMongo webhook workflows.
 
 I would welcome a conversation about how my experience fits this role.
 
@@ -52,12 +56,14 @@ LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
 
-const questionAwareValidMessage = `Hi there,
+const questionAwareValidMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
+
+Hi there,
 
 Question: Which production incident did you resolve?
-Answer: The production incident I resolved involved N+1 query and database schema bottlenecks, and fixing them reduced API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
+Answer: One issue I resolved involved N+1 query and database schema bottlenecks, and fixing them reduced API response time from 800 milliseconds to 150 milliseconds on high-traffic endpoints.
 
-I have also shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase.
+I also delivered five production features using C# and ASP.NET Core MVC within an established client codebase.
 
 I would welcome a conversation about how my experience fits this role.`;
 
@@ -99,6 +105,38 @@ function recordFromDescription(
   const normalized = normalizeLegacyRecord(detailed, schema, now);
   normalized.state_guard = stateGuard(normalized);
   return normalized;
+}
+
+function approveForGeneration(record) {
+  const unapproved = buildApplicationPack(
+    { ...record, pipeline_status: "review_needed", user_action: "" },
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  const reviewed = {
+    ...record,
+    application_instructions: unapproved.application_instructions,
+    screening_questions: unapproved.screening_questions,
+    requirement_coverage: unapproved.requirement_coverage,
+    application_message_plan: [unapproved.message_plan],
+    selected_proof_refs: unapproved.selected_proof_refs,
+    application_warnings: unapproved.application_warnings,
+    application_pack_status: unapproved.application_pack_status,
+    application_pack_version: unapproved.application_pack_version,
+    application_pack_profile_version: unapproved.application_pack_profile_version,
+    application_pack_policy_version: unapproved.application_pack_policy_version,
+    coverage_contract_version: unapproved.coverage_contract_version,
+    message_plan_version: unapproved.message_plan.version,
+    pipeline_status: "review_needed",
+    user_action: "Approve",
+    review_approved_at: now
+  };
+  return {
+    ...reviewed,
+    review_approval_guard: applicationReviewGuard(reviewed)
+  };
 }
 
 function claim(record, stage = "evaluation") {
@@ -377,6 +415,13 @@ test("strong fit proceeds to generation, then only validated output becomes read
   );
   assert.equal(ready.pipeline_status, "ready_to_apply");
   assert.equal(ready.message_validation_status, "valid");
+  assert.deepEqual(ready.requirement_coverage, prepared.pack.requirement_coverage);
+  assert.deepEqual(ready.application_message_plan, [prepared.pack.message_plan]);
+  assert.equal(
+    ready.coverage_contract_version,
+    packPolicy.coverage_contract_version
+  );
+  assert.equal(ready.message_plan_version, packPolicy.message_plan_version);
   assert.equal(ready.message_profile_version, profile.profile_version);
   assert.equal(
     ready.message_policy_version,
@@ -463,8 +508,82 @@ test("unsafe or incomplete application packs never call the provider", () => {
   );
 });
 
+test("missing and partial mandatory coverage remain review outcomes, not provider failures", () => {
+  const cases = [
+    {
+      id: 3060,
+      description:
+        "Build infrastructure automation for customers. Please describe your experience using Terraform.",
+      warning: "missing_required_coverage",
+      requiredInput: /Terraform/
+    },
+    {
+      id: 3061,
+      description:
+        "Build customer products. Please describe a production e-commerce project you built.",
+      warning: "partial_coverage_requires_review",
+      requiredInput: /partially covers|Production status/i
+    }
+  ];
+  for (const entry of cases) {
+    const approved = recordFromDescription(entry.id, {
+      html: null,
+      status: "review_needed",
+      action: "Approve",
+      description: entry.description
+    });
+    const prepared = prepareApplicationGeneration(
+      claim(approved, "generation"),
+      profile,
+      applicationPolicy,
+      packPolicy,
+      groqPolicy,
+      now
+    );
+    assert.equal(prepared.provider_required, false);
+    assert.equal(prepared.record.pipeline_status, "review_needed");
+    assert.equal(prepared.record.error_category, "");
+    assert.match(prepared.record.required_input, entry.requiredInput);
+    assert.ok(
+      prepared.pack.application_warnings.some(
+        (warning) =>
+          warning.code === entry.warning && warning.review_acknowledged !== true
+      )
+    );
+  }
+
+  const staleMessageRecord = recordFromDescription(3062, {
+    html: null,
+    status: "review_needed",
+    action: "Approve",
+    description:
+      "Build infrastructure automation for customers. Please describe your experience using Terraform.",
+    overrides: {
+      generated_message: validMessage,
+      message_validation_status: "valid",
+      message_profile_version: profile.profile_version,
+      message_policy_version: applicationPolicy.policy_version,
+      generated_at: now
+    }
+  });
+  const stalePrepared = prepareApplicationGeneration(
+    claim(staleMessageRecord, "generation"),
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(stalePrepared.provider_required, false);
+  assert.equal(stalePrepared.record.generated_message, "");
+  assert.equal(stalePrepared.record.message_validation_status, "");
+  assert.equal(stalePrepared.record.message_profile_version, "");
+  assert.equal(stalePrepared.record.message_policy_version, "");
+  assert.equal(stalePrepared.record.generated_at, "");
+});
+
 test("Approve sanitizes unsafe instructions and keeps them as manual reminders", () => {
-  const approved = recordFromDescription(3050, {
+  const approved = approveForGeneration(recordFromDescription(3050, {
     html: maliciousHtml,
     status: "review_needed",
     action: "Approve",
@@ -472,7 +591,7 @@ test("Approve sanitizes unsafe instructions and keeps them as manual reminders",
       decision_reason: "Requires review",
       required_input: "Confirm requirements"
     }
-  });
+  }));
   const selected = selectGeneratorCandidate(
     [approved],
     schema,
@@ -538,7 +657,7 @@ test("Approve sends an unusable description to unavailable instead of looping re
 });
 
 test("Approve sends profile-answerable screening questions into message generation", () => {
-  const approved = recordFromDescription(3053, {
+  const approved = approveForGeneration(recordFromDescription(3053, {
     html: null,
     status: "review_needed",
     action: "Approve",
@@ -548,7 +667,7 @@ test("Approve sends profile-answerable screening questions into message generati
       decision_reason: "Application requirements need human review.",
       required_input: "Which production incident did you resolve?"
     }
-  });
+  }));
   const claimed = claim(approved, "generation");
   const prepared = prepareApplicationGeneration(
     claimed,
@@ -566,12 +685,13 @@ test("Approve sends profile-answerable screening questions into message generati
   );
   assert.match(
     prepared.user_message,
-    /SCREENING QUESTIONS TO ANSWER IN THIS MESSAGE/
+    /REQUIREMENT-AWARE MESSAGE PLAN/
   );
   assert.match(
     prepared.user_message,
     /Which production incident did you resolve\?/
   );
+  assert.match(prepared.user_message, /N\+1 query patterns/i);
   const repair = assessInitialGenerationDraft(
     claimed,
     prepared.pack,
@@ -602,7 +722,7 @@ test("Approve sends profile-answerable screening questions into message generati
   assert.equal(proposed.required_input, "");
   assert.match(proposed.decision_reason, /includes answers/i);
   assert.doesNotMatch(proposed.generated_message, /Question:|Answer:|\*\*/i);
-  assert.match(proposed.generated_message, /The production incident I resolved/i);
+  assert.match(proposed.generated_message, /One issue I resolved/i);
   const committed = commitGeneratorResult(
     claimed,
     claimed,
@@ -615,7 +735,7 @@ test("Approve sends profile-answerable screening questions into message generati
 });
 
 test("a temporary generation error retains consumed review approval on retry", () => {
-  const approved = recordFromDescription(3054, {
+  const approved = approveForGeneration(recordFromDescription(3054, {
     html: null,
     status: "review_needed",
     action: "Approve",
@@ -627,7 +747,7 @@ test("a temporary generation error retains consumed review approval on retry", (
       application_pack_status: "review_required",
       application_pack_version: "2026-07-28/v1"
     }
-  });
+  }));
   const firstClaim = claim(approved, "generation");
   const failedProposal = recordGeneratorFailure(
     firstClaim,
@@ -930,6 +1050,44 @@ test("stale or concurrent state cannot be committed over a user edit", () => {
       ),
     /stale or changed/
   );
+
+  for (const [field, value] of Object.entries({
+    job_description: "A directly edited employer description",
+    job_title: "A directly edited title"
+  })) {
+    const directlyEdited = {
+      ...claimed,
+      [field]: value,
+      // Simulate a direct Sheet edit that did not recompute the stored guard.
+      state_guard: claimed.state_guard
+    };
+    assert.throws(
+      () =>
+        commitGeneratorResult(
+          directlyEdited,
+          claimed,
+          proposed,
+          schema,
+          now
+        ),
+      /stale or changed/,
+      field
+    );
+  }
+
+  const noteEdited = {
+    ...claimed,
+    notes: "A new operator note written during generation",
+    state_guard: claimed.state_guard
+  };
+  const committed = commitGeneratorResult(
+    noteEdited,
+    claimed,
+    proposed,
+    schema,
+    now
+  );
+  assert.equal(committed.notes, noteEdited.notes);
 });
 
 test("forged actions and terminal rows never enter generator selection", () => {

@@ -16,8 +16,10 @@ screening question, including rhetorical section headings such as
 
 - Only candidate-directed questions containing `you` or `your` are extracted;
   known rhetorical headings are excluded.
-- A persisted `Approve` plus `review_approved_at` acknowledges only warning
-  codes explicitly allow-listed in `config/application-pack-policy.json`.
+- A persisted `Approve`, `review_approved_at`, and matching
+  `review_approval_guard` acknowledge only warning codes explicitly allow-listed
+  in `config/application-pack-policy.json`; rebuilding any reviewed strategy
+  field requires a new approval.
 - Acknowledged profile-answerable questions remain in the record with
   `answer_status=answer_in_message` and are included in the next initial and
   repair prompts. Sensitive commitment questions remain

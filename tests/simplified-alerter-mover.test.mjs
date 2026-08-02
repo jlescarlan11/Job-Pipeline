@@ -54,9 +54,11 @@ function businessStores(overrides = {}) {
   };
 }
 
-const validMessage = `Hi there,
+const validMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
 
-I reduced API response time from 800 milliseconds to 150 milliseconds by fixing query and schema bottlenecks, and I have shipped production features with TypeScript, React, Node.js, PostgreSQL, and Supabase. Rent N Roll also gave me experience building marketplace and PayMongo webhook workflows.
+Hi there,
+
+I build and maintain full-stack features for an online learning platform and diagnose production issues involving React, TypeScript, Node.js APIs, and PostgreSQL. Rent N Roll also gave me direct experience building marketplace and PayMongo webhook workflows.
 
 I would welcome a conversation about how my experience fits this role.
 
@@ -450,6 +452,49 @@ test("stale Slack result cannot overwrite a user action", () => {
       ),
     /stale To Apply state/
   );
+
+  const directSheetEdit = {
+    ...sending,
+    user_action: "I Applied"
+  };
+  assert.equal(
+    directSheetEdit.state_guard,
+    stateGuard(directSheetEdit),
+    "operator actions intentionally do not require a guard-cell edit"
+  );
+  assert.throws(
+    () =>
+      applySlackProviderResult(
+        directSheetEdit,
+        sending,
+        { ok: true },
+        alertPolicy,
+        now
+      ),
+    /stale To Apply state/
+  );
+
+  for (const [field, value] of Object.entries({
+    generated_message: "Directly edited outbound message",
+    job_title: "Directly edited Slack title"
+  })) {
+    assert.throws(
+      () =>
+        applySlackProviderResult(
+          {
+            ...sending,
+            [field]: value,
+            state_guard: sending.state_guard
+          },
+          sending,
+          { ok: true },
+          alertPolicy,
+          now
+        ),
+      /stale To Apply state/,
+      field
+    );
+  }
 });
 
 test("quarantined, stale-policy, and unsafe message rows are suppressed", () => {

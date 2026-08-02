@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-08-01/v6",
+  "policy_version": "2026-08-03/v1",
   "deployment_scope": "self_hosted_regular",
-  "verified_on": "2026-08-01",
+  "verified_on": "2026-08-03",
   "official_sources": [
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
@@ -68,6 +68,17 @@
     "review_url_environment_variable": "JOB_PIPELINE_REVIEW_URL",
     "all_workbook_ids_must_differ": true,
     "queue_workbook_must_start_empty": true
+  },
+  "application_compatibility": {
+    "pipeline_schema_version": 3,
+    "storage_version": "2026-07-31-segmented-queues-v3",
+    "pipeline_contract_digest": "pipeline-v1:704cb162",
+    "candidate_profile_version": "2026-07-29",
+    "application_policy_version": "2026-07-28",
+    "application_pack_policy_version": "2026-08-03/v1",
+    "application_pack_version": "2026-08-03/v1",
+    "coverage_contract_version": "2026-08-03/v1",
+    "message_plan_version": "2026-08-03/v1"
   },
   "workflow_cutover": {
     "schema_version": 2,

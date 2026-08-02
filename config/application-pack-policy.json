@@ -1,23 +1,40 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-08-01/v2",
-  "pack_version": "2026-08-01/v2",
+  "policy_version": "2026-08-03/v1",
+  "pack_version": "2026-08-03/v1",
   "candidate_profile_version": "2026-07-29",
   "application_policy_version": "2026-07-28",
   "minimum_preferred_proofs": 2,
-  "maximum_proofs": 3,
+  "maximum_proofs": 2,
   "maximum_instructions": 20,
   "maximum_questions": 20,
+  "maximum_answer_elements_per_requirement": 8,
   "maximum_item_characters": 500,
   "maximum_description_characters": 50000,
+  "persistence_json_limits": {
+    "application_instructions": 20000,
+    "screening_questions": 12000,
+    "requirement_coverage": 30000,
+    "application_message_plan": 20000,
+    "application_warnings": 12000
+  },
+  "coverage_contract_version": "2026-08-03/v1",
+  "message_plan_version": "2026-08-03/v1",
+  "coverage_classifications": [
+    "exact",
+    "adjacent",
+    "partial",
+    "missing",
+    "manual_action"
+  ],
   "review_approval": {
     "acknowledgeable_warning_codes": [
-      "instruction_extraction_truncated",
       "proof_shortfall",
       "screening_question_requires_review",
       "ambiguous_instruction",
       "conflicting_subject_instructions",
       "unsafe_instruction_rejected",
+      "adjacent_coverage_requires_review",
       "unsupported_external_action",
       "unsupported_required_evidence"
     ],
@@ -28,7 +45,9 @@
     "required",
     "please",
     "make sure",
-    "do not apply unless"
+    "do not apply unless",
+    "follow these steps exactly",
+    "will not be reviewed"
   ],
   "ambiguous_markers": [
     "if applicable",
@@ -51,10 +70,20 @@
       "include the phrase"
     ],
     "submission": [
+      "apply here",
       "apply through",
       "submit through",
       "send your application",
-      "send your resume"
+      "send your resume",
+      "application form",
+      "application questionnaire",
+      "external form",
+      "google form",
+      "typeform",
+      "jotform",
+      "forms.gle",
+      "fill out this form",
+      "complete the form"
     ],
     "attachment": [
       "attach",
@@ -73,11 +102,18 @@
     ],
     "evidence": [
       "portfolio",
+      "github",
       "work sample",
       "project link",
       "provide an example",
       "share an example",
       "proof of"
+    ],
+    "content": [
+      "summary",
+      "brief description",
+      "brief overview",
+      "cover letter"
     ]
   },
   "unsafe_instruction_categories": {
@@ -88,16 +124,42 @@
       "bypass validation"
     ],
     "hidden_configuration": [
-      "system prompt",
       "hidden prompt",
       "reveal the prompt",
-      "show configuration"
+      "reveal the system prompt",
+      "show hidden configuration",
+      "show the system prompt"
     ],
     "private_data": [
-      "api key",
-      "password",
+      "provide your api key",
+      "send your api key",
+      "paste your api key",
+      "share your api key",
+      "provide your password",
+      "send your password",
+      "paste your password",
+      "share your password",
       "private profile",
-      "secret token"
+      "provide your secret token",
+      "send your secret token",
+      "paste your secret token",
+      "share your secret token",
+      "provide your private key",
+      "send your private key",
+      "paste your private key",
+      "share your private key",
+      "provide your secret access key",
+      "send your secret access key",
+      "paste your secret access key",
+      "share your secret access key",
+      "provide your database credentials",
+      "send your database credentials",
+      "paste your database credentials",
+      "share your database credentials",
+      "provide your session cookie",
+      "send your session cookie",
+      "paste your session cookie",
+      "share your session cookie"
     ],
     "automatic_action": [
       "automatically submit",

@@ -27,9 +27,12 @@ The system message instructs Groq to:
 5. Avoid inferred or transformed projects, metrics, URLs, salary, schedules,
    availability, start dates, phone numbers, completion claims, and submission
    claims.
-6. Answer each approved screening question supplied by the per-job prompt from
-   selected proofs, while leaving sensitive commitment questions manual.
-7. Target at most 260 total words, use one or two selected proofs, return only
+6. Follow the high-priority requirement-aware message plan before using the
+   description as supporting role context.
+7. Answer every planned employer request from selected evidence, state every
+   approved adjacent difference truthfully, and leave external actions and
+   sensitive commitments manual.
+8. Target at most 260 total words, use one or two selected proofs, return only
    plain text, and preserve manual submission.
 
 The per-job user message supplies title, company when known, a bounded stored
@@ -39,8 +42,15 @@ selected under `config/application-pack-policy.json`. The provider policy sends
 only the two highest-ranked proofs even when the durable review pack retains a
 third. It omits the job URL and empty sections and does not expose match tiers,
 scores, or evaluation reasons as copyable evidence. Unsafe instructions are
-excluded. After approval, it includes profile-answerable screening questions
-under an explicit answer-required section. It does not add new candidate facts.
+excluded. Before the description, it includes a versioned compact message plan
+with the exact resolved first-line subject, required answer elements, proof
+references, material adjacent differences, format and count constraints,
+approved URLs, and manual actions. After approval, it includes
+profile-answerable screening questions under an explicit answer-required
+section. It does not add new candidate facts. Prompt compaction may shorten
+lower-priority description context but must retain every required plan element
+and proof; if the complete plan cannot fit, generation fails closed before a
+provider request.
 
 Only a deterministically `ready` application pack reaches Groq. An unapproved
 `review_required` pack makes no provider call and maps to visible
@@ -59,8 +69,14 @@ exact numeric evidence; no unapproved schedule, availability, salary, start
 date, phone, completion, submission, or internal-context claims; no configured
 banned phrase; required-subject compliance; plain-text output without Markdown
 or `Question:`/`Answer:` labels; and a natural prose answer for every question
-assigned to generation. Schedule text is classified before generic numeric
-evidence so time fragments are not reported as the primary error.
+assigned to generation. It also requires the exact complete employer subject
+as the first non-empty line, every mandatory plan element, planned URL and
+format/count rule, a 3–5 sentence project summary when requested, grounding in
+the selected proofs, and explicit truthful wording for each adjacent material
+difference. Keyword echoes, unsupported technology/provider/domain claims,
+and unsupported frequency or universal-experience claims are rejected.
+Schedule text is classified before generic numeric evidence so time fragments
+are not reported as the primary error.
 
 The Generator freezes at most five selected rows and processes them
 sequentially. It makes one initial model request for each row that reaches

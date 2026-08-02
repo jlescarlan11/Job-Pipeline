@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   deploymentCapacity,
+  pipelineApplicationContractDigest,
   scheduledBurstCapacity,
   validateN8nDeploymentEnvironment,
   validateN8nDeploymentPolicy
@@ -14,14 +15,25 @@ const policy = await loadJson("../config/n8n-deployment-policy.json");
 const runtime = await loadJson("../config/runtime.json");
 const searchPlan = await loadJson("../config/search-plan.json");
 const alertPolicy = await loadJson("../config/alert-policy.json");
+const pipelineSchema = await loadJson("../config/pipeline-schema.json");
+const candidateProfile = await loadJson("../config/candidate-profile.json");
+const applicationPolicy = await loadJson("../config/application-policy.json");
+const applicationPackPolicy = await loadJson(
+  "../config/application-pack-policy.json"
+);
+const compatibilityContext = {
+  runtime,
+  searchPlan,
+  alertPolicy,
+  pipelineSchema,
+  candidateProfile,
+  applicationPolicy,
+  applicationPackPolicy
+};
 
 test("deployment policy matches three-role runtime and capacity", () => {
   assert.deepEqual(
-    validateN8nDeploymentPolicy(policy, {
-      runtime,
-      searchPlan,
-      alertPolicy
-    }),
+    validateN8nDeploymentPolicy(policy, compatibilityContext),
     []
   );
   const configs = {
@@ -64,6 +76,32 @@ test("deployment policy has exactly three signatures and all retired markers", (
     "JOB_PIPELINE_CONFIG_SPREADSHEET_ID"
   );
   assert.equal(policy.workbook_binding.all_workbook_ids_must_differ, true);
+  assert.deepEqual(policy.application_compatibility, {
+    pipeline_schema_version: pipelineSchema.schema_version,
+    storage_version: pipelineSchema.storage_version,
+    pipeline_contract_digest:
+      pipelineApplicationContractDigest(pipelineSchema),
+    candidate_profile_version: candidateProfile.profile_version,
+    application_policy_version: applicationPolicy.policy_version,
+    application_pack_policy_version: applicationPackPolicy.policy_version,
+    application_pack_version: applicationPackPolicy.pack_version,
+    coverage_contract_version: applicationPackPolicy.coverage_contract_version,
+    message_plan_version: applicationPackPolicy.message_plan_version
+  });
+});
+
+test("application compatibility rejects a structurally stale pipeline schema", () => {
+  const staleSchema = structuredClone(pipelineSchema);
+  staleSchema.fields = staleSchema.fields.filter(
+    (field) => field !== "review_approval_guard"
+  );
+  assert.match(
+    validateN8nDeploymentPolicy(policy, {
+      ...compatibilityContext,
+      pipelineSchema: staleSchema
+    }).join(";"),
+    /pipeline_contract_digest/
+  );
 });
 
 test("production environment requires exact runtime values and separate workbooks", () => {
@@ -102,11 +140,23 @@ test("policy drift in role count, schedules, retention, or headroom fails", () =
   badPolicy.capacity.maximum_simultaneous_scheduled_executions = 1;
   badPolicy.execution_retention.scheduled_runs_per_week = 1;
   assert.match(
-    validateN8nDeploymentPolicy(badPolicy, {
-      runtime,
-      searchPlan,
-      alertPolicy
-    }).join(";"),
+    validateN8nDeploymentPolicy(badPolicy, compatibilityContext).join(";"),
     /three replacement roles|simultaneous|weekly execution/
   );
+});
+
+test("deployment policy rejects a partially deployed application compatibility unit", () => {
+  for (const field of [
+    "application_pack_version",
+    "coverage_contract_version",
+    "message_plan_version",
+    "candidate_profile_version"
+  ]) {
+    const stale = structuredClone(policy);
+    stale.application_compatibility[field] = "stale/v1";
+    assert.match(
+      validateN8nDeploymentPolicy(stale, compatibilityContext).join(";"),
+      new RegExp(`application compatibility ${field}`)
+    );
+  }
 });

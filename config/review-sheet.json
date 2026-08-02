@@ -1,6 +1,6 @@
 {
   "schema_version": 6,
-  "view_version": "2026-08-01/v8",
+  "view_version": "2026-08-03/v1",
   "timezone": "Asia/Manila",
   "sheets": {
     "scraped_jobs": {
@@ -380,6 +380,7 @@
     "required_input",
     "review_approved_at",
     "review_approval_note",
+    "review_approval_guard",
     "qualification_score",
     "opportunity_score",
     "ranking_confidence",
@@ -402,12 +403,16 @@
     "generated_at",
     "application_instructions",
     "screening_questions",
+    "requirement_coverage",
+    "application_message_plan",
     "selected_proof_refs",
     "application_warnings",
     "application_pack_status",
     "application_pack_version",
     "application_pack_profile_version",
     "application_pack_policy_version",
+    "coverage_contract_version",
+    "message_plan_version",
     "application_pack_generated_at",
     "alert_status",
     "alert_idempotency_key",

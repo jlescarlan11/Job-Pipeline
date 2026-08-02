@@ -77,6 +77,12 @@ npm run validate
 npm run validate:deployment -- --policy-only
 ```
 
+Confirm the deployment policy reports the current application compatibility
+unit. The pipeline schema/storage and deterministic contract digest, candidate
+profile, application policy, application-pack policy, pack, coverage, and
+message-plan versions must match the exact generated commit. A partial match is
+a failed gate.
+
 Import only:
 
 - `workflows/scraper.json`
@@ -181,6 +187,26 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
 - Missing/unavailable source: confirm `unavailable`, not `skip`.
 - Provider timeout/rate limit/auth/invalid output: confirm bounded `error` evidence, retries, and no ready status.
 - Unsafe instructions/prompt injection/private-data/auto-action/unsupported claims: confirm no provider path or no ready commit.
+- Requirement-aware fixture: confirm heading/list structure is preserved, all
+  mandatory subject/content/link/manual items are extracted in source order,
+  and the responsibilities block does not become a screening question.
+- Coverage: confirm exact evidence is preferred, adjacent evidence records its
+  material difference and requires review, and partial or missing mandatory
+  evidence remains non-ready with actionable `required_input`.
+- Prompt and validation: confirm the exact employer subject is the first line,
+  all planned answer elements survive prompt compaction and repair, keyword-only
+  responses and unsupported frequency/provider claims fail, and required
+  summary counts and approved links are enforced.
+- Persisted safety: remove or forge coverage, message-plan, canonical proof, or
+  version fields on a disposable ready record and confirm Slack eligibility is
+  suppressed. Confirm movement and rediscovery preserve the same fields and
+  state guard.
+- Reported posting: confirm the four scoped application items are extracted,
+  Job Pipeline is selected for the AI-workflow request, Groq remains explicit
+  as adjacent to Claude, the reported fluent non-answer is rejected, and a
+  corrected subject/summary/tools/link message passes both generation and
+  persisted safety. Repeat with exact evidence and an unrelated non-Claude job
+  to prove the rules are not posting-specific.
 - Select `Approve` for a profile-answerable screening question, confirm Alerter & Mover first returns it to `Scraped Jobs` with bounded review context, then confirm Generator includes the question in both initial and repair prompts, produces a validated message that answers it from approved proofs, and routes the row to `To Apply` without leaving that question in `required_input`.
 - Repeat with a salary, availability, schedule, time-zone, or start-date question and confirm it remains a manual-submission reminder rather than becoming a generated commitment.
 - Select `Approve` for an unsafe employer instruction or required external action and confirm the unsafe text stays outside the provider prompt while `To Apply` shows only its sanitized manual reminder.
@@ -245,6 +271,15 @@ Only after non-production passes:
 
 ## 6. Pre-activation inventory gate
 
+Before capturing workflow cutover evidence, freeze profile/configuration edits
+and inventory every unsent `To Apply` row through the current message-safety
+gate. Record only canonical identity, record version, guard/digest,
+compatibility versions, safe/unsafe result, and bounded reason codes. For each
+incompatible row, record one guarded disposition: normal regeneration, return
+to review, or quarantine. Re-read the row immediately before mutation and do
+not overwrite a newer action, version, guard, or profile snapshot. The
+unhandled incompatible count must be zero before activation.
+
 Create the target map using `docs/cutover-target-map.example.json`. Capture and validate:
 
 ```bash
@@ -278,6 +313,10 @@ No step authorizes application submission or deletion of the old workbook.
 
 ## 8. Initial scheduled observation
 
+Observe one complete maximum schedule interval (240 minutes) and at least one
+real boundary for each role. Extend observation while any retry, receipt
+reconciliation, incompatible unsent record, or unresolved failure remains.
+
 Observe at least one real schedule boundary for every role. Confirm:
 
 - no out-of-window or duplicate jobs across `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`;
@@ -293,6 +332,13 @@ Record the old workbook checksum/modification time again and prove it is unchang
 ## 9. Rollback
 
 Rollback triggers include wrong workbook binding, unexpected old-workbook write, duplicate role/row/alert, unsafe ready message, repeated stale claims, destination/source inconsistency, or deployment validation failure.
+
+For an application-compatibility rollback, disable Alerter & Mover first to
+stop new message disclosure, then disable Evaluator & Generator and Scraper.
+Do not reactivate an older consumer while records written under the new pack,
+coverage, or message-plan versions remain unsent. Quarantine or reconcile those
+records under the captured guard-safe inventory before restoring the previous
+compatible workflow/policy set.
 
 1. Disable all three replacement workflows.
 2. Wait for their maximum claim leases to expire and verify no execution remains running/waiting.

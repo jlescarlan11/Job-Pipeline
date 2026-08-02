@@ -72,7 +72,7 @@ function readyRecord(id = 6101, overrides = {}) {
       company: "Example",
       decision_reason: "Auditable decision",
       generated_message:
-        "Hi there,\n\nI build TypeScript and React applications using approved profile evidence.\n\nPortfolio: https://johnlesterescarlan.pro",
+        `Subject line: Job ${id} Application — John Lester Escarlan\n\nHi there,\n\nI build TypeScript and React applications using approved profile evidence.\n\nPortfolio: https://johnlesterescarlan.pro`,
       generated_at: "2026-08-02T05:00:00.000Z",
       message_validation_status: "valid",
       message_profile_version: profile.profile_version,
@@ -81,10 +81,20 @@ function readyRecord(id = 6101, overrides = {}) {
       application_pack_version: packPolicy.pack_version,
       application_pack_profile_version: profile.profile_version,
       application_pack_policy_version: packPolicy.policy_version,
+      coverage_contract_version: packPolicy.coverage_contract_version,
+      message_plan_version: packPolicy.message_plan_version,
       application_pack_generated_at: "2026-08-02T05:00:00.000Z",
       application_instructions: [],
       screening_questions: [],
-      selected_proof_refs: ["experience:upwork"],
+      requirement_coverage: [],
+      application_message_plan: [
+        {
+          version: packPolicy.message_plan_version,
+          subject_line: `Subject line: Job ${id} Application — John Lester Escarlan`,
+          requirements: []
+        }
+      ],
+      selected_proof_refs: ["experience:upwork", "projects:job-pipeline"],
       application_warnings: [],
       alert_status: "sending",
       alert_idempotency_key: key,

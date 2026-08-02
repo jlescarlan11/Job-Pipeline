@@ -7,6 +7,40 @@ import { scheduledRunsPerWeek, validateRuntimeConfig } from "./runtime.mjs";
 const ROLES = ["scraper", "generator", "alerter_mover"];
 const WORKFLOW_ROLES = ["scraper", "evaluator_generator", "alerter_mover"];
 
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, stableValue(value[key])])
+    );
+  }
+  return value;
+}
+
+export function pipelineApplicationContractDigest(pipelineSchema) {
+  const serialized = JSON.stringify(
+    stableValue({
+      schema_version: pipelineSchema?.schema_version,
+      storage_version: pipelineSchema?.storage_version,
+      fields: pipelineSchema?.fields,
+      string_list_fields: pipelineSchema?.string_list_fields,
+      json_array_fields: pipelineSchema?.json_array_fields,
+      json_field_maximum_characters:
+        pipelineSchema?.json_field_maximum_characters,
+      timestamp_fields: pipelineSchema?.timestamp_fields,
+      field_rules: pipelineSchema?.field_rules
+    })
+  );
+  let hash = 2166136261;
+  for (let index = 0; index < serialized.length; index += 1) {
+    hash ^= serialized.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `pipeline-v1:${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
 function positiveInteger(value) {
   return Number.isInteger(value) && value > 0;
 }
@@ -77,7 +111,15 @@ export function deploymentCapacity(configs) {
 
 export function validateN8nDeploymentPolicy(
   policy,
-  { runtime, searchPlan, alertPolicy }
+  {
+    runtime,
+    searchPlan,
+    alertPolicy,
+    pipelineSchema,
+    candidateProfile,
+    applicationPolicy,
+    applicationPackPolicy
+  }
 ) {
   const errors = [];
   if (policy?.schema_version !== 2) {
@@ -249,6 +291,34 @@ export function validateN8nDeploymentPolicy(
     policy?.workbook_binding?.queue_workbook_must_start_empty !== true
   ) {
     errors.push("queue and configuration workbook binding policy is incomplete");
+  }
+  const compatibility = policy?.application_compatibility ?? {};
+  const expectedCompatibility = {
+    pipeline_schema_version: pipelineSchema?.schema_version,
+    storage_version: pipelineSchema?.storage_version,
+    pipeline_contract_digest:
+      pipelineApplicationContractDigest(pipelineSchema),
+    candidate_profile_version: candidateProfile?.profile_version,
+    application_policy_version: applicationPolicy?.policy_version,
+    application_pack_policy_version: applicationPackPolicy?.policy_version,
+    application_pack_version: applicationPackPolicy?.pack_version,
+    coverage_contract_version: applicationPackPolicy?.coverage_contract_version,
+    message_plan_version: applicationPackPolicy?.message_plan_version
+  };
+  for (const [field, expected] of Object.entries(expectedCompatibility)) {
+    if (expected === undefined || compatibility[field] !== expected) {
+      errors.push(`application compatibility ${field} is stale or missing`);
+    }
+  }
+  if (
+    applicationPolicy?.candidate_profile_version !==
+      candidateProfile?.profile_version ||
+    applicationPackPolicy?.candidate_profile_version !==
+      candidateProfile?.profile_version ||
+    applicationPackPolicy?.application_policy_version !==
+      applicationPolicy?.policy_version
+  ) {
+    errors.push("application compatibility source policies do not share one profile/policy unit");
   }
   return errors;
 }

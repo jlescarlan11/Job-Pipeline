@@ -309,6 +309,8 @@ export function prepareApplicationGeneration(
         ...claimedRecord,
         application_instructions: pack.application_instructions,
         screening_questions: pack.screening_questions,
+        requirement_coverage: pack.requirement_coverage,
+        application_message_plan: [pack.message_plan],
         selected_proof_refs: pack.selected_proof_refs,
         application_warnings: pack.application_warnings,
         application_pack_status: pack.application_pack_status,
@@ -316,10 +318,14 @@ export function prepareApplicationGeneration(
         application_pack_profile_version:
           pack.application_pack_profile_version,
         application_pack_policy_version: pack.application_pack_policy_version,
+        coverage_contract_version: pack.coverage_contract_version,
+        message_plan_version: pack.message_plan.version,
         application_pack_generated_at: pack.application_pack_generated_at,
-        generated_message: claimedRecord.generated_message || "",
-        message_validation_status:
-          claimedRecord.message_validation_status || "",
+        generated_message: "",
+        message_validation_status: "",
+        message_profile_version: "",
+        message_policy_version: "",
+        generated_at: "",
         pipeline_status: descriptionUnavailable
           ? "unavailable"
           : "review_needed",
@@ -405,7 +411,12 @@ export function assessInitialGenerationDraft(
     {
       selectedProofs: pack.selected_proofs,
       applicationInstructions: pack.application_instructions,
-      screeningQuestions: pack.screening_questions
+      screeningQuestions: pack.screening_questions,
+      requirementCoverage: pack.requirement_coverage,
+      messagePlan: pack.message_plan,
+      maximumCharacters:
+        providerPolicy.generation.maximum_combined_input_characters -
+        systemMessage.length
     }
   );
   const repairBudget = validateGroqPromptBudget(
@@ -457,12 +468,16 @@ export function applyValidatedGeneration(
     ...claimedRecord,
     application_instructions: pack.application_instructions,
     screening_questions: pack.screening_questions,
+    requirement_coverage: pack.requirement_coverage,
+    application_message_plan: [pack.message_plan],
     selected_proof_refs: pack.selected_proof_refs,
     application_warnings: pack.application_warnings,
     application_pack_status: "ready",
     application_pack_version: pack.application_pack_version,
     application_pack_profile_version: pack.application_pack_profile_version,
     application_pack_policy_version: pack.application_pack_policy_version,
+    coverage_contract_version: pack.coverage_contract_version,
+    message_plan_version: pack.message_plan.version,
     application_pack_generated_at: pack.application_pack_generated_at,
     pipeline_status: "ready_to_apply",
     generated_message: cleanedMessage,
@@ -587,6 +602,8 @@ export function commitGeneratorResult(
     freshRecord.canonical_job_id !== claimedRecord.canonical_job_id ||
     freshRecord.processing_token !== claimedRecord.processing_token ||
     freshRecord.record_version !== claimedRecord.record_version ||
+    freshRecord.state_guard !== stateGuard(freshRecord) ||
+    claimedRecord.state_guard !== stateGuard(claimedRecord) ||
     freshRecord.state_guard !== claimedRecord.state_guard ||
     freshRecord.user_action !== claimedRecord.user_action
   ) {
@@ -599,6 +616,7 @@ export function commitGeneratorResult(
     canonical_url: freshRecord.canonical_url,
     source_job_id: freshRecord.source_job_id,
     user_action: "",
+    notes: freshRecord.notes,
     processing_token: "",
     processing_started_at: "",
     record_version: freshRecord.record_version + 1,

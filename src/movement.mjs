@@ -1,4 +1,5 @@
 import {
+  applicationReviewGuard,
   stateGuard,
   validateRecordStoreContract
 } from "./contracts.mjs";
@@ -85,7 +86,15 @@ function validExistingDestination(source, actual, destination, reason, schema) {
   if (validateRecordStoreContract(actual, destination, schema).length > 0) {
     return false;
   }
+  if (actual.state_guard !== stateGuard(actual)) return false;
   if (destination === "Scraped Jobs" && actual.user_action !== "Approve") {
+    return false;
+  }
+  if (
+    destination === "Scraped Jobs" &&
+    (!Number.isFinite(Date.parse(actual.review_approved_at || "")) ||
+      actual.review_approval_guard !== applicationReviewGuard(source))
+  ) {
     return false;
   }
   if (
@@ -211,6 +220,7 @@ function destinationRecord(source, destination, reason, now, existing) {
           source.notes,
         1000
       );
+      record.review_approval_guard = applicationReviewGuard(source);
     }
   }
   if (existing) {
@@ -367,6 +377,15 @@ export function planQueueActions(
           source_sheet: sourceSheet,
           reason: "invalid_source",
           summary: sanitize(contractErrors.join("; "))
+        });
+        continue;
+      }
+      if (source.state_guard !== stateGuard(source)) {
+        rejected.push({
+          canonical_job_id: String(source?.canonical_job_id || ""),
+          source_sheet: sourceSheet,
+          reason: "invalid_source",
+          summary: "Source state guard does not match the current row"
         });
         continue;
       }
@@ -555,6 +574,7 @@ export function confirmMoveDeletions(
       continue;
     }
     const sourceUnchanged =
+      source.state_guard === stateGuard(source) &&
       source.state_guard === plan.source_state_guard &&
       source.record_version === plan.source_record_version &&
       source.pipeline_status === plan.source_status &&

@@ -129,6 +129,15 @@ export function createKeywordSnapshot(rows) {
 }
 
 function decodeHtml(value = "") {
+  const decodeNumericEntity = (raw, radix) => {
+    const codePoint = Number.parseInt(raw, radix);
+    return Number.isInteger(codePoint) &&
+      codePoint >= 0 &&
+      codePoint <= 0x10ffff &&
+      !(codePoint >= 0xd800 && codePoint <= 0xdfff)
+      ? String.fromCodePoint(codePoint)
+      : "\ufffd";
+  };
   const named = {
     amp: "&",
     apos: "'",
@@ -143,10 +152,10 @@ function decodeHtml(value = "") {
   };
   return String(value)
     .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
-      String.fromCodePoint(Number.parseInt(hex, 16))
+      decodeNumericEntity(hex, 16)
     )
     .replace(/&#(\d+);/g, (_, decimal) =>
-      String.fromCodePoint(Number.parseInt(decimal, 10))
+      decodeNumericEntity(decimal, 10)
     )
     .replace(
       /&([a-z]+|#\d+);/gi,

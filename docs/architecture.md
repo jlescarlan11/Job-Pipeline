@@ -82,9 +82,29 @@ policy:
 
 `Approve` in `To Review` means “return to `Scraped Jobs`, acknowledge allow-listed warnings, and reconsider through normal generation.” The approval timestamp and a bounded snapshot of the reviewer note are retained; the note remains untrusted operator context. Candidate-directed, profile-answerable screening questions are passed to the next initial and repair prompts and must be answered from selected approved proofs. Questions requesting salary, availability, schedules, time zones, start dates, phone details, or work authorization remain visible as manual-submission reminders; external actions do too, while rhetorical headings are ignored. Unsafe employer segments stay excluded from the provider prompt, and approval does not waive proof selection, pack validation, or message validation. A missing or unusable description becomes `unavailable` instead of cycling through review again.
 
+The application domain converts structured employer instructions into a
+versioned requirement-coverage contract and a deterministic message plan
+before any provider call. Exact evidence is preferred; materially adjacent
+evidence records the requested and actual capability and requires review plus
+transparent prose. Partial or missing mandatory coverage cannot be approved
+into readiness. The plan is prompt-priority context and survives compaction;
+failure to retain all required elements fails closed.
+
 The model path permits one initial `openai/gpt-oss-120b` request per candidate. If deterministic message validation rejects that draft, it permits exactly one delayed `openai/gpt-oss-20b` repair containing the complete rejected draft, every validation error, and only the compact proof/instruction context needed to validate the repaired message. The full job description is not resent. The repaired draft must pass the same pack and message gates; there is no third request or automatic HTTP retry.
 
 A failed retry retains an earlier valid message/provenance but the row remains `error`, so it cannot alert or be marked applied until a fresh validated result becomes ready.
+
+Coverage, the one-element message-plan array, and their explicit versions are
+persisted with every generation result and included in the record state guard.
+The guard also covers the outbound message and provenance, source description
+and availability, instructions, questions, selected proofs, warnings, pack
+state, and the review-approval digest. Queue movement and rediscovery preserve
+those system-owned fields. Before a ready message reaches Slack, message safety
+recomputes the pack from the current job description, profile, and policies,
+requires every persisted authorization field to match, resolves canonical proof
+references, and revalidates the message.
+Missing, malformed, stale, unresolved, or forged authorization state is
+suppressed without changing terminal historical records.
 
 ## Alerter & Mover
 

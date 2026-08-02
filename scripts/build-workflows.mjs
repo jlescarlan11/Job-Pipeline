@@ -274,6 +274,7 @@ const generatorClaimFields = [
   "processing_started_at",
   "review_approved_at",
   "review_approval_note",
+  "review_approval_guard",
   "updated_at"
 ];
 const alertStateFields = [

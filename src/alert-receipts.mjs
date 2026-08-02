@@ -808,6 +808,9 @@ export function planAlertReceiptBusinessReconciliation(
   if (record.alert_idempotency_key !== receipt.idempotency_key) {
     throw new Error("Receipt reconciliation rejected a stale idempotency key");
   }
+  if (record.state_guard !== stateGuard(record)) {
+    throw new Error("Receipt reconciliation rejected a stale state guard");
+  }
 
   const desired = receipt.status === "delivered"
     ? {

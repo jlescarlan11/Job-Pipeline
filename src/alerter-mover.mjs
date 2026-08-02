@@ -444,6 +444,13 @@ export function selectFreshAlertCandidates(
       });
       continue;
     }
+    if (record.state_guard !== stateGuard(record)) {
+      rejected.push({
+        canonical_job_id: String(record?.canonical_job_id || ""),
+        reasons: ["stale_state_guard"]
+      });
+      continue;
+    }
     const identity = String(record.canonical_job_id)
       .normalize("NFKC")
       .toLocaleLowerCase("en-US");
@@ -642,7 +649,10 @@ export function applySlackProviderResult(
     !sendingRecord ||
     freshRecord.canonical_job_id !== sendingRecord.canonical_job_id ||
     freshRecord.record_version !== sendingRecord.record_version ||
+    freshRecord.state_guard !== stateGuard(freshRecord) ||
+    sendingRecord.state_guard !== stateGuard(sendingRecord) ||
     freshRecord.state_guard !== sendingRecord.state_guard ||
+    freshRecord.user_action !== sendingRecord.user_action ||
     freshRecord.alert_status !== "sending" ||
     freshRecord.alert_idempotency_key !== sendingRecord.alert_idempotency_key ||
     !freshRecord.alert_claim_token ||
