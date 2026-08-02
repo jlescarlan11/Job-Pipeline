@@ -71,6 +71,7 @@ All three workflow exports are checked in under `workflows/` and remain inactive
 - `config/search-plan.json` — exact 24-hour window, pagination, pacing, timeout, and retries; it contains no runtime keyword fallback.
 - `config/runtime.json` — the three schedules, execution budgets, claims, retry bounds, and Generator batch cap.
 - `config/alert-policy.json` — Slack eligibility, idempotency, timeout, and environment bindings.
+- `config/alert-receipts.json` — bounded durable delivery-receipt states, Data Table binding, retry cap, and retention requirements.
 - `config/n8n-deployment-policy.json` — exact three-role signatures, capacity, retention, monitoring, and cutover gates.
 - Candidate, ranking, and application files provide validated bootstrap defaults for a newly provisioned workbook. After the one-time workflow deployment, the corresponding visible context tabs are the runtime source. Pack, provider, runtime, and safety policies remain repository-controlled.
 

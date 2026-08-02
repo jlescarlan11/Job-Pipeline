@@ -28,6 +28,7 @@ const [
   runtime,
   review,
   alertPolicy,
+  alertReceiptPolicy,
   deploymentPolicy
 ] = await Promise.all([
   loadText("../README.md"),
@@ -62,6 +63,7 @@ const [
   loadJson("../config/runtime.json"),
   loadJson("../config/review-sheet.json"),
   loadJson("../config/alert-policy.json"),
+  loadJson("../config/alert-receipts.json"),
   loadJson("../config/n8n-deployment-policy.json")
 ]);
 
@@ -948,6 +950,34 @@ test("alert docs preserve safe eligibility, fidelity, idempotency, and independe
   }
   assert.match(alerts, /does not submit|never submits/i);
   assert.match(alerts, /independent/i);
+});
+
+test("alert receipt docs preserve durability, privacy, and recovery boundaries", () => {
+  for (const document of [readme, architecture, alerts, operations]) {
+    assert.match(document, /receipt/i);
+  }
+  for (const required of [
+    alertReceiptPolicy.store.table_name,
+    alertReceiptPolicy.store.environment_variable,
+    "pending",
+    "sending",
+    "delivered",
+    "reconciled",
+    "terminal_ambiguity",
+    "Data Table",
+    "backup",
+    "restore"
+  ]) {
+    assert.match(
+      `${architecture}\n${alerts}\n${operations}`,
+      new RegExp(required.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+      `missing receipt behavior: ${required}`
+    );
+  }
+  assert.match(operations, /validate:receipts/);
+  assert.match(operations, /never provisions or mutates a production Data Table/i);
+  assert.match(alerts, /complete generated messages[\s\S]{0,160}not receipt fields/i);
+  assert.match(architecture, /duplicate identity rows fail closed/i);
 });
 
 test("acceptance accounting covers every criterion and labels live gates honestly", () => {

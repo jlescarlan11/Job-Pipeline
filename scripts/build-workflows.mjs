@@ -6,6 +6,10 @@ import {
   validateAlertPolicy
 } from "../src/alerter-mover.mjs";
 import {
+  validateAlertReceiptCompatibility,
+  validateAlertReceiptPolicy
+} from "../src/alert-receipts.mjs";
+import {
   validateSearchPlan
 } from "../src/discovery.mjs";
 import {
@@ -37,7 +41,8 @@ const [
   applicationPolicy,
   packPolicy,
   groqPolicy,
-  alertPolicy
+  alertPolicy,
+  alertReceiptPolicy
 ] = await Promise.all([
   readJson("config/pipeline-schema.json"),
   readJson("config/review-sheet.json"),
@@ -48,7 +53,8 @@ const [
   readJson("config/application-policy.json"),
   readJson("config/application-pack-policy.json"),
   readJson("config/groq-provider-policy.json"),
-  readJson("config/alert-policy.json")
+  readJson("config/alert-policy.json"),
+  readJson("config/alert-receipts.json")
 ]);
 
 const runtimeErrors = validateRuntimeConfig(runtime);
@@ -62,6 +68,15 @@ if (searchErrors.length > 0) {
 const alertErrors = validateAlertPolicy(alertPolicy);
 if (alertErrors.length > 0) {
   throw new Error(`Invalid alert policy:\n- ${alertErrors.join("\n- ")}`);
+}
+const alertReceiptErrors = [
+  ...validateAlertReceiptPolicy(alertReceiptPolicy),
+  ...validateAlertReceiptCompatibility(alertReceiptPolicy, alertPolicy)
+];
+if (alertReceiptErrors.length > 0) {
+  throw new Error(
+    `Invalid alert receipt policy:\n- ${alertReceiptErrors.join("\n- ")}`
+  );
 }
 const groqErrors = [
   ...validateGroqProviderPolicy(groqPolicy),

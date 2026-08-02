@@ -42,6 +42,30 @@ Create separate Main and Configuration workbooks whose IDs differ from each othe
 
 Setup must stop rather than delete a non-empty unexpected sheet or overwrite conflicting headers.
 
+## 2A. Provision and verify a disposable receipt store
+
+The alert receipt store is an n8n Data Table, not a Main-workbook tab. It must never change the business-sheet schema.
+
+1. Validate the repository policy and print the non-mutating provisioning plan:
+
+   ```bash
+   npm run validate:receipts
+   npm run validate:receipts -- --plan
+   ```
+
+2. In the disposable n8n project, create exactly one Data Table named `Job Pipeline Alert Receipts` with the ordered columns and types from the plan. Existing tables are accepted only when their complete user-column schema matches exactly.
+3. Bind `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID` to that Data Table ID. Do not put the ID in a webhook URL, log payload, or committed evidence.
+4. Export the table metadata and all rows to a local JSON object with `id`, `name`, `columns`, and `rows`, then validate it without mutation:
+
+   ```bash
+   npm run validate:receipts -- --snapshot sanitized-receipt-table.json
+   ```
+
+5. Test duplicate receipt identity, stale receipt version, invalid transition, retry cap, restart, and delivered reconciliation. The adapter must fail closed and must never retain a complete message, description, profile, webhook, credential, authorization value, or raw provider response.
+6. Before any cutover, capture both an approved encrypted n8n database backup and a complete receipt-table export. Restore only while the workflow is inactive; validate the restored full snapshot before reactivation. Never prune a delivered receipt before its business record is reconciled.
+
+The repository validator is policy/snapshot-only and never provisions or mutates a production Data Table.
+
 ## 3. Import replacements inactive
 
 Run:
@@ -58,7 +82,7 @@ Import only:
 - `workflows/generator.json`
 - `workflows/alerter-mover.json`
 
-Keep all three inactive. Bind the same Google Sheets OAuth2 credential to every Google Sheets node and to Alerter & Mover's `Get Main Workbook Layout` and `Sort Business Sheets Latest First` HTTP Request nodes. Bind `JOB_PIPELINE_SPREADSHEET_ID` to the disposable non-production Main workbook and `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` to a separate disposable Configuration workbook. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to the Main workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
+Keep all three inactive. Bind the same Google Sheets OAuth2 credential to every Google Sheets node and to Alerter & Mover's `Get Main Workbook Layout` and `Sort Business Sheets Latest First` HTTP Request nodes. Bind `JOB_PIPELINE_SPREADSHEET_ID` to the disposable non-production Main workbook, `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` to a separate disposable Configuration workbook, and `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID` to the validated disposable receipt Data Table. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to the Main workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
 
 ## 4. Non-production smoke matrix
 

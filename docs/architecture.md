@@ -94,6 +94,8 @@ Each movement and alert first appends a source/destination-scoped `_System` clai
 
 Alert eligibility requires a fresh, unacted `ready_to_apply` row with a current ready pack and validated message. The idempotency key includes canonical identity, policy version, generation timestamp, and message digest. A successful key is never replayed. An expired `sending` claim and an ambiguous timeout are terminal because delivery may have occurred; neither is automatically resent.
 
+Delivery evidence has a transport-neutral durable contract in an instance-local n8n Data Table, separate from the quota-sensitive Main workbook. One receipt identity equals one alert idempotency key. Atomic create-if-absent and receipt-version compare-and-swap transitions enforce `pending → sending → delivered → reconciled` plus bounded rejection and terminal-ambiguity outcomes. Every write is reread, and duplicate identity rows fail closed. Delivered receipts reconcile into the matching key's single current owner across `To Apply`, `Applied Jobs`, and `Archive` without another provider call. The strict column allowlist excludes message, job-description, profile, credential, webhook, authorization, and raw-provider content. The Data Table is part of the n8n durability and backup boundary; delivered rows cannot be pruned before reconciliation.
+
 Slack contains scores, decision reason, gaps, instructions, questions, proofs, warnings, the exact stored message in a code block, and open-only `To Apply`/source links. It contains no action webhook.
 
 Moves are:
