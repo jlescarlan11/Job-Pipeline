@@ -7,7 +7,7 @@ Stop at any failed gate. Never run old and replacement workflows against either 
 Runtime baseline: all three exports use `Asia/Manila`. Scraper runs every 240
 minutes with a 900-second timeout; Evaluator & Generator runs every 90 minutes
 with a 480-second timeout; Alerter & Mover runs every 15 minutes with a
-120-second timeout. Each Generator execution freezes at most five eligible
+300-second timeout. Each Generator execution freezes at most five eligible
 rows and processes them sequentially without backfill, waiting 20 seconds
 after every handled candidate to stay within production Sheet request
 capacity.
@@ -62,7 +62,8 @@ The alert receipt store is an n8n Data Table, not a Main-workbook tab. It must n
    ```
 
 5. Test duplicate receipt identity, stale receipt version, invalid transition, retry cap, restart, and delivered reconciliation. The adapter must fail closed and must never retain a complete message, description, profile, webhook, credential, authorization value, or raw provider response.
-6. Before any cutover, capture both an approved encrypted n8n database backup and a complete receipt-table export. Restore only while the workflow is inactive; validate the restored full snapshot before reactivation. Never prune a delivered receipt before its business record is reconciled.
+6. In an inactive disposable Alerter copy, prove the generated graph imports with every Data Table node on type version 1.1 and every compare-and-swap filter matching both `receipt_id` and `receipt_version`. Confirm Slack has no path that bypasses pending/sending rereads, the fresh `To Apply` guard, or the provider-headroom recheck.
+7. Before any cutover, capture both an approved encrypted n8n database backup and a complete receipt-table export. Restore only while the workflow is inactive; validate the restored full snapshot before reactivation. Never prune a delivered receipt before its business record is reconciled.
 
 The repository validator is policy/snapshot-only and never provisions or mutates a production Data Table.
 

@@ -67,7 +67,7 @@ const RECEIPT_ERROR_SUMMARIES = {
   ambiguous_delivery: "Provider delivery outcome is ambiguous"
 };
 
-function sanitize(value, maximum = 240) {
+function sanitizeAlertReceiptValue(value, maximum = 240) {
   return String(value || "")
     .replace(/https?:\/\/\S+/gi, "[url]")
     .replace(/\bauthorization\s*[:=]\s*(?:bearer\s+)?\S+/gi, "authorization=[redacted]")
@@ -80,7 +80,7 @@ function sanitize(value, maximum = 240) {
     .slice(0, maximum);
 }
 
-function validTimestamp(value, maximum) {
+function validAlertReceiptTimestamp(value, maximum) {
   return (
     typeof value === "string" &&
     value.length <= maximum &&
@@ -89,7 +89,7 @@ function validTimestamp(value, maximum) {
   );
 }
 
-function identityKey(value) {
+function alertReceiptIdentityKey(value) {
   return String(value || "")
     .trim()
     .normalize("NFKC")
@@ -97,7 +97,7 @@ function identityKey(value) {
 }
 
 function sanitizeProviderReference(value, maximum) {
-  const candidate = sanitize(value || "accepted", maximum);
+  const candidate = sanitizeAlertReceiptValue(value || "accepted", maximum);
   return /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(candidate)
     ? candidate
     : "accepted";
@@ -248,7 +248,7 @@ export function validateAlertReceipt(receipt, policy) {
       !value ||
       value.length > maximum ||
       value.normalize("NFKC") !== value ||
-      sanitize(value, maximum) !== value
+      sanitizeAlertReceiptValue(value, maximum) !== value
     ) {
       errors.push(`${field} is missing, oversized, or unsafe`);
     }
@@ -292,7 +292,10 @@ export function validateAlertReceipt(receipt, policy) {
     errors.push("receipt provider_status is invalid");
   }
   for (const field of TIMESTAMP_FIELDS) {
-    if (receipt?.[field] && !validTimestamp(receipt[field], bounds.timestamp)) {
+    if (
+      receipt?.[field] &&
+      !validAlertReceiptTimestamp(receipt[field], bounds.timestamp)
+    ) {
       errors.push(`${field} is invalid`);
     }
   }
@@ -352,21 +355,21 @@ export function validateAlertReceipt(receipt, policy) {
   const summary = String(receipt?.error_summary || "");
   if (
     reference.length > bounds.provider_reference ||
-    sanitize(reference, bounds.provider_reference) !== reference ||
+    sanitizeAlertReceiptValue(reference, bounds.provider_reference) !== reference ||
     (reference && !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(reference))
   ) {
     errors.push("receipt provider_reference is oversized or unsafe");
   }
   if (
     category.length > bounds.error_category ||
-    sanitize(category, bounds.error_category) !== category ||
+    sanitizeAlertReceiptValue(category, bounds.error_category) !== category ||
     (category && !Object.hasOwn(RECEIPT_ERROR_SUMMARIES, category))
   ) {
     errors.push("receipt error_category is oversized or unsafe");
   }
   if (
     summary.length > bounds.error_summary ||
-    sanitize(summary, bounds.error_summary) !== summary ||
+    sanitizeAlertReceiptValue(summary, bounds.error_summary) !== summary ||
     (summary && summary !== RECEIPT_ERROR_SUMMARIES[category])
   ) {
     errors.push("receipt error_summary is oversized or unsafe");
@@ -553,7 +556,7 @@ export function transitionAlertReceipt(
   if (!ALLOWED_TRANSITIONS.get(current.status)?.has(status)) {
     throw new Error(`Alert receipt transition rejected ${current.status} -> ${status}`);
   }
-  if (!validTimestamp(now, policy.bounds.timestamp)) {
+  if (!validAlertReceiptTimestamp(now, policy.bounds.timestamp)) {
     throw new Error("Alert receipt transition requires a valid timestamp");
   }
   if (Date.parse(now) < Date.parse(current.updated_at)) {
@@ -577,7 +580,8 @@ export function transitionAlertReceipt(
     if (
       !nextExecutionId ||
       nextExecutionId.length > policy.bounds.execution_id ||
-      sanitize(nextExecutionId, policy.bounds.execution_id) !== nextExecutionId
+      sanitizeAlertReceiptValue(nextExecutionId, policy.bounds.execution_id) !==
+        nextExecutionId
     ) {
       throw new Error("Alert receipt retry requires a bounded safe execution ID");
     }
@@ -610,7 +614,7 @@ export function transitionAlertReceipt(
     receipt.provider_classification = "retryable_rejection";
     receipt.provider_status = Number(providerStatus || 0);
     receipt.provider_reference = "";
-    receipt.error_category = sanitize(
+    receipt.error_category = sanitizeAlertReceiptValue(
       errorCategory || "provider_retryable",
       policy.bounds.error_category
     );
@@ -627,7 +631,7 @@ export function transitionAlertReceipt(
     receipt.provider_classification = providerClassification;
     receipt.provider_status = Number(providerStatus || 0);
     receipt.provider_reference = "";
-    receipt.error_category = sanitize(
+    receipt.error_category = sanitizeAlertReceiptValue(
       errorCategory || "provider_rejected",
       policy.bounds.error_category
     );
@@ -639,7 +643,7 @@ export function transitionAlertReceipt(
     receipt.provider_classification = "ambiguous";
     receipt.provider_status = Number(providerStatus || 0);
     receipt.provider_reference = "";
-    receipt.error_category = sanitize(
+    receipt.error_category = sanitizeAlertReceiptValue(
       errorCategory || "ambiguous_delivery",
       policy.bounds.error_category
     );
@@ -732,6 +736,153 @@ export function alertReceiptDataTableSchema() {
   }));
 }
 
+export function planAlertReceiptBusinessReconciliation(
+  receiptInput,
+  stores,
+  schema,
+  policy,
+  now = new Date().toISOString()
+) {
+  const receipt = normalizeAlertReceipt(receiptInput, policy);
+  assertValidReceipt(receipt, policy, "Cannot reconcile invalid alert receipt");
+  if (receipt.status === "reconciled") {
+    return {
+      classification: "already_reconciled",
+      provider_send: false,
+      business_update: null,
+      receipt_update: null
+    };
+  }
+  const supported = new Set([
+    "delivered",
+    "retryable_rejection",
+    "terminal_rejection",
+    "terminal_ambiguity"
+  ]);
+  if (!supported.has(receipt.status)) {
+    return {
+      classification: "provider_outcome_not_available",
+      provider_send: false,
+      business_update: null,
+      receipt_update: null
+    };
+  }
+
+  const targetStores = ["To Apply", "Applied Jobs", "Archive"];
+  const matches = [];
+  const expectedIdentity = alertReceiptIdentityKey(receipt.canonical_job_id);
+  for (const store of targetStores) {
+    if (!Array.isArray(stores?.[store])) {
+      throw new Error(`Receipt reconciliation requires ${store} rows`);
+    }
+    for (const record of stores[store]) {
+      if (alertReceiptIdentityKey(record?.canonical_job_id) === expectedIdentity) {
+        matches.push({ store, record });
+      }
+    }
+  }
+  if (matches.length > 1) {
+    throw new Error("Receipt reconciliation rejected ambiguous canonical ownership");
+  }
+  if (matches.length === 0) {
+    return {
+      classification: "owner_not_found",
+      provider_send: false,
+      business_update: null,
+      receipt_update: null
+    };
+  }
+  const { store, record } = matches[0];
+  const contractErrors = validateRecordStoreContract(record, store, schema);
+  if (contractErrors.length > 0) {
+    throw new Error(
+      `Receipt reconciliation rejected invalid ${store} record: ${contractErrors.join("; ")}`
+    );
+  }
+  if (record.alert_idempotency_key !== receipt.idempotency_key) {
+    throw new Error("Receipt reconciliation rejected a stale idempotency key");
+  }
+
+  const desired = receipt.status === "delivered"
+    ? {
+        alert_status: "sent",
+        alert_sent_at: receipt.delivered_at,
+        alert_provider_reference: receipt.provider_reference,
+        alert_error_category: "",
+        alert_error_summary: "",
+        alert_next_retry_at: ""
+      }
+    : receipt.status === "retryable_rejection"
+      ? {
+          alert_status: "retryable_failure",
+          alert_sent_at: "",
+          alert_provider_reference: "",
+          alert_error_category: receipt.error_category,
+          alert_error_summary: receipt.error_summary,
+          alert_next_retry_at: receipt.next_retry_at
+        }
+      : {
+          alert_status: "terminal_failure",
+          alert_sent_at: "",
+          alert_provider_reference: "",
+          alert_error_category: receipt.error_category,
+          alert_error_summary: receipt.error_summary,
+          alert_next_retry_at: ""
+        };
+  const common = {
+    alert_idempotency_key: receipt.idempotency_key,
+    alert_claim_token: "",
+    alert_attempt_count: receipt.attempt_count,
+    alert_last_attempt_at: receipt.attempt_started_at
+  };
+  const expectedFields = { ...common, ...desired };
+  const alreadyPersisted = Object.entries(expectedFields).every(
+    ([field, value]) => String(record[field] ?? "") === String(value ?? "")
+  );
+  let businessUpdate = null;
+  if (!alreadyPersisted) {
+    businessUpdate = {
+      ...record,
+      ...expectedFields,
+      record_version: Number(record.record_version || 0) + 1,
+      updated_at: now
+    };
+    businessUpdate.state_guard = stateGuard(businessUpdate);
+    const updateErrors = validateRecordStoreContract(
+      businessUpdate,
+      store,
+      schema
+    );
+    if (updateErrors.length > 0) {
+      throw new Error(
+        `Receipt reconciliation produced an invalid ${store} update: ${updateErrors.join("; ")}`
+      );
+    }
+  }
+  return {
+    classification: businessUpdate
+      ? "reconcile_business_record"
+      : receipt.status === "delivered"
+        ? "mark_receipt_reconciled"
+        : "business_record_already_reconciled",
+    provider_send: false,
+    owner_store: store,
+    business_update: businessUpdate,
+    receipt_update:
+      receipt.status === "delivered"
+        ? transitionAlertReceipt(
+            receipt,
+            {
+              expectedVersion: receipt.receipt_version,
+              status: "reconciled",
+              now
+            },
+            policy
+          )
+        : null
+  };
+}
+
 export function planDeliveredReceiptReconciliation(
   receiptInput,
   stores,
@@ -765,83 +916,11 @@ export function planDeliveredReceiptReconciliation(
       receipt_update: null
     };
   }
-  const targetStores = ["To Apply", "Applied Jobs", "Archive"];
-  const matches = [];
-  const expectedIdentity = identityKey(receipt.canonical_job_id);
-  for (const store of targetStores) {
-    if (!Array.isArray(stores?.[store])) {
-      throw new Error(`Receipt reconciliation requires ${store} rows`);
-    }
-    for (const record of stores[store]) {
-      if (identityKey(record?.canonical_job_id) === expectedIdentity) {
-        matches.push({ store, record });
-      }
-    }
-  }
-  if (matches.length > 1) {
-    throw new Error("Receipt reconciliation rejected ambiguous canonical ownership");
-  }
-  if (matches.length === 0) {
-    return {
-      classification: "owner_not_found",
-      provider_send: false,
-      business_update: null,
-      receipt_update: null
-    };
-  }
-  const { store, record } = matches[0];
-  const contractErrors = validateRecordStoreContract(record, store, schema);
-  if (contractErrors.length > 0) {
-    throw new Error(
-      `Receipt reconciliation rejected invalid ${store} record: ${contractErrors.join("; ")}`
-    );
-  }
-  if (record.alert_idempotency_key !== receipt.idempotency_key) {
-    throw new Error("Receipt reconciliation rejected a stale idempotency key");
-  }
-  let businessUpdate = null;
-  if (
-    record.alert_status !== "sent" ||
-    record.alert_idempotency_key !== receipt.idempotency_key
-  ) {
-    businessUpdate = {
-      ...record,
-      alert_status: "sent",
-      alert_idempotency_key: receipt.idempotency_key,
-      alert_claim_token: "",
-      alert_sent_at: receipt.delivered_at,
-      alert_provider_reference: receipt.provider_reference,
-      alert_error_category: "",
-      alert_error_summary: "",
-      alert_next_retry_at: "",
-      record_version: Number(record.record_version || 0) + 1,
-      updated_at: now
-    };
-    businessUpdate.state_guard = stateGuard(businessUpdate);
-    const updateErrors = validateRecordStoreContract(
-      businessUpdate,
-      store,
-      schema
-    );
-    if (updateErrors.length > 0) {
-      throw new Error(
-        `Receipt reconciliation produced an invalid ${store} update: ${updateErrors.join("; ")}`
-      );
-    }
-  }
-  return {
-    classification: businessUpdate ? "reconcile_business_record" : "mark_receipt_reconciled",
-    provider_send: false,
-    owner_store: store,
-    business_update: businessUpdate,
-    receipt_update: transitionAlertReceipt(
-      receipt,
-      {
-        expectedVersion: receipt.receipt_version,
-        status: "reconciled",
-        now
-      },
-      policy
-    )
-  };
+  return planAlertReceiptBusinessReconciliation(
+    receipt,
+    stores,
+    schema,
+    policy,
+    now
+  );
 }

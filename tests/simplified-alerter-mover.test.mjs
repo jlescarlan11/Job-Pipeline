@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   applySlackProviderResult,
+  evaluateProviderCommitHeadroom,
   markAlertSending,
   planAlerterMoverPhases,
   planAlerterMoverRun,
@@ -242,11 +243,13 @@ test("phase planning short-circuits idle stores with explicit counts", () => {
   assert.deepEqual(plan.status_counts["Scraped Jobs"], { new: 1 });
   const summary = summarizeAlerterMoverRun({
     plan,
-    sheetReadRequests: 1
+    sheetReadRequests: 1,
+    providerClassifications: ["accepted", "accepted"]
   });
   assert.equal(summary.execution_classification, "no_eligible_work");
   assert.equal(summary.sheet_read_request_count, 1);
   assert.ok(summary.sheet_read_request_count <= 2);
+  assert.deepEqual(summary.provider_classifications, ["accepted"]);
 });
 
 test("movement phases identify only touched stores and retain the six-read budget", () => {
@@ -486,4 +489,33 @@ test("unsafe To Apply or source links are rendered as unavailable", () => {
   assert.match(payload.text, /To Apply: unavailable/);
   assert.equal(payload.review_action.url, "");
   assert.equal(payload.source_action.mode, "open_only");
+});
+
+test("provider headroom fails closed before Slack when the commit window is too small", () => {
+  const available = evaluateProviderCommitHeadroom({
+    executionStartedAt: "2026-08-02T06:00:00.000Z",
+    now: "2026-08-02T06:02:00.000Z",
+    executionTimeoutSeconds: 300,
+    minimumHeadroomMs: 150000
+  });
+  assert.equal(available.eligible, true);
+  assert.equal(available.remaining_ms, 180000);
+  const insufficient = evaluateProviderCommitHeadroom({
+    executionStartedAt: "2026-08-02T06:00:00.000Z",
+    now: "2026-08-02T06:03:00.001Z",
+    executionTimeoutSeconds: 300,
+    minimumHeadroomMs: 120000
+  });
+  assert.equal(insufficient.eligible, false);
+  assert.equal(insufficient.classification, "insufficient_provider_headroom");
+  assert.throws(
+    () =>
+      evaluateProviderCommitHeadroom({
+        executionStartedAt: "invalid",
+        now: "2026-08-02T06:00:00.000Z",
+        executionTimeoutSeconds: 300,
+        minimumHeadroomMs: 120000
+      }),
+    /ordered ISO timestamps/
+  );
 });

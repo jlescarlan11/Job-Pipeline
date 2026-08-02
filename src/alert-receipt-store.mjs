@@ -22,7 +22,7 @@ function assertBackend(backend) {
   }
 }
 
-function assertValid(receipt, policy, prefix) {
+function assertValidStoredReceipt(receipt, policy, prefix) {
   const errors = validateAlertReceipt(receipt, policy);
   if (errors.length > 0) {
     throw new Error(`${prefix}: ${errors.join("; ")}`);
@@ -54,7 +54,7 @@ export function createAlertReceiptPersistenceAdapter(backend, policy) {
     }
     if (rows.length === 0) return null;
     const receipt = normalizeAlertReceipt(rows[0], policy);
-    assertValid(receipt, policy, "Receipt backend returned invalid data");
+    assertValidStoredReceipt(receipt, policy, "Receipt backend returned invalid data");
     return receipt;
   };
   return {
@@ -62,7 +62,7 @@ export function createAlertReceiptPersistenceAdapter(backend, policy) {
 
     async create(receiptInput) {
       const receipt = normalizeAlertReceipt(receiptInput, policy);
-      assertValid(receipt, policy, "Refusing to create invalid receipt");
+      assertValidStoredReceipt(receipt, policy, "Refusing to create invalid receipt");
       const current = await get(receipt.receipt_id);
       if (current) {
         if (
@@ -136,7 +136,11 @@ export function createAlertReceiptPersistenceAdapter(backend, policy) {
       const receipts = rows.map((row) => normalizeAlertReceipt(row, policy));
       const identities = new Set();
       for (const receipt of receipts) {
-        assertValid(receipt, policy, "Receipt backend returned invalid delivered data");
+        assertValidStoredReceipt(
+          receipt,
+          policy,
+          "Receipt backend returned invalid delivered data"
+        );
         if (receipt.status !== "delivered") {
           throw new Error("Receipt backend delivered query returned another status");
         }

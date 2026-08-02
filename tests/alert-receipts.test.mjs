@@ -13,6 +13,7 @@ import {
   alertReceiptPersistenceRow,
   applyProviderResultToAlertReceipt,
   createPendingAlertReceipt,
+  planAlertReceiptBusinessReconciliation,
   planDeliveredReceiptReconciliation,
   transitionAlertReceipt,
   validateAlertReceipt,
@@ -633,6 +634,172 @@ test("reconciled and legacy receipt planning are idempotent and mutation-free", 
       receipt_update: null
     }
   );
+});
+
+test("definite provider outcomes reconcile business state without provider replay", () => {
+  const pending = createPendingAlertReceipt(
+    {
+      idempotencyKey: key,
+      canonicalJobId: "onlinejobs.ph:6101",
+      executionId: "execution-1",
+      now
+    },
+    policy
+  );
+  const sending = transitionAlertReceipt(
+    pending,
+    { expectedVersion: 1, status: "sending", now: later },
+    policy
+  );
+  const retryable = applyProviderResultToAlertReceipt(
+    sending,
+    { statusCode: 429 },
+    { expectedVersion: 2, retryAt, now: providerAt },
+    policy
+  );
+  const retryPlan = planAlertReceiptBusinessReconciliation(
+    retryable,
+    stores({
+      "To Apply": [
+        readyRecord(6101, { alert_sent_at: "2026-08-02T05:30:00.000Z" })
+      ]
+    }),
+    schema,
+    policy,
+    "2026-08-02T06:03:00.000Z"
+  );
+  assert.equal(retryPlan.provider_send, false);
+  assert.equal(retryPlan.business_update.alert_status, "retryable_failure");
+  assert.equal(retryPlan.business_update.alert_sent_at, "");
+  assert.equal(retryPlan.business_update.alert_next_retry_at, retryAt);
+  assert.equal(retryPlan.receipt_update, null);
+  assert.equal(
+    planAlertReceiptBusinessReconciliation(
+      retryable,
+      stores({ "To Apply": [retryPlan.business_update] }),
+      schema,
+      policy,
+      "2026-08-02T06:04:00.000Z"
+    ).classification,
+    "business_record_already_reconciled"
+  );
+
+  const ambiguous = applyProviderResultToAlertReceipt(
+    sending,
+    { error: { message: "unknown connection result" } },
+    { expectedVersion: 2, now: providerAt },
+    policy
+  );
+  const terminalPlan = planAlertReceiptBusinessReconciliation(
+    ambiguous,
+    stores({ Archive: [movedRecord("Archive")] }),
+    schema,
+    policy,
+    "2026-08-02T06:03:00.000Z"
+  );
+  assert.equal(terminalPlan.owner_store, "Archive");
+  assert.equal(terminalPlan.business_update.alert_status, "terminal_failure");
+  assert.equal(terminalPlan.business_update.alert_sent_at, "");
+  assert.equal(
+    terminalPlan.business_update.alert_error_category,
+    "ambiguous_delivery"
+  );
+  assert.equal(terminalPlan.provider_send, false);
+
+  const rejected = applyProviderResultToAlertReceipt(
+    sending,
+    { statusCode: 400 },
+    { expectedVersion: 2, now: providerAt },
+    policy
+  );
+  const rejectedPlan = planAlertReceiptBusinessReconciliation(
+    rejected,
+    stores({ "Applied Jobs": [movedRecord("Applied Jobs")] }),
+    schema,
+    policy,
+    "2026-08-02T06:03:00.000Z"
+  );
+  assert.equal(rejectedPlan.owner_store, "Applied Jobs");
+  assert.equal(rejectedPlan.business_update.alert_status, "terminal_failure");
+  assert.equal(
+    rejectedPlan.business_update.alert_error_category,
+    "provider_rejected"
+  );
+  assert.equal(rejectedPlan.provider_send, false);
+});
+
+test("Slack 2xx survives a failed Sheet commit and restart without provider replay", async () => {
+  const backend = new MemoryBackend();
+  let adapter = createAlertReceiptPersistenceAdapter(backend, policy);
+  const pending = createPendingAlertReceipt(
+    {
+      idempotencyKey: key,
+      canonicalJobId: "onlinejobs.ph:6101",
+      executionId: "execution-1",
+      now
+    },
+    policy
+  );
+  await adapter.create(pending);
+  const sending = await adapter.transition(key, {
+    expectedVersion: 1,
+    status: "sending",
+    now: later
+  });
+  let providerCalls = 0;
+  providerCalls += 1;
+  const delivered = await adapter.transition(key, {
+    expectedVersion: sending.receipt_version,
+    status: "delivered",
+    providerStatus: 200,
+    providerReference: "slack-ts-1",
+    now: providerAt
+  });
+
+  const beforeFailedSheetCommit = stores({ "To Apply": [readyRecord()] });
+  const firstPlan = planAlertReceiptBusinessReconciliation(
+    delivered,
+    beforeFailedSheetCommit,
+    schema,
+    policy,
+    "2026-08-02T06:03:00.000Z"
+  );
+  assert.equal(firstPlan.provider_send, false);
+  assert.equal(firstPlan.business_update.alert_status, "sent");
+
+  // Simulate the observed boundary: receipt commit succeeded, Sheet commit did not.
+  adapter = createAlertReceiptPersistenceAdapter(backend, policy);
+  const recovered = await adapter.get(key);
+  assert.equal(recovered.status, "delivered");
+  const recoveryPlan = planAlertReceiptBusinessReconciliation(
+    recovered,
+    beforeFailedSheetCommit,
+    schema,
+    policy,
+    "2026-08-02T06:04:00.000Z"
+  );
+  assert.equal(recoveryPlan.provider_send, false);
+  assert.equal(providerCalls, 1);
+
+  const confirmedBusiness = stores({
+    "To Apply": [recoveryPlan.business_update]
+  });
+  const finalPlan = planAlertReceiptBusinessReconciliation(
+    recovered,
+    confirmedBusiness,
+    schema,
+    policy,
+    "2026-08-02T06:05:00.000Z"
+  );
+  assert.equal(finalPlan.business_update, null);
+  assert.equal(finalPlan.receipt_update.status, "reconciled");
+  const reconciled = await adapter.transition(key, {
+    expectedVersion: recovered.receipt_version,
+    status: "reconciled",
+    now: "2026-08-02T06:05:00.000Z"
+  });
+  assert.equal(reconciled.status, "reconciled");
+  assert.equal(providerCalls, 1);
 });
 
 test("persistence adapter prevents concurrent duplicate creation and stale transitions", async () => {

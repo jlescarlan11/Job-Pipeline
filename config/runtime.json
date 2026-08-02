@@ -35,10 +35,16 @@
   },
   "alerter_mover": {
     "schedule_minutes": 15,
-    "schedule_offset_minutes": 14,
-    "execution_timeout_seconds": 120,
-    "claim_lease_ms": 180000,
+    "schedule_offset_minutes": 10,
+    "execution_timeout_seconds": 300,
+    "claim_lease_ms": 360000,
     "movement_per_run_cap": 25,
-    "alert_per_run_cap": 5
+    "alert_per_run_cap": 5,
+    "minimum_provider_commit_headroom_ms": 150000,
+    "google_sheets_read_retry": {
+      "max_attempts": 2,
+      "backoff_ms": 65000,
+      "quota_window_delay_ms": 65000
+    }
   }
 }

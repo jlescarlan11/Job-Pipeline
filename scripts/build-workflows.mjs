@@ -3,9 +3,12 @@ import { resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
-  validateAlertPolicy
+  validateAlertPolicy,
+  validateAlertRuntimeCapacity
 } from "../src/alerter-mover.mjs";
 import {
+  ALERT_RECEIPT_PERSISTED_FIELDS,
+  alertReceiptDataTableSchema,
   validateAlertReceiptCompatibility,
   validateAlertReceiptPolicy
 } from "../src/alert-receipts.mjs";
@@ -65,7 +68,10 @@ const searchErrors = validateSearchPlan(searchPlan);
 if (searchErrors.length > 0) {
   throw new Error(`Invalid search plan:\n- ${searchErrors.join("\n- ")}`);
 }
-const alertErrors = validateAlertPolicy(alertPolicy);
+const alertErrors = [
+  ...validateAlertPolicy(alertPolicy),
+  ...validateAlertRuntimeCapacity(alertPolicy, runtime.alerter_mover)
+];
 if (alertErrors.length > 0) {
   throw new Error(`Invalid alert policy:\n- ${alertErrors.join("\n- ")}`);
 }
@@ -153,6 +159,8 @@ const alertCore = await bundledCore(
   "src/movement.mjs",
   "src/alerter-mover.mjs"
 );
+const receiptCore = await bundledCore("src/alert-receipts.mjs");
+const alertReceiptCore = `${alertCore}\n${receiptCore}`;
 const sheetOrderCore = await bundledCore("src/sheet-order.mjs");
 const sheetBatchCore = await bundledCore("src/sheet-batch.mjs");
 const contextSources = [
@@ -543,7 +551,8 @@ function readSheet(
   {
     continueOnError = false,
     explicitId,
-    workbookEnvironmentVariable = QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE
+    workbookEnvironmentVariable = QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE,
+    retry = runtime.google_sheets.read_retry
   } = {}
 ) {
   return {
@@ -559,8 +568,8 @@ function readSheet(
     name,
     alwaysOutputData: true,
     retryOnFail: true,
-    maxTries: runtime.google_sheets.read_retry.max_attempts,
-    waitBetweenTries: runtime.google_sheets.read_retry.backoff_ms,
+    maxTries: retry.max_attempts,
+    waitBetweenTries: retry.backoff_ms,
     ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
 }
@@ -572,7 +581,8 @@ function batchReadSheets(
   {
     workbookEnvironmentVariable = QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE,
     urlExpression,
-    continueOnError = false
+    continueOnError = false,
+    retry = runtime.google_sheets.read_retry
   } = {}
 ) {
   const ranges = googleSheetsBatchRanges(sheetNames);
@@ -584,11 +594,82 @@ function batchReadSheets(
   return httpNode(name, position, {
     url,
     timeout: 10000,
-    retry: runtime.google_sheets.read_retry,
+    retry,
     responseFormat: "json",
     continueOnError,
     credentialType: "googleSheetsOAuth2Api"
   });
+}
+
+function dataTableResourceSchema() {
+  const types = new Map(
+    alertReceiptDataTableSchema().map((column) => [column.name, column.type])
+  );
+  return ALERT_RECEIPT_PERSISTED_FIELDS.map((field) => ({
+    id: field,
+    displayName: field,
+    required: false,
+    defaultMatch: false,
+    display: true,
+    type: types.get(field),
+    canBeUsedToMatch: true
+  }));
+}
+
+function dataTableFilter(keyName, keyValue) {
+  return { keyName, condition: "eq", keyValue };
+}
+
+function alertReceiptDataTableNode(
+  name,
+  position,
+  operation,
+  {
+    filters = [],
+    matchType = "allConditions",
+    continueOnError = true,
+    alwaysOutputData = true
+  } = {}
+) {
+  const parameters = {
+    resource: "row",
+    operation,
+    dataTableId: {
+      __rl: true,
+      mode: "id",
+      value: `={{ $env.${alertReceiptPolicy.store.environment_variable} }}`
+    },
+    matchType,
+    filters: { conditions: filters },
+    ...(operation === "get"
+      ? { returnAll: true }
+      : {
+          columns: {
+            mappingMode: "defineBelow",
+            value: Object.fromEntries(
+              ALERT_RECEIPT_PERSISTED_FIELDS.map((field) => [
+                field,
+                sheetExpression(field)
+              ])
+            ),
+            matchingColumns: [],
+            schema: dataTableResourceSchema(),
+            attemptToConvertTypes: false,
+            convertFieldsToString: false
+          },
+          options: {}
+        })
+  };
+  return {
+    parameters,
+    type: "n8n-nodes-base.dataTable",
+    typeVersion: 1.1,
+    position,
+    id: id(),
+    name,
+    ...(alwaysOutputData ? { alwaysOutputData: true } : {}),
+    ...(continueOnError ? { onError: "continueRegularOutput" } : {})
+  };
 }
 
 function writeSheet(
@@ -1964,7 +2045,8 @@ function buildAlerterMover() {
     batchReadSheets(
       "Get Business Snapshot",
       [-5800, 240],
-      schema.business_stores
+      schema.business_stores,
+      { retry: config.google_sheets_read_retry }
     ),
     codeNode(
       "Normalize Business Snapshot",
@@ -1984,8 +2066,418 @@ const stores = Object.fromEntries(
 return [{ json: {
   stores,
   now,
+  execution_started_at: now,
   sheet_read_request_count: 1,
   quota_retry_count: 0
+} }];`
+    ),
+    alertReceiptDataTableNode(
+      "Get Receipt Recovery Snapshot",
+      [-5520, 40],
+      "get"
+    ),
+    codeNode(
+      "Plan Expired Sending Receipts",
+      [-5360, 40],
+      `${alertReceiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const RUNTIME = ${JSON.stringify(config)};
+const snapshot = $('Normalize Business Snapshot').first().json;
+const raw = $input.all().map((item) => item.json || {});
+const nonRows = raw.filter((row) => !row.receipt_id && Object.keys(row).length > 0);
+const rows = raw.filter((row) => row.receipt_id);
+const errors = [];
+const receipts = [];
+const identities = new Set();
+if (nonRows.length) errors.push('receipt_store_read_failed');
+for (const row of rows) {
+  try {
+    const receipt = normalizeAlertReceipt(row, POLICY);
+    const validation = validateAlertReceipt(receipt, POLICY);
+    if (validation.length) throw new Error('invalid receipt');
+    if (identities.has(receipt.receipt_id)) throw new Error('duplicate receipt identity');
+    identities.add(receipt.receipt_id);
+    receipts.push(receipt);
+  } catch (error) {
+    errors.push('receipt_store_invalid');
+  }
+}
+const nowMs = Date.parse(snapshot.now);
+const transitions = [];
+const providerOutcomes = [];
+let activeSending = 0;
+if (!errors.length) {
+  for (const receipt of receipts) {
+    if (receipt.status === 'sending') {
+      const started = Date.parse(receipt.attempt_started_at || '');
+      if (!Number.isFinite(started) || nowMs - started >= RUNTIME.claim_lease_ms) {
+        try {
+          const next = transitionAlertReceipt(receipt, {
+            expectedVersion: receipt.receipt_version,
+            status: 'terminal_ambiguity',
+            providerStatus: 0,
+            errorCategory: 'ambiguous_delivery',
+            now: snapshot.now
+          }, POLICY);
+          transitions.push({ ...alertReceiptPersistenceRow(next, POLICY), expected_receipt_version: receipt.receipt_version });
+        } catch (error) {
+          errors.push('receipt_recovery_transition_invalid');
+        }
+      } else {
+        activeSending += 1;
+      }
+    } else if (['delivered', 'retryable_rejection', 'terminal_rejection', 'terminal_ambiguity'].includes(receipt.status)) {
+      providerOutcomes.push(receipt);
+    }
+  }
+}
+return [{ json: {
+  transitions,
+  provider_outcomes: providerOutcomes,
+  active_sending: activeSending,
+  receipt_store_available: errors.length === 0,
+  error_categories: [...new Set(errors)]
+} }];`
+    ),
+    codeNode(
+      "Prepare Expired Sending Receipt Transitions",
+      [-5200, 40],
+      `const rows = $('Plan Expired Sending Receipts').first().json.transitions || [];
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Expired Sending Receipt Transitions",
+      [-5040, 40],
+      "={{ $json._noop !== true }}"
+    ),
+    alertReceiptDataTableNode(
+      "CAS Expired Sending Receipts",
+      [-4880, -80],
+      "update",
+      {
+        filters: [
+          dataTableFilter("receipt_id", "={{ $json.receipt_id }}"),
+          dataTableFilter(
+            "receipt_version",
+            "={{ $json.expected_receipt_version }}"
+          )
+        ]
+      }
+    ),
+    aggregateNode(
+      "Aggregate Expired Sending Receipt Transitions",
+      [-4720, -80],
+      "writes"
+    ),
+    alertReceiptDataTableNode(
+      "Verify Receipt Recovery Transitions",
+      [-4560, 40],
+      "get"
+    ),
+    codeNode(
+      "Plan Receipt Business Recovery",
+      [-4400, 40],
+      `${alertReceiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const SCHEMA = ${JSON.stringify(schema)};
+const snapshot = $('Normalize Business Snapshot').first().json;
+const preliminary = $('Plan Expired Sending Receipts').first().json;
+const raw = $input.all().map((item) => item.json || {});
+const rows = raw.filter((row) => row.receipt_id);
+const byId = new Map();
+const errors = [...(preliminary.error_categories || [])];
+for (const row of rows) {
+  try {
+    const receipt = normalizeAlertReceipt(row, POLICY);
+    const validation = validateAlertReceipt(receipt, POLICY);
+    if (validation.length || byId.has(receipt.receipt_id)) throw new Error('invalid receipt snapshot');
+    byId.set(receipt.receipt_id, receipt);
+  } catch (error) {
+    errors.push('receipt_store_invalid');
+  }
+}
+const verifiedExpired = [];
+for (const expected of preliminary.transitions || []) {
+  const actual = byId.get(expected.receipt_id);
+  if (actual && ALERT_RECEIPT_PERSISTED_FIELDS.every((field) => String(actual[field] ?? '') === String(expected[field] ?? ''))) {
+    verifiedExpired.push(actual);
+  } else {
+    errors.push('receipt_recovery_transition_unconfirmed');
+  }
+}
+const outcomes = [...(preliminary.provider_outcomes || []), ...verifiedExpired];
+const plans = [];
+const ownerIdentities = new Set();
+if (!errors.length) {
+  for (const receipt of outcomes) {
+    try {
+      const plan = planAlertReceiptBusinessReconciliation(receipt, snapshot.stores, SCHEMA, POLICY, snapshot.now);
+      if (plan.owner_store && plan.business_update) {
+        const ownerKey = receipt.canonical_job_id.toLocaleLowerCase('en-US');
+        if (ownerIdentities.has(ownerKey)) throw new Error('duplicate recovery owner');
+        ownerIdentities.add(ownerKey);
+      }
+      plans.push({ receipt, ...plan });
+    } catch (error) {
+      errors.push('receipt_business_recovery_blocked');
+    }
+  }
+}
+const updates = plans.filter((plan) => plan.business_update);
+return [{ json: {
+  plans,
+  updates,
+  touched_stores: [...new Set(updates.map((plan) => plan.owner_store))],
+  receipt_store_available: preliminary.receipt_store_available && errors.length === 0,
+  skip_new_alerts: outcomes.length > 0 || preliminary.active_sending > 0 || errors.length > 0,
+  error_categories: [...new Set(errors)]
+} }];`
+    ),
+    codeNode(
+      "Prepare Recovery To Apply Updates",
+      [-4240, 40],
+      `const rows = ($('Plan Receipt Business Recovery').first().json.updates || [])
+  .filter((plan) => plan.owner_store === 'To Apply')
+  .map((plan) => plan.business_update);
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Recovery To Apply Updates",
+      [-4080, 40],
+      "={{ $json._noop !== true }}"
+    ),
+    writeSheet(
+      "Persist Recovery To Apply Updates",
+      [-3920, -80],
+      toApply,
+      "update",
+      alertStateFields,
+      ["canonical_job_id"],
+      { continueOnError: true }
+    ),
+    aggregateNode(
+      "Aggregate Recovery To Apply Updates",
+      [-3760, -80],
+      "writes"
+    ),
+    codeNode(
+      "Prepare Recovery Applied Updates",
+      [-3600, 40],
+      `const rows = ($('Plan Receipt Business Recovery').first().json.updates || [])
+  .filter((plan) => plan.owner_store === 'Applied Jobs')
+  .map((plan) => plan.business_update);
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Recovery Applied Updates",
+      [-3440, 40],
+      "={{ $json._noop !== true }}"
+    ),
+    writeSheet(
+      "Persist Recovery Applied Updates",
+      [-3280, -80],
+      applied,
+      "update",
+      alertStateFields,
+      ["canonical_job_id"],
+      { continueOnError: true }
+    ),
+    aggregateNode(
+      "Aggregate Recovery Applied Updates",
+      [-3120, -80],
+      "writes"
+    ),
+    codeNode(
+      "Prepare Recovery Archive Updates",
+      [-2960, 40],
+      `const rows = ($('Plan Receipt Business Recovery').first().json.updates || [])
+  .filter((plan) => plan.owner_store === 'Archive')
+  .map((plan) => plan.business_update);
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Recovery Archive Updates",
+      [-2800, 40],
+      "={{ $json._noop !== true }}"
+    ),
+    writeSheet(
+      "Persist Recovery Archive Updates",
+      [-2640, -80],
+      archive,
+      "update",
+      alertStateFields,
+      ["canonical_job_id"],
+      { continueOnError: true }
+    ),
+    aggregateNode(
+      "Aggregate Recovery Archive Updates",
+      [-2480, -80],
+      "writes"
+    ),
+    ifNode(
+      "Has Recovery Business Updates",
+      [-2320, 40],
+      "={{ $('Plan Receipt Business Recovery').first().json.updates.length > 0 }}"
+    ),
+    batchReadSheets(
+      "Get Recovery Business Confirmation",
+      [-2160, -80],
+      [toApply, applied, archive],
+      {
+        retry: config.google_sheets_read_retry,
+        continueOnError: true,
+        urlExpression: `={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE} + '/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&' + $('Plan Receipt Business Recovery').first().json.touched_stores.map((sheet) => 'ranges=' + encodeURIComponent("'" + sheet.replace(/'/g, "''") + "'")).join('&') }}`
+      }
+    ),
+    codeNode(
+      "Confirm Receipt Business Recovery",
+      [-2000, -80],
+      `${sheetBatchCore}
+${alertReceiptCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const ALERT_STATE_FIELDS = ${JSON.stringify(alertStateFields)};
+const snapshot = $('Normalize Business Snapshot').first().json;
+const recovery = $('Plan Receipt Business Recovery').first().json;
+if (!Array.isArray($json.valueRanges)) {
+  return [{ json: {
+    stores: snapshot.stores,
+    confirmed: (recovery.plans || []).filter((plan) => !plan.business_update),
+    error_categories: [...new Set([...(recovery.error_categories || []), 'receipt_business_confirmation_read_failed'])],
+    sheet_read_request_count: Number(snapshot.sheet_read_request_count || 1) + 1,
+    quota_retry_count: Number(snapshot.quota_retry_count || 0) + 1
+  } }];
+}
+const definitions = ${JSON.stringify(businessDefinitions)}.filter((entry) => recovery.touched_stores.includes(entry.name));
+const parsed = parseBatchSheetRows($json, definitions);
+const stores = { ...snapshot.stores };
+for (const definition of definitions) {
+  stores[definition.name] = parsed[definition.name].map((row) => normalizeLegacyRecord(row, SCHEMA, snapshot.now));
+}
+const confirmed = [];
+const errors = [...(recovery.error_categories || [])];
+for (const plan of recovery.plans || []) {
+  if (!plan.business_update) {
+    confirmed.push(plan);
+    continue;
+  }
+  const matches = (stores[plan.owner_store] || []).filter((row) => row.canonical_job_id === plan.business_update.canonical_job_id);
+  if (matches.length === 1 && ALERT_STATE_FIELDS.every((field) => String(matches[0][field] ?? '') === String(plan.business_update[field] ?? ''))) {
+    confirmed.push(plan);
+  } else {
+    errors.push('receipt_business_recovery_unconfirmed');
+  }
+}
+return [{ json: {
+  stores,
+  confirmed,
+  error_categories: [...new Set(errors)],
+  sheet_read_request_count: Number(snapshot.sheet_read_request_count || 1) + 1,
+  quota_retry_count: Number(snapshot.quota_retry_count || 0)
+} }];`
+    ),
+    codeNode(
+      "Use Unchanged Recovery Snapshot",
+      [-2000, 120],
+      `const snapshot = $('Normalize Business Snapshot').first().json;
+const recovery = $('Plan Receipt Business Recovery').first().json;
+return [{ json: {
+  stores: snapshot.stores,
+  confirmed: recovery.plans || [],
+  error_categories: recovery.error_categories || [],
+  sheet_read_request_count: snapshot.sheet_read_request_count,
+  quota_retry_count: snapshot.quota_retry_count
+} }];`
+    ),
+    codeNode(
+      "Prepare Delivered Receipt Reconciliation",
+      [-1840, 40],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const rows = ($json.confirmed || []).flatMap((plan) => {
+  if (!plan.receipt_update) return [];
+  return [{
+    ...alertReceiptPersistenceRow(plan.receipt_update, POLICY),
+    expected_receipt_version: plan.receipt.receipt_version
+  }];
+});
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Delivered Receipt Reconciliation",
+      [-1680, 40],
+      "={{ $json._noop !== true }}"
+    ),
+    alertReceiptDataTableNode(
+      "CAS Delivered Receipt Reconciliation",
+      [-1520, -80],
+      "update",
+      {
+        filters: [
+          dataTableFilter("receipt_id", "={{ $json.receipt_id }}"),
+          dataTableFilter("receipt_version", "={{ $json.expected_receipt_version }}")
+        ]
+      }
+    ),
+    aggregateNode(
+      "Aggregate Delivered Receipt Reconciliation",
+      [-1360, -80],
+      "writes"
+    ),
+    alertReceiptDataTableNode(
+      "Verify Delivered Receipt Reconciliation",
+      [-1200, 40],
+      "get"
+    ),
+    codeNode(
+      "Finalize Receipt Recovery",
+      [-1040, 40],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const base = (() => {
+  try { return $('Confirm Receipt Business Recovery').first().json; }
+  catch { return $('Use Unchanged Recovery Snapshot').first().json; }
+})();
+const preliminary = $('Plan Expired Sending Receipts').first().json;
+const recovery = $('Plan Receipt Business Recovery').first().json;
+const expected = (() => {
+  try {
+    return $('Prepare Delivered Receipt Reconciliation').all().map((item) => item.json).filter((row) => row._noop !== true);
+  } catch { return []; }
+})();
+const actualRows = $input.all().map((item) => item.json || {}).filter((row) => row.receipt_id);
+const errors = [...(base.error_categories || [])];
+if (expected.length) {
+  const byId = new Map();
+  for (const row of actualRows) {
+    try {
+      const receipt = normalizeAlertReceipt(row, POLICY);
+      if (validateAlertReceipt(receipt, POLICY).length || byId.has(receipt.receipt_id)) throw new Error('invalid');
+      byId.set(receipt.receipt_id, receipt);
+    } catch { errors.push('receipt_reconciliation_verification_failed'); }
+  }
+  for (const wanted of expected) {
+    const actual = byId.get(wanted.receipt_id);
+    if (!actual || !ALERT_RECEIPT_PERSISTED_FIELDS.every((field) => String(actual[field] ?? '') === String(wanted[field] ?? ''))) {
+      errors.push('receipt_reconciliation_unconfirmed');
+    }
+  }
+}
+return [{ json: {
+  ...base,
+  now: $('Normalize Business Snapshot').first().json.now,
+  execution_started_at: $('Normalize Business Snapshot').first().json.execution_started_at,
+  receipt_store_available: recovery.receipt_store_available && errors.length === 0,
+  skip_new_alerts: recovery.skip_new_alerts,
+  recovery_counts: {
+    examined: (recovery.plans || []).length,
+    delivered: (recovery.plans || []).filter((plan) => plan.receipt?.status === 'delivered').length,
+    reconciled: expected.length,
+    retryable: (recovery.plans || []).filter((plan) => plan.receipt?.status === 'retryable_rejection').length,
+    terminal: (recovery.plans || []).filter((plan) => ['terminal_rejection', 'terminal_ambiguity'].includes(plan.receipt?.status)).length
+  },
+  provider_classifications: [...new Set((recovery.plans || []).map((plan) => plan.receipt?.provider_classification).filter(Boolean))],
+  error_categories: [...new Set(errors)]
 } }];`
     ),
     codeNode(
@@ -1995,7 +2487,7 @@ return [{ json: {
 const SCHEMA = ${JSON.stringify(schema)};
 const POLICY = ${JSON.stringify(alertPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
-const snapshot = $('Normalize Business Snapshot').first().json;
+const snapshot = $('Finalize Receipt Recovery').first().json;
 const plan = planAlerterMoverPhases(
   snapshot.stores,
   SCHEMA,
@@ -2015,6 +2507,12 @@ return [{ json: {
   ...plan,
   stores: snapshot.stores,
   now: snapshot.now,
+  execution_started_at: snapshot.execution_started_at,
+  receipt_store_available: snapshot.receipt_store_available,
+  skip_new_alerts: snapshot.skip_new_alerts,
+  recovery_counts: snapshot.recovery_counts,
+  provider_classifications: snapshot.provider_classifications,
+  error_categories: snapshot.error_categories,
   sheet_read_request_count: snapshot.sheet_read_request_count,
   quota_retry_count: snapshot.quota_retry_count
 } }];`
@@ -2030,12 +2528,59 @@ return [{ json: {
       `${alertCore}
 const plan = $('Plan Independent Moves').first().json;
 const current = $json || {};
+const all = (name) => {
+  try { return $(name).all().map((item) => item.json || {}); }
+  catch { return []; }
+};
+const first = (name) => all(name)[0] || {};
+const ran = (name) => all(name).length > 0;
+const finalDelivery = first('Finalize Alert Delivery Results');
+const recovery = plan.recovery_counts || {};
+const currentAlerts = finalDelivery.alerts || current.alerts || {};
+const alerts = {
+  selected: Number(currentAlerts.selected || 0),
+  delivered: Number(currentAlerts.delivered || 0) + Number(recovery.delivered || 0),
+  reconciled: Number(currentAlerts.reconciled || 0) + Number(recovery.reconciled || 0),
+  retryable: Number(currentAlerts.retryable || 0) + Number(recovery.retryable || 0),
+  terminal: Number(currentAlerts.terminal || 0) + Number(recovery.terminal || 0)
+};
+const readNodes = [
+  'Get Business Snapshot',
+  'Get Recovery Business Confirmation',
+  'Get System Claims',
+  'Get Main Workbook Layout',
+  'Get Touched Business Stores After Copies',
+  'Get Fresh To Apply Snapshot',
+  'Get Alert Configuration Snapshot',
+  'Get Alert System Claims',
+  'Get To Apply After Alert Claims',
+  'Get Alert Owners After Provider',
+  'Get Provider Business Confirmation'
+];
+const observations = [
+  current,
+  plan,
+  first('Evaluate Provider Commit Headroom'),
+  first('Authorize Pending Alert Receipts'),
+  first('Verify Pending Alert Receipts'),
+  first('Verify Sending Alert Receipts'),
+  first('Recheck Provider Commit Headroom'),
+  first('Finalize Provider Receipt Outcomes'),
+  first('Plan Provider Business Reconciliation'),
+  finalDelivery
+];
+const errors = observations.flatMap((entry) => Array.isArray(entry.error_categories) ? entry.error_categories : []);
+const providerClassifications = [
+  ...(plan.provider_classifications || []),
+  ...(finalDelivery.provider_classifications || current.provider_classifications || [])
+];
 const summary = summarizeAlerterMoverRun({
   plan,
-  sheetReadRequests: Number(current.sheet_read_request_count || plan.sheet_read_request_count || 1),
-  quotaRetries: Number(current.quota_retry_count || plan.quota_retry_count || 0),
-  alerts: current.alerts || {},
-  errorCategories: current.error_categories || []
+  sheetReadRequests: readNodes.filter(ran).length,
+  quotaRetries: Math.max(0, ...observations.map((entry) => Number(entry.quota_retry_count || 0))),
+  alerts,
+  errorCategories: errors,
+  providerClassifications
 });
 console.log(JSON.stringify({ event: 'alerter_mover_summary', ...summary }));
 return [{ json: summary }];`
@@ -2093,7 +2638,9 @@ return rows.length
       { continueOnError: true }
     ),
     aggregateNode("Aggregate Movement Claim Writes", [600, 120], "claims"),
-    readSheet("Get System Claims", [800, 240], system),
+    readSheet("Get System Claims", [800, 240], system, {
+      retry: config.google_sheets_read_retry
+    }),
     aggregateNode("Aggregate System Claims", [1000, 240], "system_claims"),
     codeNode(
       "Keep Winning Movement Claims",
@@ -2295,6 +2842,7 @@ return writes.archive.length
       url: `=https://sheets.googleapis.com/v4/spreadsheets/{{$env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE}}}?fields=sheets.properties(sheetId,title,gridProperties(rowCount,columnCount))`,
       timeout: 10000,
       responseFormat: "json",
+      retry: config.google_sheets_read_retry,
       continueOnError: false,
       credentialType: "googleSheetsOAuth2Api"
     }),
@@ -2326,6 +2874,7 @@ return [{ json: { requests } }];`
       [3500, 360],
       schema.business_stores,
       {
+        retry: config.google_sheets_read_retry,
         urlExpression: `={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE} + '/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&' + $('Plan Independent Moves').first().json.touched_sheets.map((sheet) => 'ranges=' + encodeURIComponent("'" + sheet.replace(/'/g, "''") + "'")).join('&') }}`
       }
     ),
@@ -2475,7 +3024,8 @@ return [{ json: {
     batchReadSheets(
       "Get Fresh To Apply Snapshot",
       [5900, 300],
-      [toApply]
+      [toApply],
+      { retry: config.google_sheets_read_retry }
     ),
     codeNode(
       "Normalize Fresh To Apply Snapshot",
@@ -2513,10 +3063,14 @@ const selected = preselectPersistedAlertCandidates(
   ${JSON.stringify(alertPolicy)},
   new Date().toISOString()
 );
+const plan = $('Plan Independent Moves').first().json;
+const providerBlocked = plan.skip_new_alerts === true || plan.receipt_store_available !== true;
 return [{ json: {
   ...$json,
   potential_alerts: selected,
-  has_potential_alerts: selected.candidates.length > 0
+  has_potential_alerts: selected.candidates.length > 0 && !providerBlocked,
+  provider_blocked: providerBlocked,
+  error_categories: plan.error_categories || []
 } }];`
     ),
     ifNode(
@@ -2528,7 +3082,10 @@ return [{ json: {
       "Get Alert Configuration Snapshot",
       [6700, 300],
       contextSources.map(([, sheetKey]) => review.sheets[sheetKey].name),
-      { workbookEnvironmentVariable: CONFIG_WORKBOOK_ENVIRONMENT_VARIABLE }
+      {
+        workbookEnvironmentVariable: CONFIG_WORKBOOK_ENVIRONMENT_VARIABLE,
+        retry: config.google_sheets_read_retry
+      }
     ),
     codeNode(
       "Compile Alert Configuration",
@@ -2638,7 +3195,9 @@ return rows.length
       { continueOnError: true }
     ),
     aggregateNode("Aggregate Alert Claim Writes", [7000, 120], "claims"),
-    readSheet("Get Alert System Claims", [7200, 240], system),
+    readSheet("Get Alert System Claims", [7200, 240], system, {
+      retry: config.google_sheets_read_retry
+    }),
     aggregateNode(
       "Aggregate Alert System Claims",
       [7400, 240],
@@ -2661,20 +3220,303 @@ return [{ json: {
 } }];`
     ),
     codeNode(
+      "Evaluate Provider Commit Headroom",
+      [7740, 40],
+      `${alertCore}
+const RUNTIME = ${JSON.stringify(config)};
+const plan = $('Plan Independent Moves').first().json;
+const candidates = $('Keep Winning Alert Claims').first().json.candidates || [];
+const gate = evaluateProviderCommitHeadroom({
+  executionStartedAt: plan.execution_started_at,
+  now: new Date().toISOString(),
+  executionTimeoutSeconds: RUNTIME.execution_timeout_seconds,
+  minimumHeadroomMs: RUNTIME.minimum_provider_commit_headroom_ms
+});
+const errors = [...(plan.error_categories || [])];
+if (candidates.length && !gate.eligible) errors.push(gate.classification);
+if (candidates.length && plan.receipt_store_available !== true) errors.push('receipt_store_unavailable');
+return [{ json: {
+  candidates,
+  gate,
+  authorized: candidates.length > 0 && gate.eligible && plan.receipt_store_available === true && plan.skip_new_alerts !== true,
+  error_categories: [...new Set(errors)]
+} }];`
+    ),
+    ifNode(
+      "Has Provider Commit Headroom",
+      [7900, 40],
+      "={{ $json.authorized === true }}"
+    ),
+    alertReceiptDataTableNode(
+      "Get Alert Receipt Authorization Snapshot",
+      [8060, -80],
+      "get"
+    ),
+    codeNode(
+      "Authorize Pending Alert Receipts",
+      [8220, -80],
+      `${alertReceiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
+const headroom = $('Evaluate Provider Commit Headroom').first().json;
+const now = new Date().toISOString();
+const raw = $input.all().map((item) => item.json || {});
+const nonRows = raw.filter((row) => !row.receipt_id && Object.keys(row).length > 0);
+const errors = [...(headroom.error_categories || [])];
+if (nonRows.length) errors.push('receipt_store_read_failed');
+const byId = new Map();
+for (const row of raw.filter((entry) => entry.receipt_id)) {
+  try {
+    const receipt = normalizeAlertReceipt(row, POLICY);
+    if (validateAlertReceipt(receipt, POLICY).length || byId.has(receipt.receipt_id)) throw new Error('invalid receipt');
+    byId.set(receipt.receipt_id, receipt);
+  } catch (error) {
+    errors.push('receipt_store_invalid');
+  }
+}
+const newReceipts = [];
+const retryReceipts = [];
+const expectedPending = [];
+const candidateByReceipt = {};
+if (!errors.length) {
+  for (const record of headroom.candidates || []) {
+    try {
+      const idempotencyKey = alertIdempotencyKey(record, ALERT_POLICY);
+      const receiptId = alertReceiptId(idempotencyKey, POLICY);
+      const current = byId.get(receiptId);
+      let pending;
+      if (!current) {
+        pending = createPendingAlertReceipt({
+          idempotencyKey,
+          canonicalJobId: record.canonical_job_id,
+          executionId: String($execution.id),
+          attemptCount: Number(record.alert_attempt_count || 0) + 1,
+          now
+        }, POLICY);
+        newReceipts.push(alertReceiptPersistenceRow(pending, POLICY));
+      } else {
+        if (current.idempotency_key !== idempotencyKey || current.canonical_job_id !== record.canonical_job_id) {
+          throw new Error('receipt identity conflict');
+        }
+        if (current.status === 'pending') {
+          pending = current;
+        } else if (current.status === 'retryable_rejection' && Date.parse(current.next_retry_at || '') <= Date.parse(now)) {
+          pending = transitionAlertReceipt(current, {
+            expectedVersion: current.receipt_version,
+            status: 'pending',
+            executionId: String($execution.id),
+            now
+          }, POLICY);
+          retryReceipts.push({
+            ...alertReceiptPersistenceRow(pending, POLICY),
+            expected_receipt_version: current.receipt_version
+          });
+        } else {
+          continue;
+        }
+      }
+      if (pending.attempt_count !== Number(record.alert_attempt_count || 0) + 1) {
+        throw new Error('receipt attempt does not match business state');
+      }
+      expectedPending.push(alertReceiptPersistenceRow(pending, POLICY));
+      candidateByReceipt[pending.receipt_id] = record;
+    } catch (error) {
+      errors.push('receipt_authorization_rejected');
+    }
+  }
+}
+return [{ json: {
+  new_receipts: errors.length ? [] : newReceipts,
+  retry_receipts: errors.length ? [] : retryReceipts,
+  expected_pending: errors.length ? [] : expectedPending,
+  candidate_by_receipt: errors.length ? {} : candidateByReceipt,
+  receipt_store_available: errors.length === 0,
+  error_categories: [...new Set(errors)]
+} }];`
+    ),
+    codeNode(
+      "Prepare New Pending Receipts",
+      [8380, -80],
+      `const rows = $('Authorize Pending Alert Receipts').first().json.new_receipts || [];
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has New Pending Receipts",
+      [8540, -80],
+      "={{ $json._noop !== true }}"
+    ),
+    alertReceiptDataTableNode(
+      "Upsert New Pending Receipts",
+      [8700, -200],
+      "upsert",
+      {
+        filters: [dataTableFilter("receipt_id", "={{ $json.receipt_id }}")]
+      }
+    ),
+    aggregateNode(
+      "Aggregate New Pending Receipts",
+      [8860, -200],
+      "writes"
+    ),
+    codeNode(
+      "Prepare Retry Pending Receipts",
+      [9020, -80],
+      `const rows = $('Authorize Pending Alert Receipts').first().json.retry_receipts || [];
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Retry Pending Receipts",
+      [9180, -80],
+      "={{ $json._noop !== true }}"
+    ),
+    alertReceiptDataTableNode(
+      "CAS Retry Pending Receipts",
+      [9340, -200],
+      "update",
+      {
+        filters: [
+          dataTableFilter("receipt_id", "={{ $json.receipt_id }}"),
+          dataTableFilter("receipt_version", "={{ $json.expected_receipt_version }}")
+        ]
+      }
+    ),
+    aggregateNode(
+      "Aggregate Retry Pending Receipts",
+      [9500, -200],
+      "writes"
+    ),
+    alertReceiptDataTableNode(
+      "Verify Pending Alert Receipt Snapshot",
+      [9660, -80],
+      "get"
+    ),
+    codeNode(
+      "Verify Pending Alert Receipts",
+      [9820, -80],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const authorization = $('Authorize Pending Alert Receipts').first().json;
+const errors = [...(authorization.error_categories || [])];
+const byId = new Map();
+for (const row of $input.all().map((item) => item.json || {}).filter((entry) => entry.receipt_id)) {
+  try {
+    const receipt = normalizeAlertReceipt(row, POLICY);
+    if (validateAlertReceipt(receipt, POLICY).length || byId.has(receipt.receipt_id)) throw new Error('invalid');
+    byId.set(receipt.receipt_id, receipt);
+  } catch { errors.push('receipt_pending_verification_failed'); }
+}
+const sendable = [];
+for (const expected of authorization.expected_pending || []) {
+  const actual = byId.get(expected.receipt_id);
+  if (actual && ALERT_RECEIPT_PERSISTED_FIELDS.every((field) => String(actual[field] ?? '') === String(expected[field] ?? ''))) {
+    sendable.push({ receipt: actual, candidate: authorization.candidate_by_receipt[actual.receipt_id] });
+  } else {
+    errors.push('receipt_pending_unconfirmed');
+  }
+}
+return [{ json: {
+  sendable,
+  error_categories: [...new Set(errors)]
+} }];`
+    ),
+    codeNode(
+      "Prepare Sending Receipt Transitions",
+      [9980, -80],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const now = new Date().toISOString();
+const rows = ($('Verify Pending Alert Receipts').first().json.sendable || []).map(({ receipt }) => {
+  const next = transitionAlertReceipt(receipt, {
+    expectedVersion: receipt.receipt_version,
+    status: 'sending',
+    now
+  }, POLICY);
+  return {
+    ...alertReceiptPersistenceRow(next, POLICY),
+    expected_receipt_version: receipt.receipt_version
+  };
+});
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Sending Receipt Transitions",
+      [10140, -80],
+      "={{ $json._noop !== true }}"
+    ),
+    alertReceiptDataTableNode(
+      "CAS Sending Alert Receipts",
+      [10300, -200],
+      "update",
+      {
+        filters: [
+          dataTableFilter("receipt_id", "={{ $json.receipt_id }}"),
+          dataTableFilter("receipt_version", "={{ $json.expected_receipt_version }}")
+        ]
+      }
+    ),
+    aggregateNode(
+      "Aggregate Sending Alert Receipts",
+      [10460, -200],
+      "writes"
+    ),
+    alertReceiptDataTableNode(
+      "Verify Sending Alert Receipt Snapshot",
+      [10620, -80],
+      "get"
+    ),
+    codeNode(
+      "Verify Sending Alert Receipts",
+      [10780, -80],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const pending = $('Verify Pending Alert Receipts').first().json;
+const expected = $('Prepare Sending Receipt Transitions').all().map((item) => item.json).filter((row) => row._noop !== true);
+const candidateByReceipt = Object.fromEntries((pending.sendable || []).map((entry) => [entry.receipt.receipt_id, entry.candidate]));
+const errors = [...(pending.error_categories || [])];
+const byId = new Map();
+for (const row of $input.all().map((item) => item.json || {}).filter((entry) => entry.receipt_id)) {
+  try {
+    const receipt = normalizeAlertReceipt(row, POLICY);
+    if (validateAlertReceipt(receipt, POLICY).length || byId.has(receipt.receipt_id)) throw new Error('invalid');
+    byId.set(receipt.receipt_id, receipt);
+  } catch { errors.push('receipt_sending_verification_failed'); }
+}
+const sendable = [];
+for (const wanted of expected) {
+  const actual = byId.get(wanted.receipt_id);
+  if (actual && ALERT_RECEIPT_PERSISTED_FIELDS.every((field) => String(actual[field] ?? '') === String(wanted[field] ?? ''))) {
+    sendable.push({ receipt: actual, candidate: candidateByReceipt[actual.receipt_id] });
+  } else {
+    errors.push('receipt_sending_unconfirmed');
+  }
+}
+return [{ json: { sendable, error_categories: [...new Set(errors)] } }];`
+    ),
+    codeNode(
       "Prepare Alert Sending States",
       [7800, 240],
       `${alertCore}
 const POLICY = ${JSON.stringify(alertPolicy)};
-const rows = $('Keep Winning Alert Claims').first().json.candidates || [];
-return rows.length
-  ? rows.map((record) => ({
-      json: markAlertSending(
-        record,
-        POLICY,
-        String($execution.id),
-        new Date().toISOString()
-      )
-    }))
+const rows = $('Verify Sending Alert Receipts').first().json.sendable || [];
+const marked = [];
+for (const { candidate, receipt } of rows) {
+  try {
+    const record = markAlertSending(
+      candidate,
+      POLICY,
+      String($execution.id),
+      receipt.attempt_started_at
+    );
+    if (record.alert_idempotency_key !== receipt.idempotency_key ||
+        record.alert_attempt_count !== receipt.attempt_count ||
+        receipt.status !== 'sending') throw new Error('receipt mismatch');
+    marked.push(record);
+  } catch (error) {
+    console.log(JSON.stringify({ event: 'alert_receipt_guard', category: 'sending_state_rejected' }));
+  }
+}
+return marked.length
+  ? marked.map((record) => ({ json: record }))
   : [{ json: { _noop: true } }];`
     ),
     ifNode(
@@ -2692,7 +3534,10 @@ return rows.length
       { continueOnError: true }
     ),
     aggregateNode("Aggregate Alert Sending States", [8400, 240], "claims"),
-    readSheet("Get To Apply After Alert Claims", [8600, 240], toApply),
+    readSheet("Get To Apply After Alert Claims", [8600, 240], toApply, {
+      continueOnError: true,
+      retry: config.google_sheets_read_retry
+    }),
     aggregateNode("Aggregate Fresh Alert Claims", [8800, 240], "to_apply_rows"),
     codeNode(
       "Confirm and Render Alerts",
@@ -2709,21 +3554,33 @@ const proposed = $('Prepare Alert Sending States').all()
 const fresh = ($input.first().json.to_apply_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, ${JSON.stringify(schema)}));
+if (($input.first().json.to_apply_rows || []).some((row) => row?.error)) {
+  return [{ json: { _noop: true, defer_all: true, quota_retry_count: 1, error_categories: ['alert_guard_read_failed'] } }];
+}
 const byId = new Map(fresh.map((row) => [String(row.canonical_job_id).toLowerCase(), row]));
+const receipts = new Map(
+  ($('Verify Sending Alert Receipts').first().json.sendable || [])
+    .map((entry) => [entry.receipt.idempotency_key, entry.receipt])
+);
 const rendered = proposed.flatMap((claim) => {
   try {
     const persisted = byId.get(String(claim.canonical_job_id).toLowerCase());
+    const receipt = receipts.get(claim.alert_idempotency_key);
     if (!persisted ||
+        !receipt ||
         persisted.record_version !== claim.record_version ||
         persisted.state_guard !== claim.state_guard ||
         persisted.alert_status !== 'sending' ||
         persisted.alert_claim_token !== claim.alert_claim_token ||
+        persisted.alert_idempotency_key !== receipt.idempotency_key ||
+        persisted.alert_attempt_count !== receipt.attempt_count ||
+        receipt.status !== 'sending' ||
         persisted.user_action) return [];
     const payload = renderSlackAlert(persisted, POLICY, {
       reviewUrl: $env[POLICY.environment.review_url],
       messageSafetyContext: { profile: PROFILE, applicationPolicy: APPLICATION_POLICY, packPolicy: PACK_POLICY }
     });
-    return [{ json: { claim: persisted, payload } }];
+    return [{ json: { claim: persisted, payload, receipt } }];
   } catch (error) {
     console.log(JSON.stringify({
       event: 'alert_render_rejected',
@@ -2733,11 +3590,65 @@ const rendered = proposed.flatMap((claim) => {
     return [];
   }
 });
-return rendered.length
-  ? rendered
-  : [{ json: { _noop: true } }];`
+if (rendered.length !== proposed.length) {
+  return [{ json: { _noop: true, defer_all: true, error_categories: ['pre_provider_guard_rejected'] } }];
+}
+return rendered.length ? rendered : [{ json: { _noop: true } }];`
+    ),
+    codeNode(
+      "Recheck Provider Commit Headroom",
+      [9160, 240],
+      `${alertCore}
+const RUNTIME = ${JSON.stringify(config)};
+const plan = $('Plan Independent Moves').first().json;
+const gate = evaluateProviderCommitHeadroom({
+  executionStartedAt: plan.execution_started_at,
+  now: new Date().toISOString(),
+  executionTimeoutSeconds: RUNTIME.execution_timeout_seconds,
+  minimumHeadroomMs: RUNTIME.minimum_provider_commit_headroom_ms
+});
+const input = $input.all().map((item) => item.json);
+const rows = input.filter((row) => row._noop !== true);
+const inputErrors = input.flatMap((row) => row.error_categories || []);
+if (!gate.eligible) {
+  console.log(JSON.stringify({ event: 'provider_headroom', category: gate.classification }));
+  return [{ json: { _noop: true, error_categories: [...new Set([...inputErrors, gate.classification])] } }];
+}
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true, error_categories: inputErrors } }];`
     ),
     ifNode("Has Provider Alerts", [9200, 240], "={{ $json._noop !== true }}"),
+    codeNode(
+      "Prepare Unsent Receipt Deferrals",
+      [9360, 320],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
+const now = new Date().toISOString();
+const rows = ($('Verify Sending Alert Receipts').first().json.sendable || []).map(({ receipt }) => {
+  const retryable = receipt.attempt_count < POLICY.maximum_attempts;
+  const next = transitionAlertReceipt(receipt, {
+    expectedVersion: receipt.receipt_version,
+    status: retryable ? 'retryable_rejection' : 'terminal_rejection',
+    providerStatus: 0,
+    providerClassification: 'retryable_rejection',
+    errorCategory: 'provider_retryable',
+    nextRetryAt: retryable
+      ? new Date(Date.parse(now) + ALERT_POLICY.retry.backoff_ms).toISOString()
+      : '',
+    now
+  }, POLICY);
+  return {
+    ...alertReceiptPersistenceRow(next, POLICY),
+    expected_receipt_version: receipt.receipt_version
+  };
+});
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Unsent Receipt Deferrals",
+      [9520, 320],
+      "={{ $json._noop !== true }}"
+    ),
     httpNode("Send Slack Alert", [9400, 120], {
       url: `={{ $env.${alertPolicy.environment.provider_webhook_url} }}`,
       method: "POST",
@@ -2751,66 +3662,424 @@ return rendered.length
     codeNode(
       "Stage Slack Result",
       [9600, 120],
-      `const request = $('Confirm and Render Alerts').item.json;
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
+const request = $('Recheck Provider Commit Headroom').item.json;
+const now = new Date().toISOString();
+const next = applyProviderResultToAlertReceipt(
+  request.receipt,
+  $json,
+  {
+    expectedVersion: request.receipt.receipt_version,
+    retryAt: new Date(Date.parse(now) + ALERT_POLICY.retry.backoff_ms).toISOString(),
+    now
+  },
+  POLICY
+);
 return { json: {
-  claim: request.claim,
-  provider_result: $json
+  ...alertReceiptPersistenceRow(next, POLICY),
+  expected_receipt_version: request.receipt.receipt_version
 } };`,
       "runOnceForEachItem"
     ),
-    aggregateNode("Aggregate Slack Results", [9800, 120], "results"),
-    readSheet("Get To Apply Before Alert Commit", [10000, 120], toApply),
-    aggregateNode(
-      "Aggregate To Apply Before Alert Commit",
-      [10200, 120],
-      "to_apply_rows"
+    alertReceiptDataTableNode(
+      "CAS Provider Receipt Outcomes",
+      [9760, 120],
+      "update",
+      {
+        filters: [
+          dataTableFilter("receipt_id", "={{ $json.receipt_id }}"),
+          dataTableFilter("receipt_version", "={{ $json.expected_receipt_version }}")
+        ]
+      }
+    ),
+    aggregateNode("Aggregate Provider Receipt Outcomes", [9920, 120], "writes"),
+    alertReceiptDataTableNode(
+      "Verify Provider Receipt Outcome Snapshot",
+      [10080, 120],
+      "get"
     ),
     codeNode(
-      "Guard and Commit Slack Results",
-      [10400, 120],
-      `${alertCore}
-const POLICY = ${JSON.stringify(alertPolicy)};
-const staged = $('Aggregate Slack Results').first().json.results || [];
-const fresh = ($input.first().json.to_apply_rows || [])
-  .filter((row) => row && Object.keys(row).length)
-  .map((row) => normalizeLegacyRecord(row, ${JSON.stringify(schema)}));
-const byId = new Map(fresh.map((row) => [String(row.canonical_job_id).toLowerCase(), row]));
-return staged.flatMap((entry) => {
-  try {
-    const current = byId.get(String(entry.claim.canonical_job_id).toLowerCase());
-    const updated = applySlackProviderResult(
-      current,
-      entry.claim,
-      entry.provider_result,
-      POLICY,
-      new Date().toISOString()
-    );
-    console.log(JSON.stringify({
-      event: 'alert_delivery',
-      canonical_job_id: updated.canonical_job_id,
-      status: updated.alert_status,
-      category: updated.alert_error_category || ''
-    }));
-    return [{ json: updated }];
-  } catch (error) {
-    console.log(JSON.stringify({
-      event: 'alert_delivery',
-      canonical_job_id: entry.claim?.canonical_job_id || '',
-      status: 'commit_rejected',
-      category: 'stale_state'
-    }));
-    return [];
+      "Verify Provider Receipt Outcomes",
+      [10240, 120],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const safeAll = (name) => { try { return $(name).all().map((item) => item.json || {}); } catch { return []; } };
+const expected = [
+  ...safeAll('Stage Slack Result'),
+  ...safeAll('Prepare Unsent Receipt Deferrals').filter((row) => row._noop !== true)
+];
+const requests = safeAll('Recheck Provider Commit Headroom').filter((row) => row._noop !== true);
+for (const entry of $('Verify Sending Alert Receipts').first().json.sendable || []) {
+  if (!requests.some((request) => request.receipt?.receipt_id === entry.receipt.receipt_id)) {
+    requests.push({ receipt: entry.receipt, claim: entry.candidate });
   }
-});`
+}
+const requestById = Object.fromEntries(requests.map((request) => [request.receipt.receipt_id, request]));
+const errors = [...safeAll('Recheck Provider Commit Headroom').flatMap((row) => row.error_categories || [])];
+const byId = new Map();
+for (const row of $input.all().map((item) => item.json || {}).filter((entry) => entry.receipt_id)) {
+  try {
+    const receipt = normalizeAlertReceipt(row, POLICY);
+    if (validateAlertReceipt(receipt, POLICY).length || byId.has(receipt.receipt_id)) throw new Error('invalid');
+    byId.set(receipt.receipt_id, receipt);
+  } catch { errors.push('provider_receipt_snapshot_invalid'); }
+}
+const confirmed = [];
+const fallbacks = [];
+for (const wanted of expected) {
+  const actual = byId.get(wanted.receipt_id);
+  const request = requestById[wanted.receipt_id];
+  if (actual && ALERT_RECEIPT_PERSISTED_FIELDS.every((field) => String(actual[field] ?? '') === String(wanted[field] ?? ''))) {
+    confirmed.push({ receipt: actual, claim: request.claim, receipt_durable: true });
+    continue;
+  }
+  errors.push('provider_receipt_outcome_unconfirmed');
+  try {
+    const current = actual && actual.status === 'sending'
+      ? actual
+      : request.receipt;
+    const fallback = transitionAlertReceipt(current, {
+      expectedVersion: current.receipt_version,
+      status: 'terminal_ambiguity',
+      providerStatus: 0,
+      errorCategory: 'ambiguous_delivery',
+      now: new Date().toISOString()
+    }, POLICY);
+    fallbacks.push({
+      ...alertReceiptPersistenceRow(fallback, POLICY),
+      expected_receipt_version: current.receipt_version,
+      claim: request.claim,
+      can_cas: actual?.status === 'sending' && actual.receipt_version === current.receipt_version
+    });
+  } catch (error) {
+    errors.push('provider_ambiguity_fallback_invalid');
+  }
+}
+return [{ json: {
+  confirmed,
+  fallbacks,
+  error_categories: [...new Set(errors)]
+} }];`
     ),
+    codeNode(
+      "Prepare Provider Ambiguity Fallbacks",
+      [10400, 120],
+      `const rows = ($('Verify Provider Receipt Outcomes').first().json.fallbacks || []).filter((row) => row.can_cas);
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Provider Ambiguity Fallbacks",
+      [10560, 120],
+      "={{ $json._noop !== true }}"
+    ),
+    alertReceiptDataTableNode(
+      "CAS Provider Ambiguity Fallbacks",
+      [10720, 0],
+      "update",
+      {
+        filters: [
+          dataTableFilter("receipt_id", "={{ $json.receipt_id }}"),
+          dataTableFilter("receipt_version", "={{ $json.expected_receipt_version }}")
+        ]
+      }
+    ),
+    aggregateNode(
+      "Aggregate Provider Ambiguity Fallbacks",
+      [10880, 0],
+      "writes"
+    ),
+    alertReceiptDataTableNode(
+      "Verify Provider Ambiguity Snapshot",
+      [11040, 120],
+      "get"
+    ),
+    codeNode(
+      "Finalize Provider Receipt Outcomes",
+      [11200, 120],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const verification = $('Verify Provider Receipt Outcomes').first().json;
+const errors = [...(verification.error_categories || [])];
+const outcomes = [...(verification.confirmed || [])];
+const raw = $input.all().map((item) => item.json || {});
+const byId = new Map();
+for (const row of raw.filter((entry) => entry.receipt_id)) {
+  try {
+    const receipt = normalizeAlertReceipt(row, POLICY);
+    if (validateAlertReceipt(receipt, POLICY).length || byId.has(receipt.receipt_id)) throw new Error('invalid');
+    byId.set(receipt.receipt_id, receipt);
+  } catch { errors.push('provider_ambiguity_snapshot_invalid'); }
+}
+for (const fallback of verification.fallbacks || []) {
+  const actual = byId.get(fallback.receipt_id);
+  const durable = fallback.can_cas && actual && ALERT_RECEIPT_PERSISTED_FIELDS.every((field) => String(actual[field] ?? '') === String(fallback[field] ?? ''));
+  if (!durable) errors.push('provider_ambiguity_receipt_unconfirmed');
+  outcomes.push({
+    receipt: durable ? actual : normalizeAlertReceipt(fallback, POLICY),
+    claim: fallback.claim,
+    receipt_durable: Boolean(durable)
+  });
+}
+console.log(JSON.stringify({
+  event: 'provider_receipt_outcomes',
+  classifications: outcomes.map((entry) => entry.receipt.provider_classification),
+  durable: outcomes.filter((entry) => entry.receipt_durable).length,
+  error_categories: [...new Set(errors)]
+}));
+return [{ json: { outcomes, error_categories: [...new Set(errors)] } }];`
+    ),
+    batchReadSheets(
+      "Get Alert Owners After Provider",
+      [11360, 120],
+      [toApply, applied, archive],
+      {
+        continueOnError: true,
+        retry: config.google_sheets_read_retry
+      }
+    ),
+    codeNode(
+      "Plan Provider Business Reconciliation",
+      [11520, 120],
+      `${sheetBatchCore}
+${alertReceiptCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const final = $('Finalize Provider Receipt Outcomes').first().json;
+if (!Array.isArray($json.valueRanges)) {
+  return [{ json: {
+    stores: Object.fromEntries(SCHEMA.business_stores.map((store) => [store, []])),
+    plans: [],
+    updates: [],
+    touched_stores: [],
+    error_categories: [...new Set([...(final.error_categories || []), 'provider_owner_read_failed'])]
+  } }];
+}
+const parsed = parseBatchSheetRows($json, ${JSON.stringify(
+        businessDefinitions.filter((definition) =>
+          [toApply, applied, archive].includes(definition.name)
+        )
+      )});
+const now = new Date().toISOString();
+const stores = Object.fromEntries(SCHEMA.business_stores.map((store) => [
+  store,
+  (parsed[store] || []).map((row) => normalizeLegacyRecord(row, SCHEMA, now))
+]));
+const plans = [];
+const errors = [...(final.error_categories || [])];
+for (const outcome of final.outcomes || []) {
+  try {
+    const plan = planAlertReceiptBusinessReconciliation(outcome.receipt, stores, SCHEMA, POLICY, now);
+    if (!plan.owner_store) throw new Error('owner unavailable');
+    plans.push({ ...outcome, ...plan });
+  } catch (error) {
+    errors.push('provider_business_reconciliation_blocked');
+  }
+}
+const updates = plans.filter((plan) => plan.business_update);
+return [{ json: {
+  stores,
+  plans,
+  updates,
+  touched_stores: [...new Set(updates.map((plan) => plan.owner_store))],
+  error_categories: [...new Set(errors)]
+} }];`
+    ),
+    codeNode(
+      "Prepare Provider To Apply Updates",
+      [11680, 120],
+      `const rows = ($('Plan Provider Business Reconciliation').first().json.updates || []).filter((plan) => plan.owner_store === 'To Apply').map((plan) => plan.business_update);
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode("Has Provider To Apply Updates", [11840, 120], "={{ $json._noop !== true }}"),
     writeSheet(
-      "Update Alert Results",
-      [10600, 120],
+      "Persist Provider To Apply Updates",
+      [12000, 0],
       toApply,
       "update",
       alertStateFields,
       ["canonical_job_id"],
       { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Provider To Apply Updates", [12160, 0], "writes"),
+    codeNode(
+      "Prepare Provider Applied Updates",
+      [12320, 120],
+      `const rows = ($('Plan Provider Business Reconciliation').first().json.updates || []).filter((plan) => plan.owner_store === 'Applied Jobs').map((plan) => plan.business_update);
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode("Has Provider Applied Updates", [12480, 120], "={{ $json._noop !== true }}"),
+    writeSheet(
+      "Persist Provider Applied Updates",
+      [12640, 0],
+      applied,
+      "update",
+      alertStateFields,
+      ["canonical_job_id"],
+      { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Provider Applied Updates", [12800, 0], "writes"),
+    codeNode(
+      "Prepare Provider Archive Updates",
+      [12960, 120],
+      `const rows = ($('Plan Provider Business Reconciliation').first().json.updates || []).filter((plan) => plan.owner_store === 'Archive').map((plan) => plan.business_update);
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode("Has Provider Archive Updates", [13120, 120], "={{ $json._noop !== true }}"),
+    writeSheet(
+      "Persist Provider Archive Updates",
+      [13280, 0],
+      archive,
+      "update",
+      alertStateFields,
+      ["canonical_job_id"],
+      { continueOnError: true }
+    ),
+    aggregateNode("Aggregate Provider Archive Updates", [13440, 0], "writes"),
+    ifNode(
+      "Has Provider Business Updates",
+      [13600, 120],
+      "={{ $('Plan Provider Business Reconciliation').first().json.updates.length > 0 }}"
+    ),
+    batchReadSheets(
+      "Get Provider Business Confirmation",
+      [13760, 0],
+      [toApply, applied, archive],
+      {
+        retry: config.google_sheets_read_retry,
+        continueOnError: true,
+        urlExpression: `={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE} + '/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&' + $('Plan Provider Business Reconciliation').first().json.touched_stores.map((sheet) => 'ranges=' + encodeURIComponent("'" + sheet.replace(/'/g, "''") + "'")).join('&') }}`
+      }
+    ),
+    codeNode(
+      "Confirm Provider Business Reconciliation",
+      [13920, 0],
+      `${sheetBatchCore}
+${alertCore}
+const SCHEMA = ${JSON.stringify(schema)};
+const ALERT_STATE_FIELDS = ${JSON.stringify(alertStateFields)};
+const planned = $('Plan Provider Business Reconciliation').first().json;
+if (!Array.isArray($json.valueRanges)) {
+  return [{ json: {
+    confirmed: (planned.plans || []).filter((plan) => !plan.business_update),
+    error_categories: [...new Set([...(planned.error_categories || []), 'provider_business_confirmation_read_failed'])],
+    sheet_read_request_count: 10,
+    quota_retry_count: 1
+  } }];
+}
+const definitions = ${JSON.stringify(businessDefinitions)}.filter((entry) => planned.touched_stores.includes(entry.name));
+const parsed = parseBatchSheetRows($json, definitions);
+const stores = { ...planned.stores };
+for (const definition of definitions) {
+  stores[definition.name] = parsed[definition.name].map((row) => normalizeLegacyRecord(row, SCHEMA));
+}
+const confirmed = [];
+const errors = [...(planned.error_categories || [])];
+for (const plan of planned.plans || []) {
+  if (!plan.business_update) { confirmed.push(plan); continue; }
+  const matches = (stores[plan.owner_store] || []).filter((row) => row.canonical_job_id === plan.business_update.canonical_job_id);
+  if (matches.length === 1 && ALERT_STATE_FIELDS.every((field) => String(matches[0][field] ?? '') === String(plan.business_update[field] ?? ''))) confirmed.push(plan);
+  else errors.push('provider_business_reconciliation_unconfirmed');
+}
+return [{ json: {
+  confirmed,
+  error_categories: [...new Set(errors)],
+  sheet_read_request_count: 10,
+  quota_retry_count: 0
+} }];`
+    ),
+    codeNode(
+      "Use Already Reconciled Provider Business",
+      [13920, 200],
+      `const planned = $('Plan Provider Business Reconciliation').first().json;
+return [{ json: {
+  confirmed: planned.plans || [],
+  error_categories: planned.error_categories || [],
+  sheet_read_request_count: 9,
+  quota_retry_count: 0
+} }];`
+    ),
+    codeNode(
+      "Prepare Provider Delivered Reconciliation",
+      [14080, 120],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const rows = ($json.confirmed || []).flatMap((plan) => {
+  if (!plan.receipt_durable || !plan.receipt_update) return [];
+  return [{ ...alertReceiptPersistenceRow(plan.receipt_update, POLICY), expected_receipt_version: plan.receipt.receipt_version }];
+});
+return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true } }];`
+    ),
+    ifNode(
+      "Has Provider Delivered Reconciliation",
+      [14240, 120],
+      "={{ $json._noop !== true }}"
+    ),
+    alertReceiptDataTableNode(
+      "CAS Provider Delivered Reconciliation",
+      [14400, 0],
+      "update",
+      {
+        filters: [
+          dataTableFilter("receipt_id", "={{ $json.receipt_id }}"),
+          dataTableFilter("receipt_version", "={{ $json.expected_receipt_version }}")
+        ]
+      }
+    ),
+    aggregateNode("Aggregate Provider Delivered Reconciliation", [14560, 0], "writes"),
+    alertReceiptDataTableNode(
+      "Verify Provider Delivered Reconciliation",
+      [14720, 120],
+      "get"
+    ),
+    codeNode(
+      "Finalize Alert Delivery Results",
+      [14880, 120],
+      `${receiptCore}
+const POLICY = ${JSON.stringify(alertReceiptPolicy)};
+const base = (() => {
+  try { return $('Confirm Provider Business Reconciliation').first().json; }
+  catch { return $('Use Already Reconciled Provider Business').first().json; }
+})();
+const expected = (() => {
+  try { return $('Prepare Provider Delivered Reconciliation').all().map((item) => item.json).filter((row) => row._noop !== true); }
+  catch { return []; }
+})();
+const errors = [...(base.error_categories || [])];
+let reconciled = 0;
+if (expected.length) {
+  const byId = new Map();
+  for (const row of $input.all().map((item) => item.json || {}).filter((entry) => entry.receipt_id)) {
+    try {
+      const receipt = normalizeAlertReceipt(row, POLICY);
+      if (validateAlertReceipt(receipt, POLICY).length || byId.has(receipt.receipt_id)) throw new Error('invalid');
+      byId.set(receipt.receipt_id, receipt);
+    } catch { errors.push('delivered_receipt_reconciliation_invalid'); }
+  }
+  for (const wanted of expected) {
+    const actual = byId.get(wanted.receipt_id);
+    if (actual && ALERT_RECEIPT_PERSISTED_FIELDS.every((field) => String(actual[field] ?? '') === String(wanted[field] ?? ''))) reconciled += 1;
+    else errors.push('delivered_receipt_reconciliation_unconfirmed');
+  }
+}
+const outcomes = $('Finalize Provider Receipt Outcomes').first().json.outcomes || [];
+return [{ json: {
+  alerts: {
+    selected: outcomes.length,
+    delivered: outcomes.filter((entry) => entry.receipt.status === 'delivered').length,
+    reconciled,
+    retryable: outcomes.filter((entry) => entry.receipt.status === 'retryable_rejection').length,
+    terminal: outcomes.filter((entry) => ['terminal_rejection', 'terminal_ambiguity'].includes(entry.receipt.status)).length
+  },
+  provider_classifications: outcomes.map((entry) => entry.receipt.provider_classification),
+  sheet_read_request_count: base.sheet_read_request_count,
+  quota_retry_count: Math.max(
+    Number(base.quota_retry_count || 0),
+    errors.includes('alert_guard_read_failed') ? 1 : 0
+  ),
+  error_categories: [...new Set(errors)]
+} }];`
     )
   ];
   const connections = {
@@ -2819,6 +4088,114 @@ return staged.flatMap((entry) => {
       main: [[connection("Normalize Business Snapshot")]]
     },
     "Normalize Business Snapshot": {
+      main: [[connection("Get Receipt Recovery Snapshot")]]
+    },
+    "Get Receipt Recovery Snapshot": {
+      main: [[connection("Plan Expired Sending Receipts")]]
+    },
+    "Plan Expired Sending Receipts": {
+      main: [[connection("Prepare Expired Sending Receipt Transitions")]]
+    },
+    "Prepare Expired Sending Receipt Transitions": {
+      main: [[connection("Has Expired Sending Receipt Transitions")]]
+    },
+    "Has Expired Sending Receipt Transitions": {
+      main: [
+        [connection("CAS Expired Sending Receipts")],
+        [connection("Verify Receipt Recovery Transitions")]
+      ]
+    },
+    "CAS Expired Sending Receipts": {
+      main: [[connection("Aggregate Expired Sending Receipt Transitions")]]
+    },
+    "Aggregate Expired Sending Receipt Transitions": {
+      main: [[connection("Verify Receipt Recovery Transitions")]]
+    },
+    "Verify Receipt Recovery Transitions": {
+      main: [[connection("Plan Receipt Business Recovery")]]
+    },
+    "Plan Receipt Business Recovery": {
+      main: [[connection("Prepare Recovery To Apply Updates")]]
+    },
+    "Prepare Recovery To Apply Updates": {
+      main: [[connection("Has Recovery To Apply Updates")]]
+    },
+    "Has Recovery To Apply Updates": {
+      main: [
+        [connection("Persist Recovery To Apply Updates")],
+        [connection("Prepare Recovery Applied Updates")]
+      ]
+    },
+    "Persist Recovery To Apply Updates": {
+      main: [[connection("Aggregate Recovery To Apply Updates")]]
+    },
+    "Aggregate Recovery To Apply Updates": {
+      main: [[connection("Prepare Recovery Applied Updates")]]
+    },
+    "Prepare Recovery Applied Updates": {
+      main: [[connection("Has Recovery Applied Updates")]]
+    },
+    "Has Recovery Applied Updates": {
+      main: [
+        [connection("Persist Recovery Applied Updates")],
+        [connection("Prepare Recovery Archive Updates")]
+      ]
+    },
+    "Persist Recovery Applied Updates": {
+      main: [[connection("Aggregate Recovery Applied Updates")]]
+    },
+    "Aggregate Recovery Applied Updates": {
+      main: [[connection("Prepare Recovery Archive Updates")]]
+    },
+    "Prepare Recovery Archive Updates": {
+      main: [[connection("Has Recovery Archive Updates")]]
+    },
+    "Has Recovery Archive Updates": {
+      main: [
+        [connection("Persist Recovery Archive Updates")],
+        [connection("Has Recovery Business Updates")]
+      ]
+    },
+    "Persist Recovery Archive Updates": {
+      main: [[connection("Aggregate Recovery Archive Updates")]]
+    },
+    "Aggregate Recovery Archive Updates": {
+      main: [[connection("Has Recovery Business Updates")]]
+    },
+    "Has Recovery Business Updates": {
+      main: [
+        [connection("Get Recovery Business Confirmation")],
+        [connection("Use Unchanged Recovery Snapshot")]
+      ]
+    },
+    "Get Recovery Business Confirmation": {
+      main: [[connection("Confirm Receipt Business Recovery")]]
+    },
+    "Confirm Receipt Business Recovery": {
+      main: [[connection("Prepare Delivered Receipt Reconciliation")]]
+    },
+    "Use Unchanged Recovery Snapshot": {
+      main: [[connection("Prepare Delivered Receipt Reconciliation")]]
+    },
+    "Prepare Delivered Receipt Reconciliation": {
+      main: [[connection("Has Delivered Receipt Reconciliation")]]
+    },
+    "Has Delivered Receipt Reconciliation": {
+      main: [
+        [connection("CAS Delivered Receipt Reconciliation")],
+        [connection("Finalize Receipt Recovery")]
+      ]
+    },
+    "CAS Delivered Receipt Reconciliation": {
+      main: [[connection("Aggregate Delivered Receipt Reconciliation")]]
+    },
+    "Aggregate Delivered Receipt Reconciliation": {
+      main: [[connection("Verify Delivered Receipt Reconciliation")]]
+    },
+    "Verify Delivered Receipt Reconciliation": {
+      main: [[connection("Finalize Receipt Recovery")]]
+    },
+    "Finalize Receipt Recovery": {
       main: [[connection("Plan Independent Moves")]]
     },
     "Plan Independent Moves": {
@@ -3087,6 +4464,78 @@ return staged.flatMap((entry) => {
       main: [[connection("Keep Winning Alert Claims")]]
     },
     "Keep Winning Alert Claims": {
+      main: [[connection("Evaluate Provider Commit Headroom")]]
+    },
+    "Evaluate Provider Commit Headroom": {
+      main: [[connection("Has Provider Commit Headroom")]]
+    },
+    "Has Provider Commit Headroom": {
+      main: [
+        [connection("Get Alert Receipt Authorization Snapshot")],
+        [connection("Summarize Alerter & Mover Run")]
+      ]
+    },
+    "Get Alert Receipt Authorization Snapshot": {
+      main: [[connection("Authorize Pending Alert Receipts")]]
+    },
+    "Authorize Pending Alert Receipts": {
+      main: [[connection("Prepare New Pending Receipts")]]
+    },
+    "Prepare New Pending Receipts": {
+      main: [[connection("Has New Pending Receipts")]]
+    },
+    "Has New Pending Receipts": {
+      main: [
+        [connection("Upsert New Pending Receipts")],
+        [connection("Prepare Retry Pending Receipts")]
+      ]
+    },
+    "Upsert New Pending Receipts": {
+      main: [[connection("Aggregate New Pending Receipts")]]
+    },
+    "Aggregate New Pending Receipts": {
+      main: [[connection("Prepare Retry Pending Receipts")]]
+    },
+    "Prepare Retry Pending Receipts": {
+      main: [[connection("Has Retry Pending Receipts")]]
+    },
+    "Has Retry Pending Receipts": {
+      main: [
+        [connection("CAS Retry Pending Receipts")],
+        [connection("Verify Pending Alert Receipt Snapshot")]
+      ]
+    },
+    "CAS Retry Pending Receipts": {
+      main: [[connection("Aggregate Retry Pending Receipts")]]
+    },
+    "Aggregate Retry Pending Receipts": {
+      main: [[connection("Verify Pending Alert Receipt Snapshot")]]
+    },
+    "Verify Pending Alert Receipt Snapshot": {
+      main: [[connection("Verify Pending Alert Receipts")]]
+    },
+    "Verify Pending Alert Receipts": {
+      main: [[connection("Prepare Sending Receipt Transitions")]]
+    },
+    "Prepare Sending Receipt Transitions": {
+      main: [[connection("Has Sending Receipt Transitions")]]
+    },
+    "Has Sending Receipt Transitions": {
+      main: [
+        [connection("CAS Sending Alert Receipts")],
+        [connection("Summarize Alerter & Mover Run")]
+      ]
+    },
+    "CAS Sending Alert Receipts": {
+      main: [[connection("Aggregate Sending Alert Receipts")]]
+    },
+    "Aggregate Sending Alert Receipts": {
+      main: [[connection("Verify Sending Alert Receipt Snapshot")]]
+    },
+    "Verify Sending Alert Receipt Snapshot": {
+      main: [[connection("Verify Sending Alert Receipts")]]
+    },
+    "Verify Sending Alert Receipts": {
       main: [[connection("Prepare Alert Sending States")]]
     },
     "Prepare Alert Sending States": {
@@ -3111,31 +4560,148 @@ return staged.flatMap((entry) => {
       main: [[connection("Confirm and Render Alerts")]]
     },
     "Confirm and Render Alerts": {
+      main: [[connection("Recheck Provider Commit Headroom")]]
+    },
+    "Recheck Provider Commit Headroom": {
       main: [[connection("Has Provider Alerts")]]
     },
     "Has Provider Alerts": {
       main: [
         [connection("Send Slack Alert")],
+        [connection("Prepare Unsent Receipt Deferrals")]
+      ]
+    },
+    "Prepare Unsent Receipt Deferrals": {
+      main: [[connection("Has Unsent Receipt Deferrals")]]
+    },
+    "Has Unsent Receipt Deferrals": {
+      main: [
+        [connection("CAS Provider Receipt Outcomes")],
         [connection("Summarize Alerter & Mover Run")]
       ]
     },
     "Send Slack Alert": { main: [[connection("Stage Slack Result")]] },
     "Stage Slack Result": {
-      main: [[connection("Aggregate Slack Results")]]
+      main: [[connection("CAS Provider Receipt Outcomes")]]
     },
-    "Aggregate Slack Results": {
-      main: [[connection("Get To Apply Before Alert Commit")]]
+    "CAS Provider Receipt Outcomes": {
+      main: [[connection("Aggregate Provider Receipt Outcomes")]]
     },
-    "Get To Apply Before Alert Commit": {
-      main: [[connection("Aggregate To Apply Before Alert Commit")]]
+    "Aggregate Provider Receipt Outcomes": {
+      main: [[connection("Verify Provider Receipt Outcome Snapshot")]]
     },
-    "Aggregate To Apply Before Alert Commit": {
-      main: [[connection("Guard and Commit Slack Results")]]
+    "Verify Provider Receipt Outcome Snapshot": {
+      main: [[connection("Verify Provider Receipt Outcomes")]]
     },
-    "Guard and Commit Slack Results": {
-      main: [[connection("Update Alert Results")]]
+    "Verify Provider Receipt Outcomes": {
+      main: [[connection("Prepare Provider Ambiguity Fallbacks")]]
     },
-    "Update Alert Results": {
+    "Prepare Provider Ambiguity Fallbacks": {
+      main: [[connection("Has Provider Ambiguity Fallbacks")]]
+    },
+    "Has Provider Ambiguity Fallbacks": {
+      main: [
+        [connection("CAS Provider Ambiguity Fallbacks")],
+        [connection("Finalize Provider Receipt Outcomes")]
+      ]
+    },
+    "CAS Provider Ambiguity Fallbacks": {
+      main: [[connection("Aggregate Provider Ambiguity Fallbacks")]]
+    },
+    "Aggregate Provider Ambiguity Fallbacks": {
+      main: [[connection("Verify Provider Ambiguity Snapshot")]]
+    },
+    "Verify Provider Ambiguity Snapshot": {
+      main: [[connection("Finalize Provider Receipt Outcomes")]]
+    },
+    "Finalize Provider Receipt Outcomes": {
+      main: [[connection("Get Alert Owners After Provider")]]
+    },
+    "Get Alert Owners After Provider": {
+      main: [[connection("Plan Provider Business Reconciliation")]]
+    },
+    "Plan Provider Business Reconciliation": {
+      main: [[connection("Prepare Provider To Apply Updates")]]
+    },
+    "Prepare Provider To Apply Updates": {
+      main: [[connection("Has Provider To Apply Updates")]]
+    },
+    "Has Provider To Apply Updates": {
+      main: [
+        [connection("Persist Provider To Apply Updates")],
+        [connection("Prepare Provider Applied Updates")]
+      ]
+    },
+    "Persist Provider To Apply Updates": {
+      main: [[connection("Aggregate Provider To Apply Updates")]]
+    },
+    "Aggregate Provider To Apply Updates": {
+      main: [[connection("Prepare Provider Applied Updates")]]
+    },
+    "Prepare Provider Applied Updates": {
+      main: [[connection("Has Provider Applied Updates")]]
+    },
+    "Has Provider Applied Updates": {
+      main: [
+        [connection("Persist Provider Applied Updates")],
+        [connection("Prepare Provider Archive Updates")]
+      ]
+    },
+    "Persist Provider Applied Updates": {
+      main: [[connection("Aggregate Provider Applied Updates")]]
+    },
+    "Aggregate Provider Applied Updates": {
+      main: [[connection("Prepare Provider Archive Updates")]]
+    },
+    "Prepare Provider Archive Updates": {
+      main: [[connection("Has Provider Archive Updates")]]
+    },
+    "Has Provider Archive Updates": {
+      main: [
+        [connection("Persist Provider Archive Updates")],
+        [connection("Has Provider Business Updates")]
+      ]
+    },
+    "Persist Provider Archive Updates": {
+      main: [[connection("Aggregate Provider Archive Updates")]]
+    },
+    "Aggregate Provider Archive Updates": {
+      main: [[connection("Has Provider Business Updates")]]
+    },
+    "Has Provider Business Updates": {
+      main: [
+        [connection("Get Provider Business Confirmation")],
+        [connection("Use Already Reconciled Provider Business")]
+      ]
+    },
+    "Get Provider Business Confirmation": {
+      main: [[connection("Confirm Provider Business Reconciliation")]]
+    },
+    "Confirm Provider Business Reconciliation": {
+      main: [[connection("Prepare Provider Delivered Reconciliation")]]
+    },
+    "Use Already Reconciled Provider Business": {
+      main: [[connection("Prepare Provider Delivered Reconciliation")]]
+    },
+    "Prepare Provider Delivered Reconciliation": {
+      main: [[connection("Has Provider Delivered Reconciliation")]]
+    },
+    "Has Provider Delivered Reconciliation": {
+      main: [
+        [connection("CAS Provider Delivered Reconciliation")],
+        [connection("Finalize Alert Delivery Results")]
+      ]
+    },
+    "CAS Provider Delivered Reconciliation": {
+      main: [[connection("Aggregate Provider Delivered Reconciliation")]]
+    },
+    "Aggregate Provider Delivered Reconciliation": {
+      main: [[connection("Verify Provider Delivered Reconciliation")]]
+    },
+    "Verify Provider Delivered Reconciliation": {
+      main: [[connection("Finalize Alert Delivery Results")]]
+    },
+    "Finalize Alert Delivery Results": {
       main: [[connection("Summarize Alerter & Mover Run")]]
     }
   };
@@ -3149,8 +4715,11 @@ return staged.flatMap((entry) => {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-02/v4",
+      workflowContractVersion: "2026-08-02/v5",
       alertPolicyVersion: alertPolicy.policy_version,
+      alertReceiptPolicyVersion: alertReceiptPolicy.policy_version,
+      alertReceiptStoreEnvironmentVariable:
+        alertReceiptPolicy.store.environment_variable,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
       preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases",
@@ -3170,6 +4739,12 @@ return staged.flatMap((entry) => {
       },
       latestFirstBusinessSheets,
       googleSheetsHttpCredentialType: "googleSheetsOAuth2Api",
+      googleSheetsReadRetry: config.google_sheets_read_retry,
+      minimumProviderCommitHeadroomMs:
+        config.minimum_provider_commit_headroom_ms,
+      durableReceiptBeforeProvider: true,
+      recoverProviderOutcomesBeforeSelection: true,
+      terminalizeAmbiguousProviderOutcomes: true,
       appendWinnerClaims: true,
       executionTimeoutSeconds: config.execution_timeout_seconds,
       scheduleOffsetMinutes: config.schedule_offset_minutes

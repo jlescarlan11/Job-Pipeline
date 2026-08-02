@@ -143,6 +143,34 @@ export function validateAlertPolicy(policy) {
   return errors;
 }
 
+export function validateAlertRuntimeCapacity(policy, runtimeConfig) {
+  const errors = [];
+  const retry = runtimeConfig?.google_sheets_read_retry;
+  const serialProviderBudget =
+    Number(policy?.per_run_cap || 0) * Number(policy?.provider_timeout_ms || 0) +
+    Math.max(0, Number(policy?.per_run_cap || 0) - 1) *
+      Number(policy?.provider_request_interval_ms || 0);
+  const requiredHeadroom =
+    serialProviderBudget + Number(retry?.quota_window_delay_ms || 0) + 20000;
+  if (
+    runtimeConfig?.minimum_provider_commit_headroom_ms < requiredHeadroom
+  ) {
+    errors.push(
+      "provider commit headroom must fit one quota-window retry, every Slack request, and persistence"
+    );
+  }
+  if (
+    runtimeConfig?.execution_timeout_seconds !== policy?.execution_timeout_seconds ||
+    runtimeConfig?.claim_lease_ms !== policy?.claim_lease_ms ||
+    runtimeConfig?.schedule_minutes !== policy?.schedule_minutes ||
+    runtimeConfig?.schedule_offset_minutes !== policy?.schedule_offset_minutes ||
+    runtimeConfig?.alert_per_run_cap !== policy?.per_run_cap
+  ) {
+    errors.push("alert runtime bounds must match the alert policy");
+  }
+  return errors;
+}
+
 function retryDue(record, policy, nowMs) {
   if (record.alert_status === "sending") {
     return false;
@@ -294,7 +322,8 @@ export function summarizeAlerterMoverRun({
   sheetReadRequests = 0,
   quotaRetries = 0,
   alerts = {},
-  errorCategories = []
+  errorCategories = [],
+  providerClassifications = []
 }) {
   const movementCount = Number(plan?.movement?.moves?.length || 0);
   const outcomeCount = Number(plan?.outcome?.updates?.length || 0);
@@ -316,11 +345,47 @@ export function summarizeAlerterMoverRun({
     movement_count: movementCount,
     outcome_update_count: outcomeCount,
     alerts: { selected, delivered, reconciled, retryable, terminal },
+    provider_classifications: [...new Set(
+      providerClassifications.map((value) => sanitize(value, 80))
+    )].filter(Boolean),
     sheet_read_request_count: Number(sheetReadRequests || 0),
     quota_retry_count: Number(quotaRetries || 0),
     error_categories: [...new Set(errorCategories.map((value) => sanitize(value, 80)))]
       .filter(Boolean)
       .slice(0, 20)
+  };
+}
+
+export function evaluateProviderCommitHeadroom({
+  executionStartedAt,
+  now = new Date().toISOString(),
+  executionTimeoutSeconds,
+  minimumHeadroomMs
+}) {
+  const startedMs = Date.parse(executionStartedAt || "");
+  const nowMs = Date.parse(now || "");
+  if (!Number.isFinite(startedMs) || !Number.isFinite(nowMs) || nowMs < startedMs) {
+    throw new Error("Provider headroom requires ordered ISO timestamps");
+  }
+  if (
+    !Number.isInteger(executionTimeoutSeconds) ||
+    executionTimeoutSeconds < 1 ||
+    !Number.isInteger(minimumHeadroomMs) ||
+    minimumHeadroomMs < 1
+  ) {
+    throw new Error("Provider headroom requires positive integer runtime bounds");
+  }
+  const deadlineMs = startedMs + executionTimeoutSeconds * 1000;
+  const remainingMs = Math.max(0, deadlineMs - nowMs);
+  return {
+    eligible: remainingMs >= minimumHeadroomMs,
+    remaining_ms: remainingMs,
+    required_ms: minimumHeadroomMs,
+    deadline_at: new Date(deadlineMs).toISOString(),
+    classification:
+      remainingMs >= minimumHeadroomMs
+        ? "provider_headroom_available"
+        : "insufficient_provider_headroom"
   };
 }
 

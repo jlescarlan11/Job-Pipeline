@@ -134,6 +134,27 @@ export function validateRuntimeConfig(runtime) {
       errors.push(`alerter_mover.${field} must be a positive integer`);
     }
   }
+  const alerterReadRetry = runtime.alerter_mover?.google_sheets_read_retry;
+  if (
+    alerterReadRetry?.max_attempts !== 2 ||
+    !positiveInteger(alerterReadRetry?.backoff_ms) ||
+    !positiveInteger(alerterReadRetry?.quota_window_delay_ms) ||
+    alerterReadRetry.backoff_ms !== alerterReadRetry.quota_window_delay_ms ||
+    alerterReadRetry.quota_window_delay_ms < 60000
+  ) {
+    errors.push(
+      "alerter_mover Google Sheets reads must retry once after a quota-window delay"
+    );
+  }
+  if (
+    !positiveInteger(runtime.alerter_mover?.minimum_provider_commit_headroom_ms) ||
+    runtime.alerter_mover.minimum_provider_commit_headroom_ms >=
+      runtime.alerter_mover.execution_timeout_seconds * 1000
+  ) {
+    errors.push(
+      "alerter_mover provider commit headroom must be positive and fit its timeout"
+    );
+  }
   const scheduleMinuteSets = WORKFLOW_ROLES.map((role) => ({
     role,
     minutes: new Set(
