@@ -236,6 +236,20 @@ function destinationRecord(source, destination, reason, now, existing) {
       }
     }
   }
+  if (["user_applied", "user_skip"].includes(reason)) {
+    // An operator terminal action wins over an in-flight or retryable Slack
+    // delivery. The destination must never retain `sending` after movement
+    // clears the source claim token, otherwise the record fails its own store
+    // contract and becomes stranded in To Apply.
+    if (["pending", "sending", "retryable_failure"].includes(record.alert_status)) {
+      record.alert_status = "suppressed";
+      record.alert_error_category = "operator_terminal_action";
+      record.alert_error_summary =
+        "Slack alert cancelled because the operator completed a terminal queue action.";
+    }
+    record.alert_claim_token = "";
+    record.alert_next_retry_at = "";
+  }
   record.state_guard = stateGuard(record);
   return record;
 }

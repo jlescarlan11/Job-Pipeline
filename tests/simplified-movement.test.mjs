@@ -334,6 +334,32 @@ test("I Applied records the manual fact independently of current alert message s
   assert.equal(terminalPlan.rejected.length, 0);
 });
 
+test("terminal operator actions cancel in-flight alerts instead of stranding moves", () => {
+  for (const [id, action, destination] of [
+    [4043, "I Applied", "Applied Jobs"],
+    [4044, "Skip", "Archive"]
+  ]) {
+    const source = row(id, "ready_to_apply", action, {
+      alert_status: "sending",
+      alert_idempotency_key: `slack:onlinejobs.ph:${id}:test`,
+      alert_claim_token: `execution:alert:${id}`,
+      alert_attempt_count: 1,
+      alert_last_attempt_at: "2026-07-31T09:59:00.000Z"
+    });
+    const plan = planQueueActions([source], [], [], schema, now);
+    assert.equal(plan.rejected.length, 0);
+    assert.equal(plan.moves.length, 1);
+    assert.equal(plan.moves[0].destination, destination);
+    assert.equal(plan.moves[0].destination_record.alert_status, "suppressed");
+    assert.equal(plan.moves[0].destination_record.alert_claim_token, "");
+    assert.equal(plan.moves[0].destination_record.alert_next_retry_at, "");
+    assert.equal(
+      plan.moves[0].destination_record.alert_error_category,
+      "operator_terminal_action"
+    );
+  }
+});
+
 test("destination write failure keeps the focused-queue source", () => {
   const source = row(4050, "ready_to_apply", "I Applied");
   const plan = planQueueActions([source], [], [], schema, now);
