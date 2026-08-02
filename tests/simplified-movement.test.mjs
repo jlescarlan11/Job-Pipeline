@@ -9,11 +9,9 @@ import {
   applyOutcomeUpdate,
   confirmMoveDeletions,
   destinationWrites,
-  hasConfirmedDeliveredMessage,
   planOutcomeUpdates,
   planQueueActions as planQueueActionsRaw
 } from "../src/movement.mjs";
-import { alertIdempotencyKey } from "../src/alerter-mover.mjs";
 
 const schema = JSON.parse(
   await readFile(new URL("../config/pipeline-schema.json", import.meta.url))
@@ -28,9 +26,6 @@ const packPolicy = JSON.parse(
   await readFile(
     new URL("../config/application-pack-policy.json", import.meta.url)
   )
-);
-const alertPolicy = JSON.parse(
-  await readFile(new URL("../config/alert-policy.json", import.meta.url))
 );
 const safetyContext = { profile, applicationPolicy, packPolicy };
 const now = "2026-07-31T10:00:00.000Z";
@@ -303,7 +298,7 @@ test("permanently unavailable source rows and legacy 404/410 errors move to Arch
   assert.equal(confirmation.deletions.length, 2);
 });
 
-test("I Applied requires current provenance or a confirmed delivery of the exact stored message", () => {
+test("I Applied records the manual fact independently of current alert message safety", () => {
   const safe = row(4040, "ready_to_apply", "I Applied");
   const plan = planQueueActions([safe], [], [], schema, now);
   const writes = destinationWrites(plan);
@@ -312,77 +307,31 @@ test("I Applied requires current provenance or a confirmed delivery of the exact
   assert.equal(writes.applied[0].user_action, "");
   assert.equal(writes.applied[0].generated_message, safe.generated_message);
 
-  for (const missing of [
-    "generated_message",
-    "message_validation_status",
-    "message_profile_version",
-    "message_policy_version",
-    "application_pack_status",
-    "application_pack_version"
-  ]) {
-    const unsafe = row(4041, "ready_to_apply", "I Applied", {
-      [missing]: ""
-    });
-    const rejected = planQueueActions([unsafe], [], [], schema, now);
-    assert.equal(rejected.moves.length, 0, missing);
-    assert.equal(rejected.rejected.length, 1, missing);
-    assert.ok(
-      ["invalid_source", "unsafe_action"].includes(
-        rejected.rejected[0].reason
-      ),
-      missing
-    );
-  }
-
-  const deliveredBeforeContextChange = row(
+  const terminalAlertWithInvalidCurrentContent = row(
     4042,
     "ready_to_apply",
     "I Applied",
     {
       message_profile_version: "historical/profile",
       application_pack_profile_version: "historical/profile",
-      generated_at: now
+      generated_message: "Hi there,",
+      alert_status: "terminal_failure",
+      alert_error_category: "provider_rejected"
     }
   );
-  deliveredBeforeContextChange.alert_status = "sent";
-  deliveredBeforeContextChange.alert_sent_at = now;
-  deliveredBeforeContextChange.alert_idempotency_key = alertIdempotencyKey(
-    deliveredBeforeContextChange,
-    alertPolicy
+  terminalAlertWithInvalidCurrentContent.state_guard = stateGuard(
+    terminalAlertWithInvalidCurrentContent
   );
-  deliveredBeforeContextChange.state_guard = stateGuard(
-    deliveredBeforeContextChange
-  );
-
-  assert.equal(
-    hasConfirmedDeliveredMessage(deliveredBeforeContextChange),
-    true
-  );
-  const historicalPlan = planQueueActions(
-    [deliveredBeforeContextChange],
+  const terminalPlan = planQueueActions(
+    [terminalAlertWithInvalidCurrentContent],
     [],
     [],
     schema,
     now
   );
-  assert.equal(historicalPlan.moves.length, 1);
-  assert.equal(historicalPlan.moves[0].destination, "Applied Jobs");
-
-  const changedAfterDelivery = {
-    ...deliveredBeforeContextChange,
-    generated_message: `${deliveredBeforeContextChange.generated_message} changed`
-  };
-  changedAfterDelivery.state_guard = stateGuard(changedAfterDelivery);
-  assert.equal(hasConfirmedDeliveredMessage(changedAfterDelivery), false);
-  const changedPlan = planQueueActions(
-    [changedAfterDelivery],
-    [],
-    [],
-    schema,
-    now
-  );
-  assert.equal(changedPlan.moves.length, 0);
-  assert.equal(changedPlan.rejected[0].reason, "unsafe_action");
+  assert.equal(terminalPlan.moves.length, 1);
+  assert.equal(terminalPlan.moves[0].destination, "Applied Jobs");
+  assert.equal(terminalPlan.rejected.length, 0);
 });
 
 test("destination write failure keeps the focused-queue source", () => {

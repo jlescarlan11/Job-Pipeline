@@ -60,8 +60,9 @@ until explicitly approved.
 
 Activating a new profile intentionally makes older message and application-pack
 provenance stale. Do not rewrite those historical version fields. The shared
-message-safety gate suppresses stale messages from alerts and application
-decisions until the job is regenerated under the active profile. Preserve
+message-safety gate suppresses stale messages from alerts until the job is
+regenerated under the active profile. It does not discard an `I Applied`
+action, which records a manual application that already happened. Preserve
 existing messages, application snapshots, decisions, outcomes, and Archive
 history during rollout.
 

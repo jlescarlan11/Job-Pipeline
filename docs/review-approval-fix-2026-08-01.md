@@ -49,7 +49,8 @@ screening question, including rhetorical section headings such as
    user notes.
 5. Because the application-pack policy/version changed, drain or regenerate
    any pre-existing unsent `To Apply` rows before activation; old pack versions
-   intentionally fail the current message-safety gate.
+   intentionally fail the current Slack message-safety gate. A later
+   `I Applied` action still records a manual submission that already happened.
 6. After activation, select `Approve` once for the affected rows. Under the
    configured schedules, movement can take up to 15 minutes, generation up to
    90 minutes, and the final move up to another 15 minutes.

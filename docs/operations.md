@@ -132,7 +132,10 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
   row shows its system reminder in visible `required_input` while preserving
   any user-owned `notes`.
 - Paste forged/unsupported values and confirm no mutation.
-- Confirm `I Applied` fails without current pack/message provenance unless the exact stored message has a confirmed prior Slack delivery; changing that message after delivery must still fail closed.
+- Confirm `I Applied` records the manual application fact even when the current
+  message-safety check suppresses Slack or the alert is already terminal; the
+  To Apply store/status/action contract and copy-confirm-delete guards still
+  apply.
 - Confirm automatic `skip`, user `Skip`, and `Deny` use their exact archive reasons.
 - Fail each active and terminal destination write and confirm its source row remains.
 - Succeed destination write, fail source delete, rerun, and confirm one destination row followed by safe deletion.
