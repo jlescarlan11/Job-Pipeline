@@ -567,9 +567,13 @@ function readSheet(
     id: explicitId || id(),
     name,
     alwaysOutputData: true,
-    retryOnFail: true,
-    maxTries: retry.max_attempts,
-    waitBetweenTries: retry.backoff_ms,
+    ...(retry
+      ? {
+          retryOnFail: true,
+          maxTries: retry.max_attempts,
+          waitBetweenTries: retry.backoff_ms
+        }
+      : {}),
     ...(continueOnError ? { onError: "continueRegularOutput" } : {})
   };
 }
@@ -2042,20 +2046,52 @@ function buildAlerterMover() {
   }));
   const nodes = [
     scheduleNode("alerter_mover", [-6000, 240], config),
+    codeNode(
+      "Capture Alerter Execution Start",
+      [-5900, 240],
+      `return [{ json: { execution_started_at: new Date().toISOString() } }];`
+    ),
     batchReadSheets(
       "Get Business Snapshot",
       [-5800, 240],
       schema.business_stores,
-      { retry: config.google_sheets_read_retry }
+      { retry: null, continueOnError: true }
+    ),
+    ifNode(
+      "Business Snapshot Quota Limited",
+      [-5700, 240],
+      "={{ Number($json?.error?.statusCode || $json?.error?.status || $json?.statusCode || $json?.status || 0) === 429 }}"
+    ),
+    {
+      parameters: {
+        resume: "timeInterval",
+        amount: config.google_sheets_read_retry.quota_window_delay_ms / 1000,
+        unit: "seconds"
+      },
+      type: "n8n-nodes-base.wait",
+      typeVersion: 1.1,
+      position: [-5600, 120],
+      id: id(),
+      name: "Wait for Sheets Quota Window"
+    },
+    batchReadSheets(
+      "Retry Business Snapshot",
+      [-5500, 120],
+      schema.business_stores,
+      { retry: null, continueOnError: false }
     ),
     codeNode(
       "Normalize Business Snapshot",
-      [-5600, 240],
+      [-5300, 240],
       `${sheetBatchCore}
 ${alertCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const DEFINITIONS = ${JSON.stringify(businessDefinitions)};
 const now = new Date().toISOString();
+let quotaRetryCount = 0;
+try {
+  quotaRetryCount = $('Retry Business Snapshot').all().length > 0 ? 1 : 0;
+} catch {}
 const rawStores = parseBatchSheetRows($json, DEFINITIONS);
 const stores = Object.fromEntries(
   SCHEMA.business_stores.map((store) => [
@@ -2066,9 +2102,9 @@ const stores = Object.fromEntries(
 return [{ json: {
   stores,
   now,
-  execution_started_at: now,
+  execution_started_at: $('Capture Alerter Execution Start').first().json.execution_started_at,
   sheet_read_request_count: 1,
-  quota_retry_count: 0
+  quota_retry_count: quotaRetryCount
 } }];`
     ),
     alertReceiptDataTableNode(
@@ -2324,7 +2360,7 @@ return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true
       [-2160, -80],
       [toApply, applied, archive],
       {
-        retry: config.google_sheets_read_retry,
+        retry: null,
         continueOnError: true,
         urlExpression: `={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE} + '/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&' + $('Plan Receipt Business Recovery').first().json.touched_stores.map((sheet) => 'ranges=' + encodeURIComponent("'" + sheet.replace(/'/g, "''") + "'")).join('&') }}`
       }
@@ -2345,7 +2381,7 @@ if (!Array.isArray($json.valueRanges)) {
     confirmed: (recovery.plans || []).filter((plan) => !plan.business_update),
     error_categories: [...new Set([...(recovery.error_categories || []), 'receipt_business_confirmation_read_failed'])],
     sheet_read_request_count: Number(snapshot.sheet_read_request_count || 1) + 1,
-    quota_retry_count: Number(snapshot.quota_retry_count || 0) + 1
+    quota_retry_count: Number(snapshot.quota_retry_count || 0)
   } }];
 }
 const definitions = ${JSON.stringify(businessDefinitions)}.filter((entry) => recovery.touched_stores.includes(entry.name));
@@ -2639,7 +2675,7 @@ return rows.length
     ),
     aggregateNode("Aggregate Movement Claim Writes", [600, 120], "claims"),
     readSheet("Get System Claims", [800, 240], system, {
-      retry: config.google_sheets_read_retry
+      retry: null
     }),
     aggregateNode("Aggregate System Claims", [1000, 240], "system_claims"),
     codeNode(
@@ -2842,7 +2878,7 @@ return writes.archive.length
       url: `=https://sheets.googleapis.com/v4/spreadsheets/{{$env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE}}}?fields=sheets.properties(sheetId,title,gridProperties(rowCount,columnCount))`,
       timeout: 10000,
       responseFormat: "json",
-      retry: config.google_sheets_read_retry,
+      retry: null,
       continueOnError: false,
       credentialType: "googleSheetsOAuth2Api"
     }),
@@ -2874,7 +2910,7 @@ return [{ json: { requests } }];`
       [3500, 360],
       schema.business_stores,
       {
-        retry: config.google_sheets_read_retry,
+        retry: null,
         urlExpression: `={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE} + '/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&' + $('Plan Independent Moves').first().json.touched_sheets.map((sheet) => 'ranges=' + encodeURIComponent("'" + sheet.replace(/'/g, "''") + "'")).join('&') }}`
       }
     ),
@@ -3025,7 +3061,7 @@ return [{ json: {
       "Get Fresh To Apply Snapshot",
       [5900, 300],
       [toApply],
-      { retry: config.google_sheets_read_retry }
+      { retry: null }
     ),
     codeNode(
       "Normalize Fresh To Apply Snapshot",
@@ -3084,7 +3120,7 @@ return [{ json: {
       contextSources.map(([, sheetKey]) => review.sheets[sheetKey].name),
       {
         workbookEnvironmentVariable: CONFIG_WORKBOOK_ENVIRONMENT_VARIABLE,
-        retry: config.google_sheets_read_retry
+        retry: null
       }
     ),
     codeNode(
@@ -3196,7 +3232,7 @@ return rows.length
     ),
     aggregateNode("Aggregate Alert Claim Writes", [7000, 120], "claims"),
     readSheet("Get Alert System Claims", [7200, 240], system, {
-      retry: config.google_sheets_read_retry
+      retry: null
     }),
     aggregateNode(
       "Aggregate Alert System Claims",
@@ -3536,7 +3572,7 @@ return marked.length
     aggregateNode("Aggregate Alert Sending States", [8400, 240], "claims"),
     readSheet("Get To Apply After Alert Claims", [8600, 240], toApply, {
       continueOnError: true,
-      retry: config.google_sheets_read_retry
+      retry: null
     }),
     aggregateNode("Aggregate Fresh Alert Claims", [8800, 240], "to_apply_rows"),
     codeNode(
@@ -3555,7 +3591,12 @@ const fresh = ($input.first().json.to_apply_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, ${JSON.stringify(schema)}));
 if (($input.first().json.to_apply_rows || []).some((row) => row?.error)) {
-  return [{ json: { _noop: true, defer_all: true, quota_retry_count: 1, error_categories: ['alert_guard_read_failed'] } }];
+  return [{ json: {
+    _noop: true,
+    defer_all: true,
+    quota_retry_count: Number($('Compile Alert Configuration').first().json.quota_retry_count || 0),
+    error_categories: ['alert_guard_read_failed']
+  } }];
 }
 const byId = new Map(fresh.map((row) => [String(row.canonical_job_id).toLowerCase(), row]));
 const receipts = new Map(
@@ -3654,9 +3695,9 @@ return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true
       method: "POST",
       timeout: alertPolicy.provider_timeout_ms,
       interval: alertPolicy.provider_request_interval_ms,
-      body: "={{ JSON.stringify({ text: $json.payload.text }) }}",
+      jsonBody: "={{ JSON.stringify({ text: $json.payload.text }) }}",
       responseFormat: "text",
-      fullResponse: true,
+      fullResponse: false,
       continueOnError: true
     }),
     codeNode(
@@ -3667,9 +3708,12 @@ const POLICY = ${JSON.stringify(alertReceiptPolicy)};
 const ALERT_POLICY = ${JSON.stringify(alertPolicy)};
 const request = $('Recheck Provider Commit Headroom').item.json;
 const now = new Date().toISOString();
+const providerResult = String($json?.data || '').trim() === 'ok'
+  ? { ok: true, statusCode: 200, reference: 'accepted' }
+  : $json;
 const next = applyProviderResultToAlertReceipt(
   request.receipt,
-  $json,
+  providerResult,
   {
     expectedVersion: request.receipt.receipt_version,
     retryAt: new Date(Date.parse(now) + ALERT_POLICY.retry.backoff_ms).toISOString(),
@@ -3836,7 +3880,7 @@ return [{ json: { outcomes, error_categories: [...new Set(errors)] } }];`
       [toApply, applied, archive],
       {
         continueOnError: true,
-        retry: config.google_sheets_read_retry
+        retry: null
       }
     ),
     codeNode(
@@ -3947,7 +3991,7 @@ return rows.length ? rows.map((row) => ({ json: row })) : [{ json: { _noop: true
       [13760, 0],
       [toApply, applied, archive],
       {
-        retry: config.google_sheets_read_retry,
+        retry: null,
         continueOnError: true,
         urlExpression: `={{ 'https://sheets.googleapis.com/v4/spreadsheets/' + $env.${QUEUE_WORKBOOK_ENVIRONMENT_VARIABLE} + '/values:batchGet?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE&' + $('Plan Provider Business Reconciliation').first().json.touched_stores.map((sheet) => 'ranges=' + encodeURIComponent("'" + sheet.replace(/'/g, "''") + "'")).join('&') }}`
       }
@@ -3965,7 +4009,7 @@ if (!Array.isArray($json.valueRanges)) {
     confirmed: (planned.plans || []).filter((plan) => !plan.business_update),
     error_categories: [...new Set([...(planned.error_categories || []), 'provider_business_confirmation_read_failed'])],
     sheet_read_request_count: 10,
-    quota_retry_count: 1
+    quota_retry_count: Number($('Normalize Business Snapshot').first().json.quota_retry_count || 0)
   } }];
 }
 const definitions = ${JSON.stringify(businessDefinitions)}.filter((entry) => planned.touched_stores.includes(entry.name));
@@ -4083,8 +4127,25 @@ return [{ json: {
     )
   ];
   const connections = {
-    "Schedule Trigger": { main: [[connection("Get Business Snapshot")]] },
+    "Schedule Trigger": {
+      main: [[connection("Capture Alerter Execution Start")]]
+    },
+    "Capture Alerter Execution Start": {
+      main: [[connection("Get Business Snapshot")]]
+    },
     "Get Business Snapshot": {
+      main: [[connection("Business Snapshot Quota Limited")]]
+    },
+    "Business Snapshot Quota Limited": {
+      main: [
+        [connection("Wait for Sheets Quota Window")],
+        [connection("Normalize Business Snapshot")]
+      ]
+    },
+    "Wait for Sheets Quota Window": {
+      main: [[connection("Retry Business Snapshot")]]
+    },
+    "Retry Business Snapshot": {
       main: [[connection("Normalize Business Snapshot")]]
     },
     "Normalize Business Snapshot": {

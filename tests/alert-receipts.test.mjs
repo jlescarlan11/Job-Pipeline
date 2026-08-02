@@ -443,6 +443,22 @@ test("definite, bounded retryable, and ambiguous provider outcomes remain distin
     policy
   );
   assert.equal(misleadingOk.status, "retryable_rejection");
+  const nestedRetryable = applyProviderResultToAlertReceipt(
+    makeSending(),
+    { error: { status: 503, message: "temporary unavailable" } },
+    { expectedVersion: 2, retryAt, now: providerAt },
+    policy
+  );
+  assert.equal(nestedRetryable.status, "retryable_rejection");
+  assert.equal(nestedRetryable.provider_status, 503);
+  const nestedRejected = applyProviderResultToAlertReceipt(
+    makeSending(),
+    { error: { statusCode: 400, message: "invalid payload" } },
+    { expectedVersion: 2, now: providerAt },
+    policy
+  );
+  assert.equal(nestedRejected.status, "terminal_rejection");
+  assert.equal(nestedRejected.provider_status, 400);
   const unknownTemporary = applyProviderResultToAlertReceipt(
     makeSending(),
     { error: { message: "temporary connection failure" } },

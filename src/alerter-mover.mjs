@@ -156,7 +156,7 @@ export function validateAlertRuntimeCapacity(policy, runtimeConfig) {
     runtimeConfig?.minimum_provider_commit_headroom_ms < requiredHeadroom
   ) {
     errors.push(
-      "provider commit headroom must fit one quota-window retry, every Slack request, and persistence"
+      "provider commit headroom must fit the bounded provider phase and persistence"
     );
   }
   if (

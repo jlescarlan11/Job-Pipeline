@@ -659,7 +659,13 @@ export function transitionAlertReceipt(
 }
 
 export function classifyAlertReceiptProviderResult(result) {
-  const rawStatus = Number(result?.statusCode || result?.status || 0);
+  const rawStatus = Number(
+    result?.statusCode ||
+      result?.status ||
+      result?.error?.statusCode ||
+      result?.error?.status ||
+      0
+  );
   const status = Number.isInteger(rawStatus) && rawStatus >= 0 && rawStatus <= 599
     ? rawStatus
     : 0;

@@ -143,7 +143,7 @@ export function validateRuntimeConfig(runtime) {
     alerterReadRetry.quota_window_delay_ms < 60000
   ) {
     errors.push(
-      "alerter_mover Google Sheets reads must retry once after a quota-window delay"
+      "alerter_mover initial business snapshot must retry once after a quota-window delay"
     );
   }
   if (

@@ -139,6 +139,10 @@ test("Generator freezes context eagerly while Alerter loads it lazily without em
   const alerter = workflows["alerter-mover.json"];
   assert.equal(
     alerter.connections["Schedule Trigger"].main[0][0].node,
+    "Capture Alerter Execution Start"
+  );
+  assert.equal(
+    alerter.connections["Capture Alerter Execution Start"].main[0][0].node,
     "Get Business Snapshot"
   );
   const contextRead = node(alerter, "Get Alert Configuration Snapshot");
@@ -714,7 +718,11 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   );
   assert.equal(
     slack.parameters.options.response.response.fullResponse,
-    true
+    false
+  );
+  assert.match(
+    node(workflow, "Stage Slack Result").parameters.jsCode,
+    /String\(\$json\?\.data \|\| ''\)\.trim\(\) === 'ok'/
   );
 
   for (const retired of [
@@ -803,10 +811,36 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   ];
   for (const name of alerterReadNames) {
     const read = node(workflow, name);
-    assert.equal(read.retryOnFail, true, name);
-    assert.equal(read.maxTries, 2, name);
-    assert.ok(read.waitBetweenTries >= 60_000, name);
+    assert.equal(read.retryOnFail, undefined, name);
+    assert.equal(read.maxTries, undefined, name);
+    assert.equal(read.waitBetweenTries, undefined, name);
   }
+  assert.equal(
+    node(workflow, "Get Business Snapshot").onError,
+    "continueRegularOutput"
+  );
+  const quotaWait = node(workflow, "Wait for Sheets Quota Window");
+  assert.equal(quotaWait.type, "n8n-nodes-base.wait");
+  assert.equal(quotaWait.parameters.amount, 65);
+  assert.equal(quotaWait.parameters.unit, "seconds");
+  const quotaRetry = node(workflow, "Retry Business Snapshot");
+  assert.equal(quotaRetry.retryOnFail, undefined);
+  assert.equal(
+    workflow.connections["Schedule Trigger"].main[0][0].node,
+    "Capture Alerter Execution Start"
+  );
+  assert.equal(
+    workflow.connections["Capture Alerter Execution Start"].main[0][0].node,
+    "Get Business Snapshot"
+  );
+  assert.match(
+    node(workflow, "Normalize Business Snapshot").parameters.jsCode,
+    /Capture Alerter Execution Start/
+  );
+  assert.equal(
+    workflow.connections["Business Snapshot Quota Limited"].main[0][0].node,
+    "Wait for Sheets Quota Window"
+  );
   const fullMovementAndAlertReads = alerterReadNames.filter(
     (name) => name !== "Get Recovery Business Confirmation"
   );

@@ -85,6 +85,51 @@ Import only:
 
 Keep all three inactive. Bind the same Google Sheets OAuth2 credential to every Google Sheets node and to Alerter & Mover's `Get Main Workbook Layout` and `Sort Business Sheets Latest First` HTTP Request nodes. Bind `JOB_PIPELINE_SPREADSHEET_ID` to the disposable non-production Main workbook, `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` to a separate disposable Configuration workbook, and `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID` to the validated disposable receipt Data Table. Bind authorized non-production Groq and Slack values, plus `JOB_PIPELINE_REVIEW_URL` as a deep link to the Main workbook's `To Apply` tab. Confirm each export still has `active=false`, `Asia/Manila`, its configured timeout, and no OnlineJobs application/submission endpoint.
 
+## 3A. Update the production Alerter in place
+
+Use `scripts/build-bound-alerter-rollout.mjs` to copy the one unambiguous live
+Google credential reference onto every credential-capable node in the generated
+artifact while preserving workflow ID `QO6OLK3pHetgGIGq`. The builder rejects
+an active source artifact, a different live ID, duplicate node names, an
+ambiguous live credential, or any missing binding. Keep the bound output in a
+permission-restricted temporary directory; it contains credential references
+and must never be committed.
+
+Before import, stop n8n and its task runner, confirm no execution is `running`
+or `waiting`, and back up the live workflow, Main/Configuration workbooks, n8n
+database, launcher/configuration, and receipt table. Import and publish the
+inactive bound workflow under the existing ID, restart n8n and the task runner,
+then verify health, exactly three active workflows, 33 bound Google-capable
+nodes, the 300-second timeout, `Asia/Manila`, and the 10/25/40/55 schedule.
+
+For a bounded observation window only,
+`scripts/build-rollout-observation-workflow.mjs` may create a private artifact
+with successful execution data and progress retention enabled. After the
+scheduled movement, alert, and replay gates pass, import the standard bound
+artifact again and verify `saveDataSuccessExecution=none` and
+`saveExecutionProgress=false`. Failed executions remain retained according to
+normal policy.
+
+The Slack HTTP node must send through n8n's JSON-body field and treat only the
+exact plaintext `ok` acknowledgement as accepted/200. Do not use the raw-body
+expression: n8n can otherwise serialize a local transport agent after the POST
+has already reached Slack, creating an ambiguous-delivery report. Provider
+status extraction must include nested `error.status` and `error.statusCode`.
+
+The initial five-store Sheet request has no built-in retry. A 429 alone enters
+`Wait for Sheets Quota Window` for 65 seconds, then performs one final request.
+All later Sheet reads have no in-execution automatic retry and fail closed for
+the next 15-minute recovery run. Never configure a nominal 65-second n8n
+`waitBetweenTries`: n8n 2.32.6 caps that runtime wait at five seconds.
+
+Receipt restore is part of workflow rollback, not an optional diagnostic. With
+all three pipeline workflows stopped, restore the complete integrity-checked
+n8n database or the validated receipt-table export paired with the workflow
+backup. Confirm one row per receipt identity and the exact 20-column schema
+before reactivation. Do not remove `delivered` evidence until its business row
+is `sent` and its receipt is `reconciled`; do not reset a historical terminal
+or ambiguous alert to make a canary.
+
 ## 4. Non-production smoke matrix
 
 Use synthetic/disposable source fixtures. Record only pass/fail, bounded categories, timestamps, workflow execution IDs, and canonical test IDs.
