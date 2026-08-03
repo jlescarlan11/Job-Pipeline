@@ -143,7 +143,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:bfb0631f73eaf92eb3174bd7993406d7a87b4c4f65aa3427cdc25f8bd7ab8e38",
+        "artifact_digest": "sha256:d1a13111cc3034d5636433c3473c18911060dd6b73421ba16ad30bbbf9fcf57f",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [
