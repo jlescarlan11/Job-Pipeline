@@ -514,7 +514,9 @@ export function applyValidatedGeneration(
 function classifyFailure(error) {
   const value = String(error?.message || error || "").toLowerCase();
   const leadingStatus = value.match(/^\s*(\d{3})\b/)?.[1] ?? "";
-  if (/timeout|timed out|econnreset|network/.test(value)) return "provider_timeout";
+  if (/timeout|timed out|econnreset|network|socket hang up/.test(value)) {
+    return "provider_timeout";
+  }
   if (leadingStatus === "429" || /rate.?limit|quota/.test(value)) {
     return "provider_rate_limit";
   }

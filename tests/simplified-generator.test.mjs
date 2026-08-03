@@ -970,6 +970,19 @@ test("HTTP 404 bodies cannot be misclassified as provider authentication failure
   assert.equal(failure.processing_stage, "");
 });
 
+test("n8n socket hang ups are classified as provider timeouts", () => {
+  const claimed = claim(recordFromDescription(3066));
+  const failure = recordGeneratorFailure(
+    claimed,
+    new Error("socket hang up"),
+    runtime,
+    now
+  );
+  assert.equal(failure.error_category, "provider_timeout");
+  assert.ok(failure.next_retry_at);
+  assert.equal(failure.processing_stage, "");
+});
+
 test("permanent source HTTP failures become unavailable without retrying", () => {
   for (const status of [404, 410]) {
     const claimed = claim(recordFromDescription(3065 + status));
