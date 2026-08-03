@@ -497,6 +497,11 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
   assert.doesNotMatch(repairBody, /openai\/gpt-oss-120b/);
   assert.match(repairBody, /repair_system_message/);
   assert.doesNotMatch(repairBody, /content: \$json\.system_message/);
+  for (const name of ["Validate Initial Draft", "Validate Repaired Draft"]) {
+    const validationCode = node(workflow, name).parameters.jsCode;
+    assert.match(validationCode, /error\?\.status/);
+    assert.match(validationCode, /externalResultErrorMessage/);
+  }
   assert.equal(
     workflow.connections["Provider Required"].main[0][0].node,
     "Needs Provider Pacing Delay"

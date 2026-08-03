@@ -817,7 +817,14 @@ try {
 } catch {
   previous = $('Capture Fixed Window and Keywords').item.json;
 }
-const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
+const providerStatus = Number(
+  $json?.error?.status ?? $json?.error?.statusCode ??
+  $json?.status ?? $json?.statusCode ?? 0
+);
+const providerError = externalResultErrorMessage($json);
+const errorMessage = providerStatus
+  ? String(providerStatus) + ': ' + (providerError || 'Provider request failed')
+  : providerError;
 const page = errorMessage && !$json.data && !$json.body
   ? {
       ...previous,
@@ -1531,7 +1538,11 @@ const prepared = $('Evaluate and Prepare Application').item.json;
 const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
 const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
 try {
-  if (errorMessage || !message) throw new Error(errorMessage || 'Provider response contained no message');
+  if (errorMessage || !message) {
+    throw new Error(
+      errorMessage || 'Invalid provider response contained no message'
+    );
+  }
   const assessed = assessInitialGenerationDraft(
     prepared.working_record,
     prepared.pack,
@@ -1619,11 +1630,22 @@ const APPLICATION_POLICY = SHEET_CONTEXT.application_policy;
 const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const RUNTIME = ${JSON.stringify(config)};
 const staged = $('Validate Initial Draft').item.json;
-const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
+const providerStatus = Number(
+  $json?.error?.status ?? $json?.error?.statusCode ??
+  $json?.status ?? $json?.statusCode ?? 0
+);
+const providerError = externalResultErrorMessage($json);
+const errorMessage = providerStatus
+  ? String(providerStatus) + ': ' + (providerError || 'Provider request failed')
+  : providerError;
 const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
 let proposed;
 try {
-  if (errorMessage || !message) throw new Error(errorMessage || 'Repair response contained no message');
+  if (errorMessage || !message) {
+    throw new Error(
+      errorMessage || 'Invalid repair response contained no message'
+    );
+  }
   proposed = applyValidatedGeneration(
     staged.working_record,
     staged.pack,
