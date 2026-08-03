@@ -72,6 +72,7 @@
     "configuration_workbook_requires_current_contract": true
   },
   "application_compatibility": {
+    "legacy_state_guard_compatibility": "forbidden",
     "pipeline_schema_version": 3,
     "storage_version": "2026-07-31-segmented-queues-v3",
     "pipeline_contract_digest": "pipeline-v1:704cb162",
@@ -100,7 +101,7 @@
       {
         "role": "scraper",
         "target_workflow_id": "qxPbOzNs5StaPY8B",
-        "artifact_digest": "sha256:2665fa5d93a693b9d6eb8250bcbe5b5582d7b2097bba827f43ff7540b476b76b",
+        "artifact_digest": "sha256:601c79afddd6f75a47b455f0ccc081d61b4dd2fdb7db2668c7788df7730e6f9e",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 900,
         "schedule_expressions": [
@@ -122,7 +123,7 @@
       {
         "role": "evaluator_generator",
         "target_workflow_id": "TRUqD9atneyDyMNx",
-        "artifact_digest": "sha256:80fd99d2cf6c7589f3dd985d45866f49c2016033a09a55bdc60fa9ef3a034b66",
+        "artifact_digest": "sha256:27a0885f1d281ee7d3f5e739f597df2766b028e099d49da8b0b69ee907e4fac4",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 480,
         "schedule_expressions": [
@@ -143,7 +144,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:d1a13111cc3034d5636433c3473c18911060dd6b73421ba16ad30bbbf9fcf57f",
+        "artifact_digest": "sha256:a99a9d9ee603d5a1004238102eacd8958aa63a38b41129aabe5d7df4df2d93ea",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [

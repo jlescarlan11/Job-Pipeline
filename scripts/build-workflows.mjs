@@ -1142,7 +1142,8 @@ return updates.filter((record) =>
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "scraper",
-      workflowContractVersion: "2026-07-31/v3",
+      workflowContractVersion: "2026-08-04/v1",
+      legacyStateGuardCompatibility: false,
       searchPlanVersion: searchPlan.plan_version,
       runtimeKeywordSource: keywords,
       pipelineSchemaVersion: schema.storage_version,
@@ -2037,7 +2038,8 @@ return { json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "evaluator_generator",
-      workflowContractVersion: "2026-07-31/v3",
+      workflowContractVersion: "2026-08-04/v1",
+      legacyStateGuardCompatibility: false,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
       preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases",
@@ -4809,7 +4811,8 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-02/v5",
+      workflowContractVersion: "2026-08-04/v1",
+      legacyStateGuardCompatibility: false,
       alertPolicyVersion: alertPolicy.policy_version,
       alertReceiptPolicyVersion: alertReceiptPolicy.policy_version,
       alertReceiptStoreEnvironmentVariable:
@@ -4853,6 +4856,25 @@ const outputs = [
   ["workflows/generator.json", buildGenerator()],
   ["workflows/alerter-mover.json", buildAlerterMover()]
 ];
+
+const forbiddenLegacyStateGuardMarkers = [
+  "legacyMovementStateGuard",
+  "validMovementSourceGuard",
+  "legacy-protected edits",
+  "Rows written before the 2026-08-03 SHA-256 guard cutover"
+];
+for (const [path, workflow] of outputs) {
+  const serialized = JSON.stringify(workflow);
+  if (workflow?.meta?.legacyStateGuardCompatibility !== false) {
+    throw new Error(`${path} must explicitly reject legacy state guards`);
+  }
+  const marker = forbiddenLegacyStateGuardMarkers.find((value) =>
+    serialized.includes(value)
+  );
+  if (marker) {
+    throw new Error(`${path} contains forbidden legacy state-guard code: ${marker}`);
+  }
+}
 
 const workflowsDirectory = resolve(root, "workflows");
 const existingWorkflowFiles = (await readdir(workflowsDirectory))

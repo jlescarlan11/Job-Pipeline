@@ -2108,7 +2108,8 @@
   "meta": {
     "templateCredsSetupCompleted": false,
     "workflowRole": "scraper",
-    "workflowContractVersion": "2026-07-31/v3",
+    "workflowContractVersion": "2026-08-04/v1",
+    "legacyStateGuardCompatibility": false,
     "searchPlanVersion": "2026-07-31/v2",
     "runtimeKeywordSource": "Search Keywords",
     "pipelineSchemaVersion": "2026-07-31-segmented-queues-v3",

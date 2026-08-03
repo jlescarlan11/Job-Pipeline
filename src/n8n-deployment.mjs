@@ -342,6 +342,9 @@ export function validateN8nDeploymentPolicy(
     errors.push("queue and configuration workbook binding policy is incomplete");
   }
   const compatibility = policy?.application_compatibility ?? {};
+  if (compatibility.legacy_state_guard_compatibility !== "forbidden") {
+    errors.push("application compatibility must forbid legacy state guards");
+  }
   const expectedCompatibility = {
     pipeline_schema_version: pipelineSchema?.schema_version,
     storage_version: pipelineSchema?.storage_version,
