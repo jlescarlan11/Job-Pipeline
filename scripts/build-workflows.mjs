@@ -821,7 +821,10 @@ const providerStatus = Number(
   $json?.error?.status ?? $json?.error?.statusCode ??
   $json?.status ?? $json?.statusCode ?? 0
 );
-const providerError = externalResultErrorMessage($json);
+const providerError =
+  $json?.error?.message || $json?.error?.description ||
+  $json?.message || $json?.errorMessage ||
+  (typeof $json?.error === 'string' ? $json.error : '');
 const errorMessage = providerStatus
   ? String(providerStatus) + ': ' + (providerError || 'Provider request failed')
   : providerError;

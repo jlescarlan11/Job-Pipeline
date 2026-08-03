@@ -100,7 +100,7 @@
       {
         "role": "scraper",
         "target_workflow_id": "qxPbOzNs5StaPY8B",
-        "artifact_digest": "sha256:005cc2b5496f3df6dbc4da29205c69aafe987bce9b65f85c60d66d0391f22b97",
+        "artifact_digest": "sha256:2665fa5d93a693b9d6eb8250bcbe5b5582d7b2097bba827f43ff7540b476b76b",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 900,
         "schedule_expressions": [

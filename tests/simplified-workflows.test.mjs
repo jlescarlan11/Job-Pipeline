@@ -234,6 +234,10 @@ test("Scraper owns one fixed inclusive 24-hour keyword window and five-store rec
   const workflow = workflows["scraper.json"];
   const code = allCode(workflow);
   const keywordRead = node(workflow, "Get Search Keywords");
+  const parseSearchPage = node(workflow, "Parse Search Page").parameters.jsCode;
+  assert.match(parseSearchPage, /const providerStatus = Number\(/);
+  assert.match(parseSearchPage, /\$json\?\.error\?\.message/);
+  assert.doesNotMatch(parseSearchPage, /externalResultErrorMessage/);
   assert.equal(keywordRead.parameters.sheetName.value, "Search Keywords");
   assert.equal(
     keywordRead.parameters.documentId.value,
