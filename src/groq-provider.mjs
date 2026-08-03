@@ -59,6 +59,7 @@ export function validateGroqProviderPolicy(
   for (const field of [
     "maximum_output_tokens",
     "maximum_combined_input_characters",
+    "maximum_repair_combined_input_characters",
     "repair_reserve_characters",
     "maximum_prompt_proofs",
     "character_estimate_divisor",
@@ -76,6 +77,14 @@ export function validateGroqProviderPolicy(
       generation.maximum_combined_input_characters
   ) {
     errors.push("Groq repair reserve must be smaller than the input budget");
+  }
+  if (
+    positiveInteger(generation.maximum_combined_input_characters) &&
+    positiveInteger(generation.maximum_repair_combined_input_characters) &&
+    generation.maximum_repair_combined_input_characters >
+      generation.maximum_combined_input_characters
+  ) {
+    errors.push("Groq repair input budget must not exceed the initial input budget");
   }
   if (generation.maximum_requests_per_item !== 2) {
     errors.push(
@@ -284,7 +293,7 @@ export function groqScheduledCapacity(policy, generatorRuntime) {
     ) + generation.maximum_output_tokens;
   const repairRequestEstimate =
     Math.ceil(
-      generation.maximum_combined_input_characters /
+      generation.maximum_repair_combined_input_characters /
         generation.character_estimate_divisor
     ) + generation.maximum_output_tokens;
   const maximumScheduledExecutionsPerDay =
@@ -432,10 +441,17 @@ export function groqInitialUserCharacterBudget(policy, systemMessage) {
   return budget;
 }
 
-export function validateGroqPromptBudget(policy, systemMessage, userMessage) {
+export function validateGroqPromptBudget(
+  policy,
+  systemMessage,
+  userMessage,
+  { maximumCharacters } = {}
+) {
   const combinedCharacters =
     String(systemMessage || "").length + String(userMessage || "").length;
-  const maximum = policy?.generation?.maximum_combined_input_characters;
+  const maximum =
+    maximumCharacters ??
+    policy?.generation?.maximum_combined_input_characters;
   return {
     valid: positiveInteger(maximum) && combinedCharacters <= maximum,
     combined_characters: combinedCharacters,

@@ -9,6 +9,7 @@ import {
   applyNonReadyApplicationPack,
   buildApplicationPack,
   buildApplicationRepairMessage,
+  buildApplicationRepairSystemMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   cleanGeneratedMessage,
@@ -35,6 +36,10 @@ import {
   stateGuard
 } from "../src/contracts.mjs";
 import { evaluatePersistedMessageSafety } from "../src/message-safety.mjs";
+import {
+  groqInitialUserCharacterBudget,
+  validateGroqPromptBudget
+} from "../src/groq-provider.mjs";
 
 const loadJson = async (path) => JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
 const loadText = async (path) => readFile(new URL(path, import.meta.url), "utf8");
@@ -43,6 +48,7 @@ const profile = await loadJson("../config/candidate-profile.json");
 const policy = await loadJson("../config/application-policy.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
+const groqPolicy = await loadJson("../config/groq-provider-policy.json");
 const schema = await loadJson("../config/pipeline-schema.json");
 const directHtml = await loadText("./fixtures/job-direct.html");
 const adjacentHtml = await loadText("./fixtures/job-adjacent.html");
@@ -2180,6 +2186,28 @@ test("requirement-complete adjacent message passes while the reported fluent dra
     pack.message_plan.subject_line,
     "Subject line: Claude AI Specialist — John Lester Escarlan"
   );
+  const boundedSystemMessage = buildApplicationSystemMessage(profile, policy);
+  const boundedUserMessage = buildApplicationUserMessage(job, pack, {
+    maximumCharacters: groqInitialUserCharacterBudget(
+      groqPolicy,
+      boundedSystemMessage
+    ),
+    maximumProofs: groqPolicy.generation.maximum_prompt_proofs
+  });
+  assert.equal(
+    validateGroqPromptBudget(
+      groqPolicy,
+      boundedSystemMessage,
+      boundedUserMessage
+    ).valid,
+    true
+  );
+  assert.match(boundedUserMessage, /REQUIREMENT-AWARE MESSAGE PLAN/);
+  assert.match(boundedUserMessage, /projects:job-pipeline/);
+  assert.match(
+    boundedUserMessage,
+    /Claude was requested; approved evidence names Groq instead/
+  );
 
   const reportedMessage = `Subject line: AI Automation & Claude AI Specialist Application — John Lester Escarlan
 Hi there,
@@ -2201,6 +2229,38 @@ I would welcome a conversation about how my experience fits this role.`;
   assert.match(reportedErrors, /unsupported frequency or universality claim/i);
   assert.match(reportedErrors, /unsupported provider or tool claim/i);
   assert.match(reportedErrors, /unsupported domain claim/i);
+  const boundedRepairSystem = buildApplicationRepairSystemMessage(profile);
+  const boundedRepair = buildApplicationRepairMessage(
+    reportedMessage,
+    rejected.errors,
+    {
+      selectedProofs: pack.selected_proofs,
+      applicationInstructions: pack.application_instructions,
+      screeningQuestions: pack.screening_questions,
+      requirementCoverage: pack.requirement_coverage,
+      messagePlan: pack.message_plan,
+      maximumCharacters:
+        groqPolicy.generation.maximum_repair_combined_input_characters -
+        boundedRepairSystem.length
+    }
+  );
+  assert.ok(boundedRepair.includes(reportedMessage));
+  assert.match(
+    boundedRepair,
+    /Claude was requested; approved evidence names Groq instead/
+  );
+  assert.equal(
+    validateGroqPromptBudget(
+      groqPolicy,
+      boundedRepairSystem,
+      boundedRepair,
+      {
+        maximumCharacters:
+          groqPolicy.generation.maximum_repair_combined_input_characters
+      }
+    ).valid,
+    true
+  );
 
   const corrected = `Subject line: Claude AI Specialist — John Lester Escarlan
 

@@ -117,19 +117,19 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
   assert.deepEqual(capacity, {
     initial_model_id: "openai/gpt-oss-120b",
     repair_model_id: "openai/gpt-oss-20b",
-    initial_request_character_token_estimate: 1980,
+    initial_request_character_token_estimate: 2314,
     repair_request_character_token_estimate: 2314,
-    per_item_character_token_estimate: 4294,
+    per_item_character_token_estimate: 4628,
     maximum_scheduled_executions_per_day: 17,
     maximum_scheduled_requests_per_day: 170,
-    maximum_scheduled_character_token_estimate_per_day: 364990,
+    maximum_scheduled_character_token_estimate_per_day: 393380,
     maximum_requests_in_any_minute: 3,
     maximum_character_token_estimate_in_any_minute: 6942,
     per_model_scheduled_capacity: [
       {
         model_id: "openai/gpt-oss-120b",
         maximum_scheduled_requests_per_day: 85,
-        maximum_scheduled_character_token_estimate_per_day: 168300
+        maximum_scheduled_character_token_estimate_per_day: 196690
       },
       {
         model_id: "openai/gpt-oss-20b",
@@ -244,8 +244,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   assert.ok(system.length < 6000);
   assert.equal(pack.selected_proofs.length, 2);
   assert.equal(groqPolicy.generation.maximum_prompt_proofs, 2);
-  assert.equal(measurement.combined_characters, 4500);
-  assert.equal(measurement.character_based_token_estimate, 1500);
+  assert.equal(measurement.combined_characters, 4541);
+  assert.equal(measurement.character_based_token_estimate, 1514);
   assert.ok(user.includes(pack.selected_proofs[0].reference));
   assert.ok(user.includes(pack.selected_proofs[1].reference));
   assert.doesNotMatch(user, /"label"|"relevance_score"/);

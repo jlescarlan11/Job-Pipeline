@@ -8,7 +8,8 @@
   "generation": {
     "temperature": 0.2,
     "maximum_output_tokens": 480,
-    "maximum_combined_input_characters": 5500,
+    "maximum_combined_input_characters": 6500,
+    "maximum_repair_combined_input_characters": 5500,
     "repair_reserve_characters": 1000,
     "maximum_prompt_proofs": 2,
     "character_estimate_divisor": 3,

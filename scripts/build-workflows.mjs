@@ -1606,7 +1606,7 @@ try {
         JSON.stringify(groqRepairModel.reasoning_effort) +
         ", reasoning_format: " +
         JSON.stringify(groqPolicy.generation.reasoning_format) +
-        ", messages: [{ role: 'system', content: $json.system_message }, { role: 'user', content: $json.repair_user_message }] }) }}",
+        ", messages: [{ role: 'system', content: $json.repair_system_message }, { role: 'user', content: $json.repair_user_message }] }) }}",
       responseFormat: "json"
     }),
     codeNode(

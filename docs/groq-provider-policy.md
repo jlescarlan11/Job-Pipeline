@@ -57,10 +57,10 @@ three:
 
 | Route | Maximum request estimate | Requests/day | Daily estimate | Model limit |
 | --- | ---: | ---: | ---: | ---: |
-| Initial / GPT-OSS 120B | 1,980 | 85 | 168,300 | 200,000 TPD |
+| Initial / GPT-OSS 120B | 2,314 | 85 | 196,690 | 200,000 TPD |
 | Repair / GPT-OSS 20B | 2,314 | 85 | 196,690 | 200,000 TPD |
 
-The combined planning estimate is 364,990 tokens, but it is deliberately
+The combined planning estimate is 393,380 tokens, but it is deliberately
 validated against two separate model quotas rather than incorrectly summing
 them against one quota. Each route stays under 1,000 RPD, 8,000 TPM, and
 200,000 TPD. At 21-second request pacing, at most three requests and 6,942
@@ -77,8 +77,10 @@ policy edits exceed RPD, RPM, TPD, TPM, or execution-time capacity.
 ## Request and prompt bounds
 
 Both requests use temperature `0.2`, low reasoning effort, hidden reasoning,
-and a 480-token output cap. The maximum combined prompt size is 5,500
-characters, including a 1,000-character repair reserve.
+and a 480-token output cap. The initial combined-input ceiling is 6,500
+characters with a 1,000-character reserve, so the initial request can use at
+most 5,500 combined characters. The independently bounded repair request also
+uses a 5,500-character combined-input ceiling.
 
 The initial request contains:
 

@@ -13,7 +13,7 @@ evidence for Issues #47, #48, and #49.
 - Nominal daily throughput: 16 executions and 80 jobs.
 - Conservative provider envelope: 17 trigger boundaries, 85 jobs, and 170
   logical requests.
-- Initial route: `openai/gpt-oss-120b`, maximum 85 requests and 168,300
+- Initial route: `openai/gpt-oss-120b`, maximum 85 requests and 196,690
   character-estimated tokens per day.
 - Repair route: `openai/gpt-oss-20b`, maximum 85 requests and 196,690
   character-estimated tokens per day.

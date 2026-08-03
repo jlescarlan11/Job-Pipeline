@@ -1,6 +1,7 @@
 import {
   buildApplicationPack,
   buildApplicationRepairMessage,
+  buildApplicationRepairSystemMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   cleanGeneratedMessage,
@@ -415,20 +416,26 @@ export function assessInitialGenerationDraft(
       requirementCoverage: pack.requirement_coverage,
       messagePlan: pack.message_plan,
       maximumCharacters:
-        providerPolicy.generation.maximum_combined_input_characters -
-        systemMessage.length
+        providerPolicy.generation.maximum_repair_combined_input_characters -
+        buildApplicationRepairSystemMessage(profile).length
     }
   );
+  const repairSystemMessage = buildApplicationRepairSystemMessage(profile);
   const repairBudget = validateGroqPromptBudget(
     providerPolicy,
-    systemMessage,
-    repairUserMessage
+    repairSystemMessage,
+    repairUserMessage,
+    {
+      maximumCharacters:
+        providerPolicy.generation.maximum_repair_combined_input_characters
+    }
   );
   if (!repairBudget.valid) {
     throw new Error("Provider repair input budget validation failed");
   }
   return {
     repair_required: true,
+    repair_system_message: repairSystemMessage,
     repair_user_message: repairUserMessage,
     validation_errors: validation.errors,
     rejected_message: String(message || ""),
