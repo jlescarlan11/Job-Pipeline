@@ -1535,7 +1535,14 @@ const PACK_POLICY = SHEET_CONTEXT.pack_policy;
 const PROVIDER_POLICY = ${JSON.stringify(groqPolicy)};
 const RUNTIME = ${JSON.stringify(config)};
 const prepared = $('Evaluate and Prepare Application').item.json;
-const errorMessage = $json?.error?.message || $json?.message || (typeof $json?.error === 'string' ? $json.error : '');
+const providerStatus = Number(
+  $json?.error?.status ?? $json?.error?.statusCode ??
+  $json?.status ?? $json?.statusCode ?? 0
+);
+const providerError = externalResultErrorMessage($json);
+const errorMessage = providerStatus
+  ? String(providerStatus) + ': ' + (providerError || 'Provider request failed')
+  : providerError;
 const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
 try {
   if (errorMessage || !message) {

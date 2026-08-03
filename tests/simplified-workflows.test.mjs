@@ -499,8 +499,13 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
   assert.doesNotMatch(repairBody, /content: \$json\.system_message/);
   for (const name of ["Validate Initial Draft", "Validate Repaired Draft"]) {
     const validationCode = node(workflow, name).parameters.jsCode;
-    assert.match(validationCode, /error\?\.status/);
-    assert.match(validationCode, /externalResultErrorMessage/);
+    assert.match(validationCode, /const providerStatus = Number\(/);
+    assert.match(validationCode, /\$json\?\.error\?\.status/);
+    assert.match(
+      validationCode,
+      /const providerError = externalResultErrorMessage\(\$json\)/
+    );
+    assert.match(validationCode, /String\(providerStatus\) \+ ': '/);
   }
   assert.equal(
     workflow.connections["Provider Required"].main[0][0].node,

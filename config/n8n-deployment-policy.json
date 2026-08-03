@@ -122,7 +122,7 @@
       {
         "role": "evaluator_generator",
         "target_workflow_id": "TRUqD9atneyDyMNx",
-        "artifact_digest": "sha256:773ac3ca106408ac06c416f1c601bb64d90ecad4a43a9c4abac667351130f375",
+        "artifact_digest": "sha256:942e9c877d8af1afc35b18f4c72e5aa948dfcd36864aa433465f0a9981b83b09",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 480,
         "schedule_expressions": [
