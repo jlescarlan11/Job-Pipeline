@@ -151,6 +151,34 @@ function row(id, status, action = "", overrides = {}) {
   return normalized;
 }
 
+function legacyStateGuard(record, userAction = record.user_action) {
+  const canonicalId = String(record.canonical_job_id || "");
+  const state = [
+    canonicalId,
+    String(record.pipeline_status || ""),
+    String(userAction || ""),
+    String(record.record_version || ""),
+    String(record.processing_stage || ""),
+    String(record.processing_token || ""),
+    String(record.review_approved_at || ""),
+    String(record.review_approval_note || ""),
+    String(record.generated_at || ""),
+    String(record.alert_status || ""),
+    String(record.alert_claim_token || ""),
+    String(record.outcome || ""),
+    String(record.outcome_recorded_value || ""),
+    String(record.applied_at || ""),
+    String(record.archived_at || ""),
+    String(record.archive_reason || "")
+  ].join("\u001f");
+  let hash = 2166136261;
+  for (let index = 0; index < state.length; index += 1) {
+    hash ^= state.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${canonicalId}|${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
 function destinationAfterWrite(plans) {
   const writes = destinationWrites(plans);
   return {
@@ -329,6 +357,45 @@ test("automatic skip moves to Archive without an operator action", () => {
   assert.equal(writes.archive.length, 1);
   assert.equal(writes.archive[0].archive_reason, "automatic_skip");
   assert.equal(writes.archive[0].decision_reason, "Hard seniority mismatch");
+});
+
+test("legacy movement guards upgrade in place while legacy-protected edits fail closed", () => {
+  const automatic = row(4026, "skip");
+  automatic.state_guard = legacyStateGuard(automatic);
+
+  const acted = row(4027, "ready_to_apply");
+  acted.state_guard = legacyStateGuard(acted);
+  acted.user_action = "Skip";
+
+  const tampered = row(4028, "review_needed");
+  tampered.state_guard = legacyStateGuard(tampered);
+  tampered.generated_at = "2026-07-31T09:59:59.000Z";
+
+  const plan = planQueueActionsRaw(
+    businessStores({
+      "Scraped Jobs": [automatic, tampered],
+      "To Apply": [acted]
+    }),
+    schema,
+    now,
+    safetyContext
+  );
+
+  assert.deepEqual(
+    plan.moves.map((move) => [move.canonical_job_id, move.destination]),
+    [
+      [automatic.canonical_job_id, "Archive"],
+      [acted.canonical_job_id, "Archive"]
+    ]
+  );
+  for (const moved of destinationWrites(plan).archive) {
+    assert.match(moved.state_guard, /\|[a-f0-9]{64}$/);
+    assert.equal(moved.state_guard, stateGuard(moved));
+  }
+  assert.deepEqual(
+    plan.rejected.map((entry) => [entry.canonical_job_id, entry.reason]),
+    [[tampered.canonical_job_id, "invalid_source"]]
+  );
 });
 
 test("permanently unavailable source rows and legacy 404/410 errors move to Archive", () => {
