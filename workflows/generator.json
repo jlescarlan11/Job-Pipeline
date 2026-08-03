@@ -3240,7 +3240,8 @@
   "meta": {
     "templateCredsSetupCompleted": false,
     "workflowRole": "evaluator_generator",
-    "workflowContractVersion": "2026-07-31/v3",
+    "workflowContractVersion": "2026-08-04/v1",
+    "legacyStateGuardCompatibility": false,
     "pipelineSchemaVersion": "2026-07-31-segmented-queues-v3",
     "candidateProfileSource": "Candidate, Skills, Experience, Projects, Education, Awards",
     "preferenceSource": "Job Preferences, Application Settings, Required Style, Banned Phrases",

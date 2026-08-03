@@ -19,50 +19,6 @@ function sanitize(value, maximum = 240) {
     .slice(0, maximum);
 }
 
-function legacyMovementStateGuard(record, userAction = record?.user_action) {
-  const canonicalId = String(record?.canonical_job_id || "");
-  if (!canonicalId) return "";
-  const state = [
-    canonicalId,
-    String(record?.pipeline_status || ""),
-    String(userAction || ""),
-    String(record?.record_version || ""),
-    String(record?.processing_stage || ""),
-    String(record?.processing_token || ""),
-    String(record?.review_approved_at || ""),
-    String(record?.review_approval_note || ""),
-    String(record?.generated_at || ""),
-    String(record?.alert_status || ""),
-    String(record?.alert_claim_token || ""),
-    String(record?.outcome || ""),
-    String(record?.outcome_recorded_value || ""),
-    String(record?.applied_at || ""),
-    String(record?.archived_at || ""),
-    String(record?.archive_reason || "")
-  ].join("\u001f");
-  let hash = 2166136261;
-  for (let index = 0; index < state.length; index += 1) {
-    hash ^= state.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return `${canonicalId}|${(hash >>> 0).toString(16).padStart(8, "0")}`;
-}
-
-function validMovementSourceGuard(record) {
-  const persisted = String(record?.state_guard || "");
-  if (persisted === stateGuard(record)) return true;
-  if (!/^[^|]+\|[a-f0-9]{8}$/i.test(persisted)) return false;
-
-  // Rows written before the 2026-08-03 SHA-256 guard cutover used this FNV-1a
-  // digest. The old digest included user_action even though that Sheet column
-  // is operator-owned, so also verify the pre-edit blank action. Every moved
-  // destination is rewritten with the current guard before source deletion.
-  return (
-    persisted === legacyMovementStateGuard(record) ||
-    persisted === legacyMovementStateGuard(record, "")
-  );
-}
-
 function permanentSourceUnavailable(record) {
   if (
     record?.source_availability === "unavailable" ||
@@ -424,7 +380,7 @@ export function planQueueActions(
         });
         continue;
       }
-      if (!validMovementSourceGuard(source)) {
+      if (String(source?.state_guard || "") !== stateGuard(source)) {
         rejected.push({
           canonical_job_id: String(source?.canonical_job_id || ""),
           source_sheet: sourceSheet,
@@ -618,7 +574,7 @@ export function confirmMoveDeletions(
       continue;
     }
     const sourceUnchanged =
-      validMovementSourceGuard(source) &&
+      String(source?.state_guard || "") === stateGuard(source) &&
       source.state_guard === plan.source_state_guard &&
       source.record_version === plan.source_record_version &&
       source.pipeline_status === plan.source_status &&

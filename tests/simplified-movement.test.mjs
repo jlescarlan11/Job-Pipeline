@@ -359,7 +359,7 @@ test("automatic skip moves to Archive without an operator action", () => {
   assert.equal(writes.archive[0].decision_reason, "Hard seniority mismatch");
 });
 
-test("legacy movement guards upgrade in place while legacy-protected edits fail closed", () => {
+test("legacy movement guards fail closed after the guarded migration", () => {
   const automatic = row(4026, "skip");
   automatic.state_guard = legacyStateGuard(automatic);
 
@@ -371,9 +371,11 @@ test("legacy movement guards upgrade in place while legacy-protected edits fail 
   tampered.state_guard = legacyStateGuard(tampered);
   tampered.generated_at = "2026-07-31T09:59:59.000Z";
 
+  const current = row(4029, "skip");
+
   const plan = planQueueActionsRaw(
     businessStores({
-      "Scraped Jobs": [automatic, tampered],
+      "Scraped Jobs": [automatic, tampered, current],
       "To Apply": [acted]
     }),
     schema,
@@ -383,18 +385,18 @@ test("legacy movement guards upgrade in place while legacy-protected edits fail 
 
   assert.deepEqual(
     plan.moves.map((move) => [move.canonical_job_id, move.destination]),
-    [
-      [automatic.canonical_job_id, "Archive"],
-      [acted.canonical_job_id, "Archive"]
-    ]
+    [[current.canonical_job_id, "Archive"]]
   );
-  for (const moved of destinationWrites(plan).archive) {
-    assert.match(moved.state_guard, /\|[a-f0-9]{64}$/);
-    assert.equal(moved.state_guard, stateGuard(moved));
-  }
+  const [moved] = destinationWrites(plan).archive;
+  assert.match(moved.state_guard, /\|[a-f0-9]{64}$/);
+  assert.equal(moved.state_guard, stateGuard(moved));
   assert.deepEqual(
     plan.rejected.map((entry) => [entry.canonical_job_id, entry.reason]),
-    [[tampered.canonical_job_id, "invalid_source"]]
+    [
+      [automatic.canonical_job_id, "invalid_source"],
+      [tampered.canonical_job_id, "invalid_source"],
+      [acted.canonical_job_id, "invalid_source"]
+    ]
   );
 });
 
