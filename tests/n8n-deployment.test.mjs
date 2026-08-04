@@ -94,7 +94,7 @@ test("deployment policy has exactly three signatures and all retired markers", (
   );
   assert.deepEqual(policy.application_compatibility, {
     legacy_state_guard_compatibility: "forbidden",
-    production_movement_execution_mode: "scheduled_only",
+    business_row_relocation_mode: "copy_confirm_delete_only",
     pipeline_schema_version: pipelineSchema.schema_version,
     storage_version: pipelineSchema.storage_version,
     pipeline_contract_digest:
@@ -195,16 +195,12 @@ test("deployment policy pins exact inactive workflow artifacts and runtime signa
   }
 });
 
-test("deployment rejects an Alerter & Mover artifact without the scheduled-only guard", () => {
+test("deployment rejects an Alerter & Mover artifact without copy-confirm-delete-only relocation", () => {
   const unsafeWorkflows = structuredClone(generatedWorkflows);
   const unsafeAlerter = unsafeWorkflows.find(
     (workflow) => workflow.meta.workflowRole === "alerter_mover"
   );
-  unsafeAlerter.meta.productionMovementExecutionMode = "manual_allowed";
-  unsafeAlerter.nodes.find(
-    (node) => node.name === "Capture Alerter Execution Start"
-  ).parameters.jsCode =
-    "return [{ json: { execution_started_at: new Date().toISOString() } }];";
+  unsafeAlerter.meta.businessRowRelocationMode = "hard_move_allowed";
 
   const unsafePolicy = structuredClone(policy);
   unsafePolicy.workflow_cutover.roles.find(
@@ -216,13 +212,13 @@ test("deployment rejects an Alerter & Mover artifact without the scheduled-only 
       ...compatibilityContext,
       generatedWorkflows: unsafeWorkflows
     }).join(";"),
-    /must reject manual execution/
+    /must preserve copy-confirm-delete-only business relocation/
   );
 });
 
 test("deployment policy rejects a partially deployed application compatibility unit", () => {
   for (const field of [
-    "production_movement_execution_mode",
+    "business_row_relocation_mode",
     "application_pack_version",
     "coverage_contract_version",
     "message_plan_version",

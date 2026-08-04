@@ -8,15 +8,16 @@ request is not a deployment commit.
 
 Stop at any failed gate. Never run old and replacement workflows against either workbook at the same time.
 
-Production movement is schedule-only. Never click **Execute workflow**, execute
-an individual production Alerter & Mover node, invoke the production workflow
-through an API, or manually copy/move a business row between tabs. Diagnose and
-repair the source condition, preserve a backup, and wait for the next scheduled
-Alerter & Mover boundary to perform and verify copy-confirm-delete. A proven
-stale duplicate may be removed during a frozen, backed-up repair window; that
-exception removes the invalid copy and does not manually relocate the valid
-record. The generated workflow rejects non-production execution before its
-first business read, and deployment policy requires that guard.
+Business-row relocation is workflow-owned. Never hard-copy, cut/paste, or
+otherwise manually relocate a business row between tabs. Manual execution of
+the complete production Alerter & Mover workflow is allowed when deliberately
+requested, but it must use the same guarded copy-confirm-delete path as a
+scheduled run. Diagnose and repair the source condition and preserve a backup;
+then let Alerter & Mover perform and verify relocation. A proven stale duplicate
+may be removed during a frozen, backed-up repair window; that exception removes
+the invalid copy and does not manually relocate the valid record. Deployment
+policy requires the generated workflow to declare copy-confirm-delete-only
+business relocation.
 
 Runtime baseline: all three exports use `Asia/Manila`. Scraper runs every 240
 minutes with a 900-second timeout; Evaluator & Generator runs every 90 minutes

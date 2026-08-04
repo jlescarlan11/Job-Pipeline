@@ -23,7 +23,7 @@
     },
     {
       "parameters": {
-        "jsCode": "if ($execution.mode !== \"production\") {\n  throw new Error(\"Manual Alerter & Mover execution is disabled in production; wait for the next scheduled run.\");\n}\nreturn [{ json: { execution_started_at: new Date().toISOString() } }];"
+        "jsCode": "return [{ json: { execution_started_at: new Date().toISOString() } }];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -13175,9 +13175,9 @@
   "meta": {
     "templateCredsSetupCompleted": false,
     "workflowRole": "alerter_mover",
-    "workflowContractVersion": "2026-08-04/v2",
+    "workflowContractVersion": "2026-08-04/v3",
     "legacyStateGuardCompatibility": false,
-    "productionMovementExecutionMode": "scheduled_only",
+    "businessRowRelocationMode": "copy_confirm_delete_only",
     "alertPolicyVersion": "2026-07-31/v1",
     "alertReceiptPolicyVersion": "2026-08-02/v1",
     "alertReceiptStoreEnvironmentVariable": "JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID",
