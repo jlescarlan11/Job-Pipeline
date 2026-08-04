@@ -15,6 +15,7 @@ const [
   alerts,
   segmentedCutover,
   acceptance,
+  reviewPreparationAcceptance,
   searchKeywordsLedger,
   searchKeywordsPredeploymentBaseline,
   searchKeywordsNonproductionVerification,
@@ -41,6 +42,7 @@ const [
   loadText("../docs/alerts.md"),
   loadText("../docs/segmented-queue-cutover.md"),
   loadText("../docs/acceptance-matrix.md"),
+  loadText("../docs/review-preparation-acceptance-matrix.md"),
   loadText("../docs/search-keywords-change-ledger-2026-07-31.md"),
   loadJson(
     "../outputs/search-keywords-20260731/production-predeployment-baseline.json"
@@ -1031,6 +1033,94 @@ test("acceptance accounting covers every criterion and labels live gates honestl
   );
   assert.doesNotMatch(issue49Section, /\b(?:BLOCKED|PARTIAL)\b/);
   assert.match(issue49Section, /final deployed source is commit/i);
+});
+
+test("review/preparation accounting covers every criterion and pushed change unit", () => {
+  const criterionCounts = new Map([
+    [75, 13],
+    [76, 16],
+    [77, 20],
+    [78, 22]
+  ]);
+  for (const [issue, count] of criterionCounts) {
+    const rows = [
+      ...reviewPreparationAcceptance.matchAll(
+        new RegExp(`^\\| ${issue}-\\d{2} \\|.*\\| (SATISFIED|PARTIAL|BLOCKED) \\|$`, "gm")
+      )
+    ];
+    assert.equal(rows.length, count, `issue #${issue} criterion count`);
+    if (issue !== 78) {
+      assert.ok(
+        rows.every((row) => row[1] === "SATISFIED"),
+        `issue #${issue} must have repository-complete criteria`
+      );
+    }
+  }
+  assert.match(
+    reviewPreparationAcceptance,
+    /authoritative source[\s\S]{0,500}negative, boundary, failure, persistence/i
+  );
+  assert.match(reviewPreparationAcceptance, /live #78 evidence remains a Blocker/i);
+
+  const pushedPaths = [
+    "README.md",
+    "config/alert-policy.json",
+    "config/n8n-deployment-policy.json",
+    "config/pipeline-schema.json",
+    "config/review-sheet.json",
+    "docs/alerts.md",
+    "docs/application-pack.md",
+    "docs/architecture.md",
+    "docs/data-contract.md",
+    "docs/n8n-deployment.md",
+    "docs/operations.md",
+    "docs/review-preparation-acceptance-matrix.md",
+    "docs/review-preparation-cutover-evidence.example.json",
+    "docs/review-preparation-cutover.md",
+    "docs/sheet-schema.md",
+    "google-apps-script/SheetSetup.gs",
+    "package.json",
+    "scripts/build-sheet-setup.mjs",
+    "scripts/build-workflows.mjs",
+    "scripts/plan-review-preparation-migration.mjs",
+    "scripts/validate-review-preparation-cutover.mjs",
+    "src/alerter-mover.mjs",
+    "src/contracts.mjs",
+    "src/evaluation.mjs",
+    "src/fresh-sheet-setup.mjs",
+    "src/generator.mjs",
+    "src/message-safety.mjs",
+    "src/movement.mjs",
+    "src/n8n-deployment.mjs",
+    "src/review-preparation-cutover.mjs",
+    "tests/docs.test.mjs",
+    "tests/e2e.test.mjs",
+    "tests/evaluation-generation.test.mjs",
+    "tests/message-safety.test.mjs",
+    "tests/n8n-deployment.test.mjs",
+    "tests/review-preparation-cutover.test.mjs",
+    "tests/simplified-alerter-mover.test.mjs",
+    "tests/simplified-contract.test.mjs",
+    "tests/simplified-discovery.test.mjs",
+    "tests/simplified-generator.test.mjs",
+    "tests/simplified-movement.test.mjs",
+    "tests/simplified-workflows.test.mjs",
+    "tests/unsent-compatibility.test.mjs",
+    "workflows/alerter-mover.json",
+    "workflows/generator.json",
+    "workflows/scraper.json"
+  ];
+  assert.equal(new Set(pushedPaths).size, 46);
+  for (const path of pushedPaths) {
+    assert.ok(
+      reviewPreparationAcceptance.includes("| `" + path + "` /"),
+      `missing reviewed change unit: ${path}`
+    );
+  }
+  assert.doesNotMatch(
+    reviewPreparationAcceptance,
+    /\|[^\n]*\|\s*(?:UNREVIEWED|FINDING_RECORDED|FIXED_REQUIRES_REREVIEW)\s*\|/
+  );
 });
 
 test("requirement-aware Generator accounting covers implementation and honest live blockers", () => {

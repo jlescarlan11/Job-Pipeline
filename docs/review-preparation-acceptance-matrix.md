@@ -1,11 +1,27 @@
 # Review/preparation acceptance matrix
 
-Evidence baseline: `npm run validate` completed on 2026-08-04 with 314 tests,
-302 passed, 12 intentionally skipped, zero failed; workflow and Sheet artifacts
+Evidence baseline: `npm run validate` completed on 2026-08-04 with 315 tests,
+303 passed, 12 intentionally skipped, zero failed; workflow and Sheet artifacts
 had no drift. Production deployment, live data mutation, workflow activation,
 and live observation were not authorized in this change set. Issue #78 criteria
 that require those actions remain `BLOCKED` or `PARTIAL`; repository proof is
 not presented as live proof.
+
+Matrix field convention:
+
+- Each ID maps exactly to the same-numbered GitHub acceptance checkbox for its
+  issue (`75-01` is issue #75 acceptance criterion 1, and so on). That issue
+  checkbox is the authoritative source.
+- **Required observable behavior** includes the positive behavior and every
+  applicable negative, boundary, failure, persistence, or compatibility
+  behavior. When the authoritative checkbox has no separate boundary, none is
+  invented.
+- **Implementation and direct evidence** names the implementation mapping
+  before the semicolon and the direct test, artifact, inspection, or command
+  evidence after it.
+- **Status** is criterion-specific. For issue #78, the evidence cell also names
+  the exact live limitation; the shared Blocker paragraph applies only where
+  the status is `PARTIAL` or `BLOCKED`.
 
 ## Issue #75 — monotonic review/preparation contract
 
@@ -120,6 +136,116 @@ is inferred from unit tests.
 | Review/preparation documentation and evidence scaffold | #75–#78 | Current routes/states/actions, maintenance/rollback authority, no false live claim inspected | Medium/operations | REVIEWED_AFTER_FIX |
 | Direct and integrated test changes | #75–#78 | Positive, negative, stale, concurrent, partial, privacy, workflow-shape paths inspected | Medium/verification | REVIEWED_CLEAN |
 | Rebuilt Scraper artifact | compatibility unit | Source unchanged; digest changed because embedded shared contract changed; policy pinned | High/generated | REVIEWED_CLEAN |
+
+### File-complete change-unit manifest
+
+This manifest reconciles all 46 paths in `origin/main...c277f37`. Each row is a
+reviewed change unit; generated artifacts are accounted separately from their
+builders. “Tests” below means the focused tests named in the acceptance rows
+plus the final 315-test repository pass.
+
+| Path / type | Issue, purpose, and related criteria | Direct boundaries and evidence inspected | Risk / disposition |
+| --- | --- | --- | --- |
+| `README.md` / modified | #75–#77; describe monotonic queue/preparation behavior | Current architecture and workflow names; docs tests | Medium / REVIEWED_AFTER_FIX |
+| `config/alert-policy.json` / modified | #77; add message-ready gate and reminder policy (77-10–77-14) | Alerter eligibility, renderer, receipts, policy tests | High / REVIEWED_AFTER_FIX |
+| `config/n8n-deployment-policy.json` / modified | #75–#78; pin v4 compatibility unit and exact artifacts (75-13, 76-14, 77-20, 78-01/18) | Deployment validator, runtime, three workflow digests | High / REVIEWED_AFTER_FIX |
+| `config/pipeline-schema.json` / modified | #75; ordered v4 review/preparation contract (75-01–75-09) | All five stores, state guards, setup, three workflows | High / REVIEWED_AFTER_FIX |
+| `config/review-sheet.json` / modified | #75; exact Proceed/Reject controls and ordered fields (75-01/10/13) | Fresh setup planner, Apps Script builder, docs/tests | High / REVIEWED_CLEAN |
+| `docs/alerts.md` / modified | #77; alert/reminder authorization and privacy contract | Policy, renderer, receipt, summary implementation | Medium / REVIEWED_AFTER_FIX |
+| `docs/application-pack.md` / modified | #75/#76; separate Proceed resolution from preparation readiness | Pack builder, generator, message safety tests | Medium / REVIEWED_AFTER_FIX |
+| `docs/architecture.md` / modified | #75–#77; document end-to-end monotonic flow and guarded v3 exit | Schema, generator, movement, Alerter graph | Medium / REVIEWED_AFTER_FIX |
+| `docs/data-contract.md` / modified | #75/#78; v4 fields, guards, actions, one-claim compatibility | Contract implementation and migration tests | Medium / REVIEWED_AFTER_FIX |
+| `docs/n8n-deployment.md` / modified | #78; identify the pinned August 4 deployment unit | Deployment policy/docs agreement test | Medium / REVIEWED_CLEAN |
+| `docs/operations.md` / modified | #75–#78; operator actions, manual-run boundary, deployment version | Generated workflow, AGENTS rule, docs tests | Medium / REVIEWED_AFTER_FIX |
+| `docs/review-preparation-acceptance-matrix.md` / added | #75–#78; criterion and change-set accounting | Issues #75–#78, final diff, validation results | Medium / REVIEWED_AFTER_FIX |
+| `docs/review-preparation-cutover-evidence.example.json` / added | #78; deliberately incomplete sanitized evidence scaffold (78-02/19) | Evidence validator and privacy tests | High / REVIEWED_CLEAN |
+| `docs/review-preparation-cutover.md` / added | #78; freeze/backup/preflight/migrate/observe/rollback procedure (78-02–78-22) | Existing #69 deployment pattern, planner/validator, movement rule | Critical / REVIEWED_AFTER_FIX |
+| `docs/sheet-schema.md` / modified | #75; exact v4 Sheet contract and controls | Schema/review configuration and docs tests | Medium / REVIEWED_CLEAN |
+| `google-apps-script/SheetSetup.gs` / generated | #75; idempotent v4 headers and validations (75-01/10/13) | Builder source, populated/empty rerun tests, artifact drift | High / REVIEWED_CLEAN |
+| `package.json` / modified | #78; expose read-only plan and evidence validation commands | CLI entrypoints; no dependencies or lockfile introduced | Low / REVIEWED_CLEAN |
+| `scripts/build-sheet-setup.mjs` / modified | #75; generate v7 Sheet setup | Config validator, generated Apps Script, drift test | High / REVIEWED_CLEAN |
+| `scripts/build-workflows.mjs` / modified | #76/#77; bind dual-source Generator and new movement/alert paths | Embedded helper closure, graph reachability, syntax tests | High / REVIEWED_AFTER_FIX |
+| `scripts/plan-review-preparation-migration.mjs` / added | #78; read snapshot and print deterministic no-write plan (78-04/06/09/10) | Input parsing, planner, nonzero unsafe exit | High / REVIEWED_CLEAN |
+| `scripts/validate-review-preparation-cutover.mjs` / added | #78; reject incomplete sanitized evidence (78-01–78-22) | Four pinned configs, validator errors, CLI boundary | High / REVIEWED_AFTER_FIX |
+| `src/alerter-mover.mjs` / modified | #77; categories, claims, receipts, reminders, summaries (77-10–77-18) | Movement planner, Slack boundary, provider result commit | High / REVIEWED_AFTER_FIX |
+| `src/contracts.mjs` / modified | #75/#78; v4 fields/guards/legacy normalization (75-02–75-09, 78-09/10) | Every store validator, generator/movement claims, setup | Critical / REVIEWED_AFTER_FIX |
+| `src/evaluation.mjs` / modified | #75/#76; recognize stable Proceed audit during pack preparation | Pack review guard, generator and safety recomputation | High / REVIEWED_AFTER_FIX |
+| `src/fresh-sheet-setup.mjs` / modified | #75; validate/preserve new controls and aliases (75-01/08/10) | Empty/populated/conflict setup paths | High / REVIEWED_CLEAN |
+| `src/generator.mjs` / modified | #76; select/claim/prepare/commit in To Apply (76-01–76-13) | Provider boundary, exact rereads, retry/lease recovery | Critical / REVIEWED_AFTER_FIX |
+| `src/message-safety.mjs` / modified | #77; require To Apply plus message_ready (77-10/11/18) | Canonical pack recomputation and alert selection | High / REVIEWED_CLEAN |
+| `src/movement.mjs` / modified | #77/#78; guarded Proceed/Reject and partial recovery (77-01–77-09, 78-07–78-09) | Five-store ownership, copy-confirm-delete, stale source | Critical / REVIEWED_AFTER_FIX |
+| `src/n8n-deployment.mjs` / modified | #78; enforce one guarded v3 claim compatibility | Policy/config/workflow compatibility validators | High / REVIEWED_CLEAN |
+| `src/review-preparation-cutover.mjs` / added | #78; pure migration planner and strict evidence validator (78-01–78-22) | Five-store inventory, claims, privacy, backups, observations | Critical / REVIEWED_AFTER_FIX |
+| `tests/docs.test.mjs` / modified | #75–#78; current deployment/doc vocabulary | Current docs/config versions | Low / REVIEWED_CLEAN |
+| `tests/e2e.test.mjs` / modified | #75–#77; integrated Proceed→prepare→alert→applied lifecycle | Real contract/generator/movement/alert functions | High / REVIEWED_AFTER_FIX |
+| `tests/evaluation-generation.test.mjs` / modified | #76; Proceed-bound pack generation | Application pack review strategy and prompts | Medium / REVIEWED_CLEAN |
+| `tests/message-safety.test.mjs` / modified | #77; message-ready ownership gate | Persisted pack/message recomputation | Medium / REVIEWED_CLEAN |
+| `tests/n8n-deployment.test.mjs` / modified | #78; v4 deployment compatibility | Policy and exact workflow artifacts | Medium / REVIEWED_CLEAN |
+| `tests/review-preparation-cutover.test.mjs` / added | #78; planner/evidence/v3 regression coverage | Determinism, malformed input, privacy, live-proof omissions | High / REVIEWED_AFTER_FIX |
+| `tests/simplified-alerter-mover.test.mjs` / modified | #77; category, receipt, claim, summary, provider coverage | Alert and movement phase boundaries | High / REVIEWED_AFTER_FIX |
+| `tests/simplified-contract.test.mjs` / modified | #75/#78; lifecycle/store/legacy/setup matrices | Schema, v3/v4 guards, generated setup | High / REVIEWED_AFTER_FIX |
+| `tests/simplified-discovery.test.mjs` / modified | #75; preserve v4 state through rediscovery | Five-store owner reconciliation | Medium / REVIEWED_CLEAN |
+| `tests/simplified-generator.test.mjs` / modified | #76; lifecycle, stale, retry, recovery, provider cases | Generator selection through persistence confirmation | High / REVIEWED_AFTER_FIX |
+| `tests/simplified-movement.test.mjs` / modified | #77/#78; all routes, races, partial failures, legacy loop exit | Destination confirmation and source deletion | High / REVIEWED_AFTER_FIX |
+| `tests/simplified-workflows.test.mjs` / modified | #76/#77; graph bindings and no-submit checks | Generated nodes, triggers, credentials, network paths | High / REVIEWED_CLEAN |
+| `tests/unsent-compatibility.test.mjs` / modified | #77; v4 message inventory safety | Shared message gate and bounded digests | Medium / REVIEWED_CLEAN |
+| `workflows/alerter-mover.json` / generated | #77/#78; guarded movement, alerts, receipts, summaries | Builder equality, code syntax, pinned digest, inactive state | Critical / REVIEWED_AFTER_FIX |
+| `workflows/generator.json` / generated | #76/#78; dual-source bounded preparation | Builder equality, code syntax, pinned digest, inactive state | Critical / REVIEWED_AFTER_FIX |
+| `workflows/scraper.json` / generated | Compatibility unit; embed v4 shared contract | Builder equality, code syntax, pinned digest, inactive state | High / REVIEWED_CLEAN |
+
+### Findings discovered and fixed
+
+The adversarial loops verified and fixed these in-scope root causes before the
+final pass:
+
+1. A proceeded row could be recycled through Scraped Jobs because review
+   resolution and preparation readiness were the same state.
+2. An active Slack `sending` claim could be bypassed after a preparation
+   category change, risking duplicate delivery.
+3. Summary wiring omitted copy-ready/reminder and preparation-state counts.
+4. A destination that progressed after append but before source cleanup was
+   not recognized, risking a stranded duplicate owner.
+5. Relaxing global uniqueness for partial recovery also tolerated unrelated or
+   idle duplicate owners; recovery is now limited to the exact planned pair.
+6. An expired To Apply `preparing` claim was not re-eligible and could strand a
+   row indefinitely.
+7. A permanent source `404/410` during preparation could retry forever because
+   its terminal category and retry metadata disagreed.
+8. `preparation_input_guard` depended on generated pack output, invalidating
+   the guard after legitimate preparation.
+9. The retired v3 Scraped Jobs `Approve`/`Deny` loop shape had no guarded exit;
+   it now has exactly one raw-legacy, v3-guarded copy-confirm-delete route.
+10. Migration preflight initially accepted missing raw status/guard facts and
+    persisted row claims; those inputs now stop planning.
+11. Cutover evidence initially omitted instance-wide role inventory, canonical
+    owner/count reconciliation, exact timezone/bindings, migration-count
+    reconciliation, and mandatory observation duration.
+
+### Risk and high-assurance review results
+
+- Issue #75: **HIGH** — durable schema, validation, and existing-record
+  compatibility.
+- Issue #76: **CRITICAL** — provider work, claims, retries, and durable To Apply
+  commits.
+- Issue #77: **CRITICAL** — cross-store deletion, notification idempotency, and
+  external provider ambiguity.
+- Issue #78: **CRITICAL** — production migration, deployment compatibility,
+  backups, observation, and rollback.
+
+Lane A — security, privacy, and trust — inspected action/owner authorization,
+raw legacy normalization, malicious and oversized input, invisible controls,
+Slack escaping and open-only URLs, secret redaction, receipt/evidence
+allow-lists, generated logs, and no-auto-application graph reachability. The
+only secret-scan matches are intentional validator/test sentinels; GitGuardian
+also passed on the pushed commit. No Lane A finding remains open.
+
+Lane B — data, state, failure, and operations — inspected all v3/v4 states,
+five-store uniqueness, claims and leases, exact rereads, copy-confirm-delete,
+append/delete partial failure, provider/Sheet failure, receipt ambiguity,
+restart recovery, generated artifacts, inactive source state, deployment
+digests, evidence reconciliation, and rollback limits. Findings 2–11 above
+were fixed and rereviewed. No repository-side Lane B finding remains open;
+live #78 evidence remains a Blocker rather than a waived finding.
 
 Consolidated review lanes completed against the final source state: data
 integrity/copy-confirm-delete, stale/concurrent claims, provider and message
