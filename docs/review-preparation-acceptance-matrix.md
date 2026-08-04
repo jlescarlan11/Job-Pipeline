@@ -139,9 +139,10 @@ is inferred from unit tests.
 
 ### File-complete change-unit manifest
 
-This manifest reconciles all 46 paths in `origin/main...c277f37`. Each row is a
-reviewed change unit; generated artifacts are accounted separately from their
-builders. “Tests” below means the focused tests named in the acceptance rows
+This manifest reconciles all 46 paths in the final `origin/main...HEAD` PR
+diff. Each row is a reviewed change unit; generated artifacts are accounted
+separately from their builders. “Tests” below means the focused tests named in
+the acceptance rows
 plus the final 315-test repository pass.
 
 | Path / type | Issue, purpose, and related criteria | Direct boundaries and evidence inspected | Risk / disposition |
