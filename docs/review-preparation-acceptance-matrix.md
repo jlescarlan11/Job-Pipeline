@@ -1,7 +1,7 @@
 # Review/preparation acceptance matrix
 
-Evidence baseline: `npm run validate` completed on 2026-08-04 with 317 tests,
-305 passed, 12 intentionally skipped, zero failed; workflow and Sheet artifacts
+Evidence baseline: `npm run validate` completed on 2026-08-04 with 318 tests,
+306 passed, 12 intentionally skipped, zero failed; workflow and Sheet artifacts
 had no drift. Production deployment, live data mutation, workflow activation,
 and live observation were not authorized in this change set. Issue #78 criteria
 that require those actions remain `BLOCKED` or `PARTIAL`; repository proof is
@@ -132,6 +132,7 @@ is inferred from unit tests.
 | `src/alerter-mover.mjs`, `src/message-safety.mjs`, `config/alert-policy.json` | #77 | Eligibility, reminder safety, receipt identity, stale result, summary inspected | High/notification | REVIEWED_AFTER_FIX |
 | Alerter builder and generated workflow | #77 | Single manual/scheduled route, copy-confirm-delete, receipt/provider isolation inspected | High/workflow | REVIEWED_CLEAN |
 | `config/n8n-deployment-policy.json`, `src/n8n-deployment.mjs` | #75–#78 | Exact artifact digests, compatibility unit, one-claim v3 rule inspected | High/deployment | REVIEWED_AFTER_FIX |
+| `scripts/build-bound-workflow-rollout.mjs` | #78 | Pinned target/name, unanimous safe credential extraction from an older live graph, exact replacement node binding, ambiguity/partial-binding rejection, and inactive output inspected | High/deployment | REVIEWED_AFTER_FIX |
 | `src/review-preparation-cutover.mjs` and two CLI scripts | #78 | Read-only plan, global preflight, evidence privacy, no-write boundary inspected | High/migration | REVIEWED_AFTER_FIX |
 | Review/preparation documentation and evidence scaffold | #75–#78 | Current routes/states/actions, maintenance/rollback authority, no false live claim inspected | Medium/operations | REVIEWED_AFTER_FIX |
 | Direct and integrated test changes | #75–#78 | Positive, negative, stale, concurrent, partial, privacy, workflow-shape paths inspected | Medium/verification | REVIEWED_CLEAN |

@@ -92,6 +92,44 @@ test("generic bound rollout preserves every pinned role and one credential", asy
   }
 });
 
+test("generic rollout upgrades a pinned legacy graph with one unanimous credential", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "workflow-rollout-test-"));
+  const artifactPath = join(directory, "artifact.json");
+  const livePath = join(directory, "live.json");
+  const outputPath = join(directory, "bound.json");
+  const artifact = JSON.parse(
+    await readFile(new URL("../workflows/generator.json", import.meta.url))
+  );
+  const role = policy.workflow_cutover.roles.find(
+    (entry) => entry.role === "evaluator_generator"
+  );
+  const live = bindLiveCredential(artifact);
+  live.id = role.target_workflow_id;
+  live.active = true;
+  live.nodes = live.nodes.filter(
+    (node) => node.name !== "Get To Apply Preparation"
+  );
+  const liveCredentialNodeCount = googleCredentialNodeNames(live).length;
+  assert.ok(liveCredentialNodeCount < role.google_credential_node_count);
+  await Promise.all([
+    writeFile(artifactPath, JSON.stringify(artifact)),
+    writeFile(livePath, JSON.stringify(live))
+  ]);
+
+  const result = runScript([artifactPath, livePath, outputPath]);
+  assert.equal(result.status, 0, result.stderr);
+  const summary = JSON.parse(result.stdout);
+  const bound = JSON.parse(await readFile(outputPath, "utf8"));
+  assert.equal(summary.credential_source_node_count, liveCredentialNodeCount);
+  assert.equal(
+    summary.credential_bound_node_count,
+    role.google_credential_node_count
+  );
+  assert.equal(workflowDeploymentDigest(bound), role.artifact_digest);
+  assert.equal(bound.nodes.length, artifact.nodes.length);
+  assert.ok(bound.nodes.some((node) => node.name === "Get To Apply Preparation"));
+});
+
 test("generic rollout rejects a wrong target and ambiguous credentials", async () => {
   const directory = await mkdtemp(join(tmpdir(), "workflow-rollout-test-"));
   const artifactPath = join(directory, "artifact.json");

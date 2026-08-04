@@ -33,6 +33,12 @@ function roleMatches(workflow, role) {
   );
 }
 
+function liveTargetMatches(workflow, role) {
+  return role.name_markers.every((marker) =>
+    String(workflow?.name || "").includes(marker)
+  );
+}
+
 const [artifactText, liveText, policyText] = await Promise.all([
   readFile(artifactPath, "utf8"),
   readFile(liveExportPath, "utf8"),
@@ -48,7 +54,10 @@ if (matches.length !== 1) {
   throw new Error("generated artifact must match exactly one deployment role");
 }
 const role = matches[0];
-if (!roleMatches(live, role) || String(live.id || "") !== role.target_workflow_id) {
+if (
+  !liveTargetMatches(live, role) ||
+  String(live.id || "") !== role.target_workflow_id
+) {
   throw new Error("live workflow export does not match the pinned production target");
 }
 if (artifact.active !== false) {
@@ -69,15 +78,12 @@ const requiredNames = new Set(googleCredentialNodeNames(artifact));
 if (requiredNames.size !== role.google_credential_node_count) {
   throw new Error("generated artifact Google credential-node count is stale");
 }
-const liveCredentialNames = googleCredentialNodeNames(live);
-if (
-  liveCredentialNames.length !== requiredNames.size ||
-  liveCredentialNames.some((name) => !requiredNames.has(name))
-) {
-  throw new Error("live workflow Google credential-node set does not match the artifact");
+const liveCredentialNames = new Set(googleCredentialNodeNames(live));
+if (liveCredentialNames.size === 0) {
+  throw new Error("live workflow must expose at least one Google credential node");
 }
 const credentialCandidates = live.nodes
-  .filter((node) => requiredNames.has(node.name))
+  .filter((node) => liveCredentialNames.has(node.name))
   .map((node) =>
     safeGoogleCredentialReference(node?.credentials?.[GOOGLE_CREDENTIAL_TYPE])
   );
@@ -125,6 +131,7 @@ process.stdout.write(
     workflow_id: role.target_workflow_id,
     artifact_digest: role.artifact_digest,
     node_count: bound.nodes.length,
+    credential_source_node_count: liveCredentialNames.size,
     credential_bound_node_count: credentialBoundNodeCount,
     schedule_expressions: role.schedule_expressions,
     timezone: bound.settings?.timezone ?? "",

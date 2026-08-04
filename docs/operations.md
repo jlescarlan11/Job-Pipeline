@@ -141,8 +141,11 @@ For Scraper, Evaluator & Generator, and Alerter & Mover, run
 and its current live export. The builder identifies the role from the policy,
 requires the pinned production ID, requires the exact reviewed artifact digest,
 copies exactly one unambiguous Google credential reference to every
-Google-capable node, assigns a new version, and keeps the result inactive. The
-expected credential-bound node counts are 13, 19, and 33 respectively.
+Google-capable node, assigns a new version, and keeps the result inactive. A
+pinned older live graph may have fewer Google nodes than its replacement; all
+Google nodes present in that source must still expose the same safe reference.
+The expected replacement credential-bound node counts are 13, 20, and 33
+respectively.
 It rejects any credential field in the repository artifact, any live node
 without the common reference, and any credential object containing fields
 other than the safe n8n reference `id` and optional `name`; the deployable output

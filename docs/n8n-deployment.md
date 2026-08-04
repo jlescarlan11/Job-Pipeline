@@ -129,6 +129,11 @@ destination is pipeline-ambiguous unless its unrelated workflow ID is explicitly
 approved in policy. The builder rejects credential-bearing repository artifacts,
 requires every live Google-capable node to expose the same reference, and copies
 only the validated credential `id`, never its display name or other fields.
+The pinned live target may be an older compatible graph and is therefore not
+required to already contain the replacement's new node names; the builder
+still requires its exact production ID and role name, validates every Google
+node that actually exists in that live export, and binds only the reviewed
+replacement node set.
 Post-activation evidence permits exactly one active target for each role and no
 active renamed, pipeline-bound, duplicate, or retired signature. Active version
 IDs must match the imported reviewed versions, while pre-deployment rollback
