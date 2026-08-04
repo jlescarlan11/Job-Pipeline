@@ -19,6 +19,11 @@ Generator against an old message-safety consumer is forbidden.
 
 The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 300-second timeout. This deployment policy does not authorize or automate application submission.
 
+Production Alerter & Mover movement is schedule-only. Its first Code node
+rejects manual/test execution before any workbook read or write. Operators must
+repair data or code under a frozen, backed-up maintenance window and verify the
+next scheduled boundary; they must not manually copy or move business rows.
+
 The Generator freezes at most five eligible `Scraped Jobs` rows and processes
 them sequentially, with a 20-second post-candidate interval for production
 Sheet request capacity. Its conservative 17 daily trigger boundaries yield 80

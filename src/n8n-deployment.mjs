@@ -325,6 +325,21 @@ export function validateN8nDeploymentPolicy(
     ) {
       errors.push(`${role.role} cutover artifact signature is stale`);
     }
+    if (role.role === "alerter_mover") {
+      const executionStart = workflow.nodes.find(
+        (node) => node?.name === "Capture Alerter Execution Start"
+      );
+      if (
+        workflow?.meta?.productionMovementExecutionMode !== "scheduled_only" ||
+        !String(executionStart?.parameters?.jsCode || "").includes(
+          '$execution.mode !== "production"'
+        )
+      ) {
+        errors.push(
+          "alerter_mover must reject manual execution before business reads or writes"
+        );
+      }
+    }
   }
   if (
     policy?.workbook_binding?.queue_spreadsheet_environment_variable !==
@@ -346,6 +361,7 @@ export function validateN8nDeploymentPolicy(
     errors.push("application compatibility must forbid legacy state guards");
   }
   const expectedCompatibility = {
+    production_movement_execution_mode: "scheduled_only",
     pipeline_schema_version: pipelineSchema?.schema_version,
     storage_version: pipelineSchema?.storage_version,
     pipeline_contract_digest:

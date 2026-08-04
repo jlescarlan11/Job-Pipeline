@@ -8,6 +8,7 @@ import {
   validateN8nDeploymentEnvironment,
   validateN8nDeploymentPolicy
 } from "../src/n8n-deployment.mjs";
+import { workflowDeploymentDigest } from "../src/workflow-cutover.mjs";
 
 const loadJson = async (path) =>
   JSON.parse(await readFile(new URL(path, import.meta.url)));
@@ -93,6 +94,7 @@ test("deployment policy has exactly three signatures and all retired markers", (
   );
   assert.deepEqual(policy.application_compatibility, {
     legacy_state_guard_compatibility: "forbidden",
+    production_movement_execution_mode: "scheduled_only",
     pipeline_schema_version: pipelineSchema.schema_version,
     storage_version: pipelineSchema.storage_version,
     pipeline_contract_digest:
@@ -193,8 +195,34 @@ test("deployment policy pins exact inactive workflow artifacts and runtime signa
   }
 });
 
+test("deployment rejects an Alerter & Mover artifact without the scheduled-only guard", () => {
+  const unsafeWorkflows = structuredClone(generatedWorkflows);
+  const unsafeAlerter = unsafeWorkflows.find(
+    (workflow) => workflow.meta.workflowRole === "alerter_mover"
+  );
+  unsafeAlerter.meta.productionMovementExecutionMode = "manual_allowed";
+  unsafeAlerter.nodes.find(
+    (node) => node.name === "Capture Alerter Execution Start"
+  ).parameters.jsCode =
+    "return [{ json: { execution_started_at: new Date().toISOString() } }];";
+
+  const unsafePolicy = structuredClone(policy);
+  unsafePolicy.workflow_cutover.roles.find(
+    (role) => role.role === "alerter_mover"
+  ).artifact_digest = workflowDeploymentDigest(unsafeAlerter);
+
+  assert.match(
+    validateN8nDeploymentPolicy(unsafePolicy, {
+      ...compatibilityContext,
+      generatedWorkflows: unsafeWorkflows
+    }).join(";"),
+    /must reject manual execution/
+  );
+});
+
 test("deployment policy rejects a partially deployed application compatibility unit", () => {
   for (const field of [
+    "production_movement_execution_mode",
     "application_pack_version",
     "coverage_contract_version",
     "message_plan_version",

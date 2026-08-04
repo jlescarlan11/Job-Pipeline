@@ -8,6 +8,16 @@ request is not a deployment commit.
 
 Stop at any failed gate. Never run old and replacement workflows against either workbook at the same time.
 
+Production movement is schedule-only. Never click **Execute workflow**, execute
+an individual production Alerter & Mover node, invoke the production workflow
+through an API, or manually copy/move a business row between tabs. Diagnose and
+repair the source condition, preserve a backup, and wait for the next scheduled
+Alerter & Mover boundary to perform and verify copy-confirm-delete. A proven
+stale duplicate may be removed during a frozen, backed-up repair window; that
+exception removes the invalid copy and does not manually relocate the valid
+record. The generated workflow rejects non-production execution before its
+first business read, and deployment policy requires that guard.
+
 Runtime baseline: all three exports use `Asia/Manila`. Scraper runs every 240
 minutes with a 900-second timeout; Evaluator & Generator runs every 90 minutes
 with a 480-second timeout; Alerter & Mover runs every 15 minutes with a
