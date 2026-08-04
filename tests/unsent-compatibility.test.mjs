@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   normalizeLegacyRecord,
+  preparationInputGuard,
   stateGuard,
   validateRecordStoreContract
 } from "../src/contracts.mjs";
@@ -72,6 +73,10 @@ function safeRecord(overrides = {}) {
     pipelineSchema,
     now
   );
+  record.prep_status = "message_ready";
+  record.preparation_version = 1;
+  record.preparation_updated_at = now;
+  record.preparation_input_guard = preparationInputGuard(record);
   record.state_guard = stateGuard(record);
   return record;
 }

@@ -337,7 +337,7 @@ test("rediscovery updates each active owner without resetting downstream state",
     (record) => record.owner_sheet === "To Review"
   );
   assert.equal(reviewUpdate.pipeline_status, "review_needed");
-  assert.equal(reviewUpdate.user_action, "Approve");
+  assert.equal(reviewUpdate.user_action, "Proceed");
   assert.equal(reviewUpdate.decision_reason, "Needs a decision");
   assert.equal(reviewUpdate.required_input, "Confirm scope");
   assert.equal(reviewUpdate.review_approval_note, "keep approval context");

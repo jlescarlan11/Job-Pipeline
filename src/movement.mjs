@@ -1,6 +1,10 @@
 import {
   applicationReviewGuard,
+  isGuardedLegacyReviewAction,
+  preparationInputGuard,
+  reviewCaseId,
   stateGuard,
+  stateGuardMatches,
   validateRecordStoreContract
 } from "./contracts.mjs";
 
@@ -51,14 +55,13 @@ function indexStore(rows, name) {
 }
 
 function destinationConflict(actual, destination, reason) {
+  if (destination === "To Review" && actual.review_decision) return true;
   if (
-    destination === "Scraped Jobs" &&
-    (actual.pipeline_status !== "review_needed" ||
-      actual.user_action !== "Approve" ||
-      actual.processing_token)
-  ) {
-    return true;
-  }
+    destination === "To Apply" &&
+    reason === "review_proceeded" &&
+    (actual.pipeline_status !== "ready_to_apply" ||
+      actual.review_decision !== "proceed")
+  ) return true;
   if (
     destination === "Applied Jobs" &&
     (actual.archive_reason || actual.archived_at)
@@ -87,15 +90,54 @@ function validExistingDestination(source, actual, destination, reason, schema) {
     return false;
   }
   if (actual.state_guard !== stateGuard(actual)) return false;
-  if (destination === "Scraped Jobs" && actual.user_action !== "Approve") {
-    return false;
+  if (destination === "To Review") {
+    const expectedCase = reviewCaseId(source);
+    if (
+      actual.review_case_id !== expectedCase ||
+      actual.review_case_version !== "review-case-v1" ||
+      actual.review_decision ||
+      actual.review_decided_at
+    ) return false;
   }
-  if (
-    destination === "Scraped Jobs" &&
-    (!Number.isFinite(Date.parse(actual.review_approved_at || "")) ||
-      actual.review_approval_guard !== applicationReviewGuard(source))
-  ) {
-    return false;
+  if (destination === "To Apply" && reason === "review_proceeded") {
+    const expectedCase = source.review_case_id || reviewCaseId(source);
+    if (
+      actual.pipeline_status !== "ready_to_apply" ||
+      actual.user_action ||
+      actual.review_case_id !== expectedCase ||
+      actual.review_case_version !== "review-case-v1" ||
+      actual.review_decision !== "proceed" ||
+      !Number.isFinite(Date.parse(actual.review_decided_at || "")) ||
+      actual.review_approved_at !== actual.review_decided_at ||
+      actual.review_approval_guard !== applicationReviewGuard(source) ||
+      !Number.isInteger(actual.preparation_version) ||
+      actual.preparation_version < 1 ||
+      actual.preparation_input_guard !== preparationInputGuard(actual) ||
+      !Number.isFinite(Date.parse(actual.preparation_updated_at || ""))
+    ) return false;
+    if (actual.prep_status !== "pending") {
+      const immutableSourceFields = [
+        "source",
+        "source_job_id",
+        "canonical_job_id",
+        "canonical_url",
+        "job_title",
+        "company",
+        "job_description",
+        "salary_text",
+        "posted_at",
+        "discovered_at",
+        "created_at"
+      ];
+      return Boolean(
+        actual.record_version > source.record_version + 1 &&
+          immutableSourceFields.every(
+            (field) =>
+              JSON.stringify(actual[field] ?? "") ===
+              JSON.stringify(source[field] ?? "")
+          )
+      );
+    }
   }
   if (
     destination === "Applied Jobs" &&
@@ -110,6 +152,14 @@ function validExistingDestination(source, actual, destination, reason, schema) {
   ) {
     return false;
   }
+  if (
+    destination === "Archive" &&
+    reason === "review_rejected" &&
+    (actual.review_case_id !== (source.review_case_id || reviewCaseId(source)) ||
+      actual.review_case_version !== "review-case-v1" ||
+      actual.review_decision !== "reject" ||
+      !Number.isFinite(Date.parse(actual.review_decided_at || "")))
+  ) return false;
   if (
     destination === "Archive" &&
     reason === "source_unavailable" &&
@@ -146,17 +196,48 @@ function validExistingDestination(source, actual, destination, reason, schema) {
     "notes",
     "updated_at"
   ]);
-  if (destination === "Scraped Jobs") {
-    // The approval destination binds the review authorization to the current
-    // application strategy. The explicit check above validates that rebound
-    // value; comparing it to the source's older guard would make every
-    // legitimate To Review -> Scraped Jobs copy impossible to confirm.
-    destinationOwned.add("review_approval_guard");
+  if (destination === "To Review") {
+    for (const field of [
+      "review_case_id",
+      "review_case_version",
+      "review_decision",
+      "review_decided_at",
+      "review_approved_at",
+      "review_approval_note",
+      "review_approval_guard"
+    ]) destinationOwned.add(field);
+  }
+  if (destination === "To Apply" && reason === "review_proceeded") {
+    for (const field of [
+      "pipeline_status",
+      "review_case_id",
+      "review_case_version",
+      "review_decision",
+      "review_decided_at",
+      "review_approved_at",
+      "review_approval_note",
+      "review_approval_guard",
+      "prep_status",
+      "preparation_version",
+      "preparation_input_guard",
+      "preparation_updated_at",
+      "next_retry_at",
+      "error_category",
+      "error_summary"
+    ]) destinationOwned.add(field);
   }
   if (destination === "Archive" && reason === "source_unavailable") {
     destinationOwned.add("pipeline_status");
     destinationOwned.add("source_availability");
     destinationOwned.add("next_retry_at");
+  }
+  if (destination === "Archive" && reason === "review_rejected") {
+    for (const field of [
+      "review_case_id",
+      "review_case_version",
+      "review_decision",
+      "review_decided_at"
+    ]) destinationOwned.add(field);
   }
   return schema.fields.every((field) => {
     if (destinationOwned.has(field)) return true;
@@ -176,10 +257,7 @@ function destinationRecord(source, destination, reason, now, existing) {
   const record = {
     ...source,
     row_number: undefined,
-    user_action:
-      destination === "Scraped Jobs"
-        ? "Approve"
-        : existing?.user_action || "",
+    user_action: existing?.user_action || "",
     processing_stage: "",
     processing_token: "",
     processing_started_at: "",
@@ -213,14 +291,33 @@ function destinationRecord(source, destination, reason, now, existing) {
       record.source_availability = "unavailable";
       record.next_retry_at = "";
     }
+    if (reason === "review_rejected") {
+      record.review_case_id = source.review_case_id || reviewCaseId(source);
+      record.review_case_version = "review-case-v1";
+      record.review_decision = "reject";
+      record.review_decided_at = existing?.review_decided_at || now;
+    }
   } else {
     record.applied_at = "";
     record.archived_at = "";
     record.archive_reason = "";
     record.notes = existing ? existing.notes || "" : source.notes || "";
-    if (destination === "Scraped Jobs") {
-      record.review_approved_at =
-        existing?.review_approved_at || source.review_approved_at || now;
+    if (destination === "To Review") {
+      record.review_case_id = reviewCaseId(source);
+      record.review_case_version = "review-case-v1";
+      record.review_decision = "";
+      record.review_decided_at = "";
+      record.review_approved_at = "";
+      record.review_approval_note = "";
+      record.review_approval_guard = "";
+    }
+    if (destination === "To Apply" && reason === "review_proceeded") {
+      record.pipeline_status = "ready_to_apply";
+      record.review_case_id = source.review_case_id || reviewCaseId(source);
+      record.review_case_version = "review-case-v1";
+      record.review_decision = "proceed";
+      record.review_decided_at = existing?.review_decided_at || now;
+      record.review_approved_at = record.review_decided_at;
       record.review_approval_note = sanitize(
         existing?.review_approval_note ||
           source.review_approval_note ||
@@ -228,6 +325,18 @@ function destinationRecord(source, destination, reason, now, existing) {
         1000
       );
       record.review_approval_guard = applicationReviewGuard(source);
+      record.prep_status = "pending";
+      record.preparation_version = Math.max(
+        1,
+        Number(source.preparation_version || 0) + 1,
+        Number(existing?.preparation_version || 0)
+      );
+      record.preparation_updated_at =
+        existing?.preparation_updated_at || now;
+      record.preparation_input_guard = preparationInputGuard(record);
+      record.next_retry_at = "";
+      record.error_category = "";
+      record.error_summary = "";
     }
   }
   if (existing) {
@@ -271,7 +380,15 @@ function destinationRecord(source, destination, reason, now, existing) {
   return record;
 }
 
-function classifyQueueRow(sourceSheet, record) {
+function classifyQueueRow(sourceSheet, record, schema) {
+  if (
+    sourceSheet === "Scraped Jobs" &&
+    isGuardedLegacyReviewAction(record, sourceSheet, schema)
+  ) {
+    return record.user_action === "Proceed"
+      ? { destination: "To Apply", reason: "review_proceeded" }
+      : { destination: "Archive", reason: "review_rejected" };
+  }
   if (
     sourceSheet === "Scraped Jobs" &&
     !record.user_action &&
@@ -284,6 +401,41 @@ function classifyQueueRow(sourceSheet, record) {
     record.pipeline_status === "review_needed" &&
     !record.user_action
   ) {
+    const currentCase = reviewCaseId(record);
+    if (
+      record.review_decision === "proceed" &&
+      record.review_case_id === currentCase
+    ) {
+      return {
+        suppressed: true,
+        reason: "resolved_review_case_repeated",
+        summary:
+          "The resolved review case cannot be reopened from unchanged preparation facts"
+      };
+    }
+    if (
+      record.review_decision &&
+      (!record.review_case_id || record.review_case_id === currentCase)
+    ) {
+      return {
+        suppressed: true,
+        reason: "review_reopen_missing_new_case",
+        summary:
+          "A resolved decision requires a materially different review case before reopening"
+      };
+    }
+    if (
+      record.review_decision &&
+      (!String(record.decision_reason || "").trim() ||
+        !String(record.required_input || "").trim())
+    ) {
+      return {
+        suppressed: true,
+        reason: "review_reopen_missing_reason",
+        summary:
+          "A materially new review case requires an explicit bounded reason and required input"
+      };
+    }
     return { destination: "To Review", reason: "review_needed" };
   }
   if (
@@ -320,16 +472,16 @@ function classifyQueueRow(sourceSheet, record) {
   if (
     sourceSheet === "To Review" &&
     record.pipeline_status === "review_needed" &&
-    record.user_action === "Deny"
+    record.user_action === "Reject"
   ) {
-    return { destination: "Archive", reason: "review_denied" };
+    return { destination: "Archive", reason: "review_rejected" };
   }
   if (
     sourceSheet === "To Review" &&
     record.pipeline_status === "review_needed" &&
-    record.user_action === "Approve"
+    record.user_action === "Proceed"
   ) {
-    return { destination: "Scraped Jobs", reason: "review_approved" };
+    return { destination: "To Apply", reason: "review_proceeded" };
   }
   return null;
 }
@@ -387,7 +539,7 @@ export function planQueueActions(
         });
         continue;
       }
-      if (String(source?.state_guard || "") !== stateGuard(source)) {
+      if (!stateGuardMatches(source)) {
         rejected.push({
           canonical_job_id: String(source?.canonical_job_id || ""),
           source_sheet: sourceSheet,
@@ -398,7 +550,7 @@ export function planQueueActions(
       }
       let classification;
       try {
-        classification = classifyQueueRow(sourceSheet, source);
+        classification = classifyQueueRow(sourceSheet, source, schema);
       } catch (error) {
         rejected.push({
           canonical_job_id: String(source?.canonical_job_id || ""),
@@ -409,7 +561,16 @@ export function planQueueActions(
         continue;
       }
       if (classification) {
-        candidates.push({ sourceSheet, source, classification });
+        if (classification.suppressed) {
+          rejected.push({
+            canonical_job_id: source.canonical_job_id,
+            source_sheet: sourceSheet,
+            reason: classification.reason,
+            summary: sanitize(classification.summary)
+          });
+        } else {
+          candidates.push({ sourceSheet, source, classification });
+        }
       }
     }
   }
@@ -520,6 +681,7 @@ export function planQueueActions(
           ? classification.reason
           : "",
       write_required: !existingComplete,
+      recovery_required: Boolean(existing),
       source_record: { ...source },
       destination_record: destination
     });
@@ -581,7 +743,7 @@ export function confirmMoveDeletions(
       continue;
     }
     const sourceUnchanged =
-      String(source?.state_guard || "") === stateGuard(source) &&
+      stateGuardMatches(source) &&
       source.state_guard === plan.source_state_guard &&
       source.record_version === plan.source_record_version &&
       source.pipeline_status === plan.source_status &&

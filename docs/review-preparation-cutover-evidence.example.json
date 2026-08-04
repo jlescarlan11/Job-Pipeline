@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "phase": "pre_cutover",
+  "environment": "production",
+  "contract_version": "2026-08-04-preparation-lifecycle-v4",
+  "captured_at": "REPLACE_WITH_LIVE_TIMESTAMP",
+  "status": "INCOMPLETE_EXAMPLE_DO_NOT_TREAT_AS_EVIDENCE",
+  "privacy": {
+    "sanitized": false,
+    "secret_scan_clean": false,
+    "credentials_included": false,
+    "generated_messages_included": false,
+    "job_descriptions_included": false,
+    "complete_sheet_rows_included": false
+  }
+}

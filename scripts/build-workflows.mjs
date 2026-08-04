@@ -254,8 +254,9 @@ function connectContextSnapshot(connections, nextNode) {
     main: [[connection(nextNode)]]
   };
 }
-// A successful Generator commit must clear the exact Approve action it
-// consumed. Notes remain user-owned and are never written by the Generator.
+// A successful Generator commit clears no operator-owned values. Proceed is
+// consumed by Alerter & Mover before Generator claims the resolved To Apply
+// record; notes remain user-owned and are never written by Generator.
 const reviewMachineFields = schema.fields.filter((field) => field !== "notes");
 const discoveryUpdateFields = [
   "canonical_job_id",
@@ -272,9 +273,17 @@ const generatorClaimFields = [
   "processing_stage",
   "processing_token",
   "processing_started_at",
+  "review_case_id",
+  "review_case_version",
+  "review_decision",
+  "review_decided_at",
   "review_approved_at",
   "review_approval_note",
   "review_approval_guard",
+  "prep_status",
+  "preparation_version",
+  "preparation_input_guard",
+  "preparation_updated_at",
   "updated_at"
 ];
 const alertStateFields = [
@@ -523,7 +532,12 @@ function resourceSchema(fields) {
       required: false,
       defaultMatch: false,
       display: true,
-      type: ["record_version", "attempt_count", "alert_attempt_count"].includes(field)
+      type: [
+        "record_version",
+        "attempt_count",
+        "alert_attempt_count",
+        "preparation_version"
+      ].includes(field)
         ? "number"
         : "string",
       canBeUsedToMatch: true
@@ -1160,7 +1174,10 @@ return updates.filter((record) =>
 
 function buildGenerator() {
   const queue = review.sheets.scraped_jobs.name;
+  const toApply = review.sheets.to_apply.name;
   const system = review.sheets.system.name;
+  const generatorSourceSheet =
+    "={{ $('Confirm Generator System Claim').item.json.candidate.source_store }}";
   const config = runtime.generator;
   const nodes = [
     scheduleNode("generator", [-6000, 240], config),
@@ -1171,27 +1188,40 @@ function buildGenerator() {
     ),
     readSheet("Get Scraped Jobs", [-2000, 240], queue),
     aggregateNode("Aggregate Scraped Jobs", [-1800, 240], "scraped_rows"),
+    readSheet("Get To Apply Preparation", [-1600, 240], toApply),
+    aggregateNode(
+      "Aggregate To Apply Preparation",
+      [-1400, 240],
+      "to_apply_rows"
+    ),
     codeNode(
       "Select Generator Candidates",
-      [-1600, 240],
+      [-1200, 240],
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const RUNTIME = ${JSON.stringify(config)};
 const now = new Date().toISOString();
-const rows = ($input.first().json.scraped_rows || [])
+const scrapedRows = ($('Aggregate Scraped Jobs').all()[0]?.json.scraped_rows || [])
   .filter((row) => row && Object.keys(row).length)
   .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
-const selected = selectGeneratorCandidate(rows, SCHEMA, RUNTIME, now);
-return selected.map(({ record, stage }, selectionIndex) => ({
+const toApplyRows = ($input.first().json.to_apply_rows || [])
+  .filter((row) => row && Object.keys(row).length)
+  .map((row) => normalizeLegacyRecord(row, SCHEMA, now));
+const selected = selectGeneratorCandidate({
+  'Scraped Jobs': scrapedRows,
+  'To Apply': toApplyRows
+}, SCHEMA, RUNTIME, now);
+return selected.map(({ record, stage, source_store }, selectionIndex) => ({
   json: {
     candidate_record: record,
     candidate_stage: stage,
+    source_store,
     selection_index: selectionIndex,
     selected_at: now
   }
 }));`
     ),
-    loopOverItemsNode("Process Candidates Sequentially", [-1400, 240], 1),
+    loopOverItemsNode("Process Candidates Sequentially", [-1000, 240], 1),
     codeNode(
       "Create Generator System Claim",
       [-1200, 240],
@@ -1201,7 +1231,7 @@ const candidate = $json;
 const systemClaim = createSystemClaim({
   stage: 'generator',
   canonicalJobId: candidate.candidate_record.canonical_job_id,
-  scope: candidate.candidate_stage,
+  scope: candidate.source_store + ':' + candidate.candidate_stage,
   executionId: String($execution.id),
   now: new Date().toISOString(),
   leaseMs: RUNTIME.claim_lease_ms
@@ -1259,13 +1289,13 @@ return { json: {
       "={{ $json.system_claim_won === true }}"
     ),
     readSheet(
-      "Get Scraped Jobs Before Candidate Claim",
+      "Get Generator Source Before Candidate Claim",
       [0, 40],
-      queue,
+      generatorSourceSheet,
       { continueOnError: true }
     ),
     aggregateNode(
-      "Aggregate Scraped Jobs Before Candidate Claim",
+      "Aggregate Generator Source Before Candidate Claim",
       [200, 40],
       "fresh_rows"
     ),
@@ -1286,10 +1316,15 @@ try {
     );
   if (matches.length !== 1) {
     throw new Error(
-      'Generator claim rejected because Scraped Jobs identity is missing or ambiguous'
+      'Generator claim rejected because the selected source identity is missing or ambiguous'
     );
   }
-  const current = selectGeneratorCandidate(matches, SCHEMA, RUNTIME, new Date().toISOString());
+  const current = selectGeneratorCandidate(
+    { [candidate.source_store]: matches },
+    SCHEMA,
+    RUNTIME,
+    new Date().toISOString()
+  );
   if (
     current.length !== 1 ||
     current[0].stage !== candidate.candidate_stage
@@ -1303,50 +1338,53 @@ try {
     current[0].stage,
     String($execution.id),
     new Date().toISOString(),
-    RUNTIME.claim_lease_ms
+    RUNTIME.claim_lease_ms,
+    candidate.source_store
   );
   return { json: {
     ...claim.record,
     claim_created: claim.claimed,
     claimed_record: claim.record,
+    source_store: candidate.source_store,
     selection_index: candidate.selection_index,
     provider_requests: 0,
-    processing_outcome: claim.claimed ? 'scraped_jobs_claim_created' : 'scraped_jobs_claim_rejected'
+    processing_outcome: claim.claimed ? 'generator_source_claim_created' : 'generator_source_claim_rejected'
   } };
 } catch (error) {
   return { json: {
     claim_created: false,
     canonical_job_id: candidate.candidate_record.canonical_job_id,
+    source_store: candidate.source_store,
     selection_index: candidate.selection_index,
     provider_requests: 0,
-    processing_outcome: 'scraped_jobs_claim_rejected',
+    processing_outcome: 'generator_source_claim_rejected',
     error_summary: String(error?.message || error).slice(0, 240)
   } };
 }`,
       "runOnceForEachItem"
     ),
     ifNode(
-      "Scraped Jobs Claim Created",
+      "Generator Source Claim Created",
       [600, 40],
       "={{ $json.claim_created === true }}"
     ),
     writeSheet(
       "Persist Generator Claim",
       [800, -40],
-      queue,
+      generatorSourceSheet,
       "update",
       generatorClaimFields,
       ["canonical_job_id"],
       { continueOnError: true }
     ),
     readSheet(
-      "Get Scraped Jobs After Claim",
+      "Get Generator Source After Claim",
       [1000, -40],
-      queue,
+      generatorSourceSheet,
       { continueOnError: true }
     ),
     aggregateNode(
-      "Aggregate Scraped Jobs After Claim",
+      "Aggregate Generator Source After Claim",
       [1200, -40],
       "fresh_rows"
     ),
@@ -1357,33 +1395,42 @@ try {
 const SCHEMA = ${JSON.stringify(schema)};
 const CLAIM_FIELDS = ${JSON.stringify(generatorClaimFields)};
 const planned = $('Claim Current Candidate').item.json.claimed_record;
+const sourceStore = $('Claim Current Candidate').item.json.source_store;
 const selectionIndex = $('Claim Current Candidate').item.json.selection_index;
 try {
   const fresh = ($input.first().json.fresh_rows || [])
     .filter((row) => row && Object.keys(row).length)
     .map((row) => normalizeLegacyRecord(row, SCHEMA));
-  confirmGeneratorClaimPersisted(planned, fresh, SCHEMA, CLAIM_FIELDS);
+  confirmGeneratorClaimPersisted(
+    planned,
+    fresh,
+    SCHEMA,
+    CLAIM_FIELDS,
+    sourceStore
+  );
   return { json: {
     claim_verified: true,
     claimed_record: planned,
+    source_store: sourceStore,
     canonical_job_id: planned.canonical_job_id,
     selection_index: selectionIndex,
     provider_requests: 0,
-    processing_outcome: 'scraped_jobs_claim_verified'
+    processing_outcome: 'generator_source_claim_verified'
   } };
 } catch (error) {
   return { json: {
     claim_verified: false,
     canonical_job_id: planned.canonical_job_id,
+    source_store: sourceStore,
     selection_index: selectionIndex,
     provider_requests: 0,
-    processing_outcome: 'scraped_jobs_claim_unverified',
+    processing_outcome: 'generator_source_claim_unverified',
     error_summary: String(error?.message || error).slice(0, 240)
   } };
 }`
     ),
     ifNode(
-      "Scraped Jobs Claim Verified",
+      "Generator Source Claim Verified",
       [1600, -40],
       "={{ $json.claim_verified === true }}"
     ),
@@ -1716,35 +1763,38 @@ return { json: {
       "runOnceForEachItem"
     ),
     readSheet(
-      "Get Scraped Jobs Before Commit",
+      "Get Generator Source Before Commit",
       [4400, -80],
-      queue,
+      generatorSourceSheet,
       { continueOnError: true }
     ),
-    aggregateNode("Aggregate Fresh Scraped Jobs", [4600, -80], "fresh_rows"),
+    aggregateNode("Aggregate Fresh Generator Source", [4600, -80], "fresh_rows"),
     codeNode(
       "Guard and Commit Generator Result",
       [4800, -80],
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const staged = $('Stage Generator Result').item.json;
+const sourceStore = $('Confirm Generator System Claim').item.json.candidate.source_store;
 try {
   const fresh = ($input.first().json.fresh_rows || [])
     .filter((row) => row && Object.keys(row).length)
     .map((row) => normalizeLegacyRecord(row, SCHEMA))
     .find((row) => row.canonical_job_id === staged.claimed_record.canonical_job_id);
-  if (!fresh) throw new Error('Generator commit could not find claimed Scraped Jobs row');
+  if (!fresh) throw new Error('Generator commit could not find the claimed source row');
   const planned = commitGeneratorResult(
     fresh,
     staged.claimed_record,
     staged.proposed_record,
     SCHEMA,
-    new Date().toISOString()
+    new Date().toISOString(),
+    sourceStore
   );
   return { json: {
     ...planned,
     commit_allowed: true,
     planned_record: planned,
+    source_store: sourceStore,
     selection_index: staged.selection_index,
     provider_requests: staged.provider_requests
   } };
@@ -1752,6 +1802,7 @@ try {
   return { json: {
     commit_allowed: false,
     canonical_job_id: staged.claimed_record.canonical_job_id,
+    source_store: sourceStore,
     selection_index: staged.selection_index,
     provider_requests: staged.provider_requests,
     processing_outcome: 'commit_rejected',
@@ -1765,22 +1816,22 @@ try {
       "={{ $json.commit_allowed === true }}"
     ),
     writeSheet(
-      "Update Scraped Jobs Result",
+      "Update Generator Source Result",
       [5200, -200],
-      queue,
+      generatorSourceSheet,
       "update",
       reviewMachineFields,
       ["canonical_job_id"],
       { continueOnError: true }
     ),
     readSheet(
-      "Get Scraped Jobs After Commit",
+      "Get Generator Source After Commit",
       [5400, -200],
-      queue,
+      generatorSourceSheet,
       { continueOnError: true }
     ),
     aggregateNode(
-      "Aggregate Scraped Jobs After Commit",
+      "Aggregate Generator Source After Commit",
       [5600, -200],
       "fresh_rows"
     ),
@@ -1804,6 +1855,7 @@ try {
   );
   return { json: {
     canonical_job_id: persisted.canonical_job_id,
+    source_store: staged.source_store,
     pipeline_status: persisted.pipeline_status,
     selection_index: staged.selection_index,
     provider_requests: staged.provider_requests,
@@ -1813,6 +1865,7 @@ try {
 } catch (error) {
   return { json: {
     canonical_job_id: planned.canonical_job_id,
+    source_store: staged.source_store,
     selection_index: staged.selection_index,
     provider_requests: staged.provider_requests,
     commit_verified: false,
@@ -1826,6 +1879,7 @@ try {
       [6000, 40],
       `const result = {
   canonical_job_id: String($json.canonical_job_id || $json.claimed_record?.canonical_job_id || ''),
+  source_store: String($json.source_store || $('Confirm Generator System Claim').item.json.candidate.source_store || ''),
   selection_index: Number.isInteger($json.selection_index) ? $json.selection_index : -1,
   pipeline_status: String($json.pipeline_status || ''),
   provider_requests: Number($json.provider_requests || 0),
@@ -1836,6 +1890,7 @@ try {
 console.log(JSON.stringify({
   event: 'generator_result',
   canonical_job_id: result.canonical_job_id,
+  source_store: result.source_store,
   status: result.pipeline_status || result.processing_outcome,
   provider_requests: result.provider_requests,
   commit_verified: result.commit_verified
@@ -1868,6 +1923,12 @@ return { json: {
     "Schedule Trigger": { main: [[connection("Get Candidate Context")]] },
     "Get Scraped Jobs": { main: [[connection("Aggregate Scraped Jobs")]] },
     "Aggregate Scraped Jobs": {
+      main: [[connection("Get To Apply Preparation")]]
+    },
+    "Get To Apply Preparation": {
+      main: [[connection("Aggregate To Apply Preparation")]]
+    },
+    "Aggregate To Apply Preparation": {
       main: [[connection("Select Generator Candidates")]]
     },
     "Select Generator Candidates": {
@@ -1896,38 +1957,38 @@ return { json: {
     },
     "Generator System Claim Won": {
       main: [
-        [connection("Get Scraped Jobs Before Candidate Claim")],
+        [connection("Get Generator Source Before Candidate Claim")],
         [connection("Finalize Candidate")]
       ]
     },
-    "Get Scraped Jobs Before Candidate Claim": {
-      main: [[connection("Aggregate Scraped Jobs Before Candidate Claim")]]
+    "Get Generator Source Before Candidate Claim": {
+      main: [[connection("Aggregate Generator Source Before Candidate Claim")]]
     },
-    "Aggregate Scraped Jobs Before Candidate Claim": {
+    "Aggregate Generator Source Before Candidate Claim": {
       main: [[connection("Claim Current Candidate")]]
     },
     "Claim Current Candidate": {
-      main: [[connection("Scraped Jobs Claim Created")]]
+      main: [[connection("Generator Source Claim Created")]]
     },
-    "Scraped Jobs Claim Created": {
+    "Generator Source Claim Created": {
       main: [
         [connection("Persist Generator Claim")],
         [connection("Finalize Candidate")]
       ]
     },
     "Persist Generator Claim": {
-      main: [[connection("Get Scraped Jobs After Claim")]]
+      main: [[connection("Get Generator Source After Claim")]]
     },
-    "Get Scraped Jobs After Claim": {
-      main: [[connection("Aggregate Scraped Jobs After Claim")]]
+    "Get Generator Source After Claim": {
+      main: [[connection("Aggregate Generator Source After Claim")]]
     },
-    "Aggregate Scraped Jobs After Claim": {
+    "Aggregate Generator Source After Claim": {
       main: [[connection("Confirm Generator Claim Persisted")]]
     },
     "Confirm Generator Claim Persisted": {
-      main: [[connection("Scraped Jobs Claim Verified")]]
+      main: [[connection("Generator Source Claim Verified")]]
     },
-    "Scraped Jobs Claim Verified": {
+    "Generator Source Claim Verified": {
       main: [
         [connection("Needs Fresh Job Detail")],
         [connection("Finalize Candidate")]
@@ -1991,12 +2052,12 @@ return { json: {
       main: [[connection("Stage Generator Result")]]
     },
     "Stage Generator Result": {
-      main: [[connection("Get Scraped Jobs Before Commit")]]
+      main: [[connection("Get Generator Source Before Commit")]]
     },
-    "Get Scraped Jobs Before Commit": {
-      main: [[connection("Aggregate Fresh Scraped Jobs")]]
+    "Get Generator Source Before Commit": {
+      main: [[connection("Aggregate Fresh Generator Source")]]
     },
-    "Aggregate Fresh Scraped Jobs": {
+    "Aggregate Fresh Generator Source": {
       main: [[connection("Guard and Commit Generator Result")]]
     },
     "Guard and Commit Generator Result": {
@@ -2004,17 +2065,17 @@ return { json: {
     },
     "Generator Commit Authorized": {
       main: [
-        [connection("Update Scraped Jobs Result")],
+        [connection("Update Generator Source Result")],
         [connection("Finalize Candidate")]
       ]
     },
-    "Update Scraped Jobs Result": {
-      main: [[connection("Get Scraped Jobs After Commit")]]
+    "Update Generator Source Result": {
+      main: [[connection("Get Generator Source After Commit")]]
     },
-    "Get Scraped Jobs After Commit": {
-      main: [[connection("Aggregate Scraped Jobs After Commit")]]
+    "Get Generator Source After Commit": {
+      main: [[connection("Aggregate Generator Source After Commit")]]
     },
-    "Aggregate Scraped Jobs After Commit": {
+    "Aggregate Generator Source After Commit": {
       main: [[connection("Confirm Generator Result Persisted")]]
     },
     "Confirm Generator Result Persisted": {
@@ -2045,7 +2106,7 @@ return { json: {
       preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases",
       applicationPackPolicyVersion: packPolicy.policy_version,
       groqProviderPolicyVersion: groqPolicy.policy_version,
-      processingSourceSheet: queue,
+      processingSourceSheets: [queue, toApply],
       manualSubmissionOnly: true,
       maximumModelRequestsPerItem:
         groqPolicy.generation.maximum_requests_per_item,
@@ -4149,7 +4210,9 @@ return [{ json: {
     delivered: outcomes.filter((entry) => entry.receipt.status === 'delivered').length,
     reconciled,
     retryable: outcomes.filter((entry) => entry.receipt.status === 'retryable_rejection').length,
-    terminal: outcomes.filter((entry) => ['terminal_rejection', 'terminal_ambiguity'].includes(entry.receipt.status)).length
+    terminal: outcomes.filter((entry) => ['terminal_rejection', 'terminal_ambiguity'].includes(entry.receipt.status)).length,
+    copy_ready: outcomes.filter((entry) => entry.claim?.prep_status === 'message_ready').length,
+    preparation_reminders: outcomes.filter((entry) => ['needs_input', 'external_steps'].includes(entry.claim?.prep_status)).length
   },
   provider_classifications: outcomes.map((entry) => entry.receipt.provider_classification),
   sheet_read_request_count: base.sheet_read_request_count,

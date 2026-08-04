@@ -56,8 +56,8 @@ inside the row.
 The pack statuses are internal safety results. `ready` means the message passed
 deterministic validation and the pack has no unresolved extraction warning.
 It may retain review warnings and screening questions only when each carries a
-persisted review acknowledgment tied to `review_approved_at` and the exact
-`review_approval_guard` digest of the requirements, coverage, plan, warnings,
+persisted `Proceed` resolution tied to `review_case_id`, `review_decided_at`,
+and the exact `review_approval_guard` digest of the requirements, coverage, plan, warnings,
 proof references, and active versions reviewed. Profile-answerable
 questions become `answer_in_message` and are supplied to both the initial and
 repair prompts. Sensitive commitment questions remain
@@ -87,14 +87,15 @@ Requested adjacent terms are permitted only in the same sentence as an
 explicit difference qualifier. At least one substantive first-person ownership
 statement is required; repeated project/tool fragments are not an answer.
 
-A generation commit can enter visible lifecycle `ready_to_apply` only when the
-pack status is `ready` and the persisted message passes the current shared
-content and provenance gate. Internal `review_required` maps to
-`review_needed`. `Approve` may acknowledge only warning codes explicitly listed
-by `review_approval.acknowledgeable_warning_codes`. Acknowledged unsafe
-instructions remain excluded from the provider prompt. Answerable questions
-must be addressed from selected approved proofs; sensitive questions,
-attachments, tests, and unsupported evidence become visible manual reminders.
+A record enters To Apply immediately after a final `Proceed` decision, with
+`ready_to_apply` ownership and `prep_status=pending`. Copy readiness is separate:
+only a commit with a `ready` pack and a message that passes the shared content
+and provenance gate may set `prep_status=message_ready`. Internal
+`review_required` maps to `review_needed` only before final review. After
+`Proceed`, answerable questions are prepared in place; sensitive candidate
+choices become `needs_input`, and attachments, tests, or employer tasks become
+`external_steps`. A proceeded record never returns to review solely because
+preparation is incomplete. Unsafe instructions remain excluded from prompts.
 An unavailable/insufficient description is not acknowledgeable and cannot
 generate a message. The candidate remains responsible for every acknowledged
 question, external action, and submission.
@@ -102,12 +103,12 @@ question, external action, and submission.
 A `ready` pack must contain current coverage and message-plan versions, one
 consistent plan entry per mandatory requirement, all required canonical proof
 references, and no unresolved partial or missing mandatory coverage. Review
-approval may authorize only the recorded transparent adjacent strategy; it
+resolution may authorize only the recorded transparent adjacent strategy; it
 cannot remove the material difference or authorize an unsupported claim.
 
 Question extraction requires candidate-directed language such as `you` or
 `your` and excludes known rhetorical section headings. This prevents headings
-such as `What to expect?` from creating an approval loop while retaining real
+such as `What to expect?` from creating a review loop while retaining real
 questions such as `What hourly rate are you seeking?`.
 
 ## Trust boundary

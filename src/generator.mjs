@@ -14,7 +14,11 @@ import {
   validateGroqPromptBudget
 } from "./groq-provider.mjs";
 import {
+  applicationReviewGuard,
+  preparationInputGuard,
+  reviewCaseId,
   stateGuard,
+  stateGuardMatches,
   validateRecordStoreContract
 } from "./contracts.mjs";
 
@@ -37,7 +41,32 @@ function dueAt(record, nowMs) {
   return !record?.next_retry_at || !Number.isFinite(parsed) || parsed <= nowMs;
 }
 
-function stageForCandidate(record) {
+function isLegacyPreparationRecord(record) {
+  return (
+    record.pipeline_status === "ready_to_apply" &&
+    record.user_action === "" &&
+    Number(record.preparation_version || 0) === 0 &&
+    !record.preparation_input_guard &&
+    !record.preparation_updated_at &&
+    ["", "preparation_error"].includes(String(record.prep_status || ""))
+  );
+}
+
+function stageForCandidate(record, sourceStore) {
+  if (sourceStore === "To Apply") {
+    if (
+      record.pipeline_status === "ready_to_apply" &&
+      record.user_action === "" &&
+      (record.review_decision === "proceed" ||
+        isLegacyPreparationRecord(record)) &&
+      ["pending", "preparing", "repair_pending", "preparation_error"].includes(
+        record.prep_status
+      )
+    ) {
+      return "generation";
+    }
+    return "";
+  }
   if (record.pipeline_status === "new") return "evaluation";
   if (record.pipeline_status === "processing") {
     return record.processing_stage === "generation"
@@ -47,67 +76,102 @@ function stageForCandidate(record) {
   if (record.pipeline_status === "error") {
     return record.processing_stage === "generation" ? "generation" : "evaluation";
   }
-  if (
-    record.pipeline_status === "review_needed" &&
-    record.user_action === "Approve"
-  ) {
-    return "generation";
-  }
   return "";
 }
 
 export function selectGeneratorCandidate(
-  rows,
+  rowsOrStores,
   schema,
   runtime,
   now = new Date().toISOString()
 ) {
-  if (!Array.isArray(rows)) throw new Error("Scraped Jobs rows must be an array");
+  const stores = Array.isArray(rowsOrStores)
+    ? { "Scraped Jobs": rowsOrStores }
+    : rowsOrStores;
+  if (!stores || typeof stores !== "object" || Array.isArray(stores)) {
+    throw new Error("Generator store rows must be an object or Scraped Jobs array");
+  }
+  for (const store of Object.keys(stores)) {
+    if (!["Scraped Jobs", "To Apply"].includes(store)) {
+      throw new Error(`Generator source store is unsupported: ${boundedText(store)}`);
+    }
+    if (!Array.isArray(stores[store])) {
+      throw new Error(`${store} rows must be an array`);
+    }
+  }
   const nowMs = Date.parse(now);
   if (!Number.isFinite(nowMs)) throw new Error("Generator selection requires valid now");
   const candidates = [];
   const identities = new Set();
-  for (const record of rows) {
-    const errors = validateRecordStoreContract(record, "Scraped Jobs", schema);
-    if (errors.length > 0) {
-      throw new Error(`Generator rejected invalid Scraped Jobs row: ${boundedText(errors.join("; "))}`);
-    }
-    const identity = String(record.canonical_job_id)
-      .normalize("NFKC")
-      .toLocaleLowerCase("en-US");
-    if (identities.has(identity)) {
-      throw new Error("Generator rejected ambiguous duplicate Scraped Jobs identity");
-    }
-    identities.add(identity);
-    if (record.processing_token) {
-      const startedAt = Date.parse(record.processing_started_at || "");
+  for (const [sourceStore, rows] of Object.entries(stores)) {
+    for (const record of rows) {
+      const errors = validateRecordStoreContract(record, sourceStore, schema);
+      if (errors.length > 0) {
+        throw new Error(
+          `Generator rejected invalid ${sourceStore} row: ${boundedText(
+            errors.join("; ")
+          )}`
+        );
+      }
+      const identity = String(record.canonical_job_id)
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US");
+      if (identities.has(identity)) {
+        throw new Error(
+          "Generator rejected ambiguous duplicate identity across source stores"
+        );
+      }
+      identities.add(identity);
+      if (record.processing_token) {
+        const startedAt = Date.parse(record.processing_started_at || "");
+        if (
+          Number.isFinite(startedAt) &&
+          nowMs - startedAt < runtime.claim_lease_ms
+        ) {
+          continue;
+        }
+      }
+      const stage = stageForCandidate(record, sourceStore);
+      if (!stage) continue;
       if (
-        Number.isFinite(startedAt) &&
-        nowMs - startedAt < runtime.claim_lease_ms
+        sourceStore === "To Apply" &&
+        !isLegacyPreparationRecord(record) &&
+        record.preparation_input_guard !== preparationInputGuard(record)
+      ) {
+        // A relevant input change must first advance the preparation version
+        // through a guarded lifecycle update. A direct Sheet edit cannot
+        // silently authorize new provider work.
+        continue;
+      }
+      if (
+        (record.pipeline_status === "error" ||
+          record.prep_status === "preparation_error") &&
+        (record.error_category === "source_unavailable" ||
+          String(record.error_category || "").endsWith("_exhausted") ||
+          !dueAt(record, nowMs))
       ) {
         continue;
       }
+      candidates.push({
+        record,
+        stage,
+        source_store: sourceStore,
+        timestamp:
+          Date.parse(
+            record.next_retry_at ||
+              record.preparation_updated_at ||
+              record.created_at ||
+              record.discovered_at ||
+              ""
+          ) || Number.POSITIVE_INFINITY
+      });
     }
-    const stage = stageForCandidate(record);
-    if (!stage) continue;
-    if (
-      record.pipeline_status === "error" &&
-      (String(record.error_category || "").endsWith("_exhausted") ||
-        !dueAt(record, nowMs))
-    ) {
-      continue;
-    }
-    candidates.push({
-      record,
-      stage,
-      timestamp:
-        Date.parse(record.next_retry_at || record.created_at || record.discovered_at || "") ||
-        Number.POSITIVE_INFINITY
-    });
   }
   candidates.sort(
     (left, right) =>
       left.timestamp - right.timestamp ||
+      Number(left.source_store === "Scraped Jobs") -
+        Number(right.source_store === "Scraped Jobs") ||
       String(left.record.canonical_job_id).localeCompare(
         String(right.record.canonical_job_id)
       )
@@ -120,7 +184,8 @@ export function claimGeneratorRecord(
   stage,
   executionId,
   now,
-  leaseMs
+  leaseMs,
+  sourceStore = "Scraped Jobs"
 ) {
   if (!["evaluation", "generation"].includes(stage)) {
     throw new Error("Generator claim stage is invalid");
@@ -128,36 +193,56 @@ export function claimGeneratorRecord(
   if (!executionId || !Number.isInteger(leaseMs) || leaseMs < 1) {
     throw new Error("Generator claim requires execution ID and positive lease");
   }
+  if (!["Scraped Jobs", "To Apply"].includes(sourceStore)) {
+    throw new Error("Generator claim source store is invalid");
+  }
+  if (!stateGuardMatches(record)) {
+    throw new Error("Generator claim rejected a stale source state guard");
+  }
   if (record.processing_token) {
     const started = Date.parse(record.processing_started_at || "");
     if (Number.isFinite(started) && Date.parse(now) - started < leaseMs) {
       return { claimed: false, record };
     }
   }
-  const token = `${executionId}:${record.canonical_job_id}:${stage}`;
-  const approvedReview =
-    record.pipeline_status === "review_needed" &&
-    record.user_action === "Approve";
+  const token = `${executionId}:${sourceStore}:${record.canonical_job_id}:${stage}`;
+  const preparingInToApply = sourceStore === "To Apply";
+  const legacyPreparation =
+    preparingInToApply && isLegacyPreparationRecord(record);
+  const legacyApproved = Boolean(
+    legacyPreparation &&
+      !record.review_decision &&
+      Number.isFinite(Date.parse(record.review_approved_at || "")) &&
+      record.review_approval_guard &&
+      record.review_approval_guard === applicationReviewGuard(record)
+  );
   const claimed = {
     ...record,
-    // An approved review row stays review_needed while claimed. This keeps a
-    // last-moment Deny valid and visible; the commit guard will then abort.
-    pipeline_status:
-      record.pipeline_status === "review_needed"
-        ? "review_needed"
-        : "processing",
+    review_case_id: legacyApproved ? reviewCaseId(record) : record.review_case_id,
+    review_case_version: legacyApproved
+      ? "review-case-v1"
+      : record.review_case_version,
+    review_decision: legacyApproved ? "proceed" : record.review_decision,
+    review_decided_at: legacyApproved
+      ? record.review_approved_at
+      : record.review_decided_at,
+    pipeline_status: preparingInToApply ? "ready_to_apply" : "processing",
+    prep_status: preparingInToApply ? "preparing" : "",
+    preparation_version: legacyPreparation
+      ? 1
+      : record.preparation_version,
+    preparation_updated_at: preparingInToApply
+      ? now
+      : record.preparation_updated_at || "",
     processing_stage: stage,
     processing_token: token,
     processing_started_at: now,
-    review_approved_at: approvedReview
-      ? record.review_approved_at || now
-      : record.review_approved_at || "",
-    review_approval_note: approvedReview
-      ? boundedText(record.notes, 1000)
-      : record.review_approval_note || "",
     record_version: record.record_version + 1,
     updated_at: now
   };
+  if (legacyPreparation) {
+    claimed.preparation_input_guard = preparationInputGuard(claimed);
+  }
   claimed.state_guard = stateGuard(claimed);
   return { claimed: true, record: claimed };
 }
@@ -274,6 +359,48 @@ function readyRequiredInput(pack) {
     : "";
 }
 
+function requiresExternalSteps(pack) {
+  return (
+    (pack.screening_questions ?? []).some(
+      (question) => question.answer_status === "manual_submission_required"
+    ) ||
+    (pack.application_warnings ?? []).some((warning) =>
+      /(?:external|attachment|test|assessment|manual|upload)/i.test(
+        `${warning.code || ""} ${warning.summary || ""}`
+      )
+    )
+  );
+}
+
+function preparationRequiredInput(pack, prepStatus) {
+  const value =
+    prepStatus === "external_steps"
+      ? readyRequiredInput(pack) || packRequiredInput(pack)
+      : packRequiredInput(pack);
+  if (value) return value;
+  return prepStatus === "external_steps"
+    ? "Complete the employer's required external application steps manually."
+    : "Provide the missing candidate information required by the application.";
+}
+
+function applicationPackRecordFields(pack) {
+  return {
+    application_instructions: pack.application_instructions,
+    screening_questions: pack.screening_questions,
+    requirement_coverage: pack.requirement_coverage,
+    application_message_plan: [pack.message_plan],
+    selected_proof_refs: pack.selected_proof_refs,
+    application_warnings: pack.application_warnings,
+    application_pack_status: pack.application_pack_status,
+    application_pack_version: pack.application_pack_version,
+    application_pack_profile_version: pack.application_pack_profile_version,
+    application_pack_policy_version: pack.application_pack_policy_version,
+    coverage_contract_version: pack.coverage_contract_version,
+    message_plan_version: pack.message_plan.version,
+    application_pack_generated_at: pack.application_pack_generated_at
+  };
+}
+
 export function prepareApplicationGeneration(
   claimedRecord,
   profile,
@@ -303,37 +430,73 @@ export function prepareApplicationGeneration(
     const descriptionUnavailable = pack.application_warnings?.some(
       (warning) => warning.code === "description_unavailable"
     );
+    const preparingInToApply =
+      claimedRecord.pipeline_status === "ready_to_apply" &&
+      claimedRecord.prep_status === "preparing";
+    const prepStatus = descriptionUnavailable
+      ? "preparation_error"
+      : requiresExternalSteps(pack)
+        ? "external_steps"
+        : "needs_input";
     return {
       provider_required: false,
       pack,
       record: {
         ...claimedRecord,
-        application_instructions: pack.application_instructions,
-        screening_questions: pack.screening_questions,
-        requirement_coverage: pack.requirement_coverage,
-        application_message_plan: [pack.message_plan],
-        selected_proof_refs: pack.selected_proof_refs,
-        application_warnings: pack.application_warnings,
-        application_pack_status: pack.application_pack_status,
-        application_pack_version: pack.application_pack_version,
-        application_pack_profile_version:
-          pack.application_pack_profile_version,
-        application_pack_policy_version: pack.application_pack_policy_version,
-        coverage_contract_version: pack.coverage_contract_version,
-        message_plan_version: pack.message_plan.version,
-        application_pack_generated_at: pack.application_pack_generated_at,
+        ...applicationPackRecordFields(pack),
         generated_message: "",
         message_validation_status: "",
         message_profile_version: "",
         message_policy_version: "",
         generated_at: "",
-        pipeline_status: descriptionUnavailable
-          ? "unavailable"
-          : "review_needed",
+        pipeline_status: preparingInToApply
+          ? "ready_to_apply"
+          : descriptionUnavailable
+            ? "unavailable"
+            : "review_needed",
+        prep_status: preparingInToApply ? prepStatus : "",
+        preparation_updated_at: preparingInToApply
+          ? now
+          : claimedRecord.preparation_updated_at || "",
         decision_reason: descriptionUnavailable
           ? "A complete active job description is required."
-          : "Application requirements need human review.",
-        required_input: packRequiredInput(pack),
+          : preparingInToApply
+            ? prepStatus === "external_steps"
+              ? "Application preparation requires external operator steps."
+              : "Application preparation requires candidate input."
+            : "Application requirements need human review.",
+        required_input: preparingInToApply
+          ? preparationRequiredInput(pack, prepStatus)
+          : packRequiredInput(pack),
+        processing_stage: "",
+        error_category: "",
+        error_summary: "",
+        next_retry_at: "",
+        updated_at: now
+      }
+    };
+  }
+  if (
+    claimedRecord.pipeline_status === "ready_to_apply" &&
+    claimedRecord.prep_status === "preparing" &&
+    requiresExternalSteps(pack)
+  ) {
+    return {
+      provider_required: false,
+      pack,
+      record: {
+        ...claimedRecord,
+        ...applicationPackRecordFields(pack),
+        pipeline_status: "ready_to_apply",
+        prep_status: "external_steps",
+        preparation_updated_at: now,
+        generated_message: "",
+        message_validation_status: "",
+        message_profile_version: "",
+        message_policy_version: "",
+        generated_at: "",
+        decision_reason: "Application preparation requires external operator steps.",
+        required_input: preparationRequiredInput(pack, "external_steps"),
         processing_stage: "",
         error_category: "",
         error_summary: "",
@@ -473,20 +636,16 @@ export function applyValidatedGeneration(
   }
   return {
     ...claimedRecord,
-    application_instructions: pack.application_instructions,
-    screening_questions: pack.screening_questions,
-    requirement_coverage: pack.requirement_coverage,
-    application_message_plan: [pack.message_plan],
-    selected_proof_refs: pack.selected_proof_refs,
-    application_warnings: pack.application_warnings,
-    application_pack_status: "ready",
-    application_pack_version: pack.application_pack_version,
-    application_pack_profile_version: pack.application_pack_profile_version,
-    application_pack_policy_version: pack.application_pack_policy_version,
-    coverage_contract_version: pack.coverage_contract_version,
-    message_plan_version: pack.message_plan.version,
-    application_pack_generated_at: pack.application_pack_generated_at,
+    ...applicationPackRecordFields(pack),
     pipeline_status: "ready_to_apply",
+    prep_status: "message_ready",
+    preparation_version: Math.max(
+      1,
+      Number(claimedRecord.preparation_version || 0)
+    ),
+    preparation_input_guard:
+      claimedRecord.preparation_input_guard || preparationInputGuard(claimedRecord),
+    preparation_updated_at: now,
     generated_message: cleanedMessage,
     message_profile_version: profile.profile_version,
     message_policy_version: applicationPolicy.policy_version,
@@ -547,6 +706,20 @@ function failureStatus(error) {
   return explicit ? Number(explicit) : 0;
 }
 
+function isToApplyPreparation(record) {
+  return (
+    record?.pipeline_status === "ready_to_apply" &&
+    [
+      "pending",
+      "preparing",
+      "repair_pending",
+      "preparation_error",
+      "needs_input",
+      "external_steps"
+    ].includes(record?.prep_status)
+  );
+}
+
 export function recordSourceFetchFailure(
   claimedRecord,
   error,
@@ -556,6 +729,19 @@ export function recordSourceFetchFailure(
   const status = failureStatus(error);
   if (![404, 410].includes(status)) {
     return recordGeneratorFailure(claimedRecord, error, runtime, now);
+  }
+  if (isToApplyPreparation(claimedRecord)) {
+    return {
+      ...recordGeneratorFailure(claimedRecord, error, runtime, now),
+      pipeline_status: "ready_to_apply",
+      prep_status: "preparation_error",
+      preparation_updated_at: now,
+      error_category: "source_unavailable",
+      error_summary: `HTTP ${status}: source job posting is no longer available.`,
+      decision_reason: "Source job posting is no longer available for preparation.",
+      required_input: "",
+      next_retry_at: ""
+    };
   }
   return {
     ...claimedRecord,
@@ -582,6 +768,28 @@ export function recordGeneratorFailure(
 ) {
   const attemptCount = Number(claimedRecord.attempt_count || 0) + 1;
   const retryable = attemptCount < runtime.retry.max_attempts;
+  const category = classifyFailure(error);
+  if (isToApplyPreparation(claimedRecord)) {
+    return {
+      ...claimedRecord,
+      pipeline_status: "ready_to_apply",
+      prep_status:
+        category === "validation_failure" && retryable
+          ? "repair_pending"
+          : "preparation_error",
+      preparation_updated_at: now,
+      processing_stage: "",
+      processing_token: "",
+      processing_started_at: "",
+      attempt_count: attemptCount,
+      next_retry_at: retryable
+        ? new Date(Date.parse(now) + runtime.retry.backoff_ms).toISOString()
+        : "",
+      error_category: retryable ? category : `${category}_exhausted`,
+      error_summary: boundedText(error?.message || error, MAX_ERROR_LENGTH),
+      updated_at: now
+    };
+  }
   return {
     ...claimedRecord,
     pipeline_status: "error",
@@ -592,9 +800,7 @@ export function recordGeneratorFailure(
     next_retry_at: retryable
       ? new Date(Date.parse(now) + runtime.retry.backoff_ms).toISOString()
       : "",
-    error_category: retryable
-      ? classifyFailure(error)
-      : `${classifyFailure(error)}_exhausted`,
+    error_category: retryable ? category : `${category}_exhausted`,
     error_summary: boundedText(error?.message || error, MAX_ERROR_LENGTH),
     updated_at: now
   };
@@ -605,8 +811,12 @@ export function commitGeneratorResult(
   claimedRecord,
   proposedRecord,
   schema,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  sourceStore = "Scraped Jobs"
 ) {
+  if (!["Scraped Jobs", "To Apply"].includes(sourceStore)) {
+    throw new Error("Generator commit source store is invalid");
+  }
   if (
     freshRecord.canonical_job_id !== claimedRecord.canonical_job_id ||
     freshRecord.processing_token !== claimedRecord.processing_token ||
@@ -614,9 +824,18 @@ export function commitGeneratorResult(
     freshRecord.state_guard !== stateGuard(freshRecord) ||
     claimedRecord.state_guard !== stateGuard(claimedRecord) ||
     freshRecord.state_guard !== claimedRecord.state_guard ||
-    freshRecord.user_action !== claimedRecord.user_action
+    freshRecord.user_action !== claimedRecord.user_action ||
+    freshRecord.review_case_id !== claimedRecord.review_case_id ||
+    freshRecord.review_case_version !== claimedRecord.review_case_version ||
+    freshRecord.review_decision !== claimedRecord.review_decision ||
+    freshRecord.review_decided_at !== claimedRecord.review_decided_at ||
+    freshRecord.preparation_version !== claimedRecord.preparation_version ||
+    freshRecord.preparation_input_guard !==
+      claimedRecord.preparation_input_guard
   ) {
-    throw new Error("Generator commit rejected stale or changed Scraped Jobs state");
+    throw new Error(
+      `Generator commit rejected stale or changed ${sourceStore} state`
+    );
   }
   const committed = {
     ...freshRecord,
@@ -634,7 +853,7 @@ export function commitGeneratorResult(
   committed.state_guard = stateGuard(committed);
   const errors = validateRecordStoreContract(
     committed,
-    "Scraped Jobs",
+    sourceStore,
     schema
   );
   if (errors.length > 0) {
@@ -681,7 +900,8 @@ export function confirmGeneratorClaimPersisted(
   plannedClaim,
   freshRows,
   schema,
-  claimFields
+  claimFields,
+  sourceStore = "Scraped Jobs"
 ) {
   if (
     !plannedClaim ||
@@ -695,7 +915,7 @@ export function confirmGeneratorClaimPersisted(
   );
   if (!plannedClaim.canonical_job_id || matches.length !== 1) {
     throw new Error(
-      "Generator claim confirmation failed: Scraped Jobs identity is missing or ambiguous"
+      `Generator claim confirmation failed: ${sourceStore} identity is missing or ambiguous`
     );
   }
   const persisted = matches[0];

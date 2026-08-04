@@ -2,8 +2,7 @@ import {
   normalizeCanonicalUrl,
   parseHttpUrl,
   stateGuard,
-  validateRecordStoreContract,
-  validateUniqueIdentityAcrossStores
+  validateRecordStoreContract
 } from "./contracts.mjs";
 import { evaluatePersistedMessageSafety } from "./message-safety.mjs";
 import {
@@ -57,19 +56,43 @@ function stableHash(value) {
 }
 
 export function alertIdempotencyKey(record, policy) {
+  const category = alertCategory(record, policy) || "ineligible";
+  const preparationIdentity = [
+    Number(record.preparation_version || 0),
+    String(record.preparation_input_guard || "")
+  ].join(":");
   return [
     "slack",
     record.canonical_job_id,
     policy.policy_version,
-    record.generated_at,
-    stableHash(String(record.generated_message || ""))
+    category,
+    preparationIdentity,
+    category === "copy_ready" ? record.generated_at : "",
+    category === "copy_ready"
+      ? stableHash(String(record.generated_message || ""))
+      : stableHash(String(record.required_input || ""))
   ].join(":");
+}
+
+export function alertCategory(record, policy) {
+  if (
+    record?.pipeline_status !== "ready_to_apply" ||
+    record?.user_action
+  ) return "";
+  if (record.prep_status === "message_ready") return "copy_ready";
+  if (
+    policy?.preparation_reminders?.enabled === true &&
+    policy.preparation_reminders.statuses?.includes(record.prep_status)
+  ) {
+    return `${record.prep_status}_reminder`;
+  }
+  return "";
 }
 
 export function validateAlertPolicy(policy) {
   const errors = [];
-  if (policy?.schema_version !== 2) {
-    errors.push("alert policy schema_version must be 2");
+  if (policy?.schema_version !== 3) {
+    errors.push("alert policy schema_version must be 3");
   }
   if (policy?.channel !== "slack") errors.push("alert channel must be slack");
   for (const field of [
@@ -130,10 +153,23 @@ export function validateAlertPolicy(policy) {
   }
   if (
     policy?.eligibility?.pipeline_status !== "ready_to_apply" ||
+    policy?.eligibility?.required_prep_status !== "message_ready" ||
     policy?.eligibility?.required_pack_status !== "ready" ||
     policy?.eligibility?.required_message_status !== "valid"
   ) {
     errors.push("alert eligibility must require a fully ready application");
+  }
+  if (
+    policy?.preparation_reminders?.enabled !== true ||
+    JSON.stringify(policy?.preparation_reminders?.statuses) !==
+      JSON.stringify(["needs_input", "external_steps"]) ||
+    !Number.isInteger(
+      policy?.preparation_reminders?.maximum_checklist_characters
+    ) ||
+    policy.preparation_reminders.maximum_checklist_characters < 1 ||
+    policy.preparation_reminders.maximum_checklist_characters > 4000
+  ) {
+    errors.push("preparation reminders must be bounded to the supported states");
   }
   for (const field of ["provider_webhook_url", "review_url"]) {
     if (!/^[A-Z][A-Z0-9_]+$/.test(policy?.environment?.[field] || "")) {
@@ -171,10 +207,11 @@ export function validateAlertRuntimeCapacity(policy, runtimeConfig) {
   return errors;
 }
 
-function retryDue(record, policy, nowMs) {
+function retryDue(record, policy, nowMs, expectedKey) {
   if (record.alert_status === "sending") {
     return false;
   }
+  if (record.alert_idempotency_key !== expectedKey) return true;
   const retryAt = Date.parse(record.alert_next_retry_at || "");
   return !record.alert_next_retry_at || !Number.isFinite(retryAt) || retryAt <= nowMs;
 }
@@ -223,16 +260,15 @@ export function preselectPersistedAlertCandidates(
       continue;
     }
 
+    const category = alertCategory(record, policy);
     const expectedKey = alertIdempotencyKey(record, policy);
     if (
-      record.pipeline_status !== "ready_to_apply" ||
-      record.user_action ||
-      record.application_pack_status !== "ready" ||
-      record.message_validation_status !== "valid" ||
+      !category ||
       (record.alert_status === "sent" &&
         record.alert_idempotency_key === expectedKey) ||
-      ["terminal_failure", "suppressed"].includes(record.alert_status) ||
-      !retryDue(record, policy, nowMs)
+      (["terminal_failure", "suppressed"].includes(record.alert_status) &&
+        record.alert_idempotency_key === expectedKey) ||
+      !retryDue(record, policy, nowMs, expectedKey)
     ) {
       continue;
     }
@@ -244,6 +280,7 @@ export function preselectPersistedAlertCandidates(
 function countSnapshot(stores, schema) {
   const storeCounts = {};
   const statusCounts = {};
+  const preparationStatusCounts = {};
   for (const store of schema.business_stores) {
     const rows = stores[store];
     storeCounts[store] = rows.length;
@@ -252,9 +289,56 @@ function countSnapshot(stores, schema) {
       const status = String(row.pipeline_status || "unknown");
       statusCounts[store][status] =
         Number(statusCounts[store][status] || 0) + 1;
+      const preparationStatus = String(row.prep_status || "");
+      if (preparationStatus) {
+        preparationStatusCounts[preparationStatus] =
+          Number(preparationStatusCounts[preparationStatus] || 0) + 1;
+      }
     }
   }
-  return { store_counts: storeCounts, status_counts: statusCounts };
+  return {
+    store_counts: storeCounts,
+    status_counts: statusCounts,
+    preparation_status_counts: preparationStatusCounts
+  };
+}
+
+function assertRecoverableBusinessOwnership(stores, schema, movement) {
+  const owners = new Map();
+  for (const store of schema.business_stores) {
+    for (const row of stores[store]) {
+      const identity = String(row?.canonical_job_id || "")
+        .trim()
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US");
+      if (!identity) continue;
+      const list = owners.get(identity) || [];
+      list.push(store);
+      owners.set(identity, list);
+    }
+  }
+  for (const [identity, storesForIdentity] of owners) {
+    if (storesForIdentity.length < 2) continue;
+    const uniqueStores = [...new Set(storesForIdentity)];
+    const recoverable =
+      storesForIdentity.length === 2 &&
+      uniqueStores.length === 2 &&
+      movement.moves.some(
+        (move) =>
+          String(move.canonical_job_id || "")
+            .trim()
+            .normalize("NFKC")
+            .toLocaleLowerCase("en-US") === identity &&
+          move.recovery_required === true &&
+          uniqueStores.includes(move.source_sheet) &&
+          uniqueStores.includes(move.destination)
+      );
+    if (!recoverable) {
+      throw new Error(
+        `Alerter & Mover rejected ambiguous business ownership for ${sanitize(identity, 120)}`
+      );
+    }
+  }
 }
 
 export function planAlerterMoverPhases(
@@ -264,16 +348,10 @@ export function planAlerterMoverPhases(
   now = new Date().toISOString(),
   movementOptions
 ) {
-  const uniquenessErrors = validateUniqueIdentityAcrossStores(
-    stores,
-    schema,
-    now
-  );
-  if (uniquenessErrors.length > 0) {
-    throw new Error(
-      `Alerter & Mover rejected ambiguous business ownership: ${uniquenessErrors.join("; ")}`
-    );
-  }
+  // A destination copy may legitimately coexist with its source when the
+  // prior delete failed. Queue planning recognizes that recoverable pair,
+  // rejects identities in unrelated stores, and keeps the normal
+  // copy-confirm-delete verification boundary intact.
   const movement = planQueueActions(
     stores,
     schema,
@@ -281,6 +359,7 @@ export function planAlerterMoverPhases(
     undefined,
     movementOptions
   );
+  assertRecoverableBusinessOwnership(stores, schema, movement);
   const outcome = planOutcomeUpdates(stores["Applied Jobs"], schema, now);
   const potentialAlerts = preselectPersistedAlertCandidates(
     stores["To Apply"],
@@ -332,6 +411,10 @@ export function summarizeAlerterMoverRun({
   const reconciled = Number(alerts.reconciled || 0);
   const retryable = Number(alerts.retryable || 0);
   const terminal = Number(alerts.terminal || 0);
+  const copyReadyAlerts = Number(alerts.copy_ready || 0);
+  const preparationReminders = Number(alerts.preparation_reminders || 0);
+  const routes = (plan?.movement?.moves || []).map((move) => move.route_reason);
+  const rejections = plan?.movement?.rejected || [];
   const hasErrors = errorCategories.length > 0;
   const classification = hasErrors
     ? "completed_with_errors"
@@ -342,9 +425,39 @@ export function summarizeAlerterMoverRun({
     execution_classification: classification,
     store_counts: plan?.store_counts || {},
     status_counts: plan?.status_counts || {},
+    preparation_status_counts: plan?.preparation_status_counts || {},
     movement_count: movementCount,
+    movement: {
+      proceeded: routes.filter((value) => value === "review_proceeded").length,
+      rejected: routes.filter((value) => value === "review_rejected").length,
+      applied: routes.filter((value) => value === "user_applied").length,
+      skipped: routes.filter((value) =>
+        ["user_skip", "automatic_skip"].includes(value)
+      ).length,
+      repeated_case_suppressions: rejections.filter((entry) =>
+        [
+          "resolved_review_case_repeated",
+          "review_reopen_missing_new_case",
+          "review_reopen_missing_reason"
+        ].includes(entry.reason)
+      ).length,
+      partial_recoveries: (plan?.movement?.moves || []).filter(
+        (move) => move.recovery_required === true
+      ).length,
+      failures: rejections.filter(
+        (entry) => entry.reason !== "movement_cap_reached"
+      ).length
+    },
     outcome_update_count: outcomeCount,
-    alerts: { selected, delivered, reconciled, retryable, terminal },
+    alerts: {
+      selected,
+      delivered,
+      reconciled,
+      retryable,
+      terminal,
+      copy_ready: copyReadyAlerts,
+      preparation_reminders: preparationReminders
+    },
     provider_classifications: [...new Set(
       providerClassifications.map((value) => sanitize(value, 80))
     )].filter(Boolean),
@@ -398,8 +511,31 @@ export function evaluateAlertEligibility(
   const reasons = [];
   if (record.pipeline_status !== "ready_to_apply") reasons.push("status_not_ready");
   if (record.user_action) reasons.push("operator_action_pending");
-  if (record.application_pack_status !== "ready") reasons.push("pack_not_ready");
-  if (record.message_validation_status !== "valid") reasons.push("message_not_valid");
+  const category = alertCategory(record, policy);
+  if (!category) reasons.push("preparation_not_alertable");
+  if (category === "copy_ready") {
+    if (record.prep_status !== "message_ready") {
+      reasons.push("preparation_not_message_ready");
+    }
+    if (record.application_pack_status !== "ready") reasons.push("pack_not_ready");
+    if (record.message_validation_status !== "valid") reasons.push("message_not_valid");
+    const safety = evaluatePersistedMessageSafety(record, messageSafetyContext);
+    if (!safety.safe) reasons.push(...safety.reasons);
+  } else if (category) {
+    const checklist = String(record.required_input || "");
+    const maximum = Number(
+      policy?.preparation_reminders?.maximum_checklist_characters || 0
+    );
+    if (!checklist.trim()) reasons.push("reminder_checklist_missing");
+    if (!maximum || checklist.length > maximum) {
+      reasons.push("reminder_checklist_oversized");
+    }
+    if (
+      /[\u0000-\u001f\u007f-\u009f\u200b-\u200d\u202a-\u202e\u2060\u2066-\u2069\ufeff]/u.test(
+        checklist
+      )
+    ) reasons.push("reminder_checklist_unsafe");
+  }
   const expectedKey = alertIdempotencyKey(record, policy);
   if (
     record.alert_status === "sent" &&
@@ -407,16 +543,20 @@ export function evaluateAlertEligibility(
   ) {
     reasons.push("already_sent");
   }
-  if (["terminal_failure", "suppressed"].includes(record.alert_status)) {
+  if (
+    ["terminal_failure", "suppressed"].includes(record.alert_status) &&
+    record.alert_idempotency_key === expectedKey
+  ) {
     reasons.push("alert_terminal");
   }
-  if (!retryDue(record, policy, Date.parse(now))) reasons.push("retry_not_due");
-  const safety = evaluatePersistedMessageSafety(record, messageSafetyContext);
-  if (!safety.safe) reasons.push(...safety.reasons);
+  if (!retryDue(record, policy, Date.parse(now), expectedKey)) {
+    reasons.push("retry_not_due");
+  }
   return {
     eligible: reasons.length === 0,
     reasons: [...new Set(reasons)],
-    idempotency_key: expectedKey
+    idempotency_key: expectedKey,
+    category
   };
 }
 
@@ -501,8 +641,18 @@ export function selectFreshAlertCandidates(
   }
   candidates.sort(
     (left, right) =>
-      Date.parse(left.record.generated_at || left.record.created_at || "") -
-        Date.parse(right.record.generated_at || right.record.created_at || "") ||
+      Date.parse(
+        left.record.preparation_updated_at ||
+          left.record.generated_at ||
+          left.record.created_at ||
+          ""
+      ) -
+        Date.parse(
+          right.record.preparation_updated_at ||
+            right.record.generated_at ||
+            right.record.created_at ||
+            ""
+        ) ||
       left.record.canonical_job_id.localeCompare(right.record.canonical_job_id)
   );
   return {
@@ -518,18 +668,21 @@ export function markAlertSending(
   executionId,
   now = new Date().toISOString()
 ) {
+  const idempotencyKey = alertIdempotencyKey(record, policy);
+  const sameAttemptSeries = record.alert_idempotency_key === idempotencyKey;
   const marked = {
     ...record,
     alert_status: "sending",
-    alert_idempotency_key: alertIdempotencyKey(record, policy),
-    alert_attempt_count: Number(record.alert_attempt_count || 0) + 1,
+    alert_idempotency_key: idempotencyKey,
+    alert_attempt_count:
+      (sameAttemptSeries ? Number(record.alert_attempt_count || 0) : 0) + 1,
     alert_last_attempt_at: now,
     alert_next_retry_at: "",
     alert_error_category: "",
     alert_error_summary: "",
     alert_provider_reference: "",
     alert_claim_token: `${sanitize(executionId, 120)}:alert:${stableHash(
-      `${record.canonical_job_id}:${alertIdempotencyKey(record, policy)}`
+      `${record.canonical_job_id}:${idempotencyKey}`
     )}`,
     record_version: record.record_version + 1,
     updated_at: now
@@ -590,6 +743,35 @@ export function renderSlackAlert(
       ? `<${sourceUrl}|Open OnlineJobs.ph>`
       : "Source: unavailable"
   ].join(" · ");
+  if (eligibility.category !== "copy_ready") {
+    const external = eligibility.category === "external_steps_reminder";
+    const title = external
+      ? "*External application steps — not submitted:*"
+      : "*Candidate input needed — preparation paused:*";
+    const checklist = slackEscape(record.required_input);
+    const text = [
+      title,
+      `Role: ${slackEscape(record.job_title) || "Untitled role"}`,
+      `Checklist: ${checklist}`,
+      external
+        ? "These steps must be completed by you outside the pipeline. No application was submitted."
+        : "Provide the requested facts through the supported preparation update path. No application was submitted.",
+      links
+    ].join("\n");
+    if (text.length > policy.maximum_message_characters) {
+      throw new Error("Slack preparation reminder exceeds configured length");
+    }
+    return {
+      channel: "slack",
+      category: eligibility.category,
+      preparation_version: record.preparation_version,
+      preparation_input_guard: record.preparation_input_guard,
+      idempotency_key: eligibility.idempotency_key,
+      text,
+      review_action: { mode: "open_only", url: safeReviewUrl },
+      source_action: { mode: "open_only", url: sourceUrl }
+    };
+  }
   const context = [
     `*Ready to apply:* ${slackEscape(record.job_title) || "Untitled role"}`,
     `Company: ${slackEscape(record.company) || "Unknown"} · Salary: ${slackEscape(record.salary_text) || "Unknown"}`,
@@ -609,7 +791,10 @@ export function renderSlackAlert(
   }
   return {
     channel: "slack",
-    idempotency_key: alertIdempotencyKey(record, policy),
+    category: "copy_ready",
+    preparation_version: record.preparation_version,
+    preparation_input_guard: record.preparation_input_guard,
+    idempotency_key: eligibility.idempotency_key,
     text,
     review_action: { mode: "open_only", url: safeReviewUrl },
     source_action: { mode: "open_only", url: sourceUrl }
@@ -653,6 +838,10 @@ export function applySlackProviderResult(
     sendingRecord.state_guard !== stateGuard(sendingRecord) ||
     freshRecord.state_guard !== sendingRecord.state_guard ||
     freshRecord.user_action !== sendingRecord.user_action ||
+    freshRecord.prep_status !== sendingRecord.prep_status ||
+    freshRecord.preparation_version !== sendingRecord.preparation_version ||
+    freshRecord.preparation_input_guard !==
+      sendingRecord.preparation_input_guard ||
     freshRecord.alert_status !== "sending" ||
     freshRecord.alert_idempotency_key !== sendingRecord.alert_idempotency_key ||
     !freshRecord.alert_claim_token ||

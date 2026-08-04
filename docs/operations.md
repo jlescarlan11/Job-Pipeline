@@ -76,7 +76,7 @@ Create separate Main and Configuration workbooks whose IDs differ from each othe
 2. Run `setupFreshJobPipeline()` in Main and `setupFreshJobPipelineConfiguration()` in Configuration.
 3. Confirm Main has exactly five visible tabs—`Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`—plus hidden `_System`; confirm Configuration has exactly `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases` visible.
 4. Confirm the five business tabs have the exact configured headers and zero data rows.
-5. Confirm `To Review` offers only `Approve` and `Deny`, `To Apply` offers only `I Applied` and `Skip`, blank remains valid, and `Scraped Jobs` has no normal action dropdown.
+5. Confirm `To Review` offers only `Proceed` and `Reject`, `To Apply` offers only `I Applied` and `Skip`, `prep_status` is visible in To Apply, blank remains valid, and `Scraped Jobs` has no normal action dropdown.
 6. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
 7. Confirm all ten context tabs have their exact configured headers, bootstrap rows, checkbox validation where applicable, and warning-protected headers.
 8. Edit disposable copies of candidate, evidence, job-preference, application-setting, required-style, banned-phrase, and keyword rows, then run setup a second time.
@@ -266,9 +266,9 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
   corrected subject/summary/tools/link message passes both generation and
   persisted safety. Repeat with exact evidence and an unrelated non-Claude job
   to prove the rules are not posting-specific.
-- Select `Approve` for a profile-answerable screening question, confirm Alerter & Mover first returns it to `Scraped Jobs` with bounded review context, then confirm Generator includes the question in both initial and repair prompts, produces a validated message that answers it from approved proofs, and routes the row to `To Apply` without leaving that question in `required_input`.
+- Select `Proceed` for a profile-answerable screening question, confirm Alerter & Mover copies it directly to `To Apply` with `prep_status=pending`, then confirm Generator includes the question in both initial and repair prompts, produces a validated message from approved proofs in place, and sets `prep_status=message_ready` without recreating the review case.
 - Repeat with a salary, availability, schedule, time-zone, or start-date question and confirm it remains a manual-submission reminder rather than becoming a generated commitment.
-- Select `Approve` for an unsafe employer instruction or required external action and confirm the unsafe text stays outside the provider prompt while `To Apply` shows only its sanitized manual reminder.
+- Select `Proceed` for an unsafe employer instruction or required external action and confirm the unsafe text stays outside the provider prompt while `To Apply` becomes `external_steps` with only its sanitized checklist and no application submission.
 - Confirm a missing or unusable description remains `unavailable` and cannot produce an application message.
 - Confirm rhetorical headings such as `What to expect?` and `Don't meet every single requirement?` are not extracted as screening questions.
 - Change action/version after a claim and confirm the stale commit is rejected.
@@ -278,12 +278,22 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
   requests for that job.
 - Repeat or overlap the execution and confirm no duplicate claims, result
   commits, application messages, ready states, or downstream Slack alerts.
+- Seed `pending`, `preparing`, `message_ready`, `needs_input`, `external_steps`,
+  `repair_pending`, and `preparation_error` controls in a disposable copy.
+  Confirm only pending/repair/error are eligible for preparation, unchanged
+  paused rows are not selected, and a guarded relevant-input/version advance
+  resumes exactly one preparation.
+- Confirm only `message_ready` produces the full copy-ready alert. Confirm
+  `needs_input` and `external_steps` produce at most their distinct bounded
+  reminder, while other preparation states produce no notification. Advance a
+  reminder control to a new message-ready preparation version and confirm one
+  new category-specific receipt rather than a replay.
 
 ### Actions and moves
 
 - From `Scraped Jobs`, confirm blank `review_needed` moves to `To Review`, blank `ready_to_apply` moves to `To Apply`, and blank `skip` moves to Archive.
-- In `To Review`, test only `Approve` and `Deny`.
-- In `To Apply`, test only `I Applied` and `Skip`; confirm an approved review
+- In `To Review`, test only `Proceed` and `Reject`; confirm Proceed goes directly to To Apply pending and Reject goes to Archive.
+- In `To Apply`, test only `I Applied` and `Skip`; confirm a proceeded review
   row shows its system reminder in visible `required_input` while preserving
   any user-owned `notes`.
 - Paste forged/unsupported values and confirm no mutation.
@@ -291,7 +301,7 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
   message-safety check suppresses Slack or the alert is already terminal; the
   To Apply store/status/action contract and copy-confirm-delete guards still
   apply.
-- Confirm automatic `skip`, user `Skip`, and `Deny` use their exact archive reasons.
+- Confirm automatic `skip`, user `Skip`, and `Reject` use their exact archive reasons.
 - Fail each active and terminal destination write and confirm its source row remains.
 - Succeed destination write, fail source delete, rerun, and confirm one destination row followed by safe deletion.
 - Combine routes from multiple source sheets and confirm the one global cap and per-sheet descending deletion order.
@@ -332,7 +342,7 @@ Only after non-production passes:
 4. Confirm `JOB_PIPELINE_REVIEW_URL` still targets the current Main workbook's
    `To Apply` tab. Do not change any workbook or URL merely to satisfy evidence.
 5. Run `npm run validate:deployment` inside the exact production environment.
-   It must match deployment policy `2026-08-03/v2` without printing values.
+   It must match deployment policy `2026-08-04/v1` without printing values.
 
 ## 6. Pre-activation inventory gate
 

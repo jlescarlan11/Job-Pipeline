@@ -4,10 +4,15 @@ import test from "node:test";
 import {
   STATE_GUARD_EXCLUDED_FIELDS,
   STATE_GUARD_FIELDS,
+  applicationReviewGuard,
   canonicalJobId,
+  canTransitionPreparation,
   canTransition,
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
+  legacyStateGuardV3,
+  preparationInputGuard,
+  reviewCaseId,
   stateGuard,
   transitionRecord,
   validatePipelineSchema,
@@ -152,7 +157,7 @@ test("coverage and message-plan changes invalidate the record state guard", () =
     );
   }
   for (const [field, value] of Object.entries({
-    user_action: "Approve",
+    user_action: "Proceed",
     outcome: "interview",
     notes: "operator note changed",
     matched_keywords: ["rediscovered keyword"],
@@ -272,6 +277,223 @@ test("operator actions are fail-closed and status specific", () => {
       schema
     ).join(";"),
     /does not own pipeline_status/
+  );
+});
+
+test("review decisions use Proceed and Reject while legacy actions normalize deterministically", () => {
+  assert.deepEqual(schema.user_actions, [
+    "",
+    "I Applied",
+    "Skip",
+    "Proceed",
+    "Reject"
+  ]);
+  assert.deepEqual(review.action_validation["To Review"], {
+    values: ["Proceed", "Reject"],
+    allow_blank: true
+  });
+  assert.equal(
+    validRecord({ pipeline_status: "review_needed", user_action: "Approve" })
+      .user_action,
+    "Proceed"
+  );
+  assert.equal(
+    validRecord({ pipeline_status: "review_needed", user_action: "Deny" })
+      .user_action,
+    "Reject"
+  );
+  assert.match(
+    validateRecordStoreContract(
+      { ...validRecord({ pipeline_status: "review_needed" }), user_action: "Approve" },
+      "To Review",
+      schema
+    ).join(";"),
+    /user_action/
+  );
+});
+
+test("only a raw v3 Scraped Jobs Approve or Deny can use the loop cutover route", () => {
+  const rawLegacy = validRecord({
+    pipeline_status: "review_needed",
+    user_action: ""
+  });
+  rawLegacy.user_action = "Approve";
+  delete rawLegacy.compatibility_legacy_user_action;
+  rawLegacy.state_guard = legacyStateGuardV3(rawLegacy);
+  const normalizedLegacy = normalizeLegacyRecord(rawLegacy, schema);
+  assert.equal(normalizedLegacy.user_action, "Proceed");
+  assert.equal(normalizedLegacy.compatibility_legacy_user_action, "Approve");
+  assert.deepEqual(
+    validateRecordStoreContract(normalizedLegacy, "Scraped Jobs", schema),
+    []
+  );
+
+  const upgraded = { ...normalizedLegacy, state_guard: "" };
+  upgraded.state_guard = stateGuard(upgraded);
+  assert.match(
+    validateRecordStoreContract(upgraded, "Scraped Jobs", schema).join(";"),
+    /user_action/
+  );
+
+  const forged = { ...rawLegacy, user_action: "Proceed" };
+  delete forged.compatibility_legacy_user_action;
+  forged.state_guard = legacyStateGuardV3(forged);
+  const normalizedForged = normalizeLegacyRecord(forged, schema);
+  assert.match(
+    validateRecordStoreContract(
+      normalizedForged,
+      "Scraped Jobs",
+      schema
+    ).join(";"),
+    /user_action/
+  );
+});
+
+test("review cases and preparation input guards are stable across retries", () => {
+  const record = validRecord({
+    pipeline_status: "review_needed",
+    decision_reason: "Application requirements need a decision",
+    required_input: "Confirm the adjacent evidence strategy",
+    application_pack_status: "review_required",
+    application_pack_version: "2026-08-03/v1",
+    application_pack_profile_version: "profile-v1",
+    application_pack_policy_version: "policy-v1"
+  });
+  const caseId = reviewCaseId(record);
+  assert.match(caseId, /^review-case-v1:[a-f0-9]{64}$/);
+  assert.equal(
+    reviewCaseId({
+      ...record,
+      review_approved_at: "2026-08-04T01:00:00.000Z",
+      notes: "operator note",
+      updated_at: "2026-08-04T01:00:00.000Z"
+    }),
+    caseId
+  );
+  assert.notEqual(
+    reviewCaseId({ ...record, required_input: "A materially new decision" }),
+    caseId
+  );
+  const proceeded = {
+    ...record,
+    review_case_id: caseId,
+    review_case_version: "review-case-v1",
+    review_decision: "proceed",
+    review_decided_at: "2026-08-04T01:00:00.000Z"
+  };
+  const prepGuard = preparationInputGuard(proceeded);
+  assert.match(prepGuard, /^prep-v1:[a-f0-9]{64}$/);
+  assert.equal(
+    preparationInputGuard({
+      ...proceeded,
+      attempt_count: 99,
+      next_retry_at: "2026-08-04T02:00:00.000Z",
+      updated_at: "2026-08-04T02:00:00.000Z",
+      application_pack_status: "ready",
+      application_warnings: [{ code: "generated-output" }],
+      generated_message: "A newly generated message"
+    }),
+    prepGuard
+  );
+  assert.notEqual(
+    preparationInputGuard({
+      ...proceeded,
+      review_approval_guard: `review-v1:${"2".repeat(64)}`
+    }),
+    prepGuard
+  );
+  assert.notEqual(
+    preparationInputGuard({ ...proceeded, profile_version: "profile-v2" }),
+    prepGuard
+  );
+  assert.match(applicationReviewGuard(record), /^review-v1:[a-f0-9]{64}$/);
+});
+
+test("preparation lifecycle separates To Apply ownership from message readiness", () => {
+  assert.deepEqual(schema.preparation_statuses, [
+    "",
+    "pending",
+    "preparing",
+    "message_ready",
+    "needs_input",
+    "external_steps",
+    "repair_pending",
+    "preparation_error"
+  ]);
+  assert.equal(canTransitionPreparation(schema, "pending", "preparing"), true);
+  assert.equal(canTransitionPreparation(schema, "needs_input", "message_ready"), false);
+
+  const legacyReady = validRecord({ pipeline_status: "ready_to_apply" });
+  assert.equal(legacyReady.prep_status, "preparation_error");
+  assert.equal(legacyReady.preparation_version, 0);
+  assert.deepEqual(
+    validateRecordStoreContract(legacyReady, "To Apply", schema),
+    []
+  );
+
+  const preparationBase = {
+    pipeline_status: "ready_to_apply",
+    prep_status: "needs_input",
+    preparation_version: 1,
+    preparation_updated_at: "2026-08-04T01:00:00.000Z",
+    preparation_input_guard: `prep-v1:${"1".repeat(64)}`
+  };
+  assert.match(
+    validateRecordContract(validRecord(preparationBase), schema).join(";"),
+    /needs_input requires bounded required_input/
+  );
+  assert.deepEqual(
+    validateRecordStoreContract(
+      validRecord({
+        ...preparationBase,
+        required_input: "Provide the missing availability answer."
+      }),
+      "To Apply",
+      schema
+    ),
+    []
+  );
+  assert.match(
+    validateRecordContract(
+      validRecord({
+        ...preparationBase,
+        prep_status: "external_steps",
+        required_input: "Upload the resume.\u202e"
+      }),
+      schema
+    ).join(";"),
+    /unsafe control characters/
+  );
+
+  const readyBase = {
+    pipeline_status: "ready_to_apply",
+    prep_status: "message_ready",
+    preparation_version: 1,
+    preparation_updated_at: "2026-08-04T01:00:00.000Z",
+    preparation_input_guard: `prep-v1:${"2".repeat(64)}`,
+    application_pack_status: "ready",
+    application_pack_version: "2026-08-03/v1",
+    application_pack_profile_version: "profile-v1",
+    application_pack_policy_version: "policy-v1",
+    generated_message: "Subject\n\nValidated application message.",
+    message_validation_status: "valid",
+    message_profile_version: "profile-v1",
+    message_policy_version: "message-v1"
+  };
+  assert.deepEqual(validateRecordContract(validRecord(readyBase), schema), []);
+  assert.match(
+    validateRecordContract(
+      validRecord({ ...readyBase, generated_message: "" }),
+      schema
+    ).join(";"),
+    /message_ready requires generated_message/
+  );
+  assert.match(
+    validateRecordContract(
+      validRecord({ ...readyBase, application_pack_status: "blocked" }),
+      schema
+    ).join(";"),
+    /message_ready requires a ready application pack/
   );
 });
 
@@ -430,7 +652,7 @@ test("blank setup creates separate Main and Configuration workbooks", () => {
   assert.deepEqual(
     main.sheets.find((sheet) => sheet.name === "To Review").validations,
     {
-      user_action: { values: ["Approve", "Deny"], allow_blank: true }
+      user_action: { values: ["Proceed", "Reject"], allow_blank: true }
     }
   );
   assert.deepEqual(

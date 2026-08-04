@@ -60,7 +60,10 @@ test("build emits exactly the three inactive replacement roles", () => {
     "Archive"
   ]);
   assert.equal(workflows["scraper.json"].meta.discoveryWriteSheet, "Scraped Jobs");
-  assert.equal(workflows["generator.json"].meta.processingSourceSheet, "Scraped Jobs");
+  assert.deepEqual(workflows["generator.json"].meta.processingSourceSheets, [
+    "Scraped Jobs",
+    "To Apply"
+  ]);
   assert.deepEqual(workflows["alerter-mover.json"].meta.sourceSheets, [
     "Scraped Jobs",
     "To Review",
@@ -364,12 +367,13 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   node(workflow, "Persist Generator Claim");
   node(workflow, "Append Generator System Claim");
   node(workflow, "Confirm Generator System Claim");
-  node(workflow, "Get Scraped Jobs Before Candidate Claim");
-  node(workflow, "Aggregate Scraped Jobs Before Candidate Claim");
+  node(workflow, "Get To Apply Preparation");
+  node(workflow, "Get Generator Source Before Candidate Claim");
+  node(workflow, "Aggregate Generator Source Before Candidate Claim");
   node(workflow, "Confirm Generator Claim Persisted");
-  node(workflow, "Get Scraped Jobs Before Commit");
+  node(workflow, "Get Generator Source Before Commit");
   node(workflow, "Guard and Commit Generator Result");
-  node(workflow, "Get Scraped Jobs After Commit");
+  node(workflow, "Get Generator Source After Commit");
   node(workflow, "Confirm Generator Result Persisted");
   node(workflow, "Needs One Repair");
   node(workflow, "Wait Before Repair");
@@ -405,7 +409,7 @@ test("Evaluator & Generator persists claims and gates readiness after pack and m
   assert.equal("user_action" in claimUpdate.parameters.columns.value, false);
   assert.equal("notes" in claimUpdate.parameters.columns.value, false);
 
-  const resultUpdate = node(workflow, "Update Scraped Jobs Result");
+  const resultUpdate = node(workflow, "Update Generator Source Result");
   assert.deepEqual(resultUpdate.parameters.columns.matchingColumns, [
     "canonical_job_id"
   ]);
@@ -459,16 +463,16 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
   );
   assert.equal(
     workflow.connections["Generator System Claim Won"].main[0][0].node,
-    "Get Scraped Jobs Before Candidate Claim"
+    "Get Generator Source Before Candidate Claim"
   );
   assert.equal(
-    workflow.connections["Aggregate Scraped Jobs Before Candidate Claim"]
+    workflow.connections["Aggregate Generator Source Before Candidate Claim"]
       .main[0][0].node,
     "Claim Current Candidate"
   );
   assert.match(
     node(workflow, "Claim Current Candidate").parameters.jsCode,
-    /Scraped Jobs identity is missing or ambiguous/
+    /selected source identity is missing or ambiguous/
   );
   assert.match(
     node(workflow, "Claim Current Candidate").parameters.jsCode,
@@ -476,7 +480,7 @@ test("Evaluator & Generator loops over a fixed batch sequentially without cross-
   );
   assert.equal(
     workflow.connections["Confirm Generator Claim Persisted"].main[0][0].node,
-    "Scraped Jobs Claim Verified"
+    "Generator Source Claim Verified"
   );
   for (const entry of workflow.nodes.filter(
     (candidate) => candidate.type === "n8n-nodes-base.code"

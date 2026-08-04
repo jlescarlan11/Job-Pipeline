@@ -1,5 +1,6 @@
 import {
   normalizeLegacyRecord,
+  normalizeUserAction,
   stateGuard,
   validateRecordContract,
   validateRecordStoreContract
@@ -72,8 +73,8 @@ function cloneRows(rows) {
 
 export function validateFreshSheetConfig(review, schema) {
   const errors = [];
-  if (review?.schema_version !== 6) {
-    errors.push("review-sheet schema_version must be 6");
+  if (review?.schema_version !== 7) {
+    errors.push("review-sheet schema_version must be 7");
   }
   const configuredNames = Object.values(review?.sheets ?? {}).map(
     (sheet) => sheet?.name
@@ -194,7 +195,7 @@ export function validateFreshSheetConfig(review, schema) {
     errors.push("all_record_columns must exactly match schema fields");
   }
   const expectedActionValidation = {
-    "To Review": { values: ["Approve", "Deny"], allow_blank: true },
+    "To Review": { values: ["Proceed", "Reject"], allow_blank: true },
     "To Apply": { values: ["I Applied", "Skip"], allow_blank: true },
     "Scraped Jobs": { values: [], allow_blank: true }
   };
@@ -386,7 +387,7 @@ function migrationDestination(status, action) {
     return action === "" ? { sheet: "Scraped Jobs", reason: "operational" } : null;
   }
   if (status === "review_needed") {
-    return ["", "Approve", "Deny"].includes(action)
+    return ["", "Proceed", "Reject"].includes(action)
       ? { sheet: "To Review", reason: action ? "pending_review_action" : "review_needed" }
       : null;
   }
@@ -545,7 +546,7 @@ export function planSegmentedQueueMigration(
         continue;
       }
       const status = String(raw.pipeline_status || "").trim().toLowerCase();
-      const action = String(raw.user_action || "").trim();
+      const action = normalizeUserAction(raw.user_action, schema);
       if (!schema.pipeline_statuses.includes(status)) {
         rejects.push(
           migrationReject("unsupported_status", {

@@ -71,6 +71,12 @@ export function evaluatePersistedMessageSafety(
   }
 
   const reasons = [];
+  if (record?.pipeline_status !== "ready_to_apply") {
+    reasons.push("message_owner_not_to_apply");
+  }
+  if (record?.prep_status !== "message_ready") {
+    reasons.push("preparation_not_message_ready");
+  }
   const messageProfileVersion = String(
     record?.message_profile_version || ""
   ).trim();
@@ -132,13 +138,7 @@ export function evaluatePersistedMessageSafety(
   let canonicalPack = null;
   try {
     canonicalPack = buildApplicationPack(
-      {
-        ...record,
-        pipeline_status: record?.review_approved_at
-          ? "review_needed"
-          : record?.pipeline_status,
-        user_action: record?.review_approved_at ? "Approve" : record?.user_action
-      },
+      { ...record, user_action: "" },
       profile,
       applicationPolicy,
       packPolicy,

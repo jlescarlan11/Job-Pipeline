@@ -352,8 +352,13 @@ export function validateN8nDeploymentPolicy(
     errors.push("queue and configuration workbook binding policy is incomplete");
   }
   const compatibility = policy?.application_compatibility ?? {};
-  if (compatibility.legacy_state_guard_compatibility !== "forbidden") {
-    errors.push("application compatibility must forbid legacy state guards");
+  if (
+    compatibility.legacy_state_guard_compatibility !==
+    "guarded_v3_claim_once"
+  ) {
+    errors.push(
+      "application compatibility must limit legacy state guards to one guarded v3 claim"
+    );
   }
   const expectedCompatibility = {
     business_row_relocation_mode: "copy_confirm_delete_only",

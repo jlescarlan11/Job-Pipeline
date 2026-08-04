@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-08-03/v2",
+  "policy_version": "2026-08-04/v1",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-08-03",
   "official_sources": [
@@ -72,11 +72,11 @@
     "configuration_workbook_requires_current_contract": true
   },
   "application_compatibility": {
-    "legacy_state_guard_compatibility": "forbidden",
+    "legacy_state_guard_compatibility": "guarded_v3_claim_once",
     "business_row_relocation_mode": "copy_confirm_delete_only",
-    "pipeline_schema_version": 3,
-    "storage_version": "2026-07-31-segmented-queues-v3",
-    "pipeline_contract_digest": "pipeline-v1:704cb162",
+    "pipeline_schema_version": 4,
+    "storage_version": "2026-08-04-preparation-lifecycle-v4",
+    "pipeline_contract_digest": "pipeline-v1:038ef670",
     "candidate_profile_version": "2026-07-29",
     "application_policy_version": "2026-07-28",
     "application_pack_policy_version": "2026-08-03/v1",
@@ -102,7 +102,7 @@
       {
         "role": "scraper",
         "target_workflow_id": "qxPbOzNs5StaPY8B",
-        "artifact_digest": "sha256:601c79afddd6f75a47b455f0ccc081d61b4dd2fdb7db2668c7788df7730e6f9e",
+        "artifact_digest": "sha256:f2c39eb78fb52b71994b4812269cfdf44406e51670bc722dc9fd149622cda556",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 900,
         "schedule_expressions": [
@@ -124,28 +124,31 @@
       {
         "role": "evaluator_generator",
         "target_workflow_id": "TRUqD9atneyDyMNx",
-        "artifact_digest": "sha256:27a0885f1d281ee7d3f5e739f597df2766b028e099d49da8b0b69ee907e4fac4",
+        "artifact_digest": "sha256:639f43fe635b00778713a9cee833cee203844cd836518924635eb54fe721dac2",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 480,
         "schedule_expressions": [
           "0 2 0,3,6,9,12,15,18,21 * * *",
           "0 32 1,4,7,10,13,16,19,22 * * *"
         ],
-        "google_credential_node_count": 19,
+        "google_credential_node_count": 20,
         "name_markers": [
           "Evaluator & Generator",
           "Safe Routing"
         ],
         "required_node_names": [
           "Get Scraped Jobs",
+          "Get To Apply Preparation",
+          "Get Generator Source Before Candidate Claim",
           "Evaluate and Prepare Application",
-          "Guard and Commit Generator Result"
+          "Guard and Commit Generator Result",
+          "Update Generator Source Result"
         ]
       },
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:9cdcdffc09419e376565311aea697cbc990d1c64b6b160908d46f6f09b663672",
+        "artifact_digest": "sha256:190f6b2a1e55db857c43ac56d1307dbdd2827c6a0738a1134c8437536d0084f1",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [

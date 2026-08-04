@@ -11,19 +11,22 @@ Scraper (4h, rolling 24h) <----- Search Keywords
       v
 Scraped Jobs
       |
-      +--> Evaluator & Generator (90m, up to five rows)
+      +--> Evaluator & Generator (90m, one five-row global batch)
       |         |
-      |         +--> ready_to_apply ----> To Apply <---- I Applied / Skip
-      |         +--> review_needed -----> To Review <--- Approve / Deny
+      |         +--> direct message_ready ---> To Apply <--- I Applied / Skip
+      |         +--> review_needed ---------> To Review <-- Proceed / Reject
       |         +--> skip --------------> Archive
       |         +--> error / unavailable
       |
       +--> Alerter & Mover (15m)
                 |
-                +--> Slack (copy/open only)
-                +--> Scraped Jobs (approved review)
+                +--> Slack (copy-ready or bounded action reminder)
+                +--> To Apply (proceeded review, prep pending)
                 +--> Applied Jobs
                 +--> Archive
+
+To Apply -- Generator --> pending/preparing/message_ready
+                     \-> needs_input/external_steps/repair_pending/preparation_error
 ```
 
 ## Trust boundaries
@@ -62,9 +65,9 @@ Canonical source ID and canonical URL are compared across all five business stor
 
 ## Evaluator & Generator
 
-The workflow reads only `Scraped Jobs`, freezes the first five due rows, or every due row when fewer than five exist, and never backfills that batch. It then processes the frozen identities sequentially, one at a time. Each candidate independently appends a scoped `_System` claim, proves that it owns the earliest unexpired claim, writes the `Scraped Jobs` claim, and exactly rereads the persisted claim before evaluation or provider work. The sixth eligible row is untouched until a later execution.
+The workflow reads both `Scraped Jobs` and `To Apply`, orders all eligible evaluation/preparation candidates deterministically, freezes one global batch of at most five, and never backfills it. It processes those frozen identities sequentially. Each candidate independently appends a source-store-qualified `_System` claim, proves earliest unexpired ownership, writes the claim to that exact source store, and rereads it before evaluation or provider work. A sixth eligible row in either store waits for a later execution.
 
-Each candidate retains its own version, state guard, identity, claim token, user action, and persistence result. A stale token, version, state guard, identity, or user action rejects that candidate's commit without ending the loop. The workflow then rereads the saved row and verifies every committed machine field; a missing, ambiguous, partial, or mismatched write fails closed for that candidate. Provider, validation, Sheet, and stale-write failures are isolated, so later frozen candidates still run.
+Each candidate retains its source store, review case/decision, preparation version/input guard, record version, state guard, identity, claim token, user action, and persistence result. A stale value rejects that candidate's commit without ending the batch. The workflow rereads the same source store and verifies every committed machine field; a missing, ambiguous, partial, or mismatched write fails closed for that candidate. Provider, validation, Sheet, and stale-write failures are isolated, so later frozen candidates still run.
 
 Before reading the queue, Generator reads all ten context tabs from the Configuration workbook and freezes one
 validated profile/ranking/application snapshot. Context hashes are derived from
@@ -80,7 +83,7 @@ policy:
 - a permanent source HTTP 404/410 becomes `unavailable` and is archived;
 - temporary provider, network, or validation failures become retryable `error`, never `skip`.
 
-`Approve` in `To Review` means “return to `Scraped Jobs`, acknowledge allow-listed warnings, and reconsider through normal generation.” The approval timestamp and a bounded snapshot of the reviewer note are retained; the note remains untrusted operator context. Candidate-directed, profile-answerable screening questions are passed to the next initial and repair prompts and must be answered from selected approved proofs. Questions requesting salary, availability, schedules, time zones, start dates, phone details, or work authorization remain visible as manual-submission reminders; external actions do too, while rhetorical headings are ignored. Unsafe employer segments stay excluded from the provider prompt, and approval does not waive proof selection, pack validation, or message validation. A missing or unusable description becomes `unavailable` instead of cycling through review again.
+`Proceed` in `To Review` is a final resolution of the stable `review_case_id`. Alerter & Mover copies the complete row directly to `To Apply` with `review_decision=proceed` and `prep_status=pending`, confirms it, then deletes the unchanged review source. Generator reads both Scraped Jobs and To Apply under one global five-item cap and prepares the proceeded record in place. Candidate-directed, profile-answerable questions enter the bounded generation/repair prompts; sensitive commitments become `needs_input`, and attachments, tests, uploads, or other employer actions become `external_steps`. Neither state is treated as an application submission. An unchanged paused input guard is not reselected; a relevant input/version advance permits one new claim. `Reject` moves directly to Archive. Legacy `Approve` and `Deny` are accepted only as migration aliases; a looped v3 Scraped Jobs alias has one guarded copy-confirm-delete exit and cannot be reproduced by a v4 action.
 
 The application domain converts structured employer instructions into a
 versioned requirement-coverage contract and a deterministic message plan
@@ -98,7 +101,7 @@ Coverage, the one-element message-plan array, and their explicit versions are
 persisted with every generation result and included in the record state guard.
 The guard also covers the outbound message and provenance, source description
 and availability, instructions, questions, selected proofs, warnings, pack
-state, and the review-approval digest. Queue movement and rediscovery preserve
+state, the review-case resolution, and the preparation input/version guard. Queue movement and rediscovery preserve
 those system-owned fields. Before a ready message reaches Slack, message safety
 recomputes the pack from the current job description, profile, and policies,
 requires every persisted authorization field to match, resolves canonical proof
@@ -108,11 +111,11 @@ suppressed without changing terminal historical records.
 
 ## Alerter & Mover
 
-Alerter & Mover first reads all five business stores through one Google Sheets batch snapshot, normalizes header-only tabs to empty arrays, rejects ambiguous canonical ownership, and plans outcomes, movement, and potential alerts from persisted fields. An idle run exits before `_System`, Configuration, writes, sorting, or Slack. Movement completes before alert selection; only movement-touched stores are confirmed and sorted. If `To Apply` was touched it is refreshed once, otherwise the validated initial snapshot is reused. The same ten-tab Configuration context is loaded through one batch request only after persisted fields identify potential alert work, so invalid Configuration can block alert delivery without cancelling completed movement or outcome work.
+Alerter & Mover first reads all five business stores through one Google Sheets batch snapshot, normalizes header-only tabs to empty arrays, and plans outcomes, movement, and potential notifications from persisted fields. A canonical identity in an unrelated second store fails closed. The one allowed overlap is a source plus its exact destination after append/confirm succeeded but delete failed; the next run verifies that destination and retries only the deletion. An idle run exits before `_System`, Configuration, writes, sorting, or Slack. Movement completes before alert selection; only movement-touched stores are confirmed and sorted. If `To Apply` was touched it is refreshed once, otherwise the validated initial snapshot is reused. Configuration is loaded only after persisted fields identify notification work.
 
 Each movement and alert first appends a source/destination-scoped `_System` claim; the earliest unexpired sheet row is the only winner. Individual destination, delete, receipt, or Slack failures continue as bounded result items, so one failed branch cannot cancel unrelated work. The configured movement cap applies to the combined, deterministically ordered route set. The instrumented idle, movement/recovery, and full movement-plus-alert read budgets are two, six, and ten Google Sheets API requests respectively. The initial five-store snapshot has one explicit 65-second quota-window retry. Later reads never use n8n's capped five-second automatic retry; they fail closed and defer recovery to the next 15-minute schedule. Provider work requires 150 seconds of remaining execution headroom. Provider telemetry, rather than visual node count, is authoritative during rollout.
 
-Alert eligibility requires a fresh, unacted `ready_to_apply` row with a current ready pack and validated message. The idempotency key includes canonical identity, policy version, generation timestamp, and message digest. A successful key is never replayed. An expired `sending` claim and an ambiguous timeout are terminal because delivery may have occurred; neither is automatically resent.
+Copy-ready eligibility requires a fresh, unacted `ready_to_apply` row with `prep_status=message_ready`, a current pack, and a validated message. `needs_input` and `external_steps` may produce only their distinct bounded reminder category. Receipt identity includes category, preparation version/input guard, policy version, and message or checklist digest, so an unchanged state is not replayed while a guarded later version/category can notify once. An expired `sending` claim and an ambiguous timeout are terminal because delivery may have occurred.
 
 Delivery evidence has a transport-neutral durable contract in an instance-local n8n Data Table, separate from the quota-sensitive Main workbook. One receipt identity equals one alert idempotency key. Atomic create-if-absent and receipt-version compare-and-swap transitions enforce `pending → sending → delivered → reconciled` plus bounded rejection and terminal-ambiguity outcomes. Every write is reread, and duplicate identity rows fail closed. Startup recovery terminalizes expired `sending` evidence and reconciles all definite provider outcomes before new selection. Slack is reachable only after durable `sending`, a matching fresh Sheet claim, render safety, and a fresh headroom gate. Its outcome is persisted before business reconciliation; an unprovable post-send write is terminal ambiguity. Delivered receipts reconcile into the matching key's single current owner across `To Apply`, `Applied Jobs`, and `Archive` without another provider call. The strict column allowlist excludes message, job-description, profile, credential, webhook, authorization, and raw-provider content. The Data Table is part of the n8n durability and backup boundary; delivered rows cannot be pruned before reconciliation.
 
@@ -126,8 +129,8 @@ Moves are:
 | Scraped Jobs | `ready_to_apply` / blank | To Apply | focused manual-application queue |
 | Scraped Jobs | `skip` / blank | Archive | `automatic_skip` |
 | Scraped Jobs | permanent source 404/410 / blank | Archive | `source_unavailable` |
-| To Review | `review_needed` / `Approve` | Scraped Jobs | gated reconsideration |
-| To Review | `review_needed` / `Deny` | Archive | `review_denied` |
+| To Review | `review_needed` / `Proceed` | To Apply | final decision; `prep_status=pending` |
+| To Review | `review_needed` / `Reject` | Archive | `review_denied` |
 | To Apply | `ready_to_apply` / `I Applied` | Applied Jobs | manual application fact |
 | To Apply | `ready_to_apply` / `Skip` | Archive | `user_skip` |
 

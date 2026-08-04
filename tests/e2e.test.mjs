@@ -130,6 +130,7 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   active.canonical_job_id = "onlinejobs.ph:6001";
   active.canonical_url =
     "https://onlinejobs.ph/jobseekers/job/full-stack-6001";
+  active.state_guard = stateGuard(active);
   const claimed = claimGeneratorRecord(
     active,
     "evaluation",
@@ -243,7 +244,7 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   assert.equal(rediscovered.terminal_suppressed, 1);
 });
 
-test("review approval never bypasses generation and denial archives once", () => {
+test("review Proceed enters pending preparation and Reject archives once", () => {
   const reviewRecord = {
     source: "onlinejobs.ph",
     source_job_id: "6010",
@@ -253,7 +254,7 @@ test("review approval never bypasses generation and denial archives once", () =>
     row_number: 4,
     record_version: 1,
     pipeline_status: "review_needed",
-    user_action: "Approve",
+    user_action: "Proceed",
     source_availability: "active",
     attempt_count: 0,
     matched_keywords: ["application support engineer"],
@@ -277,18 +278,26 @@ test("review approval never bypasses generation and denial archives once", () =>
     safetyContext
   );
   assert.equal(approvalPlan.moves.length, 1);
-  assert.equal(approvalPlan.moves[0].destination, "Scraped Jobs");
-  const returned = destinationWrites(approvalPlan).scraped_jobs[0];
-  assert.equal(returned.user_action, "Approve");
+  assert.equal(approvalPlan.moves[0].destination, "To Apply");
+  const returned = destinationWrites(approvalPlan).to_apply[0];
+  assert.equal(returned.user_action, "");
+  assert.equal(returned.pipeline_status, "ready_to_apply");
+  assert.equal(returned.prep_status, "pending");
+  assert.equal(returned.review_decision, "proceed");
   assert.equal(returned.review_approved_at, now);
   assert.equal(
-    selectGeneratorCandidate([returned], schema, runtime, now).length,
+    selectGeneratorCandidate(
+      { "Scraped Jobs": [], "To Apply": [returned] },
+      schema,
+      runtime,
+      now
+    ).length,
     1
   );
 
   const denied = {
     ...approved,
-    user_action: "Deny",
+    user_action: "Reject",
     record_version: approved.record_version + 1
   };
   denied.state_guard = stateGuard(denied);
@@ -299,7 +308,8 @@ test("review approval never bypasses generation and denial archives once", () =>
     safetyContext
   );
   const archive = destinationWrites(denialPlan).archive[0];
-  assert.equal(archive.archive_reason, "review_denied");
+  assert.equal(archive.archive_reason, "review_rejected");
+  assert.equal(archive.review_decision, "reject");
   assert.equal(archive.decision_reason, denied.decision_reason);
   assert.deepEqual(archive.requirement_gaps, denied.requirement_gaps);
   const confirmed = confirmMoveDeletions(
@@ -313,7 +323,7 @@ test("review approval never bypasses generation and denial archives once", () =>
   assert.equal(confirmed.deletions.length, 1);
 });
 
-test("approved review-only questions complete the route to To Apply", () => {
+test("proceeded review-only questions prepare in place and become message-ready", () => {
   const parsed = parseJobDetail(directHtml, {
     source: "onlinejobs.ph",
     source_job_id: "6011",
@@ -323,7 +333,7 @@ test("approved review-only questions complete the route to To Apply", () => {
     row_number: 5,
     record_version: 1,
     pipeline_status: "review_needed",
-    user_action: "Approve",
+    user_action: "Proceed",
     source_availability: "active",
     attempt_count: 0,
     matched_keywords: ["full stack developer"],
@@ -336,8 +346,7 @@ test("approved review-only questions complete the route to To Apply", () => {
   parsed.canonical_job_id = "onlinejobs.ph:6011";
   parsed.canonical_url =
     "https://onlinejobs.ph/jobseekers/job/full-stack-6011";
-  parsed.job_description +=
-    " Which production incident did you resolve? You must attach a PDF resume.";
+  parsed.job_description += " Which production incident did you resolve?";
   const reviewPack = buildApplicationPack(
     { ...parsed, user_action: "" },
     profile,
@@ -369,13 +378,14 @@ test("approved review-only questions complete the route to To Apply", () => {
     now,
     safetyContext
   );
-  const returned = destinationWrites(approvalPlan).scraped_jobs[0];
+  const returned = destinationWrites(approvalPlan).to_apply[0];
   const claimed = claimGeneratorRecord(
     returned,
     "generation",
     "generator-approved-review",
     now,
-    runtime.claim_lease_ms
+    runtime.claim_lease_ms,
+    "To Apply"
   ).record;
   const prepared = prepareApplicationGeneration(
     claimed,
@@ -408,23 +418,13 @@ test("approved review-only questions complete the route to To Apply", () => {
     claimed,
     proposed,
     schema,
-    now
-  );
-  const applyPlan = planQueueActions(
-    businessStores({ "Scraped Jobs": [ready] }),
-    schema,
     now,
-    safetyContext
+    "To Apply"
   );
-  assert.equal(applyPlan.moves.length, 1);
-  assert.equal(applyPlan.moves[0].destination, "To Apply");
-  const toApply = {
-    ...destinationWrites(applyPlan).to_apply[0],
-    row_number: 2
-  };
+  const toApply = { ...ready, row_number: 2 };
   assert.equal(toApply.pipeline_status, "ready_to_apply");
-  assert.match(toApply.required_input, /manual submission/i);
-  assert.match(toApply.required_input, /required attachment/i);
+  assert.equal(toApply.prep_status, "message_ready");
+  assert.equal(toApply.required_input, "");
   assert.equal(
     toApply.screening_questions[0].answer_status,
     "answer_in_message"

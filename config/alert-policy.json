@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "policy_version": "2026-07-31/v1",
+  "schema_version": 3,
+  "policy_version": "2026-08-04/v1",
   "channel": "slack",
   "schedule_minutes": 15,
   "schedule_offset_minutes": 10,
@@ -16,8 +16,17 @@
   },
   "eligibility": {
     "pipeline_status": "ready_to_apply",
+    "required_prep_status": "message_ready",
     "required_pack_status": "ready",
     "required_message_status": "valid"
+  },
+  "preparation_reminders": {
+    "enabled": true,
+    "statuses": [
+      "needs_input",
+      "external_steps"
+    ],
+    "maximum_checklist_characters": 1000
   },
   "environment": {
     "provider_webhook_url": "JOB_PIPELINE_SLACK_WEBHOOK_URL",

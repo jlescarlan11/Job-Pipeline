@@ -1,6 +1,6 @@
 {
-  "schema_version": 3,
-  "storage_version": "2026-07-31-segmented-queues-v3",
+  "schema_version": 4,
+  "storage_version": "2026-08-04-preparation-lifecycle-v4",
   "authoritative_stores": {
     "scraped": "Scraped Jobs",
     "review": "To Review",
@@ -42,6 +42,10 @@
     "user_action",
     "decision_reason",
     "required_input",
+    "review_case_id",
+    "review_case_version",
+    "review_decision",
+    "review_decided_at",
     "review_approved_at",
     "review_approval_note",
     "review_approval_guard",
@@ -78,6 +82,10 @@
     "coverage_contract_version",
     "message_plan_version",
     "application_pack_generated_at",
+    "prep_status",
+    "preparation_version",
+    "preparation_input_guard",
+    "preparation_updated_at",
     "alert_status",
     "alert_idempotency_key",
     "alert_claim_token",
@@ -123,11 +131,13 @@
     "discovered_at",
     "last_seen_at",
     "evaluated_at",
+    "review_decided_at",
     "review_approved_at",
     "processing_started_at",
     "next_retry_at",
     "generated_at",
     "application_pack_generated_at",
+    "preparation_updated_at",
     "alert_last_attempt_at",
     "alert_next_retry_at",
     "alert_sent_at",
@@ -162,8 +172,32 @@
         "",
         "I Applied",
         "Skip",
-        "Approve",
-        "Deny"
+        "Proceed",
+        "Reject"
+      ]
+    },
+    "required_input": {
+      "type": "string",
+      "maximum_length": 4000
+    },
+    "review_case_id": {
+      "type": "string",
+      "maximum_length": 79,
+      "pattern": "^(?:|review-case-v1:[a-f0-9]{64})$"
+    },
+    "review_case_version": {
+      "type": "enum",
+      "values": [
+        "",
+        "review-case-v1"
+      ]
+    },
+    "review_decision": {
+      "type": "enum",
+      "values": [
+        "",
+        "proceed",
+        "reject"
       ]
     },
     "review_approval_note": {
@@ -225,6 +259,29 @@
         "review_required",
         "blocked"
       ]
+    },
+    "prep_status": {
+      "type": "enum",
+      "values": [
+        "",
+        "pending",
+        "preparing",
+        "message_ready",
+        "needs_input",
+        "external_steps",
+        "repair_pending",
+        "preparation_error"
+      ]
+    },
+    "preparation_version": {
+      "type": "integer",
+      "minimum": 0,
+      "nullable": false
+    },
+    "preparation_input_guard": {
+      "type": "string",
+      "maximum_length": 72,
+      "pattern": "^(?:|prep-v1:[a-f0-9]{64})$"
     },
     "alert_status": {
       "type": "enum",
@@ -293,9 +350,13 @@
     "",
     "I Applied",
     "Skip",
-    "Approve",
-    "Deny"
+    "Proceed",
+    "Reject"
   ],
+  "legacy_user_action_mapping": {
+    "Approve": "Proceed",
+    "Deny": "Reject"
+  },
   "actions_by_status": {
     "new": [
       ""
@@ -310,8 +371,8 @@
     ],
     "review_needed": [
       "",
-      "Approve",
-      "Deny"
+      "Proceed",
+      "Reject"
     ],
     "skip": [
       ""
@@ -335,8 +396,7 @@
         ""
       ],
       "review_needed": [
-        "",
-        "Approve"
+        ""
       ],
       "skip": [
         ""
@@ -351,8 +411,8 @@
     "To Review": {
       "review_needed": [
         "",
-        "Approve",
-        "Deny"
+        "Proceed",
+        "Reject"
       ]
     },
     "To Apply": {
@@ -396,11 +456,13 @@
       "unavailable"
     ],
     "ready_to_apply": [
-      "ready_to_apply"
+      "ready_to_apply",
+      "review_needed"
     ],
     "review_needed": [
       "processing",
-      "review_needed"
+      "review_needed",
+      "ready_to_apply"
     ],
     "skip": [
       "skip"
@@ -413,6 +475,62 @@
     "unavailable": [
       "processing",
       "unavailable"
+    ]
+  },
+  "preparation_statuses": [
+    "",
+    "pending",
+    "preparing",
+    "message_ready",
+    "needs_input",
+    "external_steps",
+    "repair_pending",
+    "preparation_error"
+  ],
+  "preparation_transitions": {
+    "": [
+      "",
+      "pending",
+      "message_ready",
+      "preparation_error"
+    ],
+    "pending": [
+      "pending",
+      "preparing",
+      "preparation_error"
+    ],
+    "preparing": [
+      "message_ready",
+      "needs_input",
+      "external_steps",
+      "repair_pending",
+      "preparation_error"
+    ],
+    "message_ready": [
+      "message_ready",
+      "repair_pending",
+      "preparation_error"
+    ],
+    "needs_input": [
+      "needs_input",
+      "pending",
+      "preparing"
+    ],
+    "external_steps": [
+      "external_steps",
+      "pending",
+      "preparing"
+    ],
+    "repair_pending": [
+      "repair_pending",
+      "preparing",
+      "preparation_error"
+    ],
+    "preparation_error": [
+      "preparation_error",
+      "pending",
+      "preparing",
+      "repair_pending"
     ]
   },
   "archive_reasons": [

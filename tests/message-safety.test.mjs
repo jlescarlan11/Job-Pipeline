@@ -33,6 +33,11 @@ const basePack = buildApplicationPack(
 );
 const currentSafe = (overrides = {}) => ({
   ...baseJob,
+  pipeline_status: "ready_to_apply",
+  prep_status: "message_ready",
+  preparation_version: 1,
+  preparation_input_guard: `prep-v1:${"a".repeat(64)}`,
+  preparation_updated_at: now,
   generated_message:
     "Subject line: TypeScript Developer Application — John Lester Escarlan\n\nHi there,\n\nI delivered three client-facing features using React, TypeScript, and Node.js.\n\nI would welcome a conversation about how my experience fits this role.\n\nPortfolio: https://johnlesterescarlan.pro",
   message_profile_version: profile.profile_version,

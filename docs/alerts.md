@@ -1,8 +1,9 @@
 # Slack alerts
 
-The Alerter & Mover sends a Slack notification only for a current `ready_to_apply` `To Apply` row with:
+The Alerter & Mover sends the full copy-ready Slack notification only for a current `ready_to_apply` `To Apply` row with:
 
 - no pending user action;
+- `prep_status=message_ready` with a positive `preparation_version` and current `preparation_input_guard`;
 - `application_pack_status=ready`;
 - `message_validation_status=valid`;
 - current candidate, application-policy, pack-policy, coverage-contract, and
@@ -13,8 +14,10 @@ The Alerter & Mover sends a Slack notification only for a current `ready_to_appl
   passes the same deterministic plan, grounding, and content validation again.
 
 Legacy, missing, malformed, stale, unsupported, or forged coverage/plan state
-is not alert-compatible. It is suppressed before any receipt or Slack send and
-remains identifiable for guarded regeneration or review.
+is not copy-ready. It remains identifiable for guarded preparation in To Apply
+and is never returned to review merely because the message is incomplete.
+
+`needs_input` and `external_steps` can emit only a bounded action reminder. The reminder contains the job title, sanitized `required_input` checklist, and open-only links; it never includes the stored message or full job description and says explicitly that no application was submitted. `pending`, `preparing`, `repair_pending`, and `preparation_error` do not alert. An unchanged paused row is not repeatedly reminded on every schedule.
 
 The alert includes job and company context, qualification/opportunity/confidence, the decision reason, gaps, application instructions, questions, proofs, warnings, and the exact stored generated message inside one Slack code block. The live smoke check compares the code-block contents byte-for-byte with the Sheet value.
 
@@ -23,13 +26,13 @@ Both links are non-mutating:
 - `Open To Apply` opens the configured HTTPS Google Sheet at the `To Apply` tab.
 - `Open OnlineJobs.ph` opens the normalized canonical source URL.
 
-There are no Approve, Deny, Skip, Apply, or state-changing webhook links. The user copies the message, submits manually, and records `I Applied` in `To Apply`.
+There are no Proceed, Reject, Skip, Apply, or state-changing webhook links. The user copies the message, submits manually, and records `I Applied` in `To Apply`.
 
 The Alerter & Mover never submits an application.
 
 Before loading candidate/application context, Alerter & Mover batch-reads all five business stores and performs a persisted-field preselection. With no outcomes, moves, or potential alerts it emits `no_eligible_work` with store/status counts and makes no Configuration or Slack request. Configuration is retrieved through one batch request only for potential alert work. Movement confirmation and latest-first sorting are restricted to stores touched by that execution.
 
-The idempotency key is derived from canonical job identity, alert policy version, generation timestamp, and a message digest. Before the source row enters `sending`, the workflow appends a scoped `_System` claim and only the earliest unexpired row may continue. The winning claim token is also persisted in `To Apply` and must match at render and result commit.
+The idempotency key is derived from canonical identity, notification category, alert policy, preparation version/input guard, and a message or checklist digest. A transition from a reminder to a later copy-ready state therefore receives a different receipt key, while an unchanged state cannot replay. Before the source row enters `sending`, the workflow appends a scoped `_System` claim and only the earliest unexpired row may continue. The winning claim token is also persisted in `To Apply` and must match at render and result commit.
 
 The durable-receipt contract uses that exact idempotency key as the receipt identity in the instance-local `Job Pipeline Alert Receipts` n8n Data Table. Its only persisted fields are bounded identity, status, attempt, provider classification/reference, sanitized error, execution, version, and timestamp metadata. Complete generated messages, job descriptions, profile context, provider responses, webhook URLs, credentials, and authorization values are not receipt fields.
 
@@ -45,6 +48,6 @@ Alert claims and result commits reread `To Apply` and reject a changed version, 
 
 Movement completes its copy-confirm-delete attempts before the workflow rereads `To Apply` for alert selection. Movement and Slack writes use independent bounded result paths, so one failed move or provider request does not cancel unrelated rows. Rows in `Scraped Jobs` or `To Review` are never alert candidates.
 
-The initial Alerter & Mover five-store snapshot may retry once through an explicit 65-second Wait node. Later Google Sheets reads have no in-execution automatic retry: if they fail, the current phase fails closed and the next 15-minute run performs recovery. This avoids n8n's runtime cap silently turning a configured 65-second retry into five-second quota pressure. The 300-second execution reserves at least 150 seconds before receipt/provider commit work. A full movement-plus-alert path uses at most ten Google Sheets read requests; a movement-plus-recovery path uses at most six. The final sanitized summary reports store/status counts, movement/outcome counts, alert delivery/reconciliation classes, Sheet reads, quota retries, provider classifications, and bounded error categories.
+The initial Alerter & Mover five-store snapshot may retry once through an explicit 65-second Wait node. Later Google Sheets reads have no in-execution automatic retry: if they fail, the current phase fails closed and the next 15-minute run performs recovery. This avoids n8n's runtime cap silently turning a configured 65-second retry into five-second quota pressure. The 300-second execution reserves at least 150 seconds before receipt/provider commit work. A full movement-plus-alert path uses at most ten Google Sheets read requests; a movement-plus-recovery path uses at most six. The final sanitized summary reports store/status and preparation-state counts, proceeded/rejected/applied/skipped moves, repeated-case suppressions, partial recoveries, copy-ready/reminder categories, delivery/reconciliation classes, Sheet reads, quota retries, provider failures, and bounded errors.
 
 The remaining real-provider copy-fidelity gate is described in `docs/operations.md`. Repository tests prove renderer fidelity with fixtures; they do not claim an authorized Slack workspace accepted a message.

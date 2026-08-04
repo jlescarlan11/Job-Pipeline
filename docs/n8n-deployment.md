@@ -1,6 +1,6 @@
 # n8n deployment policy
 
-`config/n8n-deployment-policy.json` policy `2026-08-03/v2` validates a
+`config/n8n-deployment-policy.json` policy `2026-08-04/v1` validates a
 self-hosted regular-mode n8n instance for exactly three workflow roles:
 
 - Scraper (`scraper`)

@@ -2968,19 +2968,23 @@ function approvedQuestionAnswerStatus(question, packPolicy) {
 }
 
 function hasReviewApproval(job) {
-  if (!Number.isFinite(Date.parse(job?.review_approved_at || ""))) {
-    return false;
-  }
+  const decidedAt = job?.review_decided_at || job?.review_approved_at || "";
+  if (!Number.isFinite(Date.parse(decidedAt))) return false;
   if (
-    job?.pipeline_status === "review_needed" &&
-    job?.user_action === "Approve"
+    job?.review_decision === "proceed" &&
+    job?.review_case_version === "review-case-v1" &&
+    /^review-case-v1:[a-f0-9]{64}$/.test(job?.review_case_id || "")
   ) {
     return true;
   }
+  // Compatibility is intentionally read-only. A guarded migration may
+  // normalize a legacy approved row before the new review-case fields exist,
+  // but current Sheet controls and workflow writes never emit Approve.
   return Boolean(
     ["processing", "error"].includes(job?.pipeline_status) &&
       !job?.user_action &&
-      job?.application_pack_status === "review_required"
+      job?.application_pack_status === "review_required" &&
+      Number.isFinite(Date.parse(job?.review_approved_at || ""))
   );
 }
 
@@ -3520,7 +3524,9 @@ export function buildApplicationPack(
     application_pack_policy_version: packPolicy.policy_version,
     coverage_contract_version: packPolicy.coverage_contract_version,
     application_pack_generated_at: now,
-    review_approved_at: approvedReview ? job.review_approved_at : "",
+    review_approved_at: approvedReview
+      ? job.review_decided_at || job.review_approved_at
+      : "",
     review_approval_guard: approvedReview ? reviewGuard : ""
   };
   return applicationPackPersistenceErrors(result, packPolicy).length > 0

@@ -93,7 +93,7 @@ test("deployment policy has exactly three signatures and all retired markers", (
     3
   );
   assert.deepEqual(policy.application_compatibility, {
-    legacy_state_guard_compatibility: "forbidden",
+    legacy_state_guard_compatibility: "guarded_v3_claim_once",
     business_row_relocation_mode: "copy_confirm_delete_only",
     pipeline_schema_version: pipelineSchema.schema_version,
     storage_version: pipelineSchema.storage_version,

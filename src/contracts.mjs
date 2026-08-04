@@ -221,6 +221,46 @@ export function applicationReviewGuard(record) {
 }
 
 /**
+ * Identifies the material review case without volatile timestamps or operator
+ * notes. The same employer requirements, coverage, pack policy, and bounded
+ * decision context therefore produce the same case across retries.
+ */
+export function reviewCaseId(record) {
+  return `review-case-v1:${contractDigest({
+    application_review_guard: applicationReviewGuard(record),
+    decision_reason: record?.decision_reason ?? "",
+    required_input: record?.required_input ?? "",
+    profile_version: record?.profile_version ?? "",
+    policy_version: record?.policy_version ?? ""
+  })}`;
+}
+
+/**
+ * Binds preparation work to stable inputs. Generated output, retry counters,
+ * timestamps, and operator notes are deliberately excluded so scheduled runs
+ * cannot manufacture new work from unchanged inputs.
+ */
+export function preparationInputGuard(record) {
+  return `prep-v1:${contractDigest({
+    canonical_job_id: record?.canonical_job_id ?? canonicalJobId(record ?? {}),
+    job_description: record?.job_description ?? "",
+    review_case_id: record?.review_case_id ?? "",
+    review_decision: record?.review_decision ?? "",
+    // The persisted approval guard is an input authorization. Recomputing an
+    // application guard from the current pack would make this digest depend on
+    // generated preparation output and invalidate it after a legitimate run.
+    review_approval_guard: record?.review_approval_guard ?? "",
+    profile_version: record?.profile_version ?? "",
+    policy_version: record?.policy_version ?? ""
+  })}`;
+}
+
+export function normalizeUserAction(action, schema) {
+  const value = String(action ?? "").trim();
+  return schema?.legacy_user_action_mapping?.[value] ?? value;
+}
+
+/**
  * Operator-owned Sheet columns are intentionally excluded from the persisted
  * digest. A Google Sheets edit cannot atomically refresh `state_guard`, so
  * guarding these values would make every legitimate action or note look like
@@ -244,8 +284,10 @@ export const STATE_GUARD_FIELDS = [
   "canonical_url", "job_title", "company", "job_description", "salary_text",
   "posted_at", "discovered_at",
   "source_availability", "pipeline_status", "decision_reason",
-  "required_input", "review_approved_at", "review_approval_note",
-  "review_approval_guard", "qualification_score", "opportunity_score",
+  "required_input", "review_case_id", "review_case_version",
+  "review_decision", "review_decided_at", "review_approved_at",
+  "review_approval_note", "review_approval_guard", "qualification_score",
+  "opportunity_score",
   "ranking_confidence", "match_reasons", "requirement_gaps", "profile_version",
   "policy_version", "evaluated_at", "processing_stage", "processing_token",
   "processing_started_at", "attempt_count", "next_retry_at", "error_category",
@@ -256,7 +298,9 @@ export const STATE_GUARD_FIELDS = [
   "application_pack_status", "application_pack_version",
   "application_pack_profile_version", "application_pack_policy_version",
   "coverage_contract_version", "message_plan_version",
-  "application_pack_generated_at", "alert_status", "alert_idempotency_key",
+  "application_pack_generated_at", "prep_status", "preparation_version",
+  "preparation_input_guard", "preparation_updated_at", "alert_status",
+  "alert_idempotency_key",
   "alert_claim_token", "alert_attempt_count", "alert_last_attempt_at",
   "alert_next_retry_at", "alert_sent_at", "alert_provider_reference",
   "alert_error_category", "alert_error_summary", "applied_at", "archived_at",
@@ -264,15 +308,85 @@ export const STATE_GUARD_FIELDS = [
   "created_at"
 ];
 
-export function stateGuard(record) {
+// Compatibility is intentionally limited to the immediately preceding
+// persisted contract. It lets the guarded workflows claim a freshly reread v3
+// row and rewrite it under v4; it does not make old workflow definitions
+// compatible with new lifecycle state.
+export const LEGACY_STATE_GUARD_FIELDS_V3 = STATE_GUARD_FIELDS.filter(
+  (field) =>
+    ![
+      "review_case_id",
+      "review_case_version",
+      "review_decision",
+      "review_decided_at",
+      "prep_status",
+      "preparation_version",
+      "preparation_input_guard",
+      "preparation_updated_at"
+    ].includes(field)
+);
+
+function stateGuardForFields(record, fields) {
   const canonicalId = String(record.canonical_job_id || canonicalJobId(record) || "");
   if (!canonicalId) return "";
   const guardedRecord = Object.fromEntries(
-    // A missing top-level field becomes a blank Sheet cell on persistence.
-    // Canonicalizing it here keeps digests stable across that round trip.
-    STATE_GUARD_FIELDS.map((field) => [field, record?.[field] ?? ""])
+    fields.map((field) => [field, record?.[field] ?? ""])
   );
   return `${canonicalId}|${contractDigest(guardedRecord)}`;
+}
+
+export function stateGuard(record) {
+  // A missing top-level field becomes a blank Sheet cell on persistence.
+  // Canonicalizing it here keeps digests stable across that round trip.
+  return stateGuardForFields(record, STATE_GUARD_FIELDS);
+}
+
+export function legacyStateGuardV3(record) {
+  return stateGuardForFields(record, LEGACY_STATE_GUARD_FIELDS_V3);
+}
+
+export function stateGuardMatches(record) {
+  const persisted = String(record?.state_guard || "");
+  if (!persisted) return false;
+  if (persisted === stateGuard(record)) return true;
+  const hasV4LifecycleState =
+    Boolean(
+      record?.review_case_id ||
+        record?.review_case_version ||
+        record?.review_decision ||
+        record?.review_decided_at ||
+        record?.preparation_input_guard ||
+        record?.preparation_updated_at
+    ) ||
+    Number(record?.preparation_version || 0) > 0 ||
+    !["", "preparation_error"].includes(String(record?.prep_status || ""));
+  return !hasV4LifecycleState && persisted === legacyStateGuardV3(record);
+}
+
+/**
+ * Recognizes only the v3 Scraped Jobs review action produced by the retired
+ * approval loop. The raw legacy spelling is retained in memory by
+ * normalizeLegacyRecord; it is never a persisted v4 field. A new Proceed or
+ * Reject value, or any row that already contains v4 lifecycle state, cannot
+ * use this compatibility route.
+ */
+export function isGuardedLegacyReviewAction(record, store, schema) {
+  const legacyAction = String(
+    record?.compatibility_legacy_user_action || ""
+  ).trim();
+  const expectedAction = schema?.legacy_user_action_mapping?.[legacyAction];
+  const persisted = String(record?.state_guard || "");
+  return Boolean(
+    store === "Scraped Jobs" &&
+      record?.pipeline_status === "review_needed" &&
+      ["Approve", "Deny"].includes(legacyAction) &&
+      ["Proceed", "Reject"].includes(expectedAction) &&
+      record?.user_action === expectedAction &&
+      persisted &&
+      persisted !== stateGuard(record) &&
+      persisted === legacyStateGuardV3(record) &&
+      stateGuardMatches(record)
+  );
 }
 
 export function rankingPriorityValue(record) {
@@ -387,6 +501,10 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   record.pipeline_status =
     schema.legacy_status_mapping?.[legacyStatus] ||
     (schema.pipeline_statuses.includes(legacyStatus) ? legacyStatus : "new");
+  const rawUserAction = String(record.user_action || "").trim();
+  record.user_action = normalizeUserAction(rawUserAction, schema);
+  record.compatibility_legacy_user_action =
+    record.user_action !== rawUserAction ? rawUserAction : "";
   record.source = String(record.source || "onlinejobs.ph").trim().toLowerCase();
   record.canonical_url = normalizeCanonicalUrl(record.canonical_url || record.job_url);
   record.source_job_id = String(record.source_job_id || extractOnlineJobsId(record.canonical_url) || "");
@@ -409,6 +527,11 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   record.alert_attempt_count = Number.isFinite(Number(record.alert_attempt_count))
     ? Number(record.alert_attempt_count)
     : 0;
+  record.preparation_version =
+    Number.isInteger(Number(record.preparation_version)) &&
+    Number(record.preparation_version) >= 0
+      ? Number(record.preparation_version)
+      : 0;
   record.created_at = record.created_at || now;
   record.updated_at = record.updated_at || now;
   record.source_availability = record.source_availability || "active";
@@ -423,6 +546,13 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   record.outcome = record.outcome || "";
   record.outcome_recorded_value = record.outcome_recorded_value || "";
   record.user_action = record.user_action || "";
+  record.review_case_id = record.review_case_id || "";
+  record.review_case_version = record.review_case_version || "";
+  record.review_decision = record.review_decision || "";
+  record.prep_status =
+    record.prep_status ||
+    (record.pipeline_status === "ready_to_apply" ? "preparation_error" : "");
+  record.preparation_input_guard = record.preparation_input_guard || "";
   record.review_approval_note = record.review_approval_note || "";
   record.review_approval_guard = record.review_approval_guard || "";
   record.alert_claim_token = record.alert_claim_token || "";
@@ -587,6 +717,77 @@ export function validateRecordContract(record, schema) {
   if (record?.alert_status !== "sending" && alertClaimToken) {
     errors.push("alert_claim_token is only valid while sending");
   }
+  const unsafeChecklist =
+    /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200b-\u200d\u202a-\u202e\u2060\u2066-\u2069\ufeff]/u;
+  const requiredInput = String(record?.required_input || "");
+  if (
+    ["needs_input", "external_steps"].includes(record?.prep_status) &&
+    !requiredInput.trim()
+  ) {
+    errors.push(`${record.prep_status} requires bounded required_input`);
+  }
+  if (requiredInput && unsafeChecklist.test(requiredInput)) {
+    errors.push("required_input contains unsafe control characters");
+  }
+  const reviewCaseIdValue = String(record?.review_case_id || "");
+  const reviewCaseVersion = String(record?.review_case_version || "");
+  const reviewDecision = String(record?.review_decision || "");
+  const reviewDecidedAt = String(record?.review_decided_at || "");
+  if (Boolean(reviewCaseIdValue) !== Boolean(reviewCaseVersion)) {
+    errors.push("review_case_id and review_case_version must be set together");
+  }
+  if (reviewDecision && (!reviewCaseIdValue || !reviewDecidedAt)) {
+    errors.push("review_decision requires a review case and decision timestamp");
+  }
+  if (!reviewDecision && reviewDecidedAt) {
+    errors.push("review_decided_at requires review_decision");
+  }
+  const prepStatus = String(record?.prep_status || "");
+  const preparationVersion = Number(record?.preparation_version || 0);
+  const preparationGuard = String(record?.preparation_input_guard || "");
+  const preparationUpdatedAt = String(record?.preparation_updated_at || "");
+  if (record?.pipeline_status === "ready_to_apply" && !prepStatus) {
+    errors.push("ready_to_apply requires prep_status");
+  }
+  if (prepStatus && record?.pipeline_status !== "ready_to_apply") {
+    errors.push("prep_status is only valid for ready_to_apply records");
+  }
+  const legacyPreparationError =
+    prepStatus === "preparation_error" && preparationVersion === 0;
+  if (prepStatus && !legacyPreparationError) {
+    if (!Number.isInteger(preparationVersion) || preparationVersion < 1) {
+      errors.push("active preparation state requires preparation_version");
+    }
+    if (!preparationGuard || !preparationUpdatedAt) {
+      errors.push(
+        "active preparation state requires an input guard and update timestamp"
+      );
+    }
+  }
+  if (prepStatus === "message_ready") {
+    for (const [field, value] of Object.entries({
+      application_pack_status: record?.application_pack_status,
+      generated_message: record?.generated_message,
+      message_validation_status: record?.message_validation_status,
+      message_profile_version: record?.message_profile_version,
+      message_policy_version: record?.message_policy_version,
+      application_pack_version: record?.application_pack_version,
+      application_pack_profile_version:
+        record?.application_pack_profile_version,
+      application_pack_policy_version:
+        record?.application_pack_policy_version
+    })) {
+      if (!String(value || "").trim()) {
+        errors.push(`message_ready requires ${field}`);
+      }
+    }
+    if (record?.application_pack_status !== "ready") {
+      errors.push("message_ready requires a ready application pack");
+    }
+    if (record?.message_validation_status !== "valid") {
+      errors.push("message_ready requires a valid generated message");
+    }
+  }
   return errors;
 }
 
@@ -607,7 +808,10 @@ export function validateRecordStoreContract(record, store, schema) {
         record?.pipeline_status || "(blank)"
       }`
     );
-  } else if (!allowedActions.includes(record?.user_action ?? "")) {
+  } else if (
+    !allowedActions.includes(record?.user_action ?? "") &&
+    !isGuardedLegacyReviewAction(record, normalizedStore, schema)
+  ) {
     errors.push(
       `user_action is not supported for ${normalizedStore}/${
         record?.pipeline_status || "(blank)"
@@ -628,7 +832,7 @@ export function applyValidatedRecordUpdate(record, updates, schema) {
 
 export function validatePipelineSchema(schema) {
   const errors = [];
-  if (schema?.schema_version !== 3) errors.push("schema_version must be 3");
+  if (schema?.schema_version !== 4) errors.push("schema_version must be 4");
   if (!Array.isArray(schema?.fields) || schema.fields.length === 0) errors.push("fields are required");
   if (!Array.isArray(schema?.pipeline_statuses) || schema.pipeline_statuses.length === 0) {
     errors.push("pipeline_statuses are required");
@@ -698,11 +902,52 @@ export function validatePipelineSchema(schema) {
   const actions = new Set(schema?.user_actions ?? []);
   if (
     actions.size !== 5 ||
-    !["", "I Applied", "Skip", "Approve", "Deny"].every((action) =>
+    !["", "I Applied", "Skip", "Proceed", "Reject"].every((action) =>
       actions.has(action)
     )
   ) {
     errors.push("user_actions must contain only the supported operator actions");
+  }
+  if (
+    JSON.stringify(schema?.legacy_user_action_mapping) !==
+    JSON.stringify({ Approve: "Proceed", Deny: "Reject" })
+  ) {
+    errors.push("legacy_user_action_mapping must normalize Approve and Deny");
+  }
+  const preparationStatuses = new Set(schema?.preparation_statuses ?? []);
+  const expectedPreparationStatuses = [
+    "",
+    "pending",
+    "preparing",
+    "message_ready",
+    "needs_input",
+    "external_steps",
+    "repair_pending",
+    "preparation_error"
+  ];
+  if (
+    preparationStatuses.size !== expectedPreparationStatuses.length ||
+    !expectedPreparationStatuses.every((status) =>
+      preparationStatuses.has(status)
+    )
+  ) {
+    errors.push("preparation_statuses must contain the supported lifecycle");
+  }
+  for (const status of expectedPreparationStatuses) {
+    const destinations = schema?.preparation_transitions?.[status];
+    if (!Array.isArray(destinations) || destinations.length === 0) {
+      errors.push(
+        `missing preparation transitions for status: ${status || "(blank)"}`
+      );
+    } else if (
+      destinations.some((value) => !preparationStatuses.has(value))
+    ) {
+      errors.push(
+        `preparation transition contains an unknown status: ${
+          status || "(blank)"
+        }`
+      );
+    }
   }
   for (const [from, destinations] of Object.entries(schema?.transitions ?? {})) {
     if (!statuses.has(from)) errors.push(`transition source is not a status: ${from}`);
@@ -811,6 +1056,10 @@ export function validateUniqueIdentityAcrossStores(stores, schema, now = new Dat
 
 export function canTransition(schema, from, to) {
   return (schema.transitions?.[from] ?? []).includes(to);
+}
+
+export function canTransitionPreparation(schema, from, to) {
+  return (schema.preparation_transitions?.[from ?? ""] ?? []).includes(to ?? "");
 }
 
 export function transitionRecord(record, to, schema, now = new Date().toISOString()) {

@@ -33,6 +33,7 @@ import {
   applicationReviewGuard,
   chooseWinningClaims,
   createProcessingClaim,
+  reviewCaseId,
   stateGuard
 } from "../src/contracts.mjs";
 import { evaluatePersistedMessageSafety } from "../src/message-safety.mjs";
@@ -94,10 +95,14 @@ function approveReviewedJob(job) {
     application_pack_policy_version: unapproved.application_pack_policy_version,
     coverage_contract_version: unapproved.coverage_contract_version,
     message_plan_version: unapproved.message_plan.version,
-    pipeline_status: "review_needed",
-    user_action: "Approve",
+    pipeline_status: "ready_to_apply",
+    user_action: "",
+    review_case_version: "review-case-v1",
+    review_decision: "proceed",
+    review_decided_at: now,
     review_approved_at: now
   };
+  reviewed.review_case_id = reviewCaseId(reviewed);
   return {
     ...reviewed,
     review_approval_guard: applicationReviewGuard(reviewed)
@@ -2906,7 +2911,7 @@ test("rhetorical headings are not screening questions", () => {
   assert.equal(pack.application_pack_status, "ready");
 });
 
-test("Approve routes answerable questions into generation and keeps sensitive questions manual", () => {
+test("Proceed routes answerable questions into generation and keeps sensitive questions external", () => {
   const approvedJob = approveReviewedJob({
     job_title: "TypeScript Developer",
     role_families: ["full-stack"],

@@ -30,6 +30,7 @@ const JOB_PIPELINE_SETUP = {
       "latest_first_column": "evaluated_at",
       "visible_columns": [
         "user_action",
+        "prep_status",
         "job_title",
         "company",
         "opportunity_score",
@@ -1003,6 +1004,10 @@ const JOB_PIPELINE_SETUP = {
     "user_action",
     "decision_reason",
     "required_input",
+    "review_case_id",
+    "review_case_version",
+    "review_decision",
+    "review_decided_at",
     "review_approved_at",
     "review_approval_note",
     "review_approval_guard",
@@ -1039,6 +1044,10 @@ const JOB_PIPELINE_SETUP = {
     "coverage_contract_version",
     "message_plan_version",
     "application_pack_generated_at",
+    "prep_status",
+    "preparation_version",
+    "preparation_input_guard",
+    "preparation_updated_at",
     "alert_status",
     "alert_idempotency_key",
     "alert_claim_token",
@@ -1082,8 +1091,8 @@ const JOB_PIPELINE_SETUP = {
   "actionValidation": {
     "To Review": {
       "values": [
-        "Approve",
-        "Deny"
+        "Proceed",
+        "Reject"
       ],
       "allow_blank": true
     },
@@ -1569,7 +1578,7 @@ function applyQueueActionValidation_(sheet) {
     .setAllowInvalid(false)
     .setHelpText(
       sheet.getName() === 'To Review'
-        ? 'Choose Approve or Deny, or leave blank.'
+        ? 'Choose Proceed or Reject, or leave blank.'
         : 'Choose I Applied or Skip, or leave blank.'
     )
     .build();

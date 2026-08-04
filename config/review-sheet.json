@@ -1,6 +1,6 @@
 {
-  "schema_version": 6,
-  "view_version": "2026-08-03/v1",
+  "schema_version": 7,
+  "view_version": "2026-08-04/v1",
   "timezone": "Asia/Manila",
   "sheets": {
     "scraped_jobs": {
@@ -30,6 +30,7 @@
       "latest_first_column": "evaluated_at",
       "visible_columns": [
         "user_action",
+        "prep_status",
         "job_title",
         "company",
         "opportunity_score",
@@ -378,6 +379,10 @@
     "user_action",
     "decision_reason",
     "required_input",
+    "review_case_id",
+    "review_case_version",
+    "review_decision",
+    "review_decided_at",
     "review_approved_at",
     "review_approval_note",
     "review_approval_guard",
@@ -414,6 +419,10 @@
     "coverage_contract_version",
     "message_plan_version",
     "application_pack_generated_at",
+    "prep_status",
+    "preparation_version",
+    "preparation_input_guard",
+    "preparation_updated_at",
     "alert_status",
     "alert_idempotency_key",
     "alert_claim_token",
@@ -457,8 +466,8 @@
   "action_validation": {
     "To Review": {
       "values": [
-        "Approve",
-        "Deny"
+        "Proceed",
+        "Reject"
       ],
       "allow_blank": true
     },

@@ -21,6 +21,8 @@ import {
 import {
   applicationReviewGuard,
   normalizeLegacyRecord,
+  preparationInputGuard,
+  reviewCaseId,
   stateGuard
 } from "../src/contracts.mjs";
 
@@ -107,7 +109,7 @@ function recordFromDescription(
   return normalized;
 }
 
-function approveForGeneration(record) {
+function proceedForPreparation(record) {
   const unapproved = buildApplicationPack(
     { ...record, pipeline_status: "review_needed", user_action: "" },
     profile,
@@ -130,22 +132,39 @@ function approveForGeneration(record) {
     coverage_contract_version: unapproved.coverage_contract_version,
     message_plan_version: unapproved.message_plan.version,
     pipeline_status: "review_needed",
-    user_action: "Approve",
-    review_approved_at: now
+    user_action: "",
+    prep_status: "",
+    preparation_version: 0,
+    preparation_input_guard: "",
+    preparation_updated_at: ""
   };
-  return {
+  const proceeded = {
     ...reviewed,
-    review_approval_guard: applicationReviewGuard(reviewed)
+    pipeline_status: "ready_to_apply",
+    review_case_id: reviewCaseId(reviewed),
+    review_case_version: "review-case-v1",
+    review_decision: "proceed",
+    review_decided_at: now,
+    review_approved_at: now,
+    review_approval_note: String(reviewed.notes || "").slice(0, 1000),
+    review_approval_guard: applicationReviewGuard(reviewed),
+    prep_status: "pending",
+    preparation_version: 1,
+    preparation_updated_at: now
   };
+  proceeded.preparation_input_guard = preparationInputGuard(proceeded);
+  proceeded.state_guard = stateGuard(proceeded);
+  return proceeded;
 }
 
-function claim(record, stage = "evaluation") {
+function claim(record, stage = "evaluation", sourceStore = "Scraped Jobs") {
   return claimGeneratorRecord(
     record,
     stage,
     "execution-1",
     now,
-    runtime.claim_lease_ms
+    runtime.claim_lease_ms,
+    sourceStore
   ).record;
 }
 
@@ -225,6 +244,124 @@ test("selection freezes the first five eligible jobs and leaves a sixth untouche
       count
     );
   }
+});
+
+test("combined Scraped Jobs and To Apply selection shares one deterministic cap", () => {
+  const scraped = Array.from({ length: 3 }, (_, index) =>
+    recordFromDescription(3250 + index, {
+      overrides: { created_at: now }
+    })
+  );
+  const toApply = Array.from({ length: 3 }, (_, index) =>
+    proceedForPreparation(recordFromDescription(3260 + index, {
+      overrides: { created_at: now }
+    }))
+  );
+  const selected = selectGeneratorCandidate(
+    { "Scraped Jobs": scraped, "To Apply": toApply },
+    schema,
+    runtime,
+    now
+  );
+  assert.equal(selected.length, runtime.per_run_cap);
+  assert.deepEqual(
+    selected.slice(0, 3).map((entry) => entry.source_store),
+    ["To Apply", "To Apply", "To Apply"]
+  );
+  assert.ok(selected.every((entry) => entry.stage));
+  assert.ok(selected.every((entry) => !entry.record.processing_token));
+});
+
+test("paused preparation resumes only after a guarded material-input version advance", () => {
+  const pending = proceedForPreparation(recordFromDescription(3270, {
+    html: null,
+    description:
+      "Build infrastructure automation. Please describe verified Terraform experience."
+  }));
+  const claimed = claim(pending, "generation", "To Apply");
+  const prepared = prepareApplicationGeneration(
+    claimed,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  ).record;
+  const paused = commitGeneratorResult(
+    claimed,
+    claimed,
+    prepared,
+    schema,
+    now,
+    "To Apply"
+  );
+  assert.equal(paused.prep_status, "needs_input");
+  assert.deepEqual(
+    selectGeneratorCandidate(
+      { "Scraped Jobs": [], "To Apply": [paused] },
+      schema,
+      runtime,
+      now
+    ),
+    []
+  );
+
+  const directlyChanged = {
+    ...paused,
+    job_description: `${paused.job_description} Verified profile evidence was added.`
+  };
+  directlyChanged.state_guard = stateGuard(directlyChanged);
+  assert.deepEqual(
+    selectGeneratorCandidate(
+      { "Scraped Jobs": [], "To Apply": [directlyChanged] },
+      schema,
+      runtime,
+      now
+    ),
+    []
+  );
+
+  const resumed = {
+    ...directlyChanged,
+    prep_status: "pending",
+    preparation_version: paused.preparation_version + 1,
+    preparation_updated_at: "2026-07-31T08:10:00.000Z"
+  };
+  resumed.preparation_input_guard = preparationInputGuard(resumed);
+  resumed.state_guard = stateGuard(resumed);
+  const [candidate] = selectGeneratorCandidate(
+    { "Scraped Jobs": [], "To Apply": [resumed] },
+    schema,
+    runtime,
+    "2026-07-31T08:11:00.000Z"
+  );
+  assert.equal(candidate.source_store, "To Apply");
+  assert.equal(candidate.stage, "generation");
+});
+
+test("an expired To Apply preparation claim is recoverable without stranding the row", () => {
+  const pending = proceedForPreparation(recordFromDescription(3271));
+  const preparing = claim(pending, "generation", "To Apply");
+  assert.equal(preparing.prep_status, "preparing");
+
+  const beforeLeaseExpiry = selectGeneratorCandidate(
+    { "Scraped Jobs": [], "To Apply": [preparing] },
+    schema,
+    runtime,
+    new Date(Date.parse(now) + runtime.claim_lease_ms - 1).toISOString()
+  );
+  assert.deepEqual(beforeLeaseExpiry, []);
+
+  const afterLeaseExpiry = selectGeneratorCandidate(
+    { "Scraped Jobs": [], "To Apply": [preparing] },
+    schema,
+    runtime,
+    new Date(Date.parse(now) + runtime.claim_lease_ms + 1).toISOString()
+  );
+  assert.equal(afterLeaseExpiry.length, 1);
+  assert.equal(afterLeaseExpiry[0].source_store, "To Apply");
+  assert.equal(afterLeaseExpiry[0].stage, "generation");
+  assert.equal(afterLeaseExpiry[0].record.canonical_job_id, pending.canonical_job_id);
 });
 
 test("five sequential candidates isolate a failed job and persist mixed outcomes", () => {
@@ -508,7 +645,7 @@ test("unsafe or incomplete application packs never call the provider", () => {
   );
 });
 
-test("missing and partial mandatory coverage remain review outcomes, not provider failures", () => {
+test("proceeded missing and partial coverage remain needs-input preparation outcomes", () => {
   const cases = [
     {
       id: 3060,
@@ -526,14 +663,13 @@ test("missing and partial mandatory coverage remain review outcomes, not provide
     }
   ];
   for (const entry of cases) {
-    const approved = recordFromDescription(entry.id, {
+    const approved = proceedForPreparation(recordFromDescription(entry.id, {
       html: null,
       status: "review_needed",
-      action: "Approve",
       description: entry.description
-    });
+    }));
     const prepared = prepareApplicationGeneration(
-      claim(approved, "generation"),
+      claim(approved, "generation", "To Apply"),
       profile,
       applicationPolicy,
       packPolicy,
@@ -541,7 +677,8 @@ test("missing and partial mandatory coverage remain review outcomes, not provide
       now
     );
     assert.equal(prepared.provider_required, false);
-    assert.equal(prepared.record.pipeline_status, "review_needed");
+    assert.equal(prepared.record.pipeline_status, "ready_to_apply");
+    assert.equal(prepared.record.prep_status, "needs_input");
     assert.equal(prepared.record.error_category, "");
     assert.match(prepared.record.required_input, entry.requiredInput);
     assert.ok(
@@ -552,10 +689,9 @@ test("missing and partial mandatory coverage remain review outcomes, not provide
     );
   }
 
-  const staleMessageRecord = recordFromDescription(3062, {
+  const staleMessageRecord = proceedForPreparation(recordFromDescription(3062, {
     html: null,
     status: "review_needed",
-    action: "Approve",
     description:
       "Build infrastructure automation for customers. Please describe your experience using Terraform.",
     overrides: {
@@ -565,9 +701,9 @@ test("missing and partial mandatory coverage remain review outcomes, not provide
       message_policy_version: applicationPolicy.policy_version,
       generated_at: now
     }
-  });
+  }));
   const stalePrepared = prepareApplicationGeneration(
-    claim(staleMessageRecord, "generation"),
+    claim(staleMessageRecord, "generation", "To Apply"),
     profile,
     applicationPolicy,
     packPolicy,
@@ -582,25 +718,26 @@ test("missing and partial mandatory coverage remain review outcomes, not provide
   assert.equal(stalePrepared.record.generated_at, "");
 });
 
-test("Approve sanitizes unsafe instructions and keeps them as manual reminders", () => {
-  const approved = approveForGeneration(recordFromDescription(3050, {
+test("Proceed sanitizes unsafe instructions without returning to review", () => {
+  const approved = proceedForPreparation(recordFromDescription(3050, {
     html: maliciousHtml,
     status: "review_needed",
-    action: "Approve",
     overrides: {
       decision_reason: "Requires review",
       required_input: "Confirm requirements"
     }
   }));
   const selected = selectGeneratorCandidate(
-    [approved],
+    { "Scraped Jobs": [], "To Apply": [approved] },
     schema,
     runtime,
     now
   );
   assert.equal(selected[0].stage, "generation");
-  const claimed = claim(approved, "generation");
-  assert.equal(claimed.pipeline_status, "review_needed");
+  assert.equal(selected[0].source_store, "To Apply");
+  const claimed = claim(approved, "generation", "To Apply");
+  assert.equal(claimed.pipeline_status, "ready_to_apply");
+  assert.equal(claimed.prep_status, "preparing");
   const prepared = prepareApplicationGeneration(
     claimed,
     profile,
@@ -623,18 +760,17 @@ test("Approve sanitizes unsafe instructions and keeps them as manual reminders",
   );
 });
 
-test("Approve sends an unusable description to unavailable instead of looping review", () => {
-  const approved = recordFromDescription(3054, {
+test("Proceed sends an unusable description to preparation error without looping review", () => {
+  const approved = proceedForPreparation(recordFromDescription(3054, {
     html: null,
     status: "review_needed",
-    action: "Approve",
     description: "Unavailable",
     overrides: {
       decision_reason: "Application requirements need human review.",
       required_input: "A complete description is required."
     }
-  });
-  const claimed = claim(approved, "generation");
+  }));
+  const claimed = claim(approved, "generation", "To Apply");
   const prepared = prepareApplicationGeneration(
     claimed,
     profile,
@@ -644,23 +780,25 @@ test("Approve sends an unusable description to unavailable instead of looping re
     now
   );
   assert.equal(prepared.provider_required, false);
-  assert.equal(prepared.record.pipeline_status, "unavailable");
+  assert.equal(prepared.record.pipeline_status, "ready_to_apply");
+  assert.equal(prepared.record.prep_status, "preparation_error");
   const committed = commitGeneratorResult(
     claimed,
     claimed,
     prepared.record,
     schema,
-    now
+    now,
+    "To Apply"
   );
-  assert.equal(committed.pipeline_status, "unavailable");
+  assert.equal(committed.pipeline_status, "ready_to_apply");
+  assert.equal(committed.prep_status, "preparation_error");
   assert.equal(committed.user_action, "");
 });
 
-test("Approve sends profile-answerable screening questions into message generation", () => {
-  const approved = approveForGeneration(recordFromDescription(3053, {
+test("Proceed sends profile-answerable screening questions into message generation", () => {
+  const approved = proceedForPreparation(recordFromDescription(3053, {
     html: null,
     status: "review_needed",
-    action: "Approve",
     description:
       "Build and maintain production features using TypeScript, React, Next.js, Node.js, REST APIs, PostgreSQL, and Supabase. Which production incident did you resolve?",
     overrides: {
@@ -668,7 +806,7 @@ test("Approve sends profile-answerable screening questions into message generati
       required_input: "Which production incident did you resolve?"
     }
   }));
-  const claimed = claim(approved, "generation");
+  const claimed = claim(approved, "generation", "To Apply");
   const prepared = prepareApplicationGeneration(
     claimed,
     profile,
@@ -719,6 +857,7 @@ test("Approve sends profile-answerable screening questions into message generati
     now
   );
   assert.equal(proposed.pipeline_status, "ready_to_apply");
+  assert.equal(proposed.prep_status, "message_ready");
   assert.equal(proposed.required_input, "");
   assert.match(proposed.decision_reason, /includes answers/i);
   assert.doesNotMatch(proposed.generated_message, /Question:|Answer:|\*\*/i);
@@ -728,17 +867,62 @@ test("Approve sends profile-answerable screening questions into message generati
     claimed,
     proposed,
     schema,
-    now
+    now,
+    "To Apply"
   );
   assert.equal(committed.pipeline_status, "ready_to_apply");
   assert.equal(committed.user_action, "");
 });
 
-test("a temporary generation error retains consumed review approval on retry", () => {
-  const approved = approveForGeneration(recordFromDescription(3054, {
+test("human-only employer actions become bounded external steps without provider work", () => {
+  const proceeded = proceedForPreparation(recordFromDescription(3055, {
     html: null,
     status: "review_needed",
-    action: "Approve",
+    description:
+      "Build TypeScript, React, Node.js, and PostgreSQL features. What is your availability and when can you start?",
+    overrides: {
+      decision_reason: "Application requirements need human review.",
+      required_input: "Confirm availability and start date."
+    }
+  }));
+  const claimed = claim(proceeded, "generation", "To Apply");
+  const prepared = prepareApplicationGeneration(
+    claimed,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(prepared.provider_required, false);
+  assert.equal(prepared.record.pipeline_status, "ready_to_apply");
+  assert.equal(prepared.record.prep_status, "external_steps");
+  assert.match(prepared.record.required_input, /availability|start/i);
+  assert.equal(prepared.record.generated_message, "");
+  assert.doesNotMatch(prepared.record.decision_reason, /completed|submitted/i);
+  const committed = commitGeneratorResult(
+    claimed,
+    claimed,
+    prepared.record,
+    schema,
+    now,
+    "To Apply"
+  );
+  assert.deepEqual(
+    selectGeneratorCandidate(
+      { "Scraped Jobs": [], "To Apply": [committed] },
+      schema,
+      runtime,
+      now
+    ),
+    []
+  );
+});
+
+test("a temporary generation error retains final review resolution on retry", () => {
+  const approved = proceedForPreparation(recordFromDescription(3054, {
+    html: null,
+    status: "review_needed",
     description:
       "Build and maintain production features using TypeScript, React, Next.js, Node.js, REST APIs, PostgreSQL, and Supabase. Which production incident did you resolve?",
     overrides: {
@@ -748,7 +932,7 @@ test("a temporary generation error retains consumed review approval on retry", (
       application_pack_version: "2026-07-28/v1"
     }
   }));
-  const firstClaim = claim(approved, "generation");
+  const firstClaim = claim(approved, "generation", "To Apply");
   const failedProposal = recordGeneratorFailure(
     firstClaim,
     new Error("temporary provider failure"),
@@ -760,28 +944,32 @@ test("a temporary generation error retains consumed review approval on retry", (
     firstClaim,
     failedProposal,
     schema,
-    now
+    now,
+    "To Apply"
   );
-  assert.equal(failed.pipeline_status, "error");
+  assert.equal(failed.pipeline_status, "ready_to_apply");
+  assert.equal(failed.prep_status, "preparation_error");
   assert.equal(failed.user_action, "");
   const retryAt = new Date(
     Date.parse(now) + runtime.retry.backoff_ms + 1
   ).toISOString();
-  const retryClaim = claimGeneratorRecord(
-    failed,
-    "evaluation",
-    "retry-after-approved-review",
-    retryAt,
-    runtime.claim_lease_ms
-  ).record;
-  const evaluated = evaluateAndRoute(
-    retryClaim,
-    profile,
-    rankingPolicy,
+  const [retryCandidate] = selectGeneratorCandidate(
+    { "Scraped Jobs": [], "To Apply": [failed] },
+    schema,
+    runtime,
     retryAt
   );
+  assert.equal(retryCandidate.stage, "generation");
+  const retryClaim = claimGeneratorRecord(
+    failed,
+    "generation",
+    "retry-after-approved-review",
+    retryAt,
+    runtime.claim_lease_ms,
+    "To Apply"
+  ).record;
   const prepared = prepareApplicationGeneration(
-    evaluated,
+    retryClaim,
     profile,
     applicationPolicy,
     packPolicy,
@@ -797,17 +985,16 @@ test("a temporary generation error retains consumed review approval on retry", (
   assert.equal(prepared.pack.review_approved_at, now);
 });
 
-test("Approve snapshots bounded reviewer evidence without trusting it as candidate proof", () => {
-  const approved = recordFromDescription(3051, {
+test("Proceed retains bounded reviewer context without trusting it as candidate proof", () => {
+  const approved = proceedForPreparation(recordFromDescription(3051, {
     status: "review_needed",
-    action: "Approve",
     overrides: {
       notes: `Reviewer context ${"x".repeat(1200)}`,
       decision_reason: "Requires review",
       required_input: "Confirm requirements"
     }
-  });
-  const claimed = claim(approved, "generation");
+  }));
+  const claimed = claim(approved, "generation", "To Apply");
   assert.equal(claimed.review_approved_at, now);
   assert.equal(claimed.review_approval_note.length, 1000);
   const prepared = prepareApplicationGeneration(
@@ -1009,6 +1196,36 @@ test("permanent source HTTP failures become unavailable without retrying", () =>
   );
   assert.equal(transient.pipeline_status, "error");
   assert.ok(transient.next_retry_at);
+
+  const pending = proceedForPreparation(recordFromDescription(3471));
+  const preparationClaim = claim(pending, "generation", "To Apply");
+  const preparationFailure = recordSourceFetchFailure(
+    preparationClaim,
+    new Error("404 - listing removed"),
+    runtime,
+    now
+  );
+  const committedPreparationFailure = commitGeneratorResult(
+    preparationClaim,
+    preparationClaim,
+    preparationFailure,
+    schema,
+    now,
+    "To Apply"
+  );
+  assert.equal(committedPreparationFailure.pipeline_status, "ready_to_apply");
+  assert.equal(committedPreparationFailure.prep_status, "preparation_error");
+  assert.equal(committedPreparationFailure.error_category, "source_unavailable");
+  assert.equal(committedPreparationFailure.next_retry_at, "");
+  assert.deepEqual(
+    selectGeneratorCandidate(
+      { "Scraped Jobs": [], "To Apply": [committedPreparationFailure] },
+      schema,
+      runtime,
+      new Date(Date.parse(now) + runtime.retry.backoff_ms + 1).toISOString()
+    ),
+    []
+  );
 });
 
 test("provider failures are bounded, observable, and sanitized", () => {
@@ -1026,6 +1243,9 @@ test("provider failures are bounded, observable, and sanitized", () => {
     assert.doesNotMatch(record.error_summary, /secret-token|private\.example/);
     if (attempt < runtime.retry.max_attempts) {
       assert.ok(record.next_retry_at);
+      // Production retries reread the committed result, whose commit boundary
+      // refreshes the state guard. Model that persisted state explicitly.
+      record.state_guard = stateGuard(record);
       record = claimGeneratorRecord(
         record,
         "evaluation",
@@ -1101,6 +1321,37 @@ test("stale or concurrent state cannot be committed over a user edit", () => {
     now
   );
   assert.equal(committed.notes, noteEdited.notes);
+
+  const proceeded = proceedForPreparation(recordFromDescription(3081));
+  const preparationClaim = claim(
+    proceeded,
+    "generation",
+    "To Apply"
+  );
+  for (const [field, value] of Object.entries({
+    review_case_id: `review-case-v1:${"b".repeat(64)}`,
+    review_case_version: "",
+    review_decision: "reject",
+    review_decided_at: "2026-07-31T08:05:00.000Z",
+    preparation_version: preparationClaim.preparation_version + 1,
+    preparation_input_guard: `prep-v1:${"c".repeat(64)}`
+  })) {
+    const changed = { ...preparationClaim, [field]: value };
+    changed.state_guard = stateGuard(changed);
+    assert.throws(
+      () =>
+        commitGeneratorResult(
+          changed,
+          preparationClaim,
+          preparationClaim,
+          schema,
+          now,
+          "To Apply"
+        ),
+      /stale or changed To Apply state/,
+      field
+    );
+  }
 });
 
 test("forged actions and terminal rows never enter generator selection", () => {
@@ -1121,7 +1372,7 @@ test("forged actions and terminal rows never enter generator selection", () => {
         runtime,
         now
       ),
-    /duplicate Scraped Jobs identity/
+    /ambiguous duplicate identity across source stores/
   );
   for (const status of ["ready_to_apply", "skip", "unavailable"]) {
     const row = recordFromDescription(`31${status.length}`, { status });

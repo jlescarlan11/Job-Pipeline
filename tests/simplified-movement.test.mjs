@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   applicationReviewGuard,
+  legacyStateGuardV3,
   normalizeLegacyRecord,
+  preparationInputGuard,
+  reviewCaseId,
   stateGuard
 } from "../src/contracts.mjs";
 import {
@@ -206,13 +209,13 @@ function destinationAfterWrite(plans) {
   };
 }
 
-test("ready rows expose only I Applied and Skip; review rows expose only Approve and Deny", () => {
+test("ready rows expose only I Applied and Skip; review rows expose only Proceed and Reject", () => {
   const invalidPairs = [
-    row(4001, "ready_to_apply", "Approve"),
-    row(4002, "ready_to_apply", "Deny"),
+    row(4001, "ready_to_apply", "Proceed"),
+    row(4002, "ready_to_apply", "Reject"),
     row(4003, "review_needed", "I Applied"),
     row(4004, "review_needed", "Skip"),
-    row(4005, "new", "Deny")
+    row(4005, "new", "Reject")
   ];
   for (const invalid of invalidPairs) {
     const plan = planQueueActions([invalid], [], [], schema, now);
@@ -221,41 +224,50 @@ test("ready rows expose only I Applied and Skip; review rows expose only Approve
   }
 });
 
-test("Approve moves to Scraped Jobs for gated generation with context intact", () => {
-  const approved = row(4010, "review_needed", "Approve", {
+test("Proceed resolves review once into pending preparation in To Apply", () => {
+  const approved = row(4010, "review_needed", "Proceed", {
     required_input: "Confirm an evidence gap",
     notes: "Reviewer accepts reconsideration"
   });
   const plan = planQueueActions([approved], [], [], schema, now);
   assert.equal(plan.moves.length, 1);
   assert.equal(plan.moves[0].source_sheet, "To Review");
-  assert.equal(plan.moves[0].destination, "Scraped Jobs");
-  const returned = destinationWrites(plan).scraped_jobs[0];
-  assert.equal(returned.pipeline_status, "review_needed");
-  assert.equal(returned.user_action, "Approve");
+  assert.equal(plan.moves[0].destination, "To Apply");
+  const returned = destinationWrites(plan).to_apply[0];
+  assert.equal(returned.pipeline_status, "ready_to_apply");
+  assert.equal(returned.prep_status, "pending");
+  assert.equal(returned.user_action, "");
+  assert.equal(returned.review_case_id, reviewCaseId(approved));
+  assert.equal(returned.review_case_version, "review-case-v1");
+  assert.equal(returned.review_decision, "proceed");
+  assert.equal(returned.review_decided_at, now);
   assert.equal(returned.review_approved_at, now);
   assert.equal(returned.review_approval_note, "Reviewer accepts reconsideration");
+  assert.equal(returned.review_approval_guard, applicationReviewGuard(approved));
+  assert.equal(returned.preparation_version, 1);
+  assert.equal(returned.preparation_input_guard, preparationInputGuard(returned));
   assert.equal(approved.required_input, "Confirm an evidence gap");
   assert.equal(approved.notes, "Reviewer accepts reconsideration");
 });
 
-test("partial approval destinations are repaired before review sources are deleted", () => {
-  const approved = row(4013, "review_needed", "Approve", {
+test("partial Proceed destinations are repaired before review sources are deleted", () => {
+  const approved = row(4013, "review_needed", "Proceed", {
     notes: "Approved after evidence review"
   });
   const initial = planQueueActions([approved], [], [], schema, now);
-  const complete = destinationAfterWrite(initial).scraped_jobs[0];
+  const complete = destinationAfterWrite(initial).to_apply[0];
   const partial = {
     ...complete,
     review_approved_at: "",
-    review_approval_guard: ""
+    review_approval_guard: "",
+    preparation_input_guard: ""
   };
   partial.state_guard = stateGuard(partial);
 
   const recovery = planQueueActionsRaw(
     businessStores({
       "To Review": [approved],
-      "Scraped Jobs": [partial]
+      "To Apply": [partial]
     }),
     schema,
     "2026-07-31T10:05:00.000Z",
@@ -272,7 +284,7 @@ test("partial approval destinations are repaired before review sources are delet
     initial,
     businessStores({
       "To Review": [approved],
-      "Scraped Jobs": [partial]
+      "To Apply": [partial]
     }),
     schema
   );
@@ -281,7 +293,7 @@ test("partial approval destinations are repaired before review sources are delet
 });
 
 test("approval copy confirmation accepts the rebound review strategy guard", () => {
-  const approved = row(4014, "review_needed", "Approve", {
+  const approved = row(4014, "review_needed", "Proceed", {
     notes: "Reconsider after strategy review",
     application_warnings: ["manual_external_action"]
   });
@@ -293,7 +305,7 @@ test("approval copy confirmation accepts the rebound review strategy guard", () 
   approved.state_guard = stateGuard(approved);
 
   const plan = planQueueActions([approved], [], [], schema, now);
-  const written = destinationAfterWrite(plan).scraped_jobs[0];
+  const written = destinationAfterWrite(plan).to_apply[0];
   assert.notEqual(written.review_approval_guard, approved.review_approval_guard);
   assert.equal(
     written.review_approval_guard,
@@ -304,7 +316,7 @@ test("approval copy confirmation accepts the rebound review strategy guard", () 
     plan,
     businessStores({
       "To Review": [approved],
-      "Scraped Jobs": [written]
+      "To Apply": [written]
     }),
     schema
   );
@@ -313,10 +325,82 @@ test("approval copy confirmation accepts the rebound review strategy guard", () 
       row_number: approved.row_number,
       canonical_job_id: approved.canonical_job_id,
       source_sheet: "To Review",
-      destination: "Scraped Jobs"
+      destination: "To Apply"
     }
   ]);
   assert.deepEqual(confirmation.rejected, []);
+});
+
+test("resolved review cases cannot reopen unchanged but a material new case can", () => {
+  const resolved = row(4015, "review_needed", "", {
+    review_case_version: "review-case-v1",
+    review_decision: "proceed",
+    review_decided_at: now,
+    required_input: "Confirm the original evidence gap."
+  });
+  resolved.review_case_id = reviewCaseId(resolved);
+  resolved.state_guard = stateGuard(resolved);
+  const repeated = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [resolved] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(repeated.moves.length, 0);
+  assert.equal(repeated.rejected[0].reason, "resolved_review_case_repeated");
+  assert.doesNotMatch(repeated.rejected[0].summary, /description|message/i);
+
+  const changed = {
+    ...resolved,
+    decision_reason: "Employer added a new mandatory assessment.",
+    required_input: "Review the newly added assessment requirement."
+  };
+  changed.state_guard = stateGuard(changed);
+  assert.notEqual(reviewCaseId(changed), resolved.review_case_id);
+  const reopened = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [changed] }),
+    schema,
+    "2026-07-31T10:02:00.000Z",
+    safetyContext
+  );
+  assert.equal(reopened.moves.length, 1);
+  assert.equal(reopened.moves[0].destination, "To Review");
+  assert.notEqual(
+    reopened.moves[0].destination_record.review_case_id,
+    resolved.review_case_id
+  );
+  assert.equal(reopened.moves[0].destination_record.review_decision, "");
+  assert.equal(reopened.moves[0].destination_record.review_decided_at, "");
+});
+
+test("concurrent or repeated Proceed reconciles one To Apply owner", () => {
+  const proceeded = row(4016, "review_needed", "Proceed", {
+    required_input: "Confirm a bounded requirement."
+  });
+  const initial = planQueueActions([proceeded], [], [], schema, now);
+  const written = destinationAfterWrite(initial).to_apply[0];
+  const repeat = planQueueActionsRaw(
+    businessStores({
+      "To Review": [proceeded],
+      "To Apply": [written]
+    }),
+    schema,
+    "2026-07-31T10:03:00.000Z",
+    safetyContext
+  );
+  assert.equal(repeat.moves.length, 1);
+  assert.equal(repeat.moves[0].write_required, false);
+  assert.equal(destinationWrites(repeat).to_apply.length, 0);
+  const confirmed = confirmMoveDeletions(
+    repeat,
+    businessStores({
+      "To Review": [proceeded],
+      "To Apply": [written]
+    }),
+    schema
+  );
+  assert.equal(confirmed.deletions.length, 1);
+  assert.equal(confirmed.deletions[0].source_sheet, "To Review");
 });
 
 test("blank generator results route from Scraped Jobs to focused queues", () => {
@@ -339,8 +423,8 @@ test("blank generator results route from Scraped Jobs to focused queues", () => 
   assert.equal(destinationWrites(plan).to_apply.length, 1);
 });
 
-test("Deny and user Skip retain full context in Archive", () => {
-  const denied = row(4020, "review_needed", "Deny", {
+test("Reject and user Skip retain full context in Archive", () => {
+  const denied = row(4020, "review_needed", "Reject", {
     requirement_gaps: ["PHP"],
     notes: "Not a good tradeoff"
   });
@@ -353,7 +437,9 @@ test("Deny and user Skip retain full context in Archive", () => {
   const deniedCopy = writes.archive.find(
     (record) => record.canonical_job_id === denied.canonical_job_id
   );
-  assert.equal(deniedCopy.archive_reason, "review_denied");
+  assert.equal(deniedCopy.archive_reason, "review_rejected");
+  assert.equal(deniedCopy.review_decision, "reject");
+  assert.equal(deniedCopy.review_decided_at, now);
   assert.deepEqual(deniedCopy.requirement_gaps, ["PHP"]);
   assert.equal(deniedCopy.notes, "Not a good tradeoff");
   const skippedCopy = writes.archive.find(
@@ -365,8 +451,8 @@ test("Deny and user Skip retain full context in Archive", () => {
 
 test("direct operator actions route without requiring an impossible guard edit", () => {
   for (const [id, status, action, destination] of [
-    [4022, "review_needed", "Approve", "Scraped Jobs"],
-    [4023, "review_needed", "Deny", "Archive"],
+    [4022, "review_needed", "Proceed", "To Apply"],
+    [4023, "review_needed", "Reject", "Archive"],
     [4024, "ready_to_apply", "I Applied", "Applied Jobs"],
     [4025, "ready_to_apply", "Skip", "Archive"]
   ]) {
@@ -438,6 +524,27 @@ test("legacy movement guards fail closed after the guarded migration", () => {
       [acted.canonical_job_id, "invalid_source"]
     ]
   );
+});
+
+test("the retired Scraped Jobs approval loop has one guarded v3 exit", () => {
+  for (const [legacyAction, destination, routeReason] of [
+    ["Approve", "To Apply", "review_proceeded"],
+    ["Deny", "Archive", "review_rejected"]
+  ]) {
+    const raw = row(2460 + legacyAction.length, "review_needed", "");
+    raw.user_action = legacyAction;
+    delete raw.compatibility_legacy_user_action;
+    raw.state_guard = legacyStateGuardV3(raw);
+    const normalized = normalizeLegacyRecord(raw, schema, now);
+    const stores = businessStores({ "Scraped Jobs": [normalized] });
+    const plan = planQueueActionsRaw(stores, schema, now, safetyContext);
+    assert.equal(plan.moves.length, 1);
+    assert.equal(plan.moves[0].source_sheet, "Scraped Jobs");
+    assert.equal(plan.moves[0].destination, destination);
+    assert.equal(plan.moves[0].route_reason, routeReason);
+    assert.equal(plan.moves[0].destination_record.user_action, "");
+    assert.equal(plan.moves[0].destination_record.review_case_version, "review-case-v1");
+  }
 });
 
 test("permanently unavailable source rows and legacy 404/410 errors move to Archive", () => {
@@ -569,7 +676,7 @@ test("destination write failure keeps the focused-queue source", () => {
 
 test("copy-confirm-delete succeeds once and uses descending source rows", () => {
   const first = row(4060, "ready_to_apply", "I Applied", { row_number: 3 });
-  const second = row(4061, "review_needed", "Deny", { row_number: 9 });
+  const second = row(4061, "review_needed", "Reject", { row_number: 9 });
   const third = row(4062, "ready_to_apply", "Skip", { row_number: 12 });
   first.state_guard = stateGuard(first);
   second.state_guard = stateGuard(second);
@@ -678,6 +785,64 @@ test("delete failure is idempotent on rerun and does not duplicate destination",
   assert.deepEqual(afterDelete, { deletions: [], rejected: [] });
 });
 
+test("Proceed recovery accepts a destination that was guardedly prepared before source cleanup", () => {
+  const source = row(2513, "review_needed", "Proceed", {
+    review_case_id: "",
+    review_case_version: "",
+    review_decision: "",
+    review_decided_at: ""
+  });
+  source.state_guard = stateGuard(source);
+  const initial = planQueueActions(
+    [source],
+    [],
+    [],
+    schema,
+    now
+  );
+  const pending = initial.moves[0].destination_record;
+  const progressed = {
+    ...pending,
+    prep_status: "needs_input",
+    required_input: "Provide a verified availability date.",
+    application_pack_status: "review_required",
+    application_warnings: [
+      {
+        code: "candidate_input_required",
+        severity: "review",
+        summary: "A verified availability date is required."
+      }
+    ],
+    record_version: pending.record_version + 2,
+    preparation_updated_at: "2026-07-31T10:05:00.000Z",
+    updated_at: "2026-07-31T10:05:00.000Z"
+  };
+  progressed.state_guard = stateGuard(progressed);
+  const recovery = planQueueActionsRaw(
+    businessStores({
+      "To Review": [source],
+      "To Apply": [progressed]
+    }),
+    schema,
+    "2026-07-31T10:06:00.000Z",
+    safetyContext
+  );
+  assert.equal(recovery.moves.length, 1);
+  assert.equal(recovery.moves[0].write_required, false);
+  assert.equal(recovery.moves[0].recovery_required, true);
+  assert.deepEqual(
+    confirmMoveDeletions(
+      recovery,
+      businessStores({
+        "To Review": [source],
+        "To Apply": [progressed]
+      }),
+      schema
+    ).deletions.map((entry) => entry.canonical_job_id),
+    [source.canonical_job_id]
+  );
+});
+
 test("a partial destination is repaired by identity without losing destination-owned data", () => {
   const source = row(4071, "ready_to_apply", "I Applied");
   const initial = planQueueActions([source], [], [], schema, now);
@@ -753,7 +918,7 @@ test("active-destination repair preserves a newer action and alert state", () =>
 test("movement cap applies across every route", () => {
   const first = row(4072, "skip");
   const second = row(4073, "skip");
-  const approval = row(4074, "review_needed", "Approve");
+  const approval = row(4074, "review_needed", "Proceed");
   const plan = planQueueActions(
     [first, second, approval],
     [],

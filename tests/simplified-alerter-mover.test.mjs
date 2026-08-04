@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  alertCategory,
+  alertIdempotencyKey,
   applySlackProviderResult,
   evaluateProviderCommitHeadroom,
   markAlertSending,
@@ -137,6 +139,7 @@ function makeReady(id, overrides = {}) {
 test("alert policy is bounded and requires safe ready state", () => {
   assert.deepEqual(validateAlertPolicy(alertPolicy), []);
   assert.equal(alertPolicy.eligibility.pipeline_status, "ready_to_apply");
+  assert.equal(alertPolicy.eligibility.required_prep_status, "message_ready");
   assert.equal(alertPolicy.eligibility.required_pack_status, "ready");
   assert.equal(alertPolicy.eligibility.required_message_status, "valid");
   assert.ok(alertPolicy.provider_timeout_ms > 0);
@@ -197,6 +200,167 @@ test("only fresh unacted ready rows are alert candidates", () => {
   );
 });
 
+test("preparation states gate copy-ready alerts and emit only bounded distinct reminders", () => {
+  const records = Object.fromEntries(
+    [
+      "pending",
+      "preparing",
+      "repair_pending",
+      "preparation_error",
+      "needs_input",
+      "external_steps"
+    ].map((prepStatus, index) => {
+      const record = makeReady(5090 + index, {
+        prep_status: prepStatus,
+        preparation_version: 2,
+        preparation_updated_at: now,
+        required_input:
+          prepStatus === "needs_input"
+            ? "Provide a verified availability window."
+            : prepStatus === "external_steps"
+              ? "Complete the employer assessment and confirm the result."
+              : ""
+      });
+      record.state_guard = stateGuard(record);
+      return [prepStatus, record];
+    })
+  );
+  const selected = selectFreshAlertCandidates(
+    Object.values(records),
+    schema,
+    alertPolicy,
+    now,
+    safetyContext
+  );
+  assert.deepEqual(
+    selected.candidates.map((entry) => entry.category).sort(),
+    ["external_steps_reminder", "needs_input_reminder"]
+  );
+  for (const status of [
+    "pending",
+    "preparing",
+    "repair_pending",
+    "preparation_error"
+  ]) {
+    assert.equal(alertCategory(records[status], alertPolicy), "");
+  }
+
+  for (const status of ["needs_input", "external_steps"]) {
+    const record = records[status];
+    const payload = renderSlackAlert(record, alertPolicy, {
+      reviewUrl: "https://docs.google.com/spreadsheets/d/safe/edit",
+      messageSafetyContext: safetyContext
+    });
+    assert.match(payload.category, /_reminder$/);
+    assert.match(payload.text, /No application was submitted/);
+    assert.match(payload.text, new RegExp(record.required_input));
+    assert.doesNotMatch(payload.text, /copy exactly/i);
+    assert.equal(payload.text.includes(record.generated_message), false);
+    assert.match(
+      payload.idempotency_key,
+      new RegExp(`${payload.category}:${record.preparation_version}:prep-v1:`)
+    );
+  }
+});
+
+test("receipt identity suppresses an unchanged reminder but permits one later copy-ready category", () => {
+  const needsInput = makeReady(5097, {
+    prep_status: "needs_input",
+    preparation_version: 3,
+    required_input: "Provide a verified start date.",
+    preparation_updated_at: now
+  });
+  needsInput.state_guard = stateGuard(needsInput);
+  const sending = markAlertSending(
+    needsInput,
+    alertPolicy,
+    "reminder-run",
+    now
+  );
+  const sent = applySlackProviderResult(
+    sending,
+    sending,
+    { statusCode: 200, reference: "reminder-accepted" },
+    alertPolicy,
+    "2026-07-31T11:01:00.000Z"
+  );
+  const unchanged = selectFreshAlertCandidates(
+    [sent],
+    schema,
+    alertPolicy,
+    "2026-07-31T11:02:00.000Z",
+    safetyContext
+  );
+  assert.equal(unchanged.candidates.length, 0);
+  assert.ok(unchanged.rejected[0].reasons.includes("already_sent"));
+
+  const ready = {
+    ...sent,
+    prep_status: "message_ready",
+    preparation_version: sent.preparation_version + 1,
+    preparation_input_guard: `prep-v1:${"d".repeat(64)}`,
+    preparation_updated_at: "2026-07-31T11:03:00.000Z",
+    required_input: ""
+  };
+  ready.state_guard = stateGuard(ready);
+  assert.notEqual(
+    alertIdempotencyKey(ready, alertPolicy),
+    sent.alert_idempotency_key
+  );
+  const later = selectFreshAlertCandidates(
+    [ready],
+    schema,
+    alertPolicy,
+    "2026-07-31T11:04:00.000Z",
+    safetyContext
+  );
+  assert.equal(later.candidates.length, 1);
+  assert.equal(later.candidates[0].category, "copy_ready");
+  assert.equal(
+    markAlertSending(ready, alertPolicy, "copy-ready-run", now)
+      .alert_attempt_count,
+    1
+  );
+});
+
+test("an active send blocks a newer preparation category until ambiguity is resolved", () => {
+  const reminder = makeReady(5009, {
+    prep_status: "needs_input",
+    required_input: "Confirm your desired schedule.",
+    generated_message: "",
+    message_validation_status: "",
+    message_profile_version: "",
+    message_policy_version: "",
+    generated_at: ""
+  });
+  reminder.state_guard = stateGuard(reminder);
+  const sending = markAlertSending(
+    reminder,
+    alertPolicy,
+    "reminder-in-flight",
+    now
+  );
+  const changed = makeReady(5009, {
+    alert_status: sending.alert_status,
+    alert_idempotency_key: sending.alert_idempotency_key,
+    alert_claim_token: sending.alert_claim_token,
+    alert_attempt_count: sending.alert_attempt_count,
+    alert_last_attempt_at: sending.alert_last_attempt_at,
+    preparation_version: sending.preparation_version + 1,
+    preparation_updated_at: "2026-07-31T10:01:00.000Z"
+  });
+  changed.state_guard = stateGuard(changed);
+  const selected = selectFreshAlertCandidates(
+    [changed],
+    schema,
+    alertPolicy,
+    "2026-07-31T10:02:00.000Z",
+    safetyContext
+  );
+  assert.equal(selected.candidates.length, 0);
+  assert.match(selected.rejected[0].reasons.join(";"), /retry_not_due/);
+});
+
 test("movement is planned independently before Slack delivery", () => {
   const applied = makeReady(5010, { user_action: "I Applied" });
   const skipped = makeReady(5011, { user_action: "Skip" });
@@ -220,6 +384,10 @@ test("movement is planned independently before Slack delivery", () => {
 test("phase planning short-circuits idle stores with explicit counts", () => {
   const idle = makeReady(5013, {
     pipeline_status: "new",
+    prep_status: "",
+    preparation_version: 0,
+    preparation_input_guard: "",
+    preparation_updated_at: "",
     application_pack_status: "",
     message_validation_status: "",
     generated_message: "",
@@ -243,6 +411,7 @@ test("phase planning short-circuits idle stores with explicit counts", () => {
     Archive: 0
   });
   assert.deepEqual(plan.status_counts["Scraped Jobs"], { new: 1 });
+  assert.deepEqual(plan.preparation_status_counts, {});
   const summary = summarizeAlerterMoverRun({
     plan,
     sheetReadRequests: 1,
@@ -250,14 +419,52 @@ test("phase planning short-circuits idle stores with explicit counts", () => {
   });
   assert.equal(summary.execution_classification, "no_eligible_work");
   assert.equal(summary.sheet_read_request_count, 1);
+  assert.deepEqual(summary.preparation_status_counts, {});
   assert.ok(summary.sheet_read_request_count <= 2);
   assert.deepEqual(summary.provider_classifications, ["accepted"]);
+});
+
+test("phase summaries expose bounded preparation-state counts without content", () => {
+  const ready = makeReady(5012);
+  const needsInput = makeReady(5013, {
+    prep_status: "needs_input",
+    generated_message: "",
+    message_validation_status: "",
+    message_profile_version: "",
+    message_policy_version: "",
+    generated_at: "",
+    required_input: "Provide a verified start date."
+  });
+  ready.state_guard = stateGuard(ready);
+  needsInput.state_guard = stateGuard(needsInput);
+  const plan = planAlerterMoverPhases(
+    businessStores({ "To Apply": [ready, needsInput] }),
+    schema,
+    alertPolicy,
+    now,
+    { movementPerRunCap: 25 }
+  );
+  assert.deepEqual(plan.preparation_status_counts, {
+    message_ready: 1,
+    needs_input: 1
+  });
+  const summary = summarizeAlerterMoverRun({ plan });
+  assert.deepEqual(summary.preparation_status_counts, {
+    message_ready: 1,
+    needs_input: 1
+  });
+  assert.equal(JSON.stringify(summary).includes(ready.generated_message), false);
+  assert.equal(JSON.stringify(summary).includes(needsInput.required_input), false);
 });
 
 test("movement phases identify only touched stores and retain the six-read budget", () => {
   const review = makeReady(5014, {
     pipeline_status: "review_needed",
-    user_action: ""
+    user_action: "",
+    prep_status: "",
+    preparation_version: 0,
+    preparation_input_guard: "",
+    preparation_updated_at: ""
   });
   review.state_guard = stateGuard(review);
   const plan = planAlerterMoverPhases(
@@ -274,7 +481,7 @@ test("movement phases identify only touched stores and retain the six-read budge
   assert.ok(instrumentedMovementOnlyReads <= 6);
 });
 
-test("persisted alert preselection is context-lazy and ownership ambiguity fails closed", () => {
+test("persisted alert preselection is context-lazy and unrelated ownership conflicts fail closed", () => {
   const ready = makeReady(5015);
   assert.deepEqual(
     preselectPersistedAlertCandidates(
@@ -290,14 +497,66 @@ test("persisted alert preselection is context-lazy and ownership ambiguity fails
       planAlerterMoverPhases(
         businessStores({
           "Scraped Jobs": [ready],
-          "To Apply": [{ ...ready }]
+          "To Apply": [{ ...ready }],
+          Archive: [{ ...ready, archive_reason: "user_skip" }]
         }),
         schema,
         alertPolicy,
         now
       ),
-    /ambiguous business ownership.*duplicate canonical identity/i
+    /ambiguous business ownership/
   );
+
+  const idleDuplicate = makeReady(5017, {
+    pipeline_status: "new",
+    prep_status: "",
+    preparation_version: 0,
+    preparation_input_guard: "",
+    preparation_updated_at: "",
+    application_pack_status: "",
+    message_validation_status: "",
+    generated_message: "",
+    generated_at: ""
+  });
+  idleDuplicate.state_guard = stateGuard(idleDuplicate);
+  const duplicateReady = makeReady(5017);
+  assert.throws(
+    () =>
+      planAlerterMoverPhases(
+        businessStores({
+          "Scraped Jobs": [idleDuplicate],
+          "To Apply": [duplicateReady]
+        }),
+        schema,
+        alertPolicy,
+        now
+      ),
+    /ambiguous business ownership/
+  );
+});
+
+test("phase planning recovers a persisted destination copy through guarded deletion", () => {
+  const source = makeReady(5016, { user_action: "I Applied" });
+  const first = planAlerterMoverPhases(
+    businessStores({ "To Apply": [source] }),
+    schema,
+    alertPolicy,
+    now
+  );
+  const destination = first.movement.moves[0].destination_record;
+  const recovery = planAlerterMoverPhases(
+    businessStores({
+      "To Apply": [source],
+      "Applied Jobs": [destination]
+    }),
+    schema,
+    alertPolicy,
+    now
+  );
+  assert.equal(recovery.movement.moves.length, 1);
+  assert.equal(recovery.movement.moves[0].write_required, false);
+  assert.equal(recovery.movement.moves[0].recovery_required, true);
+  assert.equal(recovery.movement.moves[0].destination, "Applied Jobs");
 });
 
 test("overlapping schedulers cannot claim the same alert", () => {
@@ -519,7 +778,7 @@ test("quarantined, stale-policy, and unsafe message rows are suppressed", () => 
   assert.ok(
     selected.rejected.every((entry) =>
       entry.reasons.some((reason) =>
-        /message|pack/.test(reason)
+        /message|pack|invalid_record/.test(reason)
       )
     )
   );

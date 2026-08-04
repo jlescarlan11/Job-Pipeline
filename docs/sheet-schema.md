@@ -32,11 +32,11 @@ Only `notes` is editable. There is no normal user-action dropdown on this sheet.
 
 ## To Review
 
-`To Review` owns `review_needed` records. Its native action dropdown offers exactly `Approve` and `Deny`, and a blank cell remains valid. Visible columns are `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. Only `user_action` and `notes` are editable.
+`To Review` owns unresolved `review_needed` cases. Its native action dropdown offers exactly `Proceed` and `Reject`, and a blank cell remains valid. Visible columns are `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. Only `user_action` and `notes` are editable. The hidden `review_case_id` fingerprint prevents an unchanged resolved case from being recreated here.
 
 ## To Apply
 
-`To Apply` owns safely generated `ready_to_apply` records. Its native action dropdown offers exactly `I Applied` and `Skip`, and a blank cell remains valid. Visible columns are `user_action`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. `required_input` is the system-owned visible reminder only for questions or other review items that still require manual submission work; questions assigned to message generation are removed from this reminder after a successful generation. Only `user_action` and `notes` are editable.
+`To Apply` owns every `ready_to_apply` record from the moment review proceeds, including records whose application material is not ready yet. Its native action dropdown offers exactly `I Applied` and `Skip`, and a blank cell remains valid. Visible columns are `user_action`, `prep_status`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, and `notes`. `required_input` is a system-owned bounded checklist for `needs_input` or `external_steps`. Only `prep_status=message_ready` is eligible for the full copy-ready Slack alert; the other preparation states remain visibly owned by To Apply without returning to review. Only `user_action` and `notes` are editable.
 
 Sheet validation is a usability control. The versioned store/status/action matrix in `config/pipeline-schema.json` remains authoritative when values are pasted or written through the API.
 
@@ -54,7 +54,7 @@ Only `outcome` and `notes` are editable. Outcomes are blank, `no_response`, `rep
 
 - a system-owned `skip` as `automatic_skip`;
 - `Skip` from a `ready_to_apply` row as `user_skip`; or
-- `Deny` from a `review_needed` row as `review_denied`; or
+- `Reject` from a `review_needed` row as `review_denied`; or
 - a permanently removed source listing (HTTP 404/410) as `source_unavailable`.
 
 Visible columns are `archived_at`, `archive_reason`, `job_title`, `company`, `decision_reason`, `canonical_url`, and `notes`. Only `notes` is editable.
@@ -71,7 +71,8 @@ The exact record columns are:
 `state_guard`, `canonical_url`, `job_title`, `company`, `job_description`,
 `salary_text`, `posted_at`, `discovered_at`, `last_seen_at`,
 `matched_keywords`, `source_availability`, `pipeline_status`, `user_action`,
-`decision_reason`, `required_input`, `review_approved_at`,
+`decision_reason`, `required_input`, `review_case_id`, `review_case_version`,
+`review_decision`, `review_decided_at`, `review_approved_at`,
 `review_approval_note`, `review_approval_guard`, `qualification_score`,
 `opportunity_score`, `ranking_confidence`, `match_reasons`,
 `requirement_gaps`, `profile_version`, `policy_version`, `evaluated_at`,
@@ -84,7 +85,8 @@ The exact record columns are:
 `application_pack_status`, `application_pack_version`,
 `application_pack_profile_version`, `application_pack_policy_version`,
 `coverage_contract_version`, `message_plan_version`,
-`application_pack_generated_at`, `alert_status`, `alert_idempotency_key`,
+`application_pack_generated_at`, `prep_status`, `preparation_version`,
+`preparation_input_guard`, `preparation_updated_at`, `alert_status`, `alert_idempotency_key`,
 `alert_claim_token`,
 `alert_attempt_count`, `alert_last_attempt_at`, `alert_next_retry_at`,
 `alert_sent_at`, `alert_provider_reference`, `alert_error_category`,
@@ -98,8 +100,11 @@ coverage contains classifications and canonical evidence references, while
 ready message. Both remain hidden, protected system fields; daily review uses
 the sanitized `required_input`, instructions, warnings, and message. Their
 versions and serialized values move with the complete row and participate in
-the stale-state guard. `review_approval_guard` is a system-owned digest binding
-approval to the exact reviewed strategy; it is never candidate evidence.
+the stale-state guard. `review_case_id` identifies the material review case;
+`review_decision` and `review_decided_at` make the resolution final.
+`preparation_version` and `preparation_input_guard` authorize one preparation
+attempt for one stable input set. `review_approval_guard` remains a compatibility
+audit digest and is never candidate evidence.
 `state_guard` protects synchronous system-owned fields and is stable across
 blank-cell round trips. Operator-owned `user_action`, `outcome`, and `notes`
 and independently written seen metadata are outside that digest; their owning
@@ -115,7 +120,7 @@ Setup is idempotent: rerunning it reconciles formatting, validation, protection,
 `planSegmentedQueueMigration()` in `src/fresh-sheet-setup.mjs` is a pure planner. It reads a supplied workbook snapshot but performs no Sheet mutation and never plans source deletion. For a valid legacy snapshot it proposes an in-place `Review Queue` → `Scraped Jobs` rename, creates missing steady-state tabs, and classifies rows as follows:
 
 - operational rows remain in `Scraped Jobs`;
-- `review_needed` rows, including pending `Approve` or `Deny`, route to `To Review`;
+- `review_needed` rows, including legacy `Approve` or `Deny` aliases, route to `To Review` for normalized `Proceed` or `Reject` handling;
 - `ready_to_apply` rows, including pending `I Applied` or `Skip`, route to `To Apply`;
 - blank-action `skip` rows route to `Archive` as `automatic_skip`.
 

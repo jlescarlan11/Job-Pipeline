@@ -19,8 +19,8 @@ const schemaErrors = validatePipelineSchema(schema);
 if (schemaErrors.length > 0) {
   throw new Error(`Invalid pipeline schema:\n- ${schemaErrors.join("\n- ")}`);
 }
-if (review?.schema_version !== 6) {
-  throw new Error("review-sheet schema_version must be 6");
+if (review?.schema_version !== 7) {
+  throw new Error("review-sheet schema_version must be 7");
 }
 if (
   JSON.stringify(review.all_record_columns) !== JSON.stringify(schema.fields)
@@ -493,7 +493,7 @@ function applyQueueActionValidation_(sheet) {
     .setAllowInvalid(false)
     .setHelpText(
       sheet.getName() === 'To Review'
-        ? 'Choose Approve or Deny, or leave blank.'
+        ? 'Choose Proceed or Reject, or leave blank.'
         : 'Choose I Applied or Skip, or leave blank.'
     )
     .build();
