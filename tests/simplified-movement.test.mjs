@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
+  applicationReviewGuard,
   normalizeLegacyRecord,
   stateGuard
 } from "../src/contracts.mjs";
@@ -277,6 +278,45 @@ test("partial approval destinations are repaired before review sources are delet
   );
   assert.deepEqual(confirmation.deletions, []);
   assert.equal(confirmation.rejected[0].reason, "destination_unconfirmed");
+});
+
+test("approval copy confirmation accepts the rebound review strategy guard", () => {
+  const approved = row(4014, "review_needed", "Approve", {
+    notes: "Reconsider after strategy review",
+    application_warnings: ["manual_external_action"]
+  });
+  const priorStrategy = {
+    ...approved,
+    application_warnings: []
+  };
+  approved.review_approval_guard = applicationReviewGuard(priorStrategy);
+  approved.state_guard = stateGuard(approved);
+
+  const plan = planQueueActions([approved], [], [], schema, now);
+  const written = destinationAfterWrite(plan).scraped_jobs[0];
+  assert.notEqual(written.review_approval_guard, approved.review_approval_guard);
+  assert.equal(
+    written.review_approval_guard,
+    applicationReviewGuard(approved)
+  );
+
+  const confirmation = confirmMoveDeletions(
+    plan,
+    businessStores({
+      "To Review": [approved],
+      "Scraped Jobs": [written]
+    }),
+    schema
+  );
+  assert.deepEqual(confirmation.deletions, [
+    {
+      row_number: approved.row_number,
+      canonical_job_id: approved.canonical_job_id,
+      source_sheet: "To Review",
+      destination: "Scraped Jobs"
+    }
+  ]);
+  assert.deepEqual(confirmation.rejected, []);
 });
 
 test("blank generator results route from Scraped Jobs to focused queues", () => {

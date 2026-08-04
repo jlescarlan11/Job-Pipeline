@@ -2084,7 +2084,10 @@ function buildAlerterMover() {
     codeNode(
       "Capture Alerter Execution Start",
       [-5900, 240],
-      `return [{ json: { execution_started_at: new Date().toISOString() } }];`
+      `if ($execution.mode !== "production") {
+  throw new Error("Manual Alerter & Mover execution is disabled in production; wait for the next scheduled run.");
+}
+return [{ json: { execution_started_at: new Date().toISOString() } }];`
     ),
     batchReadSheets(
       "Get Business Snapshot",
@@ -4811,8 +4814,9 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-04/v1",
+      workflowContractVersion: "2026-08-04/v2",
       legacyStateGuardCompatibility: false,
+      productionMovementExecutionMode: "scheduled_only",
       alertPolicyVersion: alertPolicy.policy_version,
       alertReceiptPolicyVersion: alertReceiptPolicy.policy_version,
       alertReceiptStoreEnvironmentVariable:
@@ -4874,6 +4878,24 @@ for (const [path, workflow] of outputs) {
   if (marker) {
     throw new Error(`${path} contains forbidden legacy state-guard code: ${marker}`);
   }
+}
+
+const alerterMoverArtifact = outputs.find(
+  ([, workflow]) => workflow?.meta?.workflowRole === "alerter_mover"
+)?.[1];
+const alerterExecutionStart = alerterMoverArtifact?.nodes?.find(
+  (node) => node?.name === "Capture Alerter Execution Start"
+);
+if (
+  alerterMoverArtifact?.meta?.productionMovementExecutionMode !==
+    "scheduled_only" ||
+  !String(alerterExecutionStart?.parameters?.jsCode || "").includes(
+    '$execution.mode !== "production"'
+  )
+) {
+  throw new Error(
+    "Alerter & Mover must reject manual execution before business reads or writes"
+  );
 }
 
 const workflowsDirectory = resolve(root, "workflows");

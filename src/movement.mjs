@@ -146,6 +146,13 @@ function validExistingDestination(source, actual, destination, reason, schema) {
     "notes",
     "updated_at"
   ]);
+  if (destination === "Scraped Jobs") {
+    // The approval destination binds the review authorization to the current
+    // application strategy. The explicit check above validates that rebound
+    // value; comparing it to the source's older guard would make every
+    // legitimate To Review -> Scraped Jobs copy impossible to confirm.
+    destinationOwned.add("review_approval_guard");
+  }
   if (destination === "Archive" && reason === "source_unavailable") {
     destinationOwned.add("pipeline_status");
     destinationOwned.add("source_availability");
