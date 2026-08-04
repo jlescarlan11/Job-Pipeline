@@ -326,17 +326,12 @@ export function validateN8nDeploymentPolicy(
       errors.push(`${role.role} cutover artifact signature is stale`);
     }
     if (role.role === "alerter_mover") {
-      const executionStart = workflow.nodes.find(
-        (node) => node?.name === "Capture Alerter Execution Start"
-      );
       if (
-        workflow?.meta?.productionMovementExecutionMode !== "scheduled_only" ||
-        !String(executionStart?.parameters?.jsCode || "").includes(
-          '$execution.mode !== "production"'
-        )
+        workflow?.meta?.businessRowRelocationMode !==
+        "copy_confirm_delete_only"
       ) {
         errors.push(
-          "alerter_mover must reject manual execution before business reads or writes"
+          "alerter_mover must preserve copy-confirm-delete-only business relocation"
         );
       }
     }
@@ -361,7 +356,7 @@ export function validateN8nDeploymentPolicy(
     errors.push("application compatibility must forbid legacy state guards");
   }
   const expectedCompatibility = {
-    production_movement_execution_mode: "scheduled_only",
+    business_row_relocation_mode: "copy_confirm_delete_only",
     pipeline_schema_version: pipelineSchema?.schema_version,
     storage_version: pipelineSchema?.storage_version,
     pipeline_contract_digest:

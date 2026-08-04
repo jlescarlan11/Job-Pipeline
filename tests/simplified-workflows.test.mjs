@@ -68,15 +68,15 @@ test("build emits exactly the three inactive replacement roles", () => {
   ]);
   assert.equal(workflows["alerter-mover.json"].meta.alertSourceSheet, "To Apply");
   assert.equal(
-    workflows["alerter-mover.json"].meta.productionMovementExecutionMode,
-    "scheduled_only"
+    workflows["alerter-mover.json"].meta.businessRowRelocationMode,
+    "copy_confirm_delete_only"
   );
-  assert.match(
+  assert.doesNotMatch(
     node(
       workflows["alerter-mover.json"],
       "Capture Alerter Execution Start"
     ).parameters.jsCode,
-    /\$execution\.mode !== "production"/
+    /manual.+execution.+disabled/i
   );
   assert.doesNotMatch(JSON.stringify(workflows), /Review Queue/);
 });

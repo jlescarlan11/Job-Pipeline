@@ -2084,10 +2084,7 @@ function buildAlerterMover() {
     codeNode(
       "Capture Alerter Execution Start",
       [-5900, 240],
-      `if ($execution.mode !== "production") {
-  throw new Error("Manual Alerter & Mover execution is disabled in production; wait for the next scheduled run.");
-}
-return [{ json: { execution_started_at: new Date().toISOString() } }];`
+      `return [{ json: { execution_started_at: new Date().toISOString() } }];`
     ),
     batchReadSheets(
       "Get Business Snapshot",
@@ -4814,9 +4811,9 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-04/v2",
+      workflowContractVersion: "2026-08-04/v3",
       legacyStateGuardCompatibility: false,
-      productionMovementExecutionMode: "scheduled_only",
+      businessRowRelocationMode: "copy_confirm_delete_only",
       alertPolicyVersion: alertPolicy.policy_version,
       alertReceiptPolicyVersion: alertReceiptPolicy.policy_version,
       alertReceiptStoreEnvironmentVariable:
@@ -4883,18 +4880,12 @@ for (const [path, workflow] of outputs) {
 const alerterMoverArtifact = outputs.find(
   ([, workflow]) => workflow?.meta?.workflowRole === "alerter_mover"
 )?.[1];
-const alerterExecutionStart = alerterMoverArtifact?.nodes?.find(
-  (node) => node?.name === "Capture Alerter Execution Start"
-);
 if (
-  alerterMoverArtifact?.meta?.productionMovementExecutionMode !==
-    "scheduled_only" ||
-  !String(alerterExecutionStart?.parameters?.jsCode || "").includes(
-    '$execution.mode !== "production"'
-  )
+  alerterMoverArtifact?.meta?.businessRowRelocationMode !==
+  "copy_confirm_delete_only"
 ) {
   throw new Error(
-    "Alerter & Mover must reject manual execution before business reads or writes"
+    "Alerter & Mover must preserve copy-confirm-delete-only business relocation"
   );
 }
 
