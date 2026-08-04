@@ -22,6 +22,7 @@ import {
 } from "../src/contracts.mjs";
 import {
   planFreshWorkbookSetup,
+  planRecordHeaderUpgrade,
   planSegmentedQueueMigration,
   validateFreshSheetConfig
 } from "../src/fresh-sheet-setup.mjs";
@@ -720,6 +721,92 @@ test("setup is idempotent and preserves valid operator data", () => {
   );
 });
 
+test("record header setup upgrades the exact v3 layout without moving row data", () => {
+  const legacyFields = review.record_header_upgrade.legacy_fields;
+  const legacyValues = legacyFields.map((field) => `value:${field}`);
+  const legacySnapshot = {
+    sheets: schema.business_stores.map((name, index) => ({
+      name,
+      headers: [...legacyFields],
+      rows: index === 0 ? [legacyValues] : []
+    }))
+  };
+
+  const headerPlan = planRecordHeaderUpgrade(legacySnapshot, review, schema);
+  assert.equal(headerPlan.mode, "legacy_v3_to_v4");
+  assert.equal(headerPlan.operations.length, 10);
+  assert.deepEqual(
+    headerPlan.operations
+      .filter((operation) => operation.sheet === "Scraped Jobs")
+      .map((operation) => [operation.before_field, operation.before_column]),
+    [
+      ["review_approved_at", 20],
+      ["alert_status", 60]
+    ]
+  );
+
+  const upgraded = planFreshWorkbookSetup(
+    legacySnapshot,
+    review,
+    schema,
+    "main"
+  );
+  const upgradedRow = upgraded.sheets.find(
+    (sheet) => sheet.name === "Scraped Jobs"
+  ).rows[0];
+  assert.equal(upgradedRow.length, schema.fields.length);
+  for (const [index, field] of schema.fields.entries()) {
+    assert.equal(
+      upgradedRow[index],
+      legacyFields.includes(field) ? `value:${field}` : "",
+      `column ${field} must preserve its v3 value or be introduced blank`
+    );
+  }
+  assert.equal(
+    planRecordHeaderUpgrade(upgraded, review, schema).mode,
+    "current_or_empty"
+  );
+});
+
+test("record header setup fails closed on mixed, partial, and extra-data layouts", () => {
+  const legacyFields = review.record_header_upgrade.legacy_fields;
+  const mixed = {
+    sheets: schema.business_stores.map((name, index) => ({
+      name,
+      headers: index === 0 ? [...schema.fields] : [...legacyFields],
+      rows: []
+    }))
+  };
+  assert.throws(
+    () => planRecordHeaderUpgrade(mixed, review, schema),
+    /mixed, missing, or partial/
+  );
+
+  const partial = structuredClone(mixed);
+  partial.sheets = partial.sheets.map((sheet) => ({
+    ...sheet,
+    headers: [...legacyFields]
+  }));
+  partial.sheets[2].headers.splice(20, 1);
+  assert.throws(
+    () => planRecordHeaderUpgrade(partial, review, schema),
+    /conflicting headers/
+  );
+
+  const extraData = structuredClone(mixed);
+  extraData.sheets = extraData.sheets.map((sheet) => ({
+    ...sheet,
+    headers: [...legacyFields]
+  }));
+  extraData.sheets[0].rows = [
+    [...legacyFields.map(() => ""), "unexpected-value"]
+  ];
+  assert.throws(
+    () => planRecordHeaderUpgrade(extraData, review, schema),
+    /row data beyond the declared headers/
+  );
+});
+
 test("pre-existing empty Search Keywords sheet is not repopulated", () => {
   const planned = planFreshWorkbookSetup(
     {
@@ -741,7 +828,7 @@ test("pre-existing empty Search Keywords sheet is not repopulated", () => {
   );
 });
 
-test("fresh setup refuses conflicting or non-empty legacy sheets", () => {
+test("fresh setup refuses conflicting or non-empty unexpected sheets", () => {
   assert.throws(
     () =>
       planFreshWorkbookSetup(
@@ -796,11 +883,14 @@ test("generated setup has no legacy import surface or placeholder writes", async
   assert.match(artifact, /ensureSheetCapacity_/);
   assert.match(artifact, /insertRowsAfter/);
   assert.match(artifact, /insertColumnsAfter/);
+  assert.match(artifact, /insertColumnsBefore/);
   assert.match(artifact, /configureSearchKeywordsSheet_/);
   assert.match(artifact, /requireCheckbox/);
   assert.match(artifact, /Search Keywords:header/);
   assert.match(artifact, /createdSheets\.has/);
   assert.match(artifact, /assertReconciliableHeaders_/);
+  assert.match(artifact, /assertConsistentRecordHeaderVersions_/);
+  assert.match(artifact, /upgradeLegacyRecordHeaders_/);
   assert.match(artifact, /requireValueInList\(rule\.values, true\)/);
   assert.match(artifact, /clearDataValidations/);
   assert.doesNotMatch(artifact, /Review Queue/);
@@ -815,7 +905,7 @@ test("generated setup has no legacy import surface or placeholder writes", async
   );
   assert.match(
     artifact,
-    /function assertReconciliableHeaders_\(sheet, headers\) \{[\s\S]*?if \(lastRow > 1 && !hasHeader\) \{[\s\S]*?throw new Error\('Fresh setup found data without headers'\)/
+    /function assertReconciliableHeaders_\(sheet, headers, legacyHeaders\) \{[\s\S]*?if \(lastRow > 1 && !hasHeader\) \{[\s\S]*?throw new Error\('Fresh setup found data without headers'\)/
   );
   assert.doesNotMatch(artifact, /openById|IMPORTRANGE|copyTo\(/i);
   assert.doesNotMatch(artifact, /appendRow|placeholder/i);

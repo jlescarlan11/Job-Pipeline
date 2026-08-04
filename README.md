@@ -35,6 +35,15 @@ Run `setupFreshJobPipelineConfiguration()` in Configuration; it creates:
 
 All five business tabs use the same complete ordered record schema and keep the newest lifecycle event directly below the header. `To Review` exposes only `Proceed`/`Reject`; `To Apply` exposes only `I Applied`/`Skip` and shows `prep_status`; blank remains valid and workflow-side validation is authoritative. The ten context tabs divide identity, evidence, and preferences into small editable tables. Generator reads and freezes them directly from Configuration at execution start. Alerter & Mover first plans from persisted business fields and reads all ten tabs in one request only when potential alert/reminder work exists; movement and outcome work therefore do not depend on Configuration availability. Both derive context hashes automatically, and delivery fails closed when context is missing or malformed. An empty default tab is removed. A non-empty unexpected tab or conflicting header stops setup. On first creation, the configuration tabs are seeded from the current approved profile and policies. Rerunning either role-specific setup preserves operator edits without recreating deleted rows or re-enabling disabled rows.
 
+For the existing segmented production Main workbook, the same Main setup has
+one deliberately narrow in-place compatibility path. It accepts only when all
+five business tabs have the exact ordered 74-column v3 header contract, then
+inserts the eight v4 review/preparation columns blank at their named schema
+boundaries. It never copies or relocates a business row. Mixed, missing,
+partial, reordered, or extended record layouts stop before the first write;
+an already-v4 workbook is an idempotent no-op apart from normal formatting,
+validation, protection, and visibility reconciliation.
+
 ## Local commands
 
 ```bash

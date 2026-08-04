@@ -1,7 +1,7 @@
 # Review/preparation acceptance matrix
 
-Evidence baseline: `npm run validate` completed on 2026-08-04 with 315 tests,
-303 passed, 12 intentionally skipped, zero failed; workflow and Sheet artifacts
+Evidence baseline: `npm run validate` completed on 2026-08-04 with 317 tests,
+305 passed, 12 intentionally skipped, zero failed; workflow and Sheet artifacts
 had no drift. Production deployment, live data mutation, workflow activation,
 and live observation were not authorized in this change set. Issue #78 criteria
 that require those actions remain `BLOCKED` or `PARTIAL`; repository proof is
@@ -36,7 +36,7 @@ Matrix field convention:
 | 75-07 | Missing legacy preparation defaults fail safe | `normalizeLegacyRecord` maps ready legacy rows to preparation_error/v0; migration tests | SATISFIED |
 | 75-08 | Legacy Approve/Deny classify but are never emitted | Pure mapping to Proceed/Reject; UI/config exact-value tests | SATISFIED |
 | 75-09 | Invalid store/status/action/preparation rejected pre-write | Store contract validation at claims/commits/moves; negative matrix tests | SATISFIED |
-| 75-10 | Setup rerun idempotent and preserves rows/operator values | Fresh setup reconciliation; populated/empty rerun tests | SATISFIED |
+| 75-10 | Setup rerun idempotent and preserves rows/operator values | Fresh/current reconciliation plus exact all-five v3→v4 header-only upgrade; populated, legacy, mixed, partial, extra-data, and second-run tests | SATISFIED |
 | 75-11 | Existing identity/version/guard/movement/history/manual boundary preserved | Integrated contract, movement, terminal, and no-submission suites | SATISFIED |
 | 75-12 | Direct contract/setup/legacy/transition/empty tests | `simplified-contract`, setup, migration, and end-to-end suites | SATISFIED |
 | 75-13 | Generated setup rebuilt; build/validate clean | `npm run check:artifacts` and `npm run validate` | SATISFIED |
@@ -100,7 +100,7 @@ is inferred from unit tests.
 | 78-02 | Sanitized pre-cutover workflow/binding/schema/claim/receipt/count inventory | Strict evidence validator requires it; no live capture authorized | BLOCKED |
 | 78-03 | Readable rollback assets for every changed workflow/config/Sheet state | Required kinds and hashes validated; no live backups authorized | BLOCKED |
 | 78-04 | Fresh global preflight stops duplicates/states/guards/claims/contracts | Pure planner and negative tests satisfy repository behavior; live reread absent | PARTIAL |
-| 78-05 | Idempotent live setup preserves rows/operator values and seeds none | Setup behavior directly tested; live workbook upgrade absent | PARTIAL |
+| 78-05 | Idempotent live setup preserves rows/operator values and seeds none | Exact 74→82 column-insertion plan and fail-closed layout controls are directly tested; live workbook upgrade evidence remains required | PARTIAL |
 | 78-06 | Deterministic per-row migration plan with required fields/path/reason | `planReviewPreparationMigration`, CLI, repeat-equality tests | SATISFIED |
 | 78-07 | All live relocation evidenced as Alerter copy-confirm-delete | Code and runbook prohibit direct moves; live movement evidence absent | PARTIAL |
 | 78-08 | Proven stale duplicate rule and normal surviving path | Planner/runbook require backup+reread; no live duplicate action authorized | PARTIAL |
@@ -125,7 +125,7 @@ is inferred from unit tests.
 | --- | --- | --- | --- | --- |
 | `config/pipeline-schema.json`, `config/review-sheet.json` | #75 | Contracts, setup, all business stores, workflow mappings, docs/tests inspected | High/data contract | REVIEWED_AFTER_FIX |
 | `src/contracts.mjs` | #75/#78 | State guard, legacy one-claim bridge, review/prep validation and direct callers inspected | High/concurrency | REVIEWED_AFTER_FIX |
-| `src/fresh-sheet-setup.mjs`, `scripts/build-sheet-setup.mjs`, generated `SheetSetup.gs` | #75 | Idempotency, preservation, validation/dropdowns, artifact source checked | High/data preservation | REVIEWED_CLEAN |
+| `src/fresh-sheet-setup.mjs`, `scripts/build-sheet-setup.mjs`, generated `SheetSetup.gs` | #75/#78 | Idempotency, exact v3→v4 all-five header gate, value-preserving column insertion, mixed/partial/extra-data rejection, validation/dropdowns, and artifact source checked | High/data preservation | REVIEWED_AFTER_FIX |
 | `src/generator.mjs` | #76/#78 | Selection, claim, provider boundary, commit confirmation, legacy claim inspected | High/provider/concurrency | REVIEWED_AFTER_FIX |
 | Generator builder and generated workflow | #76 | Both source sheets, dynamic store writes, batch/cap, inactive/no-submit graph inspected | High/workflow | REVIEWED_AFTER_FIX |
 | `src/movement.mjs` | #77 | Route classification, exact destination, partial recovery, deletion guards inspected | High/data movement | REVIEWED_AFTER_FIX |

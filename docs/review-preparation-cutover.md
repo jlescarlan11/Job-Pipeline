@@ -89,6 +89,15 @@ With writers still frozen and backups verified, apply only the idempotent Sheet
 structure/setup upgrade. Do not seed or relocate business data. Take another
 fresh exact reread of all five business stores and claims before planning.
 
+For an in-place v3 Main workbook, setup is authorized only when all five
+business tabs match the exact pinned 74-field legacy header. It inserts the
+four review-case fields before `review_approved_at` and the four preparation
+fields before `alert_status`, leaving every introduced data cell blank. Record
+the deterministic `planRecordHeaderUpgrade()` result first, rehearse it on a
+disposable copy, run setup twice there, and prove every legacy field value
+remains under the same field after both runs. A mixed, missing, partial,
+reordered, extended, or otherwise conflicting layout is a stop condition.
+
 The private snapshot contract is:
 
 - `captured_at` and exact `contract_version`;

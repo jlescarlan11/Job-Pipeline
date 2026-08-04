@@ -1,6 +1,6 @@
 # Fresh workbook schema
 
-Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs, eleven visible configuration/context tabs, and one hidden operational tab:
+Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs and one hidden operational tab; the separate configuration setup creates eleven visible configuration/context tabs:
 
 - `Scraped Jobs`
 - `To Review`
@@ -114,6 +114,24 @@ actionable without permitting stale generated-state commits.
 `_System` contains only `claim_key`, `canonical_job_id`, `stage`, `token`, `created_at`, and `expires_at`. It is not a business-data store.
 
 Setup is idempotent: rerunning it reconciles formatting, validation, protection, and visibility while preserving valid headers and operator data. It does not insert placeholders, call `openById`, use `IMPORTRANGE`, or copy a row from any old workbook.
+
+### Exact v3 record-header upgrade
+
+The Main setup also supports one structural upgrade for the existing segmented
+workbook. Before its first write, it requires all five business tabs to exist
+with the exact same ordered 74-field
+`2026-07-31-segmented-queues-v3` header. It then inserts four blank review-case
+columns immediately before `review_approved_at` and four blank preparation
+columns immediately before `alert_status`. Column insertion shifts each
+existing cell with its original field; no business row is copied, deleted, or
+relocated. The final header must exactly match the 82-field v4 schema.
+
+The upgrade refuses mixed v3/v4 tabs, missing business tabs, partial insertion,
+reordered or unknown headers, and row data beyond the declared header width.
+Rerunning after success sees the exact v4 header and inserts nothing. The
+ordered legacy fields and both insertion boundaries are pinned in
+`config/review-sheet.json`, and `planRecordHeaderUpgrade()` provides the same
+non-mutating deterministic plan for tests and preflight tooling.
 
 ## Existing-workbook migration planning
 

@@ -13,6 +13,27 @@ const RECORD_SHEET_KEYS = [
   "applied_jobs",
   "archive"
 ];
+const LEGACY_RECORD_STORAGE_VERSION = "2026-07-31-segmented-queues-v3";
+const RECORD_HEADER_INSERTIONS = [
+  {
+    before: "review_approved_at",
+    fields: [
+      "review_case_id",
+      "review_case_version",
+      "review_decision",
+      "review_decided_at"
+    ]
+  },
+  {
+    before: "alert_status",
+    fields: [
+      "prep_status",
+      "preparation_version",
+      "preparation_input_guard",
+      "preparation_updated_at"
+    ]
+  }
+];
 const CONTEXT_SHEET_KEYS = [
   "candidate",
   "skills",
@@ -69,6 +90,157 @@ function cloneRows(rows) {
   return (rows ?? []).map((row) =>
     Array.isArray(row) ? [...row] : { ...row }
   );
+}
+
+function applyHeaderInsertions(headers, insertions) {
+  const result = [...headers];
+  for (const insertion of insertions) {
+    const beforeIndex = result.indexOf(insertion.before);
+    if (beforeIndex < 0) {
+      throw new Error(
+        `Record header upgrade boundary is missing: ${insertion.before}`
+      );
+    }
+    if (insertion.fields.some((field) => result.includes(field))) {
+      throw new Error("Record header upgrade would insert a duplicate field");
+    }
+    result.splice(beforeIndex, 0, ...insertion.fields);
+  }
+  return result;
+}
+
+function expectedLegacyRecordFields(schema) {
+  const inserted = new Set(
+    RECORD_HEADER_INSERTIONS.flatMap((insertion) => insertion.fields)
+  );
+  return (schema?.fields ?? []).filter((field) => !inserted.has(field));
+}
+
+function recordHeaderVersion(headers, legacyFields, currentFields) {
+  if (!Array.isArray(headers) || headers.length === 0) return "empty";
+  if (JSON.stringify(headers) === JSON.stringify(currentFields)) return "current";
+  if (JSON.stringify(headers) === JSON.stringify(legacyFields)) return "legacy";
+  return "conflicting";
+}
+
+function assertRowsFitHeaders(sheet, fields) {
+  for (const [index, row] of (sheet?.rows ?? []).entries()) {
+    if (Array.isArray(row)) {
+      if (
+        row.slice(fields.length).some((value) => String(value ?? "").trim())
+      ) {
+        throw new Error(
+          `Record header upgrade found row data beyond the declared headers in ${sheet.name} row ${index + 2}`
+        );
+      }
+      continue;
+    }
+    if (row && typeof row === "object") {
+      const extras = Object.entries(row).filter(
+        ([field, value]) =>
+          !fields.includes(field) && String(value ?? "").trim() !== ""
+      );
+      if (extras.length > 0) {
+        throw new Error(
+          `Record header upgrade found unknown row fields in ${sheet.name} row ${index + 2}`
+        );
+      }
+      continue;
+    }
+    throw new Error(
+      `Record header upgrade found an invalid row in ${sheet.name} row ${index + 2}`
+    );
+  }
+}
+
+export function planRecordHeaderUpgrade(snapshot, review, schema) {
+  const configErrors = validateFreshSheetConfig(review, schema);
+  if (configErrors.length > 0) {
+    throw new Error(
+      `Invalid record header upgrade configuration: ${configErrors.join("; ")}`
+    );
+  }
+  if (!Array.isArray(snapshot?.sheets)) {
+    throw new Error("Record header upgrade snapshot sheets must be an array");
+  }
+
+  const currentFields = schema.fields;
+  const legacyFields = review.record_header_upgrade.legacy_fields;
+  const expectedNames = new Set(schema.business_stores);
+  const byName = new Map();
+  for (const sheet of snapshot.sheets) {
+    const name = String(sheet?.name || "").trim();
+    if (!expectedNames.has(name)) continue;
+    if (byName.has(name)) {
+      throw new Error(`Record header upgrade found duplicate sheet: ${name}`);
+    }
+    byName.set(name, sheet);
+  }
+
+  const versions = new Map();
+  for (const [name, sheet] of byName) {
+    const headers = Array.isArray(sheet.headers) ? sheet.headers : [];
+    const version = recordHeaderVersion(headers, legacyFields, currentFields);
+    const hasRows = Array.isArray(sheet.rows) && sheet.rows.length > 0;
+    if (version === "empty" && hasRows) {
+      throw new Error(
+        `Record header upgrade found data without headers in ${name}`
+      );
+    }
+    if (version === "conflicting") {
+      throw new Error(
+        `Record header upgrade found conflicting headers in ${name}`
+      );
+    }
+    assertRowsFitHeaders(sheet, version === "legacy" ? legacyFields : currentFields);
+    versions.set(name, version);
+  }
+
+  const legacySheets = [...versions]
+    .filter(([, version]) => version === "legacy")
+    .map(([name]) => name);
+  if (legacySheets.length > 0) {
+    const everyLegacySheetPresent = schema.business_stores.every(
+      (name) => versions.get(name) === "legacy"
+    );
+    if (!everyLegacySheetPresent) {
+      throw new Error(
+        "Record header upgrade refused mixed, missing, or partial record-sheet versions"
+      );
+    }
+  }
+
+  const operations = [];
+  if (legacySheets.length > 0) {
+    for (const name of schema.business_stores) {
+      const evolving = [...legacyFields];
+      for (const insertion of review.record_header_upgrade.insertions) {
+        const beforeIndex = evolving.indexOf(insertion.before);
+        operations.push({
+          sheet: name,
+          before_field: insertion.before,
+          before_column: beforeIndex + 1,
+          fields: [...insertion.fields]
+        });
+        evolving.splice(beforeIndex, 0, ...insertion.fields);
+      }
+      if (JSON.stringify(evolving) !== JSON.stringify(currentFields)) {
+        throw new Error(
+          `Record header upgrade did not produce the current schema for ${name}`
+        );
+      }
+    }
+  }
+
+  return {
+    mode: legacySheets.length > 0 ? "legacy_v3_to_v4" : "current_or_empty",
+    from_storage_version:
+      legacySheets.length > 0
+        ? review.record_header_upgrade.from_storage_version
+        : schema.storage_version,
+    to_storage_version: schema.storage_version,
+    operations
+  };
 }
 
 export function validateFreshSheetConfig(review, schema) {
@@ -194,6 +366,33 @@ export function validateFreshSheetConfig(review, schema) {
   ) {
     errors.push("all_record_columns must exactly match schema fields");
   }
+  const upgrade = review?.record_header_upgrade;
+  const expectedLegacyFields = expectedLegacyRecordFields(schema);
+  if (upgrade?.from_storage_version !== LEGACY_RECORD_STORAGE_VERSION) {
+    errors.push(
+      `record_header_upgrade must start from ${LEGACY_RECORD_STORAGE_VERSION}`
+    );
+  }
+  if (
+    JSON.stringify(upgrade?.legacy_fields) !==
+    JSON.stringify(expectedLegacyFields)
+  ) {
+    errors.push(
+      "record_header_upgrade legacy_fields must exactly match the v3 record layout"
+    );
+  }
+  if (
+    JSON.stringify(upgrade?.insertions) !==
+    JSON.stringify(RECORD_HEADER_INSERTIONS)
+  ) {
+    errors.push("record_header_upgrade insertions must match the v4 boundaries");
+  } else if (
+    JSON.stringify(
+      applyHeaderInsertions(expectedLegacyFields, upgrade.insertions)
+    ) !== JSON.stringify(schema?.fields)
+  ) {
+    errors.push("record_header_upgrade must produce the exact current schema");
+  }
   const expectedActionValidation = {
     "To Review": { values: ["Proceed", "Reject"], allow_blank: true },
     "To Apply": { values: ["I Applied", "Skip"], allow_blank: true },
@@ -300,6 +499,9 @@ export function planFreshWorkbookSetup(
       ? [...recordDefinitions, configurationDefinitions.at(-1)]
       : configurationDefinitions.slice(0, -1)
   );
+  const recordHeaderPlan = workbookRole === "main"
+    ? planRecordHeaderUpgrade(snapshot, review, schema)
+    : null;
 
   const currentByName = new Map();
   for (const sheet of snapshot.sheets) {
@@ -320,15 +522,47 @@ export function planFreshWorkbookSetup(
   for (const [name, definition] of expected) {
     const current = currentByName.get(name);
     const existingHeaders = current?.headers ?? [];
+    const isLegacyRecordSheet =
+      recordHeaderPlan?.mode === "legacy_v3_to_v4" &&
+      schema.business_stores.includes(name);
     if (
       existingHeaders.some((value) => String(value || "").trim()) &&
-      JSON.stringify(existingHeaders) !== JSON.stringify(definition.headers)
+      JSON.stringify(existingHeaders) !== JSON.stringify(definition.headers) &&
+      !(
+        isLegacyRecordSheet &&
+        JSON.stringify(existingHeaders) ===
+          JSON.stringify(review.record_header_upgrade.legacy_fields)
+      )
     ) {
       throw new Error(`Fresh setup found conflicting headers in ${name}`);
     }
-    const rows = current
+    let rows = current
       ? cloneRows(current.rows)
       : cloneRows(definition.seedRows);
+    if (isLegacyRecordSheet) {
+      const operations = recordHeaderPlan.operations.filter(
+        (operation) => operation.sheet === name
+      );
+      rows = rows.map((row) => {
+        if (!Array.isArray(row)) {
+          return Object.fromEntries(
+            definition.headers.map((field) => [field, row?.[field] ?? ""])
+          );
+        }
+        const upgraded = row.slice(
+          0,
+          review.record_header_upgrade.legacy_fields.length
+        );
+        for (const operation of operations) {
+          upgraded.splice(
+            operation.before_column - 1,
+            0,
+            ...operation.fields.map(() => "")
+          );
+        }
+        return upgraded;
+      });
+    }
     const hiddenColumns = definition.headers.filter(
       (field) => !definition.visibleColumns.includes(field)
     );
