@@ -1,0 +1,30 @@
+We are looking for a skilled and motivated Web Developer to design, build, and maintain high-quality websites and web applications. The ideal candidate should have strong programming skills, a passion for creating user-friendly digital experiences, and the ability to work collaboratively with designers, project managers, and other developers.
+
+Key Responsibilities
+Develop, test, and maintain responsive websites and web applications.
+Write clean, efficient, and well-documented code.
+Collaborate with UI/UX designers to implement visually appealing and user-friendly interfaces.
+Optimize websites for speed, performance, and search engine optimization (SEO).
+Troubleshoot, debug, and resolve website issues.
+Integrate third-party APIs and backend services.
+Ensure websites are compatible across different browsers and devices.
+Maintain website security and implement best practices.
+Update website content and functionality as needed.
+Stay current with emerging web technologies and industry trends.
+
+Required Qualifications
+Bachelor's degree in Computer Science, Information Technology, or a related field (preferred).
+Proven experience as a Web Developer or in a similar role.
+Proficiency in HTML, CSS, JavaScript, and modern frameworks (such as React, Angular, or Vue.js).
+Experience with backend technologies such as Node.js, PHP, Python, or ASP.NET.
+Familiarity with databases such as MySQL, PostgreSQL, or MongoDB.
+Knowledge of version control systems, especially Git.
+Understanding of responsive design principles and web accessibility standards.
+Strong problem-solving and analytical skills.
+Excellent communication and teamwork abilities.
+
+Preferred Skills
+Experience with cloud platforms (AWS, Azure, or Google Cloud).
+Knowledge of RESTful APIs and GraphQL.
+Familiarity with DevOps tools and CI/CD pipelines.
+Understanding of Agile or Scrum development methodologies.

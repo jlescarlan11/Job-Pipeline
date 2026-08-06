@@ -44,6 +44,10 @@ const maliciousHtml = await readFile(
   new URL("./fixtures/job-pack-malicious.html", import.meta.url),
   "utf8"
 );
+const noisyWebDeveloperDescription = await readFile(
+  new URL("./fixtures/job-noisy-web-developer.txt", import.meta.url),
+  "utf8"
+);
 const now = "2026-07-31T08:00:00.000Z";
 
 const validMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
@@ -589,6 +593,37 @@ test("promising gaps route to review_needed with reason and required input", () 
   assert.match(result.decision_reason, /PHP|Gaps/i);
   assert.match(result.required_input, /Review these gaps/i);
   assert.equal(result.generated_message, "");
+});
+
+test("noisy supported requirements persist a non-skip Generator route", () => {
+  const original = recordFromDescription(3021, {
+    html: null,
+    title: "Web Developer",
+    description: noisyWebDeveloperDescription,
+    overrides: { salary_text: "$7-10/hour" }
+  });
+  const result = evaluateAndRoute(
+    claim(original),
+    profile,
+    rankingPolicy,
+    now
+  );
+
+  assert.notEqual(result.pipeline_status, "skip");
+  assert.ok(["processing", "review_needed"].includes(result.pipeline_status));
+  assert.ok(result.qualification_score > 0);
+  assert.deepEqual(result.requirement_gaps, [
+    "GraphQL",
+    "One of: Agile / Scrum"
+  ]);
+  assert.equal(result.error_category, "");
+  assert.equal(result.error_summary, "");
+  if (result.pipeline_status === "processing") {
+    assert.equal(result.processing_stage, "generation");
+  } else {
+    assert.equal(result.processing_stage, "");
+    assert.match(result.required_input, /Review these gaps/i);
+  }
 });
 
 test("hard disqualifiers become skip, while unavailable input is distinct", () => {
