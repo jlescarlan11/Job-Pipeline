@@ -69,6 +69,19 @@ const SKILL_ALIASES = {
   n8n: ["n8n"]
 };
 
+const QUALIFICATION_SKILL_ALIASES = {
+  "ASP.NET Core MVC": [
+    "asp.net core mvc",
+    "asp.net",
+    "asp net",
+    ".net",
+    "dotnet"
+  ],
+  "CI/CD": ["ci cd", "continuous deployment"],
+  "REST APIs": ["rest apis", "restful apis", "api integrations"],
+  Vue: ["vue", "vue.js", "vuejs"]
+};
+
 function normalizeText(value) {
   return String(value || "")
     .normalize("NFKC")
@@ -133,6 +146,12 @@ function knownSkillsInText(text, profile) {
     .map(([skill]) => skill);
 }
 
+function qualificationSkillsInText(text, profile) {
+  return approvedSkillNames(profile).filter((skill) =>
+    aliasOccurrences(text, capabilityAliases(skill)).length > 0
+  );
+}
+
 function profileEvidenceReferenceExists(reference, profile) {
   if (reference === "summary") return Boolean(profile.summary);
   if (reference.startsWith("experience:")) {
@@ -164,16 +183,29 @@ const HARD_REQUIREMENT_PATTERN =
   /\b(?:must|required|requirement|minimum|need(?:ed)?|proficien|mandatory)\b|\b\d+\+?\s*(?:years?|yrs?)\b/i;
 const ALTERNATIVE_MARKER_PATTERN =
   /\b(?:any\s+one\s+of|at\s+least\s+one\s+of|one\s+of|either|choose\s+any(?:\s+one)?(?:\s+of)?|select\s+any(?:\s+one)?(?:\s+of)?)\b/gi;
+const ILLUSTRATIVE_MARKER_PATTERN =
+  /\b(?:such\s+as|including|e\.?g\.?|for\s+example)\b/gi;
 
-function requirementClassification(text, alternativeMarker = "") {
-  if (PREFERENCE_REQUIREMENT_PATTERN.test(text)) return "preference";
-  if (
+function requirementClassification(
+  text,
+  alternativeMarker = "",
+  inheritedClassification = ""
+) {
+  const localPreference = PREFERENCE_REQUIREMENT_PATTERN.test(text);
+  const localHard =
     HARD_REQUIREMENT_PATTERN.test(text) ||
     /^(?:at\s+least\s+one\s+of|choose\s+any|select\s+any)/i.test(
       alternativeMarker
-    )
-  ) {
+    );
+  if (localPreference) return "preference";
+  if (localHard && inheritedClassification === "preference") {
+    return "ambiguous";
+  }
+  if (localHard) {
     return "hard";
+  }
+  if (["hard", "preference"].includes(inheritedClassification)) {
+    return inheritedClassification;
   }
   return "ambiguous";
 }
@@ -211,10 +243,22 @@ function isPhpCurrencyOccurrence(text, occurrence) {
 }
 
 function capabilityAliases(name) {
-  return SKILL_ALIASES[name] ?? [name.toLowerCase()];
+  return [
+    ...new Set([
+      String(name || "").toLowerCase(),
+      ...(SKILL_ALIASES[name] ?? []),
+      ...(QUALIFICATION_SKILL_ALIASES[name] ?? [])
+    ].filter(Boolean))
+  ];
 }
 
-function capabilitiesInAlternativeText(text, profile, policy, lineOffset, line) {
+function canonicalCapabilitiesInText(
+  text,
+  profile,
+  policy,
+  lineOffset = 0,
+  line = text
+) {
   const approved = new Set(approvedSkillNames(profile));
   const capabilities = [
     ...approved,
@@ -264,54 +308,6 @@ function capabilitiesInAlternativeText(text, profile, policy, lineOffset, line) 
       left.start - right.start ||
       left.capability.localeCompare(right.capability)
   );
-}
-
-function alternativeRequirementGroups(line, profile, policy) {
-  const markers = [...line.matchAll(ALTERNATIVE_MARKER_PATTERN)];
-  const groups = [];
-  for (const [index, marker] of markers.entries()) {
-    const markerEnd = (marker.index ?? 0) + marker[0].length;
-    const nextMarkerStart = markers[index + 1]?.index ?? line.length;
-    const candidateTail = line.slice(markerEnd, nextMarkerStart);
-    const grammaticalSuffix = candidateTail.search(
-      /\s+(?:is|are)\s+(?:required|mandatory|preferred|optional|a\s+plus)\b/i
-    );
-    const optionTail =
-      grammaticalSuffix >= 0
-        ? candidateTail.slice(0, grammaticalSuffix)
-        : candidateTail;
-    const matches = capabilitiesInAlternativeText(
-      optionTail,
-      profile,
-      policy,
-      markerEnd,
-      line
-    );
-    const options = [
-      ...new Map(matches.map((match) => [match.capability, match])).values()
-    ];
-    if (options.length < 2) continue;
-    const firstOption = options[0];
-    const lastOption = options.at(-1);
-    const optionPrefix = line.slice(markerEnd, firstOption.start);
-    const optionSeparators = line.slice(firstOption.end, lastOption.start);
-    if (
-      !/^\s*(?:(?:the\s+following|these)\s+)?(?:(?:programming\s+)?languages?|technologies|frameworks|stacks|options)?\s*[:=-]?\s*$/i.test(
-        optionPrefix
-      ) ||
-      !/(?:,|\/|\bor\b)/i.test(optionSeparators)
-    ) {
-      continue;
-    }
-    groups.push({
-      start: marker.index ?? 0,
-      end: markerEnd + optionTail.length,
-      marker: marker[0],
-      options,
-      classification: requirementClassification(line, marker[0])
-    });
-  }
-  return groups;
 }
 
 const INFERRED_CAPABILITY_STOP_WORDS = new Set(
@@ -430,20 +426,385 @@ function inferredRequirementCapabilities(line, profile) {
   );
 }
 
-function classifyRequirementGaps(text, profile, policy) {
-  const approvedText = approvedSkillNames(profile).join("\n").toLowerCase();
-  const lines = String(text || "")
-    .slice(0, MAX_RANKING_TEXT_LENGTH)
-    .split(/\n|[.!?]\s+|;\s*/)
-    .map(normalizeText)
+const GENERIC_CAPABILITY_TERMS = new Set([
+  "backend",
+  "cloud",
+  "database",
+  "databases",
+  "devops",
+  "frontend",
+  "full stack",
+  "programming",
+  "similar role",
+  "version control",
+  "web developer"
+]);
+
+function requirementCapabilityTails(line) {
+  return [
+    line.match(
+      /\b(?:experience\s+(?:using|with|in)|knowledge\s+of|proficien(?:t|cy)\s+(?:with|in)|familiar(?:ity\s+with|\s+with)|understanding\s+of|must\s+know)\s+(.+)$/i
+    )?.[1],
+    line.match(/^\s*(.+?)\s+experience\s+(?:is\s+)?required\b/i)?.[1],
+    line.match(/\bmust\s+have\s+(.+?)\s+experience\b/i)?.[1]
+  ].filter(Boolean);
+}
+
+function normalizeInferredCapability(candidate) {
+  return normalizeText(candidate)
+    .replace(/^[^a-z0-9+#.]+/i, "")
+    .replace(/[()[\]{}]/g, " ")
+    .replace(/[.,;:!?]+$/, "")
+    .replace(
+      /^(?:(?:the\s+following|these|the|a|an|any\s+of|one\s+of|either|expert|strong|hands-on|especially|such\s+as|including|e\.?g\.?|for\s+example|use|using|with|in|of)\s+)+/i,
+      ""
+    )
+    .replace(
+      /\s+(?:(?:development\s+)?methodolog(?:y|ies)|frameworks?|platforms?|databases?|languages?|technologies?|tools?|systems?|pipelines?)$/i,
+      ""
+    )
+    .replace(
+      /\s+(?:is|are)\s+(?:required|mandatory|preferred|optional|a\s+plus)\b.*$/i,
+      ""
+    )
+    .replace(/\b(?:would\s+be\s+useful|is\s+preferred|is\s+optional)\b.*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function inferredCapabilitiesFromTail(tail, profile, policy) {
+  const sources = [
+    tail,
+    ...[...String(tail || "").matchAll(/\(([^()]*)\)/g)].map(
+      (match) => match[1]
+    )
+  ];
+  const candidates = sources
+    .flatMap((source) =>
+      source.split(/\s*(?:,|\band\b|\bor\b)\s*/i)
+    )
+    .map(normalizeInferredCapability)
+    .filter(
+      (candidate) =>
+        candidate.length >= 2 &&
+        candidate.length <= 60 &&
+        /^(?:[a-z0-9.+#/-]+)(?:\s+[a-z0-9.+#/-]+){0,2}$/i.test(
+          candidate
+        ) &&
+        !/\b(?:frameworks?|platforms?|databases?|languages?|technologies?|tools?|systems?|methodolog(?:y|ies))\b/i.test(
+          candidate
+        ) &&
+        !/\b(?:abilities|best practices|principles|standards)\b$/i.test(
+          candidate
+        ) &&
+        !INFERRED_CAPABILITY_STOP_WORDS.has(candidate.toLowerCase()) &&
+        !GENERIC_CAPABILITY_TERMS.has(candidate.toLowerCase()) &&
+        qualificationSkillsInText(candidate, profile).length === 0 &&
+        !(policy?.qualification?.unsupported_technologies ?? []).some(
+          (technology) =>
+            includesAlias(candidate, capabilityAliases(technology))
+        )
+    );
+  const uniqueCandidates = [
+    ...new Map(candidates.map((candidate) => [candidate.toLowerCase(), candidate])).values()
+  ];
+  return uniqueCandidates.filter(
+    (candidate, index, values) =>
+      !values.some(
+        (other, otherIndex) =>
+          otherIndex !== index &&
+          other.length > candidate.length &&
+          includesAlias(other, [candidate.toLowerCase()])
+      )
+  );
+}
+
+// Qualification ranking has narrower grammar than application-pack extraction:
+// only explicit requirement tails can create unlisted capability gaps.
+function inferredRankingCapabilities(line, profile, policy) {
+  if (
+    !/\b(?:experience|proficien|familiar|knowledge|understanding|must\s+(?:have|know))\b/i.test(
+      line
+    )
+  ) {
+    return [];
+  }
+  return [
+    ...new Map(
+      requirementCapabilityTails(line)
+        .flatMap((tail) => inferredCapabilitiesFromTail(tail, profile, policy))
+        .map((candidate) => [candidate.toLowerCase(), candidate])
+    ).values()
+  ];
+}
+
+function capabilitiesInAlternativeText(
+  text,
+  profile,
+  policy,
+  lineOffset,
+  line
+) {
+  const canonicalMatches = canonicalCapabilitiesInText(
+    text,
+    profile,
+    policy,
+    lineOffset,
+    line
+  );
+  const claimedSpans = canonicalMatches.map(({ start, end }) => ({ start, end }));
+  const inferred = inferredCapabilitiesFromTail(text, profile, policy);
+  const matches = [...canonicalMatches];
+  for (const capability of inferred) {
+    for (const occurrence of aliasOccurrences(text, [capability.toLowerCase()])) {
+      const absolute = {
+        start: occurrence.start + lineOffset,
+        end: occurrence.end + lineOffset
+      };
+      if (
+        claimedSpans.some(
+          (span) => absolute.start < span.end && absolute.end > span.start
+        )
+      ) {
+        continue;
+      }
+      claimedSpans.push(absolute);
+      matches.push({ capability, supported: false, ...absolute });
+    }
+  }
+  return matches.sort(
+    (left, right) =>
+      left.start - right.start ||
+      left.capability.localeCompare(right.capability)
+  );
+}
+
+function optionGroup(
+  line,
+  optionText,
+  optionOffset,
+  marker,
+  profile,
+  policy,
+  inheritedClassification,
+  { requiresOr = false } = {}
+) {
+  const grammaticalSuffix = optionText.search(
+    /\s+(?:is|are)\s+(?:required|mandatory|preferred|optional|a\s+plus)\b/i
+  );
+  const optionTail =
+    grammaticalSuffix >= 0
+      ? optionText.slice(0, grammaticalSuffix)
+      : optionText;
+  const matches = capabilitiesInAlternativeText(
+    optionTail,
+    profile,
+    policy,
+    optionOffset,
+    line
+  );
+  const options = [
+    ...new Map(
+      matches.map((match) => [match.capability.toLowerCase(), match])
+    ).values()
+  ];
+  if (options.length < 2) return null;
+  const firstOption = options[0];
+  const lastOption = options.at(-1);
+  const optionSeparators = line.slice(firstOption.end, lastOption.start);
+  if (
+    requiresOr
+      ? !/\bor\b/i.test(optionSeparators)
+      : !/(?:,|\/|\bor\b)/i.test(optionSeparators)
+  ) {
+    return null;
+  }
+  return {
+    start: Math.min(optionOffset, firstOption.start),
+    end: lastOption.end,
+    marker,
+    options,
+    classification: requirementClassification(
+      line,
+      marker,
+      inheritedClassification
+    )
+  };
+}
+
+function alternativeRequirementGroups(
+  line,
+  profile,
+  policy,
+  inheritedClassification = ""
+) {
+  const groups = [];
+  const explicitMarkers = [...line.matchAll(ALTERNATIVE_MARKER_PATTERN)];
+  for (const [index, marker] of explicitMarkers.entries()) {
+    const markerEnd = (marker.index ?? 0) + marker[0].length;
+    const nextMarkerStart = explicitMarkers[index + 1]?.index ?? line.length;
+    const group = optionGroup(
+      line,
+      line.slice(markerEnd, nextMarkerStart),
+      markerEnd,
+      marker[0],
+      profile,
+      policy,
+      inheritedClassification
+    );
+    if (group) groups.push({ ...group, start: marker.index ?? group.start });
+  }
+
+  const illustrativeMarkers = [...line.matchAll(ILLUSTRATIVE_MARKER_PATTERN)];
+  for (const [index, marker] of illustrativeMarkers.entries()) {
+    const markerEnd = (marker.index ?? 0) + marker[0].length;
+    const nextMarkerStart = illustrativeMarkers[index + 1]?.index ?? line.length;
+    const group = optionGroup(
+      line,
+      line.slice(markerEnd, nextMarkerStart),
+      markerEnd,
+      marker[0],
+      profile,
+      policy,
+      inheritedClassification
+    );
+    if (group) groups.push({ ...group, start: marker.index ?? group.start });
+  }
+
+  if (groups.length === 0 && /\bor\b/i.test(line)) {
+    const ordinaryTail = requirementCapabilityTails(line)[0] ?? line;
+    const ordinaryOffset = Math.max(0, line.indexOf(ordinaryTail));
+    const group = optionGroup(
+      line,
+      ordinaryTail,
+      ordinaryOffset,
+      "or",
+      profile,
+      policy,
+      inheritedClassification,
+      { requiresOr: true }
+    );
+    if (group) groups.push(group);
+  }
+
+  return groups
+    .sort((left, right) => left.start - right.start || left.end - right.end)
+    .filter(
+      (group, index, values) =>
+        !values.some(
+          (other, otherIndex) =>
+            otherIndex < index &&
+            group.start >= other.start &&
+            group.end <= other.end
+        )
+    );
+}
+
+const QUALIFICATION_SECTION_HEADINGS = new Map([
+  ["requirements", "hard"],
+  ["required skills", "hard"],
+  ["required qualifications", "hard"],
+  ["qualifications", "hard"],
+  ["minimum qualifications", "hard"],
+  ["core requirements", "hard"],
+  ["must have", "hard"],
+  ["must-have skills", "hard"],
+  ["what we're looking for", "hard"],
+  ["what we are looking for", "hard"],
+  ["preferred skills", "preference"],
+  ["preferred qualifications", "preference"],
+  ["preferred experience", "preference"],
+  ["nice to have", "preference"],
+  ["nice-to-have", "preference"],
+  ["nice-to-haves", "preference"],
+  ["bonus skills", "preference"],
+  ["bonus qualifications", "preference"],
+  ["job overview", ""],
+  ["role overview", ""],
+  ["overview", ""],
+  ["about the role", ""],
+  ["about us", ""],
+  ["job description", ""],
+  ["key responsibilities", ""],
+  ["responsibilities", ""],
+  ["duties", ""],
+  ["what you'll do", ""],
+  ["what you will do", ""],
+  ["what we offer", ""],
+  ["benefits", ""],
+  ["how to apply", ""],
+  ["application instructions", ""]
+]);
+
+function qualificationSectionHeading(text) {
+  const normalized = normalizeText(text).replace(/\s*:\s*$/, "");
+  const key = normalized.toLowerCase();
+  return QUALIFICATION_SECTION_HEADINGS.has(key)
+    ? { classification: QUALIFICATION_SECTION_HEADINGS.get(key) }
+    : null;
+}
+
+function splitQualificationSentences(text) {
+  const protectedText = String(text || "")
+    .replace(/\be\.g\./gi, (value) => value.replaceAll(".", "\ue000"))
+    .replace(/\bi\.e\./gi, (value) => value.replaceAll(".", "\ue000"));
+  return protectedText
+    .split(/[.!?]\s+|;\s*/)
+    .map((part) => normalizeText(part.replaceAll("\ue000", ".")))
     .filter(Boolean);
+}
+
+function qualificationSegments(text) {
+  const lines = normalizeStructuredText(text)
+    .slice(0, MAX_RANKING_TEXT_LENGTH)
+    .split("\n");
+  const segments = [];
+  let inheritedClassification = "";
+  for (const rawLine of lines) {
+    if (!rawLine || isSeparatorOnly(rawLine)) continue;
+    const heading = qualificationSectionHeading(rawLine);
+    if (heading) {
+      inheritedClassification = heading.classification;
+      continue;
+    }
+    const listMatch = rawLine.match(
+      /^\s*(?:[-*•▪◦]|\d{1,3}[.)])\s+(.+)$/u
+    );
+    const line = normalizeText(listMatch?.[1] ?? rawLine);
+    const parts = listMatch ? [line] : splitQualificationSentences(line);
+    for (const part of parts) {
+      if (!part || isSeparatorOnly(part)) continue;
+      const partHeading = qualificationSectionHeading(part);
+      if (partHeading) {
+        inheritedClassification = partHeading.classification;
+        continue;
+      }
+      segments.push({ text: part, inheritedClassification });
+    }
+  }
+  return segments;
+}
+
+function classifyRequirementGaps(text, profile, policy) {
   const severity = { preference: 1, ambiguous: 2, hard: 3 };
   const byRequirement = new Map();
-  for (const line of lines) {
+  const setGap = (gap) => {
+    const key = normalizeText(gap.requirement).toLowerCase();
+    const existing = byRequirement.get(key);
+    if (
+      !existing ||
+      severity[gap.classification] > severity[existing.classification]
+    ) {
+      byRequirement.set(key, gap);
+    }
+  };
+  for (const segment of qualificationSegments(text)) {
+    const line = segment.text;
     const alternativeGroups = alternativeRequirementGroups(
       line,
       profile,
-      policy
+      policy,
+      segment.inheritedClassification
     );
     for (const group of alternativeGroups) {
       if (group.options.some((option) => option.supported)) continue;
@@ -451,69 +812,59 @@ function classifyRequirementGaps(text, profile, policy) {
         .map((option) => option.capability)
         .sort((left, right) => left.localeCompare(right))
         .join(" / ")}`;
-      const existing = byRequirement.get(requirement);
-      if (
-        !existing ||
-        severity[group.classification] > severity[existing.classification]
-      ) {
-        byRequirement.set(requirement, {
-          requirement,
-          classification: group.classification,
-          evidence: line.slice(0, 160)
-        });
-      }
+      setGap({
+        requirement,
+        classification: group.classification,
+        evidence: line.slice(0, 160)
+      });
     }
 
-    for (const technology of policy.qualification.unsupported_technologies) {
-      if (approvedText.includes(technology.toLowerCase())) continue;
-      for (const occurrence of aliasOccurrences(line, [
-        technology.toLowerCase()
-      ])) {
-        if (
+    for (const match of canonicalCapabilitiesInText(line, profile, policy)) {
+      if (match.supported) continue;
+      if (
+        alternativeGroups.some(
+          (group) => match.start >= group.start && match.end <= group.end
+        )
+      ) {
+        continue;
+      }
+      setGap({
+        requirement: match.capability,
+        classification: requirementClassification(
+          line,
+          "",
+          segment.inheritedClassification
+        ),
+        evidence: line.slice(0, 160)
+      });
+    }
+    for (const capability of inferredRankingCapabilities(
+      line,
+      profile,
+      policy
+    )) {
+      const occurrences = aliasOccurrences(line, [capability.toLowerCase()]);
+      if (
+        occurrences.length > 0 &&
+        occurrences.every((occurrence) =>
           alternativeGroups.some(
             (group) =>
               occurrence.start >= group.start && occurrence.end <= group.end
           )
-        ) {
-          continue;
-        }
-        if (
-          technology === "PHP" &&
-          isPhpCurrencyOccurrence(line, occurrence)
-        ) {
-          continue;
-        }
-        const classification = requirementClassification(line);
-        const existing = byRequirement.get(technology);
-        if (
-          !existing ||
-          severity[classification] > severity[existing.classification]
-        ) {
-          byRequirement.set(technology, {
-            requirement: technology,
-            classification,
-            evidence: line.slice(0, 160)
-          });
-        }
-      }
-    }
-    for (const capability of
-      alternativeGroups.length > 0
-        ? []
-        : inferredRequirementCapabilities(line, profile)) {
-      const existing = byRequirement.get(capability);
-      const classification = requirementClassification(line);
-      if (
-        !existing ||
-        severity[classification] > severity[existing.classification]
+        )
       ) {
-        byRequirement.set(capability, {
-          requirement: capability,
-          classification,
-          evidence: line.slice(0, 160),
-          source: "inferred_capability"
-        });
+        continue;
       }
+      setGap({
+        requirement: capability,
+        classification: requirementClassification(
+          line,
+          "",
+          segment.inheritedClassification
+        ),
+        evidence: line.slice(0, 160),
+        source: "inferred_capability"
+      });
     }
   }
   return [...byRequirement.values()].sort((left, right) =>
@@ -1058,7 +1409,7 @@ export function evaluateJob(
 
   const jobTitle = normalizeText(job.job_title).slice(0, 500);
   const jobText = `${jobTitle}\n${jobDescription}`;
-  const matchedSkills = knownSkillsInText(jobText, profile);
+  const matchedSkills = qualificationSkillsInText(jobText, profile);
   const matchedRoleFamilies = roleEvidence(jobText, job.role_families);
   const gapDetails = classifyRequirementGaps(
     job.job_description,
@@ -1339,6 +1690,10 @@ export function evaluateJob(
   const hasAmbiguousGap = gapDetails.some(
     (gap) => gap.classification === "ambiguous"
   );
+  const reviewFloorEligible =
+    !hasHardGap &&
+    !descriptionTruncated &&
+    baseQualification >= qualificationPolicy.review_minimum;
   const applyPointsRecommendation = recommendApplyPoints(
     {
       qualificationScore,
@@ -1364,6 +1719,9 @@ export function evaluateJob(
     decision = "recommended";
     tier = matchedRoleFamilies.length > 0 ? "direct" : "adjacent";
   } else if (qualificationScore >= qualificationPolicy.review_minimum) {
+    decision = "review_required";
+    tier = "adjacent";
+  } else if (reviewFloorEligible) {
     decision = "review_required";
     tier = "adjacent";
   }

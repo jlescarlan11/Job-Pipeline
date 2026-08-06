@@ -58,6 +58,9 @@ const maliciousPackHtml = await loadText("./fixtures/job-pack-malicious.html");
 const structuredInstructionsHtml = await loadText(
   "./fixtures/job-structured-instructions.html"
 );
+const noisyWebDeveloperDescription = await loadText(
+  "./fixtures/job-noisy-web-developer.txt"
+);
 const now = "2026-07-28T08:00:00.000Z";
 const canonicalValidMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
 
@@ -995,6 +998,264 @@ test("unsatisfied alternatives emit one deterministic group-level gap", () => {
   );
   assert.equal(ambiguous.match_decision, "review_required");
   assert.ok(ambiguous.requirement_gap_details[0].evidence.length <= 160);
+});
+
+test("noisy Web Developer requirements remain review-eligible and emit only canonical gaps", () => {
+  const job = {
+    job_title: "Web Developer",
+    job_description: noisyWebDeveloperDescription,
+    salary_text: "$7-10/hour",
+    posted_at: "2026-08-05T14:31:27.000Z",
+    source_availability: "active"
+  };
+  const first = evaluateJob(job, profile, rankingPolicy, now);
+  const second = evaluateJob(structuredClone(job), profile, rankingPolicy, now);
+
+  assert.deepEqual(first, second);
+  assert.notEqual(first.match_decision, "not_recommended");
+  assert.ok(first.qualification_score > 0);
+  assert.deepEqual(first.requirement_gaps, [
+    "GraphQL",
+    "One of: Agile / Scrum"
+  ]);
+  assert.ok(
+    first.requirement_gap_details.every(
+      (gap) => gap.classification === "preference"
+    )
+  );
+  for (const suppressed of [
+    "Angular",
+    "ASP.NET Core MVC",
+    "Azure",
+    "Google Cloud",
+    "MongoDB",
+    "PHP",
+    "Vue"
+  ]) {
+    assert.equal(first.requirement_gaps.includes(suppressed), false);
+  }
+  for (const junk of [
+    "The",
+    "Knowledge",
+    "Proven",
+    "backend",
+    "Preferred Skills",
+    "CI",
+    "CD pipelines",
+    "ASP",
+    "NET"
+  ]) {
+    assert.equal(first.requirement_gaps.includes(junk), false);
+  }
+  for (const canonicalProfileSkill of ["HTML", "CSS", "Git"]) {
+    assert.ok(
+      first.match_reasons.includes(`Matched skill: ${canonicalProfileSkill}`)
+    );
+  }
+});
+
+test("illustrative technology lists are one-of groups and inherit section severity", () => {
+  const supported = evaluateJob(
+    {
+      job_title: "Web Developer",
+      job_description: `Build reliable JavaScript web applications.
+Required Qualifications
+Proficiency in modern frameworks such as React, Angular, or Vue.js.
+Experience with backend technologies such as Node.js, PHP, or ASP.NET.
+Familiarity with databases such as MySQL, PostgreSQL, or MongoDB.
+Preferred Skills
+Experience with cloud platforms (AWS, Azure, or Google Cloud).`,
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.deepEqual(supported.requirement_gaps, []);
+  assert.equal(supported.match_decision, "recommended");
+
+  const unsupported = evaluateJob(
+    {
+      job_title: "Web Developer",
+      job_description: `Build reliable JavaScript web applications.
+Required Qualifications
+Experience with deployment platforms such as Kubernetes, Svelte, or WordPress.`,
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.deepEqual(unsupported.requirement_gap_details, [
+    {
+      requirement: "One of: Kubernetes / Svelte / WordPress",
+      classification: "hard",
+      evidence:
+        "Experience with deployment platforms such as Kubernetes, Svelte, or WordPress."
+    }
+  ]);
+  assert.equal(unsupported.match_decision, "not_recommended");
+});
+
+test("section context distinguishes required, preferred, and conflicting requirement language", () => {
+  const evaluateClause = (heading, clause) =>
+    evaluateJob(
+      {
+        job_title: "Web Developer",
+        job_description: `Build React, TypeScript, JavaScript, and SQL web applications.
+${heading}
+${clause}`,
+        source_availability: "active"
+      },
+      profile,
+      rankingPolicy,
+      now
+    );
+
+  const inheritedHard = evaluateClause("Required Qualifications", "PHP experience.");
+  assert.equal(inheritedHard.match_decision, "not_recommended");
+  assert.equal(inheritedHard.requirement_gap_details[0].classification, "hard");
+
+  const inheritedPreference = evaluateClause("Preferred Skills", "PHP experience.");
+  assert.notEqual(inheritedPreference.match_decision, "not_recommended");
+  assert.equal(
+    inheritedPreference.requirement_gap_details[0].classification,
+    "preference"
+  );
+
+  const localHard = evaluateClause(
+    "Key Responsibilities",
+    "PHP experience is required."
+  );
+  assert.equal(localHard.match_decision, "not_recommended");
+  assert.equal(localHard.requirement_gap_details[0].classification, "hard");
+
+  const conflicting = evaluateClause(
+    "Preferred Skills",
+    "PHP experience is required."
+  );
+  assert.equal(conflicting.match_decision, "review_required");
+  assert.equal(conflicting.requirement_gap_details[0].classification, "ambiguous");
+
+  const localPreference = evaluateClause(
+    "Required Qualifications",
+    "Experience with PHP would be useful."
+  );
+  assert.notEqual(localPreference.match_decision, "not_recommended");
+  assert.equal(
+    localPreference.requirement_gap_details[0].classification,
+    "preference"
+  );
+
+  const compactedHeading = evaluateJob(
+    {
+      job_title: "Web Developer",
+      job_description:
+        "Build React and TypeScript applications. Preferred Skills\nPHP experience.",
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.equal(
+    compactedHeading.requirement_gap_details[0].classification,
+    "preference"
+  );
+});
+
+test("qualification aliases deduplicate families while explicit unlisted technologies remain hard gaps", () => {
+  const aliases = evaluateJob(
+    {
+      job_title: "Web Developer",
+      job_description: `Build React and TypeScript web applications.
+Required Qualifications
+Experience with REST APIs and RESTful APIs.
+Experience with CI/CD pipelines and continuous deployment.
+Experience with ASP.NET and .NET.`,
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.deepEqual(aliases.requirement_gaps, []);
+  for (const skill of ["REST APIs", "CI/CD", "ASP.NET Core MVC"]) {
+    assert.ok(aliases.match_reasons.includes(`Matched skill: ${skill}`));
+  }
+
+  for (const capability of [
+    "terraform",
+    "temporal",
+    "pulumi",
+    "claude code",
+    "langchain",
+    "rag"
+  ]) {
+    const evaluation = evaluateJob(
+      {
+        job_title: "Web Developer",
+        job_description: `Build React and TypeScript web applications. Experience with ${capability} is required.`,
+        source_availability: "active"
+      },
+      profile,
+      rankingPolicy,
+      now
+    );
+    const gap = evaluation.requirement_gap_details.find(
+      (entry) => entry.requirement.toLowerCase() === capability
+    );
+    assert.equal(gap?.classification, "hard", capability);
+    assert.equal(evaluation.match_decision, "not_recommended", capability);
+  }
+});
+
+test("preference noise cannot lower an otherwise review-eligible fit to not recommended", () => {
+  const reviewFloor = evaluateJob(
+    {
+      job_title: "Web Developer",
+      job_description: `Build React, TypeScript, JavaScript, and SQL web applications.
+Preferred Skills
+Experience with terraform would be useful.
+Experience with temporal would be useful.
+Experience with pulumi would be useful.
+Experience with claude code would be useful.
+Experience with rag would be useful.
+Experience with kafka would be useful.
+Experience with rabbitmq would be useful.
+Experience with elasticsearch would be useful.
+Experience with grafana would be useful.
+Experience with datadog would be useful.
+Experience with snowflake would be useful.
+Experience with airflow would be useful.`,
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.ok(
+    reviewFloor.qualification_score < rankingPolicy.qualification.review_minimum
+  );
+  assert.ok(
+    reviewFloor.requirement_gap_details.every(
+      (gap) => gap.classification === "preference"
+    )
+  );
+  assert.equal(reviewFloor.match_decision, "review_required");
+
+  const lowFit = evaluateJob(
+    {
+      job_title: "Administrative Coordinator",
+      job_description:
+        "Coordinate calendars, prepare meeting notes, and organize office supplies for the team.",
+      source_availability: "active"
+    },
+    profile,
+    rankingPolicy,
+    now
+  );
+  assert.equal(lowFit.match_decision, "not_recommended");
 });
 
 test("independent and slash-only unsupported requirements remain independent", () => {
