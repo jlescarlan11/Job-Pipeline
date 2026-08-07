@@ -719,7 +719,9 @@ function writeSheet(
         attemptToConvertTypes: false,
         convertFieldsToString: false
       },
-      options: {}
+      options: ["append", "appendOrUpdate"].includes(operation)
+        ? { useAppend: true }
+        : {}
     },
     type: "n8n-nodes-base.googleSheets",
     typeVersion: 4.7,

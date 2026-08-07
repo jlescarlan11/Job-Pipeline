@@ -909,6 +909,13 @@ test("network calls and critical Sheet writes remain bounded and fail closed", (
           entry.parameters.operation
         )
       ) {
+        if (["append", "appendOrUpdate"].includes(entry.parameters.operation)) {
+          assert.equal(
+            entry.parameters.options.useAppend,
+            true,
+            `${entry.name} must use the atomic Google values.append path`
+          );
+        }
         assert.equal(entry.retryOnFail, undefined, entry.name);
         if (
           ["alerter_mover", "evaluator_generator"].includes(

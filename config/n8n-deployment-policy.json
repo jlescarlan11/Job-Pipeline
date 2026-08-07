@@ -102,7 +102,7 @@
       {
         "role": "scraper",
         "target_workflow_id": "qxPbOzNs5StaPY8B",
-        "artifact_digest": "sha256:f2c39eb78fb52b71994b4812269cfdf44406e51670bc722dc9fd149622cda556",
+        "artifact_digest": "sha256:c466287bf35bcf6ec32b85d435529a77a6d49b098d54052bb163036060a8805c",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 900,
         "schedule_expressions": [
@@ -124,7 +124,7 @@
       {
         "role": "evaluator_generator",
         "target_workflow_id": "TRUqD9atneyDyMNx",
-        "artifact_digest": "sha256:36177c379512bf196421dae174706540dfa510059655e139d230022a6ce9ceae",
+        "artifact_digest": "sha256:a2c55f37cb564ac1868c052f75b62d1a931f455c027aede16be1c71c2659fd9c",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 480,
         "schedule_expressions": [
@@ -148,7 +148,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:f7b7d7de7704e5abf3c84d13952bf106e057f51930e4b98f3f6fe13958e60d37",
+        "artifact_digest": "sha256:ef75b96edfa6fd0265d587576dc0b9a050ce5f1a8e4e7ce6f224c6c205176c8e",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [
