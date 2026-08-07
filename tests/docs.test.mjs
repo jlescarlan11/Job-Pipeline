@@ -234,7 +234,7 @@ test("deployment docs and policy agree on capacity, retention, and bindings", ()
       )
     )
   );
-  assert.match(architecture, /concurrency limit of three/i);
+  assert.match(architecture, /bounded two-slot execution limit/i);
   assert.match(operations, /JOB_PIPELINE_SPREADSHEET_ID/);
   assert.match(deployment, /complete instance-wide inventory/i);
   assert.match(deployment, /unrecognized|duplicate/i);
@@ -1164,7 +1164,7 @@ test("requirement-aware Generator accounting covers implementation and honest li
   assert.match(deployment, /application compatibility unit/i);
   assert.match(deployment, /Cutover evidence schema v3/i);
   assert.match(requirementAwareVerification, /287 tests: 275 pass/);
-  assert.equal(deploymentPolicy.policy_version, "2026-08-04/v1");
+  assert.equal(deploymentPolicy.policy_version, "2026-08-07/v3");
   assert.equal(deploymentPolicy.workflow_cutover.schema_version, 3);
   assert.equal(
     deploymentPolicy.workbook_binding.deployment_mode,

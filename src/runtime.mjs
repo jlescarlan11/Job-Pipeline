@@ -134,6 +134,14 @@ export function validateRuntimeConfig(runtime) {
       errors.push(`alerter_mover.${field} must be a positive integer`);
     }
   }
+  if (
+    !positiveInteger(runtime.alerter_mover?.claim_contention_settle_ms) ||
+    runtime.alerter_mover.claim_contention_settle_ms >= 65000
+  ) {
+    errors.push(
+      "alerter_mover.claim_contention_settle_ms must be a positive integer below 65000"
+    );
+  }
   const alerterReadRetry = runtime.alerter_mover?.google_sheets_read_retry;
   if (
     alerterReadRetry?.max_attempts !== 2 ||

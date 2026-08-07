@@ -1,6 +1,6 @@
 # n8n deployment policy
 
-`config/n8n-deployment-policy.json` policy `2026-08-04/v1` validates a
+`config/n8n-deployment-policy.json` policy `2026-08-07/v3` validates a
 self-hosted regular-mode n8n instance for exactly three workflow roles:
 
 - Scraper (`scraper`)
@@ -58,7 +58,7 @@ Values are checked but never printed or stored in cutover evidence. Workflow exp
 
 ## Capacity and retention
 
-The final schedules produce 826 executions per week: 42 Scraper, 112 Generator, and 672 Alerter & Mover. Timeout-weighted demand is 0.4847. The maximum scheduled overlap is two against production concurrency 3.
+The final schedules produce 826 executions per week: 42 Scraper, 112 Generator, and 672 Alerter & Mover. Timeout-weighted demand is 0.4847. Production concurrency 2 admits the maximum normal scheduled overlap without queueing. Same-role overlap from sleep/wake catch-up is serialized by append-winner claims followed by a bounded contention wait and stabilized claim reread before any business write.
 
 The 336 hours (fourteen days) of all-failure retention is 1,652 executions, below the 10,000-count pruning cap. Failure and manual execution data are retained; successful production payloads and per-node progress are not. Successful scheduled runs are confirmed through the internal workflow-labelled metrics.
 
@@ -107,7 +107,7 @@ Google credential reference. Node
 parameters, credential IDs/names, headers, webhooks, API keys, job descriptions,
 messages, reviewer notes, profile payloads, and provider responses are never
 captured. The same Google credential must cover 13 Scraper, 19 Generator, and
-33 Alerter Google-capable nodes.
+35 Alerter Google-capable nodes.
 
 The capture client sends its API key only to the policy-approved loopback n8n
 origins and rejects redirects and URL userinfo/query/fragment values. Before

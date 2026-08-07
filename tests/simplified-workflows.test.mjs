@@ -554,6 +554,9 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
     "Has Eligible Work",
     "Has Movement Work",
     "Append Movement Claims",
+    "Settle Movement Claim Contention",
+    "Re-read Stabilized Movement Claims",
+    "Aggregate Stabilized Movement Claims",
     "Keep Winning Movement Claims",
     "Upsert Scraped Jobs",
     "Upsert To Review",
@@ -579,6 +582,9 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
     "Compile Alert Configuration",
     "Select Fresh Alerts",
     "Append Alert Claims",
+    "Settle Alert Claim Contention",
+    "Re-read Stabilized Alert Claims",
+    "Aggregate Stabilized Alert Claims",
     "Keep Winning Alert Claims",
     "Evaluate Provider Commit Headroom",
     "Get Alert Receipt Authorization Snapshot",
@@ -612,6 +618,22 @@ test("Alerter & Mover routes focused queues independently of Slack and confirms 
   ]) {
     node(workflow, name);
   }
+  assert.equal(
+    workflow.connections["Aggregate System Claims"].main[0][0].node,
+    "Settle Movement Claim Contention"
+  );
+  assert.equal(
+    workflow.connections["Aggregate Stabilized Movement Claims"].main[0][0].node,
+    "Keep Winning Movement Claims"
+  );
+  assert.equal(
+    workflow.connections["Aggregate Alert System Claims"].main[0][0].node,
+    "Settle Alert Claim Contention"
+  );
+  assert.equal(
+    workflow.connections["Aggregate Stabilized Alert Claims"].main[0][0].node,
+    "Keep Winning Alert Claims"
+  );
   assert.match(code, /planQueueActions/);
   assert.match(code, /confirmMoveDeletions/);
   assert.match(code, /selectFreshAlertCandidates/);

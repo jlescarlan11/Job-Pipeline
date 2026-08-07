@@ -63,7 +63,13 @@ test("deployment policy matches three-role runtime and capacity", () => {
       alerter_mover: 672
     }
   });
-  assert.equal(policy.capacity.minimum_scheduled_burst_headroom, 1);
+  assert.equal(
+    policy.capacity.execution_serialization_mode,
+    "bounded_two_slot_with_stabilized_claims"
+  );
+  assert.equal(policy.capacity.production_concurrency_limit, 2);
+  assert.equal(policy.capacity.maximum_queued_scheduled_executions, 0);
+  assert.equal(policy.capacity.minimum_scheduled_burst_headroom, 0);
   assert.equal(policy.environment.N8N_RUNNERS_MODE, "external");
   assert.equal(policy.environment.EXECUTIONS_DATA_SAVE_ON_SUCCESS, "none");
 });
@@ -171,6 +177,24 @@ test("policy drift in role count, schedules, retention, or headroom fails", () =
   assert.match(
     validateN8nDeploymentPolicy(badPolicy, compatibilityContext).join(";"),
     /three replacement roles|simultaneous|weekly execution/
+  );
+});
+
+test("bounded two-slot deployment rejects extra concurrency or insufficient capacity", () => {
+  const concurrent = structuredClone(policy);
+  concurrent.environment.N8N_CONCURRENCY_PRODUCTION_LIMIT = "3";
+  concurrent.capacity.production_concurrency_limit = 3;
+  assert.match(
+    validateN8nDeploymentPolicy(concurrent, compatibilityContext).join(";"),
+    /bounded two-slot execution/
+  );
+
+  const undersizedQueue = structuredClone(policy);
+  undersizedQueue.environment.N8N_CONCURRENCY_PRODUCTION_LIMIT = "1";
+  undersizedQueue.capacity.production_concurrency_limit = 1;
+  assert.match(
+    validateN8nDeploymentPolicy(undersizedQueue, compatibilityContext).join(";"),
+    /bounded two-slot execution/
   );
 });
 

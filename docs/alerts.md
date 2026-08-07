@@ -44,7 +44,7 @@ The Data Table closes the observed Slack-success/Sheet-failure gap, but it canno
 
 A recorded success is not replayed. Definite Slack rate limits and 5xx responses become a bounded retryable receipt; Slack itself is not automatically replayed inside the same execution. A request timeout is terminal because Slack delivery is ambiguous and an automatic retry could duplicate the notification. A `sending` row whose claim lease expires is also converted to terminal `ambiguous_delivery` state without another provider request.
 
-Alert claims and result commits reread `To Apply` and reject a changed version, state guard, claim token, status, or action. Slack webhook responses are accepted as full text responses so the normal webhook `ok` body does not fail JSON parsing. Diagnostic summaries redact URLs, authorization values, tokens, and control characters.
+Movement and alert claims settle for ten seconds and are reread before winner selection, closing the observed sleep/wake race where concurrent Google Sheets appends each temporarily appeared to occupy the same `_System` rows. Alert claims and result commits then reread `To Apply` and reject a changed version, state guard, claim token, status, or action. Slack webhook responses are accepted as full text responses so the normal webhook `ok` body does not fail JSON parsing. Diagnostic summaries redact URLs, authorization values, tokens, and control characters.
 
 Movement completes its copy-confirm-delete attempts before the workflow rereads `To Apply` for alert selection. Movement and Slack writes use independent bounded result paths, so one failed move or provider request does not cancel unrelated rows. Rows in `Scraped Jobs` or `To Review` are never alert candidates.
 

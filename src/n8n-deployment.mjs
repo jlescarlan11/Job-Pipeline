@@ -200,7 +200,42 @@ export function validateN8nDeploymentPolicy(
     ) {
       errors.push("maximum simultaneous scheduled executions is stale");
     }
-    if (
+    if (policy?.capacity?.execution_serialization_mode === "global_single_slot") {
+      if (limit !== 1) {
+        errors.push("global single-slot serialization requires concurrency limit 1");
+      }
+      if (
+        capacity.maximum_simultaneous_scheduled_executions - limit >
+        policy?.capacity?.maximum_queued_scheduled_executions
+      ) {
+        errors.push("scheduled burst exceeds the serialized execution queue bound");
+      }
+      if (
+        capacity.timeout_weighted_concurrency / limit >
+        policy?.capacity?.maximum_utilization_ratio
+      ) {
+        errors.push("serialized execution utilization exceeds the policy maximum");
+      }
+    } else if (
+      policy?.capacity?.execution_serialization_mode ===
+      "bounded_two_slot_with_stabilized_claims"
+    ) {
+      if (limit !== 2) {
+        errors.push("bounded two-slot execution requires concurrency limit 2");
+      }
+      if (
+        capacity.maximum_simultaneous_scheduled_executions - limit >
+        policy?.capacity?.maximum_queued_scheduled_executions
+      ) {
+        errors.push("scheduled burst exceeds the bounded two-slot queue bound");
+      }
+      if (
+        capacity.timeout_weighted_concurrency / limit >
+        policy?.capacity?.maximum_utilization_ratio
+      ) {
+        errors.push("bounded two-slot execution utilization exceeds the policy maximum");
+      }
+    } else if (
       limit - capacity.maximum_simultaneous_scheduled_executions <
       policy?.capacity?.minimum_scheduled_burst_headroom
     ) {

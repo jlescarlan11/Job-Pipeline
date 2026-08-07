@@ -38,6 +38,7 @@
     "schedule_offset_minutes": 10,
     "execution_timeout_seconds": 300,
     "claim_lease_ms": 360000,
+    "claim_contention_settle_ms": 10000,
     "movement_per_run_cap": 25,
     "alert_per_run_cap": 5,
     "minimum_provider_commit_headroom_ms": 150000,

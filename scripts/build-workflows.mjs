@@ -2776,9 +2776,22 @@ return rows.length
       retry: null
     }),
     aggregateNode("Aggregate System Claims", [1000, 240], "system_claims"),
+    waitNode(
+      "Settle Movement Claim Contention",
+      [1100, 700],
+      config.claim_contention_settle_ms
+    ),
+    readSheet("Re-read Stabilized Movement Claims", [1300, 700], system, {
+      retry: null
+    }),
+    aggregateNode(
+      "Aggregate Stabilized Movement Claims",
+      [1500, 700],
+      "system_claims"
+    ),
     codeNode(
       "Keep Winning Movement Claims",
-      [1200, 240],
+      [1700, 700],
       `${movementCore}
 const plan = $('Plan Independent Moves').first().json;
 const proposed = $('Emit Movement Claims').all()
@@ -3337,9 +3350,22 @@ return rows.length
       [7400, 240],
       "system_claims"
     ),
+    waitNode(
+      "Settle Alert Claim Contention",
+      [7500, 500],
+      config.claim_contention_settle_ms
+    ),
+    readSheet("Re-read Stabilized Alert Claims", [7700, 500], system, {
+      retry: null
+    }),
+    aggregateNode(
+      "Aggregate Stabilized Alert Claims",
+      [7900, 500],
+      "system_claims"
+    ),
     codeNode(
       "Keep Winning Alert Claims",
-      [7600, 240],
+      [8100, 500],
       `${alertCore}
 const proposed = $('Emit Alert Claims').all()
   .map((item) => item.json)
@@ -4407,10 +4433,19 @@ return [{ json: {
     "Aggregate System Claims": {
       main: [
         [
-          connection("Keep Winning Movement Claims"),
+          connection("Settle Movement Claim Contention"),
           connection("Select Expired System Claims")
         ]
       ]
+    },
+    "Settle Movement Claim Contention": {
+      main: [[connection("Re-read Stabilized Movement Claims")]]
+    },
+    "Re-read Stabilized Movement Claims": {
+      main: [[connection("Aggregate Stabilized Movement Claims")]]
+    },
+    "Aggregate Stabilized Movement Claims": {
+      main: [[connection("Keep Winning Movement Claims")]]
     },
     "Select Expired System Claims": {
       main: [[connection("Has Expired System Claims")]]
@@ -4622,6 +4657,15 @@ return [{ json: {
       main: [[connection("Aggregate Alert System Claims")]]
     },
     "Aggregate Alert System Claims": {
+      main: [[connection("Settle Alert Claim Contention")]]
+    },
+    "Settle Alert Claim Contention": {
+      main: [[connection("Re-read Stabilized Alert Claims")]]
+    },
+    "Re-read Stabilized Alert Claims": {
+      main: [[connection("Aggregate Stabilized Alert Claims")]]
+    },
+    "Aggregate Stabilized Alert Claims": {
       main: [[connection("Keep Winning Alert Claims")]]
     },
     "Keep Winning Alert Claims": {
@@ -4876,7 +4920,7 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-04/v3",
+      workflowContractVersion: "2026-08-07/v4",
       legacyStateGuardCompatibility: false,
       businessRowRelocationMode: "copy_confirm_delete_only",
       alertPolicyVersion: alertPolicy.policy_version,
@@ -4909,6 +4953,8 @@ return [{ json: {
       recoverProviderOutcomesBeforeSelection: true,
       terminalizeAmbiguousProviderOutcomes: true,
       appendWinnerClaims: true,
+      claimContentionSettleMs: config.claim_contention_settle_ms,
+      stabilizedClaimReread: true,
       executionTimeoutSeconds: config.execution_timeout_seconds,
       scheduleOffsetMinutes: config.schedule_offset_minutes
     },

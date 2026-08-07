@@ -154,3 +154,19 @@ test("generator and alerter schedules retain worst-case timeout separation", () 
     /generator and alerter_mover schedules must not overlap/
   );
 });
+
+test("Alerter claim contention stabilization remains in-process and bounded", () => {
+  assert.equal(runtime.alerter_mover.claim_contention_settle_ms, 10000);
+  for (const claimContentionSettleMs of [undefined, 0, -1, 1.5, 65000]) {
+    assert.match(
+      validateRuntimeConfig({
+        ...runtime,
+        alerter_mover: {
+          ...runtime.alerter_mover,
+          claim_contention_settle_ms: claimContentionSettleMs
+        }
+      }).join(";"),
+      /claim_contention_settle_ms/
+    );
+  }
+});

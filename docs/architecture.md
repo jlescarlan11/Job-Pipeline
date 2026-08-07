@@ -31,7 +31,7 @@ To Apply -- Generator --> pending/preparing/message_ready
 
 ## Trust boundaries
 
-The Main workbook has five visible authoritative business stores: `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. Alerter & Mover atomically sorts complete business rows in movement-touched stores by their store-specific lifecycle timestamp before rereading those stores and resolving deletion row numbers, so newest records stay directly below each header without weakening copy-confirm-delete. Its hidden `_System` tab contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work.
+The Main workbook has five visible authoritative business stores: `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. Alerter & Mover atomically sorts complete business rows in movement-touched stores by their store-specific lifecycle timestamp before rereading those stores and resolving deletion row numbers, so newest records stay directly below each header without weakening copy-confirm-delete. Its hidden `_System` tab contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work. Movement and alert contenders wait ten seconds and reread claims before selecting a winner so a concurrent Google Sheets append that becomes visible after the first read cannot authorize a stale writer.
 
 The separate Configuration workbook contains the eleven visible operator-owned tabs: `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases`. None is a business-record store. Workflows read these tabs directly from the Configuration workbook; the Main workbook contains no configuration copies or `IMPORTRANGE` bridge.
 
@@ -146,7 +146,7 @@ All workflows use `Asia/Manila`, remain inactive in source control, retain faile
 | Evaluator & Generator | 90 min, offset 2 | 480 s | 600 s |
 | Alerter & Mover | 15 min, offset 10 | 300 s | 360 s |
 
-The timeout-weighted demand is 0.4847 execution slots. A one-week phase-aware simulation finds a maximum scheduled overlap of two against an instance concurrency limit of three, leaving one slot of burst headroom.
+The timeout-weighted demand is 0.4847 execution slots. Production uses a bounded two-slot execution limit; a one-week phase-aware simulation finds a maximum scheduled overlap of two, so ordinary scheduled work does not queue. Append-winner claims plus the bounded contention wait and stabilized claim reread form the correctness boundary for same-role sleep/wake overlap.
 
 The Generator has 17 conservative daily trigger boundaries and a nominal
 capacity of 80 jobs per 24 hours. At five jobs and at most two model requests

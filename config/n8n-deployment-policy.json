@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-08-04/v1",
+  "policy_version": "2026-08-07/v3",
   "deployment_scope": "self_hosted_regular",
-  "verified_on": "2026-08-03",
+  "verified_on": "2026-08-07",
   "official_sources": [
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
@@ -21,7 +21,7 @@
     "EXECUTIONS_DATA_PRUNE": "true",
     "EXECUTIONS_DATA_MAX_AGE": "336",
     "EXECUTIONS_DATA_PRUNE_MAX_COUNT": "10000",
-    "N8N_CONCURRENCY_PRODUCTION_LIMIT": "3",
+    "N8N_CONCURRENCY_PRODUCTION_LIMIT": "2",
     "N8N_METRICS": "true",
     "N8N_METRICS_INCLUDE_DEFAULT_METRICS": "true",
     "N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL": "true",
@@ -34,11 +34,13 @@
     "N8N_RUNNERS_HEARTBEAT_INTERVAL": "15"
   },
   "capacity": {
-    "production_concurrency_limit": 3,
+    "production_concurrency_limit": 2,
+    "execution_serialization_mode": "bounded_two_slot_with_stabilized_claims",
     "maximum_timeout_weighted_concurrency": 1,
     "maximum_utilization_ratio": 0.67,
     "maximum_simultaneous_scheduled_executions": 2,
-    "minimum_scheduled_burst_headroom": 1,
+    "minimum_scheduled_burst_headroom": 0,
+    "maximum_queued_scheduled_executions": 0,
     "timeout_weighted_concurrency": 0.4847
   },
   "execution_retention": {
@@ -148,19 +150,21 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:ef75b96edfa6fd0265d587576dc0b9a050ce5f1a8e4e7ce6f224c6c205176c8e",
+        "artifact_digest": "sha256:7fd7ff0532ccad76cea57c5bfd246271392ae297997946613bcc716e9115d8e7",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [
           "0 10,25,40,55 * * * *"
         ],
-        "google_credential_node_count": 33,
+        "google_credential_node_count": 35,
         "name_markers": [
           "Alerter & Mover",
           "Slack and Terminal Moves"
         ],
         "required_node_names": [
           "Plan Independent Moves",
+          "Re-read Stabilized Movement Claims",
+          "Re-read Stabilized Alert Claims",
           "Upsert To Review",
           "Upsert To Apply",
           "Send Slack Alert",

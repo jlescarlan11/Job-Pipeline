@@ -103,3 +103,30 @@ test("Generator append-winner claims allow only one overlapping execution per jo
     [first.token]
   );
 });
+
+test("a stabilized reread rejects a token overwritten by a concurrent Sheet append", () => {
+  const first = createSystemClaim({
+    stage: "movement",
+    canonicalJobId: "onlinejobs.ph:7004",
+    scope: "Scraped Jobs:Archive",
+    executionId: "run-1",
+    now,
+    leaseMs: 360000
+  });
+  const second = createSystemClaim({
+    stage: "movement",
+    canonicalJobId: "onlinejobs.ph:7004",
+    scope: "Scraped Jobs:Archive",
+    executionId: "run-2",
+    now: "2026-07-31T10:00:02.000Z",
+    leaseMs: 360000
+  });
+  const stabilizedRows = [{ ...second, row_number: 14 }];
+  assert.deepEqual(selectWinningSystemClaims([first], stabilizedRows, now), []);
+  assert.deepEqual(
+    selectWinningSystemClaims([second], stabilizedRows, now).map(
+      (claim) => claim.token
+    ),
+    [second.token]
+  );
+});
