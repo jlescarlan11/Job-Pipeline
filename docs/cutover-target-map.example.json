@@ -28,7 +28,8 @@
       "Job Preferences",
       "Application Settings",
       "Required Style",
-      "Banned Phrases"
+      "Banned Phrases",
+      "Prompts"
     ],
     "headers_exact": false,
     "context_valid": false

@@ -2,10 +2,10 @@
 
 `config/application-pack-policy.json` versions deterministic instruction
 extraction, proof selection, limits, and unsafe-instruction categories. The
-frozen six-tab candidate context plus `Application Settings`, `Required Style`,
-and `Banned Phrases` remain the only runtime sources of candidate facts and
-editable writing permissions. Repository
-policies retain non-editable extraction and safety bounds.
+frozen six-tab candidate context remains the only runtime source of candidate
+facts. `Application Settings`, `Required Style`, `Banned Phrases`, and `Prompts`
+provide editable writing controls. Repository policies retain non-editable
+extraction and deterministic safety bounds.
 
 ## Pack contents
 

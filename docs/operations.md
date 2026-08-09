@@ -74,12 +74,12 @@ Create separate Main and Configuration workbooks whose IDs differ from each othe
 
 1. Install the generated `google-apps-script/SheetSetup.gs`.
 2. Run `setupFreshJobPipeline()` in Main and `setupFreshJobPipelineConfiguration()` in Configuration.
-3. Confirm Main has exactly five visible tabs—`Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`—plus hidden `_System`; confirm Configuration has exactly `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases` visible.
+3. Confirm Main has exactly five visible tabs—`Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`—plus hidden `_System`; confirm Configuration has exactly `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, `Banned Phrases`, and `Prompts` visible.
 4. Confirm the five business tabs have the exact configured headers and zero data rows.
 5. Confirm `To Review` offers only `Proceed` and `Reject`, `To Apply` offers only `I Applied` and `Skip`, `prep_status` is visible in To Apply, blank remains valid, and `Scraped Jobs` has no normal action dropdown.
 6. Confirm `Search Keywords` has exact `enabled` and `keyword` headers, ten enabled seed rows, checkbox validation, and a warning-protected header.
-7. Confirm all ten context tabs have their exact configured headers, bootstrap rows, checkbox validation where applicable, and warning-protected headers.
-8. Edit disposable copies of candidate, evidence, job-preference, application-setting, required-style, banned-phrase, and keyword rows, then run setup a second time.
+7. Confirm all eleven context tabs have their exact configured headers, bootstrap rows, checkbox validation where applicable, and warning-protected headers.
+8. Edit disposable copies of candidate, evidence, job-preference, application-setting, required-style, banned-phrase, prompt-template, and keyword rows, then run setup a second time.
 9. Confirm no duplicate tab, header, validation, protection, context row, keyword row, or record was created and every edit was preserved.
 10. Confirm no old workbook ID, `IMPORTRANGE`, copied business row, or old data is present in Configuration.
 
@@ -144,7 +144,7 @@ copies exactly one unambiguous Google credential reference to every
 Google-capable node, assigns a new version, and keeps the result inactive. A
 pinned older live graph may have fewer Google nodes than its replacement; all
 Google nodes present in that source must still expose the same safe reference.
-The expected replacement credential-bound node counts are 13, 20, and 33
+The expected replacement credential-bound node counts are 13, 21, and 35
 respectively.
 It rejects any credential field in the repository artifact, any live node
 without the common reference, and any credential object containing fields
@@ -338,7 +338,7 @@ Only after non-production passes:
    current Main workbook still has the exact five business sheets and hidden
    `_System`, with all 74 ordered record fields.
 2. Confirm the separate Configuration workbook still has `Search Keywords` and
-   all ten context tabs with exact headers, and reconstructs a valid current
+   all eleven context tabs with exact headers, and reconstructs a valid current
    profile/application context without exposing it in evidence.
 3. Confirm Main, Configuration, and retained old workbook IDs are distinct and
    the old workbook has zero active replacement bindings.

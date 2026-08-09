@@ -1,7 +1,7 @@
 # Candidate Profile and Application Policy
 
 The visible Google Sheet context tabs are the production runtime source of
-candidate facts and editable preferences. `config/candidate-profile.json`,
+candidate facts, editable preferences, and application prompt templates. `config/candidate-profile.json`,
 `config/ranking-policy.json`, and `config/application-policy.json` provide the
 reviewed bootstrap values used only when provisioning a new workbook. A
 workflow must not treat the application policy as evidence of a skill,
@@ -41,12 +41,13 @@ without rebuilding a workflow.
 
 1. Edit the appropriate `Candidate`, `Skills`, `Experience`, `Projects`,
    `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required
-   Style`, or `Banned Phrases` tab.
+   Style`, `Banned Phrases`, or `Prompts` tab.
 2. Keep stable experience/project IDs when editing an existing entity. Use one
    row per highlight and repeat the entity metadata exactly.
 3. Enable or disable list rows with the checkbox instead of deleting facts you
    may want to restore.
-4. Let the next scheduled Generator or Alerter & Mover execution validate and
+4. Preserve every required prompt placeholder and balanced conditional block.
+5. Let the next scheduled Generator or Alerter & Mover execution validate and
    freeze the new snapshot. No workflow rebuild, import, or activation is
    required.
 

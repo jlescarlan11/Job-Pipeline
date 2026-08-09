@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   buildApplicationPack,
   buildApplicationRepairMessage,
+  buildApplicationRepairSystemMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   evaluateJob,
@@ -236,7 +237,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   const userBudget = groqInitialUserCharacterBudget(groqPolicy, system);
   const user = buildApplicationUserMessage(job, pack, {
     maximumCharacters: userBudget,
-    maximumProofs: groqPolicy.generation.maximum_prompt_proofs
+    maximumProofs: groqPolicy.generation.maximum_prompt_proofs,
+    promptTemplates: applicationPolicy.prompt_templates
   });
   const measurement = validateGroqPromptBudget(groqPolicy, system, user);
 
@@ -263,7 +265,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
     { ...pack, safe_job_description: "TypeScript ".repeat(10000) },
     {
       maximumCharacters: userBudget,
-      maximumProofs: groqPolicy.generation.maximum_prompt_proofs
+      maximumProofs: groqPolicy.generation.maximum_prompt_proofs,
+      promptTemplates: applicationPolicy.prompt_templates
     }
   );
   assert.equal(oversized.length, userBudget);
@@ -312,7 +315,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
     },
     {
       maximumCharacters: userBudget,
-      maximumProofs: groqPolicy.generation.maximum_prompt_proofs
+      maximumProofs: groqPolicy.generation.maximum_prompt_proofs,
+      promptTemplates: applicationPolicy.prompt_templates
     }
   );
   assert.equal(oversizedMetadata.length, userBudget);
@@ -332,7 +336,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
     ["unsupported availability or schedule commitment"],
     {
       selectedProofs: pack.selected_proofs,
-      applicationInstructions: pack.application_instructions
+      applicationInstructions: pack.application_instructions,
+      promptTemplates: applicationPolicy.prompt_templates
     }
   );
   assert.equal(validateGroqPromptBudget(groqPolicy, system, repair).valid, true);
@@ -340,8 +345,65 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   assert.ok(repair.includes(pack.selected_proofs[1].reference));
   assert.doesNotMatch(repair, /SAFE JOB DESCRIPTION/);
   assert.throws(
-    () => buildApplicationUserMessage(job, pack, { maximumProofs: 0 }),
+    () => buildApplicationUserMessage(job, pack, {
+      maximumProofs: 0,
+      promptTemplates: applicationPolicy.prompt_templates
+    }),
     /proof limit/
+  );
+
+  const editedTemplates = structuredClone(
+    applicationPolicy.prompt_templates
+  );
+  editedTemplates.application_system =
+    `CONFIGURED SYSTEM PROMPT\n${editedTemplates.application_system}`;
+  editedTemplates.application_user =
+    `CONFIGURED USER PROMPT\n${editedTemplates.application_user}`;
+  editedTemplates.application_repair_system =
+    `CONFIGURED REPAIR SYSTEM PROMPT\n${editedTemplates.application_repair_system}`;
+  editedTemplates.application_repair_user =
+    `CONFIGURED REPAIR USER PROMPT\n${editedTemplates.application_repair_user}`;
+  editedTemplates.application_repair_user_compact =
+    `CONFIGURED COMPACT REPAIR PROMPT\n${editedTemplates.application_repair_user_compact}`;
+  assert.match(
+    buildApplicationSystemMessage(profile, {
+      ...applicationPolicy,
+      prompt_templates: editedTemplates
+    }),
+    /^CONFIGURED SYSTEM PROMPT/
+  );
+  assert.match(
+    buildApplicationUserMessage(job, pack, {
+      maximumCharacters: userBudget,
+      maximumProofs: groqPolicy.generation.maximum_prompt_proofs,
+      promptTemplates: editedTemplates
+    }),
+    /^CONFIGURED USER PROMPT/
+  );
+  assert.match(
+    buildApplicationRepairSystemMessage(profile, {
+      ...applicationPolicy,
+      prompt_templates: editedTemplates
+    }),
+    /^CONFIGURED REPAIR SYSTEM PROMPT/
+  );
+  assert.match(
+    buildApplicationRepairMessage("Rejected draft", ["message is empty"], {
+      promptTemplates: editedTemplates
+    }),
+    /^CONFIGURED REPAIR USER PROMPT/
+  );
+  const forcedCompactTemplates = {
+    ...editedTemplates,
+    application_repair_user:
+      `${editedTemplates.application_repair_user}\n${"oversized ".repeat(2000)}`
+  };
+  assert.match(
+    buildApplicationRepairMessage("Rejected draft", ["message is empty"], {
+      promptTemplates: forcedCompactTemplates,
+      maximumCharacters: 3000
+    }),
+    /^CONFIGURED COMPACT REPAIR PROMPT/
   );
 });
 

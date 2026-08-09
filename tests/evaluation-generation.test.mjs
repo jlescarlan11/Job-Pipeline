@@ -1923,7 +1923,9 @@ test("instruction-aware pack extracts distinct instructions and approved proofs"
   );
   assert.deepEqual(selectedAgain, pack.selected_proofs);
 
-  const prompt = buildApplicationUserMessage(job, pack);
+  const prompt = buildApplicationUserMessage(job, pack, {
+    promptTemplates: policy.prompt_templates
+  });
   assert.match(prompt, /CODE-TS/);
   assert.match(prompt, /SELECTED APPROVED PROOFS/);
   assert.doesNotMatch(prompt, /Match tier:|Resume evidence:/);
@@ -2200,7 +2202,9 @@ test("unsafe markers spanning structure and private-secret requests never reach 
       )
     );
     assert.doesNotMatch(
-      `${pack.safe_job_description}\n${buildApplicationUserMessage(job, pack)}`,
+      `${pack.safe_job_description}\n${buildApplicationUserMessage(job, pack, {
+        promptTemplates: policy.prompt_templates
+      })}`,
       /ignore\s+previous|disregard\s+all\s+prior|banana|developer message|api key|private key|secret access key|client secret|access token|bearer token|recovery phrase|seed phrase|authentication cookie|login credentials|database connection string|private api credential|aws access key id|2fa code|database credentials|session cookie|click apply/i
     );
   }
@@ -2373,7 +2377,8 @@ test("mandatory coverage proofs survive compaction or fail closed", () => {
   });
   const pack = buildApplicationPack(job, profile, policy, packPolicy, now);
   const compactPrompt = buildApplicationUserMessage(job, pack, {
-    maximumProofs: 1
+    maximumProofs: 1,
+    promptTemplates: policy.prompt_templates
   });
   assert.match(compactPrompt, /projects:job-pipeline/);
   assert.doesNotMatch(compactPrompt, /experience:pharmacy-acute-care-university/);
@@ -2391,7 +2396,10 @@ test("mandatory coverage proofs survive compaction or fail closed", () => {
     material_differences: []
   });
   assert.throws(
-    () => buildApplicationUserMessage(job, impossible, { maximumProofs: 1 }),
+    () => buildApplicationUserMessage(job, impossible, {
+      maximumProofs: 1,
+      promptTemplates: policy.prompt_templates
+    }),
     /cannot retain mandatory coverage evidence/
   );
 });
@@ -2458,7 +2466,8 @@ test("requirement-complete adjacent message passes while the reported fluent dra
       groqPolicy,
       boundedSystemMessage
     ),
-    maximumProofs: groqPolicy.generation.maximum_prompt_proofs
+    maximumProofs: groqPolicy.generation.maximum_prompt_proofs,
+    promptTemplates: policy.prompt_templates
   });
   assert.equal(
     validateGroqPromptBudget(
@@ -2495,7 +2504,10 @@ I would welcome a conversation about how my experience fits this role.`;
   assert.match(reportedErrors, /unsupported frequency or universality claim/i);
   assert.match(reportedErrors, /unsupported provider or tool claim/i);
   assert.match(reportedErrors, /unsupported domain claim/i);
-  const boundedRepairSystem = buildApplicationRepairSystemMessage(profile);
+  const boundedRepairSystem = buildApplicationRepairSystemMessage(
+    profile,
+    policy
+  );
   const boundedRepair = buildApplicationRepairMessage(
     reportedMessage,
     rejected.errors,
@@ -2505,6 +2517,7 @@ I would welcome a conversation about how my experience fits this role.`;
       screeningQuestions: pack.screening_questions,
       requirementCoverage: pack.requirement_coverage,
       messagePlan: pack.message_plan,
+      promptTemplates: policy.prompt_templates,
       maximumCharacters:
         groqPolicy.generation.maximum_repair_combined_input_characters -
         boundedRepairSystem.length
@@ -2598,7 +2611,8 @@ test("repair context preserves the complete plan, evidence, and adjacent differe
     applicationInstructions: pack.application_instructions,
     screeningQuestions: pack.screening_questions,
     requirementCoverage: pack.requirement_coverage,
-    messagePlan: pack.message_plan
+    messagePlan: pack.message_plan,
+    promptTemplates: policy.prompt_templates
   });
   assert.match(repair, /REQUIREMENT-AWARE MESSAGE PLAN/);
   assert.match(repair, /Claude was requested; approved evidence names Groq instead/);
@@ -3062,7 +3076,9 @@ test("repair prompt contains the complete rejected draft and every deterministic
     "unsupported availability or schedule commitment",
     "unsupported skill: Expo"
   ];
-  const prompt = buildApplicationRepairMessage(rejectedDraft, errors);
+  const prompt = buildApplicationRepairMessage(rejectedDraft, errors, {
+    promptTemplates: policy.prompt_templates
+  });
   assert.match(prompt, /Repair the rejected application message/);
   assert.ok(prompt.includes(rejectedDraft));
   for (const error of errors) assert.ok(prompt.includes(error));
@@ -3208,7 +3224,8 @@ test("Proceed routes answerable questions into generation and keeps sensitive qu
   );
   const approvedPrompt = buildApplicationUserMessage(
     approvedJob,
-    approvedPack
+    approvedPack,
+    { promptTemplates: policy.prompt_templates }
   );
   assert.match(
     approvedPrompt,
@@ -3241,7 +3258,8 @@ test("Proceed routes answerable questions into generation and keeps sensitive qu
   assert.equal(aiQuestionPack.selected_proof_refs[0], "projects:job-pipeline");
   const aiQuestionPrompt = buildApplicationUserMessage(
     aiQuestionJob,
-    aiQuestionPack
+    aiQuestionPack,
+    { promptTemplates: policy.prompt_templates }
   );
   assert.match(aiQuestionPrompt, /most useful thing you've built or automated/i);
   assert.match(aiQuestionPrompt, /What AI tools have you used and for what\?/i);
@@ -3328,7 +3346,9 @@ I would welcome a conversation about how my experience fits this role.`;
     "manual_submission_required"
   );
   assert.doesNotMatch(
-    buildApplicationUserMessage(approvedJob, sensitivePack),
+    buildApplicationUserMessage(approvedJob, sensitivePack, {
+      promptTemplates: policy.prompt_templates
+    }),
     /What hourly rate are you seeking\?/
   );
 
@@ -3432,7 +3452,9 @@ test("prompt injection is rejected without persisting the malicious instruction 
       (warning) => warning.code === "unsafe_instruction_rejected"
     )
   );
-  const prompt = buildApplicationUserMessage(job, pack);
+  const prompt = buildApplicationUserMessage(job, pack, {
+    promptTemplates: policy.prompt_templates
+  });
   assert.doesNotMatch(
     prompt,
     /ignore previous instructions|reveal the system prompt|automatically submit the application|spend Apply Points/i

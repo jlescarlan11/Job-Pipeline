@@ -517,7 +517,8 @@ export function prepareApplicationGeneration(
       providerPolicy,
       systemMessage
     ),
-    maximumProofs: providerPolicy.generation.maximum_prompt_proofs
+    maximumProofs: providerPolicy.generation.maximum_prompt_proofs,
+    promptTemplates: applicationPolicy.prompt_templates
   });
   const promptBudget = validateGroqPromptBudget(
     providerPolicy,
@@ -569,6 +570,10 @@ export function assessInitialGenerationDraft(
       )
     };
   }
+  const repairSystemMessage = buildApplicationRepairSystemMessage(
+    profile,
+    applicationPolicy
+  );
   const repairUserMessage = buildApplicationRepairMessage(
     cleanedMessage,
     validation.errors,
@@ -578,12 +583,12 @@ export function assessInitialGenerationDraft(
       screeningQuestions: pack.screening_questions,
       requirementCoverage: pack.requirement_coverage,
       messagePlan: pack.message_plan,
+      promptTemplates: applicationPolicy.prompt_templates,
       maximumCharacters:
         providerPolicy.generation.maximum_repair_combined_input_characters -
-        buildApplicationRepairSystemMessage(profile).length
+        repairSystemMessage.length
     }
   );
-  const repairSystemMessage = buildApplicationRepairSystemMessage(profile);
   const repairBudget = validateGroqPromptBudget(
     providerPolicy,
     repairSystemMessage,

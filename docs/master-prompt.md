@@ -4,10 +4,27 @@ The Groq request system message is assembled at runtime from one frozen Google
 Sheets context snapshot. Its compact identity and approved-URL block come from
 `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, and `Awards`;
 editable copy controls come from `Application Settings`, `Required Style`, and
-`Banned Phrases`. The
+`Banned Phrases`. All five model-facing templates come from the visible
+`Prompts` tab. The
 per-job selected proofs resolve from that same snapshot. Repository policies
-retain the non-editable safety, pack, provider, and runtime bounds. Generated
-workflow exports contain no personal profile payload.
+retain the deterministic output-safety, pack, provider, and runtime bounds.
+Generated workflow exports contain neither the editable prompt bodies nor a
+personal profile payload.
+
+The `Prompts` tab owns these exact keys:
+
+- `application_system`
+- `application_user`
+- `application_repair_system`
+- `application_repair_user`
+- `application_repair_user_compact`
+
+Templates use validated `{{placeholder}}` values and optional conditional
+blocks such as `{{#message_plan_json}}...{{/message_plan_json}}`. The inverse
+form `{{^message_plan_json}}...{{/message_plan_json}}` is used when the value is
+absent. A missing key, duplicate key, unknown or missing placeholder, malformed
+tag, unbalanced block, blank template, or oversized cell stops context
+compilation before a provider request.
 
 The generated HTTPS requests read the Groq API key from
 `JOB_PIPELINE_GROQ_API_KEY`. The export contains no secret and remains
@@ -92,9 +109,14 @@ pack/message. A retry is a later claimed execution and must pass the same
 validation and stale-state commit guard.
 
 To change candidate facts, role/salary preferences, greeting, subject template,
-required style, or banned phrases, edit the corresponding visible context tab.
-The next execution computes new context hashes automatically; no workflow build
-or import is required.
+required style, banned phrases, or any initial/repair prompt, edit the
+corresponding visible context tab. Prompt edits are included in the application
+policy hash. The next execution computes new context hashes automatically; no
+workflow build or import is required, and older generated messages fail the
+current-policy safety gate until regenerated.
 
-Do not paste a separate resume into n8n or edit the exported system message;
+Do not paste a separate resume into n8n or edit generated workflow code;
 doing so creates configuration drift and bypasses Sheet-context validation.
+Prompt edits can change tone and instructions, but they cannot bypass the
+deterministic pack, message validation, manual-submission, URL, evidence, and
+provenance gates.

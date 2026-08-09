@@ -139,7 +139,8 @@ test("Generator freezes context eagerly while Alerter loads it lazily without em
     "Job Preferences",
     "Application Settings",
     "Required Style",
-    "Banned Phrases"
+    "Banned Phrases",
+    "Prompts"
   ]) {
     const read = node(generator, `Get ${name} Context`);
     assert.equal(read.parameters.sheetName.value, name);
@@ -149,6 +150,14 @@ test("Generator freezes context eagerly while Alerter loads it lazily without em
     );
   }
   node(generator, "Compile Candidate Context");
+  assert.equal(generator.meta.promptSource, "Prompts");
+  assert.deepEqual(generator.meta.promptTemplateKeys, [
+    "application_system",
+    "application_user",
+    "application_repair_system",
+    "application_repair_user",
+    "application_repair_user_compact"
+  ]);
 
   const alerter = workflows["alerter-mover.json"];
   assert.equal(
@@ -170,9 +179,14 @@ test("Generator freezes context eagerly while Alerter loads it lazily without em
     "Summarize Alerter & Mover Run"
   );
   node(alerter, "Compile Alert Configuration");
+  assert.equal(alerter.meta.promptSource, "Prompts");
 
   for (const workflow of [generator, alerter]) {
     const serialized = JSON.stringify(workflow);
+    assert.doesNotMatch(
+      serialized,
+      /Write one truthful, copy-ready OnlineJobs\.ph application message/
+    );
     for (const personalFact of [
       "John Lester Escarlan",
       "johnlesterescarlan",
@@ -219,7 +233,7 @@ test("workflows bind queue and configuration workbooks by environment, never the
     )) {
       const isConfigurationRead =
         sheetNode.name === "Get Search Keywords" ||
-        /^Get (Candidate|Skills|Experience|Projects|Education|Awards|Job Preferences|Application Settings|Required Style|Banned Phrases) Context$/.test(
+        /^Get (Candidate|Skills|Experience|Projects|Education|Awards|Job Preferences|Application Settings|Required Style|Banned Phrases|Prompts) Context$/.test(
           sheetNode.name
         );
       assert.equal(

@@ -597,11 +597,12 @@ test("blank setup creates separate Main and Configuration workbooks", () => {
       "Job Preferences",
       "Application Settings",
       "Required Style",
-      "Banned Phrases"
+      "Banned Phrases",
+      "Prompts"
     ]
   );
   assert.equal(main.sheets.filter((sheet) => !sheet.hidden).length, 5);
-  assert.equal(configuration.sheets.filter((sheet) => !sheet.hidden).length, 11);
+  assert.equal(configuration.sheets.filter((sheet) => !sheet.hidden).length, 12);
   for (const sheet of main.sheets.filter(
     (sheet) =>
       [
@@ -635,7 +636,8 @@ test("blank setup creates separate Main and Configuration workbooks", () => {
     "job_preferences",
     "application_settings",
     "required_style",
-    "banned_phrases"
+    "banned_phrases",
+    "prompts"
   ]) {
     const definition = review.sheets[key];
     const contextSheet = configuration.sheets.find(

@@ -44,7 +44,8 @@ const CONTEXT_SHEET_KEYS = [
   "job_preferences",
   "application_settings",
   "required_style",
-  "banned_phrases"
+  "banned_phrases",
+  "prompts"
 ];
 const STEADY_STATE_SHEETS = [
   "Scraped Jobs",
@@ -63,6 +64,7 @@ const STEADY_STATE_SHEETS = [
   "Application Settings",
   "Required Style",
   "Banned Phrases",
+  "Prompts",
   "_System"
 ];
 const MIGRATION_REJECT_CATEGORIES = new Set([
@@ -245,8 +247,8 @@ export function planRecordHeaderUpgrade(snapshot, review, schema) {
 
 export function validateFreshSheetConfig(review, schema) {
   const errors = [];
-  if (review?.schema_version !== 7) {
-    errors.push("review-sheet schema_version must be 7");
+  if (review?.schema_version !== 8) {
+    errors.push("review-sheet schema_version must be 8");
   }
   const configuredNames = Object.values(review?.sheets ?? {}).map(
     (sheet) => sheet?.name
@@ -346,7 +348,8 @@ export function validateFreshSheetConfig(review, schema) {
     job_preferences: ["enabled", "type", "group", "value", "score"],
     application_settings: ["key", "value"],
     required_style: ["enabled", "style"],
-    banned_phrases: ["enabled", "phrase"]
+    banned_phrases: ["enabled", "phrase"],
+    prompts: ["prompt_key", "template"]
   };
   for (const key of CONTEXT_SHEET_KEYS) {
     const definition = review?.sheets?.[key];

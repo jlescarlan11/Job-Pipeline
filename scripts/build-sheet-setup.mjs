@@ -15,13 +15,28 @@ const schema = JSON.parse(
 const review = JSON.parse(
   await readFile(resolve(root, "config/review-sheet.json"), "utf8")
 );
+const applicationPolicy = JSON.parse(
+  await readFile(resolve(root, "config/application-policy.json"), "utf8")
+);
 
 const schemaErrors = validatePipelineSchema(schema);
 if (schemaErrors.length > 0) {
   throw new Error(`Invalid pipeline schema:\n- ${schemaErrors.join("\n- ")}`);
 }
-if (review?.schema_version !== 7) {
-  throw new Error("review-sheet schema_version must be 7");
+if (review?.schema_version !== 8) {
+  throw new Error("review-sheet schema_version must be 8");
+}
+if (
+  JSON.stringify(
+    Object.fromEntries(
+      review.sheets.prompts.initial_rows.map((row) => [
+        row.prompt_key,
+        row.template
+      ])
+    )
+  ) !== JSON.stringify(applicationPolicy.prompt_templates)
+) {
+  throw new Error("Prompts bootstrap rows must match application-policy templates");
 }
 if (
   JSON.stringify(review.all_record_columns) !== JSON.stringify(schema.fields)
@@ -82,7 +97,8 @@ function setupFreshJobPipeline_(workbookRole) {
       'job_preferences',
       'application_settings',
       'required_style',
-      'banned_phrases'
+      'banned_phrases',
+      'prompts'
     ]);
     const expectedKeys = workbookRole === 'main'
       ? mainSheetKeys
@@ -208,7 +224,8 @@ function setupFreshJobPipeline_(workbookRole) {
         'job_preferences',
         'application_settings',
         'required_style',
-        'banned_phrases'
+        'banned_phrases',
+        'prompts'
       ].forEach((key) => {
         const definition = JOB_PIPELINE_SETUP.sheets[key];
         configureContextSheet_(
@@ -409,7 +426,9 @@ function configureContextSheet_(sheet, definition, createdNow) {
       key: 280,
       score: 100,
       style: 520,
-      phrase: 420
+      phrase: 420,
+      prompt_key: 280,
+      template: 900
     };
     sheet.setColumnWidth(column, widths[field] || 150);
     if ([
@@ -422,7 +441,8 @@ function configureContextSheet_(sheet, definition, createdNow) {
       'institution',
       'award',
       'style',
-      'phrase'
+      'phrase',
+      'template'
     ].includes(field)) {
       sheet.getRange(2, column, Math.max(sheet.getMaxRows() - 1, 1), 1)
         .setWrap(true);

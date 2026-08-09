@@ -3,7 +3,7 @@
   "policy_version": "2026-08-03/v1",
   "pack_version": "2026-08-03/v1",
   "candidate_profile_version": "2026-07-29",
-  "application_policy_version": "2026-07-28",
+  "application_policy_version": "2026-08-09",
   "minimum_preferred_proofs": 2,
   "maximum_proofs": 2,
   "maximum_instructions": 20,

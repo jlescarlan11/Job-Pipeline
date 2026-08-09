@@ -1,6 +1,6 @@
 # Fresh workbook schema
 
-Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs and one hidden operational tab; the separate configuration setup creates eleven visible configuration/context tabs:
+Run the generated `setupFreshJobPipeline()` function from `google-apps-script/SheetSetup.gs` in a new workbook. It creates five visible business tabs and one hidden operational tab; the separate configuration setup creates twelve visible configuration/context tabs:
 
 - `Scraped Jobs`
 - `To Review`
@@ -18,6 +18,7 @@ Run the generated `setupFreshJobPipeline()` function from `google-apps-script/Sh
 - `Application Settings`
 - `Required Style`
 - `Banned Phrases`
+- `Prompts`
 - `_System` (hidden, short-lived claims only)
 
 An empty default `Sheet1` or another empty unexpected tab is removed. Setup refuses to delete a non-empty unexpected tab or replace conflicting headers. This makes the fresh-start instruction explicit without silently destroying existing data.
@@ -164,7 +165,7 @@ by the workflow and are not operator-managed.
 
 ## Candidate context tabs
 
-These tabs live in the separate Configuration workbook. The Generator and Alerter & Mover read all ten context tabs at the start of
+These tabs live in the separate Configuration workbook. The Generator and Alerter & Mover read all eleven context tabs at the start of
 every execution and freeze one validated snapshot. The workflow automatically
 derives profile, ranking, and application context hashes, so operators do not
 edit version identifiers.
@@ -188,11 +189,17 @@ edit version identifiers.
   row.
 - `Banned Phrases` uses `enabled` and `phrase`; add one disallowed phrase per
   row.
+- `Prompts` uses `prompt_key` and `template`. It contains exactly five editable
+  templates: `application_system`, `application_user`,
+  `application_repair_system`, `application_repair_user`, and
+  `application_repair_user_compact`. Preserve every documented `{{placeholder}}`
+  and balanced `{{#value}}...{{/value}}` or
+  `{{^value}}...{{/value}}` conditional block.
 
 Enabled columns use checkboxes and every header is warning-protected. Data rows
 remain editable. Missing required fields, conflicting repeated entities,
-invalid URLs, duplicate skills, invalid evidence references, or malformed
-preferences stop the execution before job claims, moves, alerts, or provider
+invalid URLs, duplicate skills, invalid evidence references, malformed
+preferences, or invalid prompt keys/placeholders stop the execution before job claims, moves, alerts, or provider
 requests. A context edit captured after an execution begins applies to the next
 execution. Existing generated messages retain their historical hashes and are
 not alert-eligible after the active context changes.

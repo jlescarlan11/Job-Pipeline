@@ -214,7 +214,7 @@ sanitized permanent record is
 
 ## Issue #51 — idempotent Search Keywords sheet
 
-1. **51-AC-01 — Focused workbooks — SATISFIED:** `planFreshWorkbookSetup` defines a Main workbook with five visible business tabs plus hidden `_System`, and a separate Configuration workbook with `Search Keywords` and the ten context tabs; blank-workbook contract tests assert both exact sets.
+1. **51-AC-01 — Focused workbooks — SATISFIED:** `planFreshWorkbookSetup` defines a Main workbook with five visible business tabs plus hidden `_System`, and a separate Configuration workbook with `Search Keywords` and the eleven context tabs; blank-workbook contract tests assert both exact sets.
 2. **51-AC-02 — Exact ordered headers — SATISFIED:** The configuration owns only `enabled` then `keyword`; planner and generated-artifact tests assert that order.
 3. **51-AC-03 — Checkbox validation — SATISFIED:** The generated Apps Script applies strict `requireCheckbox()` validation to the complete `enabled` data range; planner and artifact tests assert the rule.
 4. **51-AC-04 — Protected header/editable rows — SATISFIED:** Setup installs one warning-only generated header protection and no generated data-column protection; the planner asserts a protected header with both data fields editable.
@@ -277,7 +277,7 @@ sanitized permanent record is
 
 ## Issue #55 — segmented job-queue contract and setup
 
-1. **55-AC-01 — Focused Main plan — SATISFIED:** The current Main workbook has exactly five visible business tabs plus hidden `_System`; Search Keywords and the ten Sheet-context tabs live in the separate Configuration workbook.
+1. **55-AC-01 — Focused Main plan — SATISFIED:** The current Main workbook has exactly five visible business tabs plus hidden `_System`; Search Keywords and the eleven Sheet-context tabs live in the separate Configuration workbook.
 2. **55-AC-02 — Retired steady-state name — SATISFIED:** Configuration and generated setup exclude `Review Queue`; only the explicit legacy migration boundary recognizes it.
 3. **55-AC-03 — Complete ordered fields — SATISFIED:** Configuration validation and tests compare every one of the five business stores with the same 69-field ordered schema.
 4. **55-AC-04 — To Review dropdown — SATISFIED:** Planner/artifact tests prove exact `Approve`/`Deny` list validation with blank allowed.

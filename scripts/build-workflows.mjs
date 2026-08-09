@@ -142,6 +142,13 @@ const groqModel = groqPolicy.models.find(
 const groqRepairModel = groqPolicy.models.find(
   (model) => model.id === groqPolicy.repair_model
 );
+const {
+  prompt_templates: applicationPromptTemplates,
+  ...applicationPolicyBase
+} = applicationPolicy;
+if (!applicationPromptTemplates) {
+  throw new Error("Application prompt bootstrap templates are missing");
+}
 const movementCore = await bundledCore(
   "src/contracts.mjs",
   "src/profile.mjs",
@@ -193,6 +200,12 @@ const contextSources = [
     "banned_phrases",
     "Banned Phrases",
     "banned_phrase_rows"
+  ],
+  [
+    "promptTemplateRows",
+    "prompts",
+    "Prompts",
+    "prompt_template_rows"
   ]
 ];
 
@@ -230,7 +243,7 @@ const rows = {
 };
 return { json: compileSheetContext(rows, {
   rankingPolicy: ${JSON.stringify(rankingPolicy)},
-  applicationPolicy: ${JSON.stringify(applicationPolicy)},
+  applicationPolicy: ${JSON.stringify(applicationPolicyBase)},
   packPolicy: ${JSON.stringify(packPolicy)}
 }) };`,
       undefined,
@@ -2101,11 +2114,13 @@ return { json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "evaluator_generator",
-      workflowContractVersion: "2026-08-04/v1",
+      workflowContractVersion: "2026-08-09/v1",
       legacyStateGuardCompatibility: false,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
-      preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases",
+      preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases, Prompts",
+      promptSource: "Prompts",
+      promptTemplateKeys: Object.keys(applicationPromptTemplates),
       applicationPackPolicyVersion: packPolicy.policy_version,
       groqProviderPolicyVersion: groqPolicy.policy_version,
       processingSourceSheets: [queue, toApply],
@@ -3245,7 +3260,7 @@ ${contextSources.map(([property, , label]) => `  ${property}: parsed[${JSON.stri
 };
 const context = compileSheetContext(rows, {
   rankingPolicy: ${JSON.stringify(rankingPolicy)},
-  applicationPolicy: ${JSON.stringify(applicationPolicy)},
+  applicationPolicy: ${JSON.stringify(applicationPolicyBase)},
   packPolicy: ${JSON.stringify(packPolicy)}
 });
 const preselection = $('Preselect Persisted Alert Work').first().json;
@@ -4920,7 +4935,7 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-07/v4",
+      workflowContractVersion: "2026-08-09/v1",
       legacyStateGuardCompatibility: false,
       businessRowRelocationMode: "copy_confirm_delete_only",
       alertPolicyVersion: alertPolicy.policy_version,
@@ -4929,7 +4944,9 @@ return [{ json: {
         alertReceiptPolicy.store.environment_variable,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
-      preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases",
+      preferenceSource: "Job Preferences, Application Settings, Required Style, Banned Phrases, Prompts",
+      promptSource: "Prompts",
+      promptTemplateKeys: Object.keys(applicationPromptTemplates),
       sourceSheets: [scraped, toReview, toApply],
       destinationSheets: schema.business_stores,
       alertSourceSheet: toApply,

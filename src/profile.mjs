@@ -4,6 +4,113 @@ const PROFILE_VERSION_PATTERN = /^(?:\d{4}-\d{2}-\d{2}|sheet\/[a-f0-9]{16})$/;
 const UNRESOLVED_PLACEHOLDER_PATTERN =
   /\[(?:add|insert|month|year|tbd|todo|unknown|not provided)\b[^\]]*\]/i;
 
+export const APPLICATION_PROMPT_TEMPLATE_CONTRACT = Object.freeze({
+  application_system: [
+    "candidate_name",
+    "authoritative_identity_json",
+    "message_policy_json",
+    "maximum_words"
+  ],
+  application_user: [
+    "job_title",
+    "company",
+    "message_plan_json",
+    "selected_proofs_json",
+    "safe_employer_formatting_json",
+    "screening_questions_to_answer_json",
+    "unresolved_screening_questions_json",
+    "application_warnings_json",
+    "unsupported_requirements_json",
+    "operator_review_context_json",
+    "safe_job_description"
+  ],
+  application_repair_system: ["candidate_name"],
+  application_repair_user: [
+    "selected_proofs_json",
+    "message_plan_json",
+    "safe_employer_formatting_json",
+    "screening_questions_to_answer_json",
+    "validation_errors_json",
+    "rejected_message"
+  ],
+  application_repair_user_compact: [
+    "selected_proofs_json",
+    "message_plan_json",
+    "safe_employer_formatting_json",
+    "screening_questions_to_answer_json",
+    "validation_errors_json",
+    "rejected_message"
+  ]
+});
+
+function promptTemplateTags(template) {
+  const tags = [];
+  const pattern = /\{\{([#^\/]?)([a-z][a-z0-9_]*)\}\}/g;
+  let match;
+  while ((match = pattern.exec(template)) !== null) {
+    tags.push({ marker: match[1], name: match[2] });
+  }
+  return tags;
+}
+
+export function validateApplicationPromptTemplates(templates) {
+  const errors = [];
+  if (!isPlainObject(templates)) return ["prompt_templates must be an object"];
+  const expectedKeys = Object.keys(APPLICATION_PROMPT_TEMPLATE_CONTRACT);
+  const actualKeys = Object.keys(templates);
+  for (const key of expectedKeys) {
+    const template = templates[key];
+    if (typeof template !== "string" || !template.trim()) {
+      errors.push(`prompt template ${key} is required`);
+      continue;
+    }
+    if (template.length > 45000) {
+      errors.push(`prompt template ${key} exceeds the Google Sheets cell limit`);
+      continue;
+    }
+    const recognizedText = template.replace(
+      /\{\{[#^\/]?[a-z][a-z0-9_]*\}\}/g,
+      ""
+    );
+    if (/\{\{|\}\}/.test(recognizedText)) {
+      errors.push(`prompt template ${key} contains malformed placeholders`);
+      continue;
+    }
+    const allowed = new Set(APPLICATION_PROMPT_TEMPLATE_CONTRACT[key]);
+    const interpolations = new Set();
+    const stack = [];
+    for (const tag of promptTemplateTags(template)) {
+      if (!allowed.has(tag.name)) {
+        errors.push(`prompt template ${key} contains unsupported placeholder: ${tag.name}`);
+        continue;
+      }
+      if (tag.marker === "#" || tag.marker === "^") {
+        stack.push(tag.name);
+      } else if (tag.marker === "/") {
+        if (stack.pop() !== tag.name) {
+          errors.push(`prompt template ${key} contains unbalanced block: ${tag.name}`);
+        }
+      } else {
+        interpolations.add(tag.name);
+      }
+    }
+    if (stack.length > 0) {
+      errors.push(`prompt template ${key} contains an unclosed conditional block`);
+    }
+    for (const placeholder of allowed) {
+      if (!interpolations.has(placeholder)) {
+        errors.push(`prompt template ${key} is missing placeholder: ${placeholder}`);
+      }
+    }
+  }
+  for (const key of actualKeys) {
+    if (!expectedKeys.includes(key)) {
+      errors.push(`unsupported prompt template key: ${key}`);
+    }
+  }
+  return errors;
+}
+
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -132,6 +239,7 @@ export function validateApplicationPolicy(policy, profile) {
   if (!Number.isInteger(policy.max_body_words) || policy.max_body_words < 1) {
     errors.push("max_body_words must be a positive integer");
   }
+  errors.push(...validateApplicationPromptTemplates(policy.prompt_templates));
 
   const linkKeys = new Set(Object.keys(profile?.candidate?.links ?? {}));
   for (const key of policy.approved_candidate_url_keys ?? []) {

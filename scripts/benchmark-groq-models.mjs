@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import {
   buildApplicationPack,
   buildApplicationRepairMessage,
+  buildApplicationRepairSystemMessage,
   buildApplicationSystemMessage,
   buildApplicationUserMessage,
   cleanGeneratedMessage,
@@ -180,7 +181,8 @@ async function benchmarkCase({
   const userBudget = groqInitialUserCharacterBudget(policy, systemMessage);
   const initialPrompt = buildApplicationUserMessage(evaluated, pack, {
     maximumCharacters: userBudget,
-    maximumProofs: policy.generation.maximum_prompt_proofs
+    maximumProofs: policy.generation.maximum_prompt_proofs,
+    promptTemplates: applicationPolicy.prompt_templates
   });
   if (!validateGroqPromptBudget(policy, systemMessage, initialPrompt).valid) {
     throw new Error(`benchmark fixture ${fixture.id} exceeds the input budget`);
@@ -206,16 +208,21 @@ async function benchmarkCase({
   );
   const calls = [initial];
   if (!validation.valid) {
+    const repairSystemMessage = buildApplicationRepairSystemMessage(
+      profile,
+      applicationPolicy
+    );
     const repairPrompt = buildApplicationRepairMessage(
       finalMessage,
       validation.errors,
       {
         selectedProofs: pack.selected_proofs,
         applicationInstructions: pack.application_instructions,
-        screeningQuestions: pack.screening_questions
+        screeningQuestions: pack.screening_questions,
+        promptTemplates: applicationPolicy.prompt_templates
       }
     );
-    if (!validateGroqPromptBudget(policy, systemMessage, repairPrompt).valid) {
+    if (!validateGroqPromptBudget(policy, repairSystemMessage, repairPrompt).valid) {
       return {
         case: fixture.id,
         valid: false,
@@ -240,7 +247,7 @@ async function benchmarkCase({
       apiKey,
       model: repairModel,
       policy,
-      systemMessage,
+      systemMessage: repairSystemMessage,
       userMessage: repairPrompt,
       fetchImpl
     });

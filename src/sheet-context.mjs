@@ -1,5 +1,7 @@
 import {
+  APPLICATION_PROMPT_TEMPLATE_CONTRACT,
   validateApplicationPolicy,
+  validateApplicationPromptTemplates,
   validateCandidateProfile
 } from "./profile.mjs";
 
@@ -262,7 +264,12 @@ function enabledTextRows(rows, field, sheetName) {
 }
 
 function parseApplicationPreferences(
-  { applicationSettingRows, requiredStyleRows, bannedPhraseRows },
+  {
+    applicationSettingRows,
+    requiredStyleRows,
+    bannedPhraseRows,
+    promptTemplateRows
+  },
   profile,
   basePolicy
 ) {
@@ -285,6 +292,25 @@ function parseApplicationPreferences(
     "phrase",
     "Banned Phrases"
   );
+  const promptTemplates = {};
+  for (const row of nonemptyRows(promptTemplateRows)) {
+    const key = normalizedText(row.prompt_key);
+    const template = String(row.template ?? "").normalize("NFKC").trim();
+    if (!key || !template || Object.hasOwn(promptTemplates, key)) {
+      throw new Error("Prompts contains an invalid or duplicate prompt key");
+    }
+    promptTemplates[key] = template;
+  }
+  const promptErrors = validateApplicationPromptTemplates(promptTemplates);
+  if (promptErrors.length > 0) {
+    throw new Error(`Invalid Prompts Sheet context: ${promptErrors.join("; ")}`);
+  }
+  if (
+    Object.keys(promptTemplates).length !==
+    Object.keys(APPLICATION_PROMPT_TEMPLATE_CONTRACT).length
+  ) {
+    throw new Error("Prompts must contain every required prompt template exactly once");
+  }
   requireFields(
     settings,
     [
@@ -306,7 +332,8 @@ function parseApplicationPreferences(
   const source = {
     settings: Object.fromEntries(settings),
     required_style: requiredStyle,
-    banned_phrases: bannedPhrases
+    banned_phrases: bannedPhrases,
+    prompt_templates: promptTemplates
   };
   const policy = {
     ...jsonClone(basePolicy),
@@ -321,7 +348,8 @@ function parseApplicationPreferences(
     approved_candidate_url_keys: Object.keys(profile.candidate.links),
     approved_project_ids: profile.projects.map((project) => project.id),
     required_style: requiredStyle,
-    banned_phrases: bannedPhrases
+    banned_phrases: bannedPhrases,
+    prompt_templates: promptTemplates
   };
   const errors = validateApplicationPolicy(policy, profile);
   if (errors.length > 0) {
@@ -390,7 +418,8 @@ export function compileSheetContext(
     {
       applicationSettingRows: rows.applicationSettingRows,
       requiredStyleRows: rows.requiredStyleRows,
-      bannedPhraseRows: rows.bannedPhraseRows
+      bannedPhraseRows: rows.bannedPhraseRows,
+      promptTemplateRows: rows.promptTemplateRows
     },
     profile,
     applicationPolicy

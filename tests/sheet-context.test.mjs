@@ -34,7 +34,8 @@ function seedRows() {
       sheets.application_settings.initial_rows
     ),
     requiredStyleRows: structuredClone(sheets.required_style.initial_rows),
-    bannedPhraseRows: structuredClone(sheets.banned_phrases.initial_rows)
+    bannedPhraseRows: structuredClone(sheets.banned_phrases.initial_rows),
+    promptTemplateRows: structuredClone(sheets.prompts.initial_rows)
   };
 }
 
@@ -75,6 +76,10 @@ test("context tabs reconstruct the approved bootstrap profile and valid policies
   assert.equal(
     context.pack_policy.application_policy_version,
     context.application_policy.policy_version
+  );
+  assert.deepEqual(
+    context.application_policy.prompt_templates,
+    applicationPolicy.prompt_templates
   );
 });
 
@@ -123,6 +128,22 @@ test("Sheet-only edits change the correct context hashes automatically", () => {
       "generic application wording"
     )
   );
+
+  const promptEdit = seedRows();
+  promptEdit.promptTemplateRows.find(
+    (row) => row.prompt_key === "application_system"
+  ).template = promptEdit.promptTemplateRows.find(
+    (row) => row.prompt_key === "application_system"
+  ).template.replace("copy-ready", "concise and copy-ready");
+  const afterPrompt = compile(promptEdit);
+  assert.notEqual(
+    afterPrompt.application_policy.policy_version,
+    before.application_policy.policy_version
+  );
+  assert.match(
+    afterPrompt.application_policy.prompt_templates.application_system,
+    /concise and copy-ready/
+  );
 });
 
 test("invalid or conflicting Sheet context fails closed", () => {
@@ -163,5 +184,23 @@ test("invalid or conflicting Sheet context fails closed", () => {
   assert.throws(
     () => compile(duplicateBannedPhrase),
     /Banned Phrases contains duplicate value/
+  );
+
+  const missingPrompt = seedRows();
+  missingPrompt.promptTemplateRows = missingPrompt.promptTemplateRows.filter(
+    (row) => row.prompt_key !== "application_repair_user_compact"
+  );
+  assert.throws(
+    () => compile(missingPrompt),
+    /application_repair_user_compact is required/
+  );
+
+  const malformedPrompt = seedRows();
+  malformedPrompt.promptTemplateRows.find(
+    (row) => row.prompt_key === "application_user"
+  ).template += "\n{{unknown_prompt_value}}";
+  assert.throws(
+    () => compile(malformedPrompt),
+    /unsupported placeholder: unknown_prompt_value/
   );
 });

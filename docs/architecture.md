@@ -33,7 +33,7 @@ To Apply -- Generator --> pending/preparing/message_ready
 
 The Main workbook has five visible authoritative business stores: `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. Alerter & Mover atomically sorts complete business rows in movement-touched stores by their store-specific lifecycle timestamp before rereading those stores and resolving deletion row numbers, so newest records stay directly below each header without weakening copy-confirm-delete. Its hidden `_System` tab contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work. Movement and alert contenders wait ten seconds and reread claims before selecting a winner so a concurrent Google Sheets append that becomes visible after the first read cannot authorize a stale writer.
 
-The separate Configuration workbook contains the eleven visible operator-owned tabs: `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, and `Banned Phrases`. None is a business-record store. Workflows read these tabs directly from the Configuration workbook; the Main workbook contains no configuration copies or `IMPORTRANGE` bridge.
+The separate Configuration workbook contains the twelve visible operator-owned tabs: `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, `Banned Phrases`, and `Prompts`. None is a business-record store. Workflows read these tabs directly from the Configuration workbook; the Main workbook contains no configuration copies or `IMPORTRANGE` bridge.
 
 Google Sheet validation improves usability, but workflow-side contract validation is authoritative. Generated fields use warning-only protection; an API or pasted value is still validated again before any status change, alert, or move.
 
@@ -69,7 +69,7 @@ The workflow reads both `Scraped Jobs` and `To Apply`, orders all eligible evalu
 
 Each candidate retains its source store, review case/decision, preparation version/input guard, record version, state guard, identity, claim token, user action, and persistence result. A stale value rejects that candidate's commit without ending the batch. The workflow rereads the same source store and verifies every committed machine field; a missing, ambiguous, partial, or mismatched write fails closed for that candidate. Provider, validation, Sheet, and stale-write failures are isolated, so later frozen candidates still run.
 
-Before reading the queue, Generator reads all ten context tabs from the Configuration workbook and freezes one
+Before reading the queue, Generator reads all eleven context tabs from the Configuration workbook and freezes one
 validated profile/ranking/application snapshot. Context hashes are derived from
 the normalized values, so any edit automatically changes provenance. Invalid
 context stops the run before queue claims or provider requests. Deterministic

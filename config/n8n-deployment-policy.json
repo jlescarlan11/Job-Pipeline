@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-08-07/v3",
+  "policy_version": "2026-08-09/v1",
   "deployment_scope": "self_hosted_regular",
-  "verified_on": "2026-08-07",
+  "verified_on": "2026-08-09",
   "official_sources": [
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
@@ -80,7 +80,7 @@
     "storage_version": "2026-08-04-preparation-lifecycle-v4",
     "pipeline_contract_digest": "pipeline-v1:038ef670",
     "candidate_profile_version": "2026-07-29",
-    "application_policy_version": "2026-07-28",
+    "application_policy_version": "2026-08-09",
     "application_pack_policy_version": "2026-08-03/v1",
     "application_pack_version": "2026-08-03/v1",
     "coverage_contract_version": "2026-08-03/v1",
@@ -126,14 +126,14 @@
       {
         "role": "evaluator_generator",
         "target_workflow_id": "TRUqD9atneyDyMNx",
-        "artifact_digest": "sha256:a2c55f37cb564ac1868c052f75b62d1a931f455c027aede16be1c71c2659fd9c",
+        "artifact_digest": "sha256:b4ca6b45dd1648a2ee5e36cee0aa1a4062cf8aae4047035c648b16bf9034e0b7",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 480,
         "schedule_expressions": [
           "0 2 0,3,6,9,12,15,18,21 * * *",
           "0 32 1,4,7,10,13,16,19,22 * * *"
         ],
-        "google_credential_node_count": 20,
+        "google_credential_node_count": 21,
         "name_markers": [
           "Evaluator & Generator",
           "Safe Routing"
@@ -150,7 +150,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:7fd7ff0532ccad76cea57c5bfd246271392ae297997946613bcc716e9115d8e7",
+        "artifact_digest": "sha256:f6416f71d9a0530c0a3aaac9eb548b2f1b4fa3dfe7181ed619f92c47aba525a0",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [
@@ -201,7 +201,8 @@
         "Job Preferences",
         "Application Settings",
         "Required Style",
-        "Banned Phrases"
+        "Banned Phrases",
+        "Prompts"
       ],
       "required_backup_kinds": [
         "workflow_scraper",

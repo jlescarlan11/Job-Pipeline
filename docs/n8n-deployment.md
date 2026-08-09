@@ -1,6 +1,6 @@
 # n8n deployment policy
 
-`config/n8n-deployment-policy.json` policy `2026-08-07/v3` validates a
+`config/n8n-deployment-policy.json` policy `2026-08-09/v1` validates a
 self-hosted regular-mode n8n instance for exactly three workflow roles:
 
 - Scraper (`scraper`)
@@ -45,7 +45,7 @@ All three exports share the segmented storage contract: Scraper and Generator us
 Instance/runtime values must match the policy exactly. The production-context validator also requires:
 
 - `JOB_PIPELINE_SPREADSHEET_ID` — Main queue workbook containing the five business tabs and hidden `_System`;
-- `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` — Configuration workbook containing Search Keywords and the ten context tabs;
+- `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` — Configuration workbook containing Search Keywords and the eleven context tabs, including `Prompts`;
 - `JOB_PIPELINE_OLD_SPREADSHEET_ID` — retained old workbook; all three workbook IDs must differ;
 - `JOB_PIPELINE_REVIEW_URL` — HTTPS deep link to the production `To Apply` tab (the environment-variable name is retained for deployment compatibility);
 - `JOB_PIPELINE_GROQ_API_KEY`;
