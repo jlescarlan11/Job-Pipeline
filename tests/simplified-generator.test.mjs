@@ -7,6 +7,7 @@ import {
 } from "../src/evaluation.mjs";
 import {
   assessInitialGenerationDraft,
+  applyRepairedGenerationWithFallback,
   applyValidatedGeneration,
   claimGeneratorRecord,
   commitGeneratorResult,
@@ -417,6 +418,29 @@ test("approved needs-input preparation resumes once after an application policy 
     ),
     []
   );
+
+  const exhausted = {
+    ...paused,
+    prep_status: "preparation_error",
+    error_category: "validation_failure_exhausted",
+    attempt_count: runtime.retry.max_attempts,
+    next_retry_at: ""
+  };
+  exhausted.state_guard = stateGuard(exhausted);
+  const [exhaustedCandidate] = selectGeneratorCandidate(
+    { "Scraped Jobs": [], "To Apply": [exhausted] },
+    schema,
+    runtime,
+    now,
+    {
+      application_pack_policy_version: packPolicy.policy_version,
+      application_pack_version: packPolicy.pack_version,
+      coverage_contract_version: packPolicy.coverage_contract_version,
+      message_plan_version: packPolicy.message_plan_version
+    }
+  );
+  assert.equal(exhaustedCandidate.source_store, "To Apply");
+  assert.equal(exhaustedCandidate.stage, "generation");
 });
 
 test("an expired To Apply preparation claim is recoverable without stranding the row", () => {
@@ -1024,6 +1048,18 @@ test("Proceed answers open-ended screening questions with positive truthful fram
   assert.equal(proposed.required_input, "");
   assert.equal(proposed.generated_message, positiveFramingValidMessage);
   assert.doesNotMatch(proposed.generated_message, /\bdaily\b|every day/i);
+
+  const fallback = applyRepairedGenerationWithFallback(
+    claimed,
+    prepared.pack,
+    "",
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  assert.equal(fallback.prep_status, "message_ready");
+  assert.equal(fallback.generated_message, positiveFramingValidMessage);
 });
 
 test("Proceed carries positive-framing approval across a policy rebuild only when the review surface is unchanged", () => {

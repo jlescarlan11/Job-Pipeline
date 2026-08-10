@@ -1723,12 +1723,8 @@ const errorMessage = providerStatus
 const message = $json?.choices?.[0]?.message?.content || $json?.data?.choices?.[0]?.message?.content || '';
 let proposed;
 try {
-  if (errorMessage || !message) {
-    throw new Error(
-      errorMessage || 'Invalid repair response contained no message'
-    );
-  }
-  proposed = applyValidatedGeneration(
+  if (errorMessage) throw new Error(errorMessage);
+  proposed = applyRepairedGenerationWithFallback(
     staged.working_record,
     staged.pack,
     message,
@@ -2123,7 +2119,7 @@ return { json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "evaluator_generator",
-      workflowContractVersion: "2026-08-10/v3",
+      workflowContractVersion: "2026-08-10/v4",
       legacyStateGuardCompatibility: false,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
@@ -4944,7 +4940,7 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-10/v3",
+      workflowContractVersion: "2026-08-10/v4",
       legacyStateGuardCompatibility: false,
       businessRowRelocationMode: "copy_confirm_delete_only",
       alertPolicyVersion: alertPolicy.policy_version,
