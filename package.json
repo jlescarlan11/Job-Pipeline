@@ -13,6 +13,7 @@
     "plan:segmented-queues": "node scripts/plan-segmented-queue-migration.mjs",
     "plan:review-preparation": "node scripts/plan-review-preparation-migration.mjs",
     "browser:executor": "node scripts/browser-executor.mjs",
+    "provision:browser-click-store": "node scripts/provision-browser-click-store.mjs",
     "fixtures:job-autopilot": "node scripts/serve-job-autopilot-fixtures.mjs",
     "plan:autonomous-browser": "node scripts/plan-autonomous-browser-migration.mjs",
     "check:artifacts": "npm run check:workflows && node scripts/build-sheet-setup.mjs --check",

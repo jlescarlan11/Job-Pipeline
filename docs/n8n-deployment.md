@@ -130,6 +130,21 @@ and replay/rollback/loss/recreation/permission-drift rejection,
 and include the store in backup/restore evidence before activation. Do not
 activate anything from the source-build step.
 
+Create a new private click-receipt generation only during the authorized,
+frozen maintenance window:
+
+```sh
+npm run provision:browser-click-store -- \
+  "/absolute/private/runtime/browser-click-v1"
+```
+
+The target must not already exist. The command creates a private store,
+independent witness, durable manifest/ledger, and a private `binding.json` with
+the exact production pins. It never edits the inert checked-in task contract,
+never overwrites a generation, and does not activate the scheduled task. Back
+up the new generation before activation; never restore or rebind its witness
+after loss.
+
 ## Live cutover boundary
 
 The production migration is a separate authorized maintenance operation. It
