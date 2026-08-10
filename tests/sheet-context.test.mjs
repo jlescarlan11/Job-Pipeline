@@ -69,6 +69,11 @@ test("context tabs reconstruct the approved bootstrap profile and valid policies
     context.application_policy.subject_template,
     "Subject line: {{job_title}} Application — John Lester Escarlan"
   );
+  assert.equal(context.application_policy.execution_mode, "autonomous_chrome");
+  assert.equal(
+    context.application_policy.automation_contract_version,
+    "browser-contract-v1"
+  );
   assert.equal(
     context.pack_policy.candidate_profile_version,
     profile.profile_version
@@ -202,5 +207,15 @@ test("invalid or conflicting Sheet context fails closed", () => {
   assert.throws(
     () => compile(malformedPrompt),
     /unsupported placeholder: unknown_prompt_value/
+  );
+
+  const dailyCap = seedRows();
+  dailyCap.applicationSettingRows.push({
+    key: "max_applications_per_day",
+    value: "10"
+  });
+  assert.throws(
+    () => compile(dailyCap),
+    /unsupported setting: max_applications_per_day/
   );
 });

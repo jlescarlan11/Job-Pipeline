@@ -1,22 +1,22 @@
 # Simplified architecture
 
-The replacement contains exactly three scheduled workflows.
+The active replacement contains two n8n workflows and one scheduled Codex
+browser task.
 
 ```text
 OnlineJobs.ph
       |
       v
-Scraper (4h, rolling 24h) <----- Search Keywords
+Scraper (n8n, 4h rolling 24h) <----- Search Keywords
       |
       v
 Scraped Jobs
       |
-      +--> Evaluator & Generator (90m, one five-row global batch)
+      +--> Browser Executor (scheduled Codex + Chrome, 90m)
       |         |
-      |         +--> direct message_ready ---> To Apply <--- I Applied / Skip
-      |         +--> review_needed ---------> To Review <-- Proceed / Reject
-      |         +--> skip --------------> Archive
-      |         +--> error / unavailable
+      |         +--> confirmed ----> Alerter & Mover ----> Applied Jobs
+      |         +--> skipped -------> Alerter & Mover --> Archive
+      |         +--> blocked / retryable / ambiguous (recover in place)
       |
       +--> Alerter & Mover (15m)
                 |
@@ -25,21 +25,39 @@ Scraped Jobs
                 +--> Applied Jobs
                 +--> Archive
 
-To Apply -- Generator --> pending/preparing/message_ready
-                     \-> needs_input/external_steps/repair_pending/preparation_error
+Legacy To Review / To Apply actions -- Alerter & Mover --> guarded drain/retain
 ```
 
 ## Trust boundaries
 
-The Main workbook has five visible authoritative business stores: `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and machine processing, `To Review` owns review decisions, and `To Apply` owns manual-application decisions. `Applied Jobs` and `Archive` are terminal. Alerter & Mover atomically sorts complete business rows in movement-touched stores by their store-specific lifecycle timestamp before rereading those stores and resolving deletion row numbers, so newest records stay directly below each header without weakening copy-confirm-delete. Its hidden `_System` tab contains only expiring append-winner claims used to arbitrate overlapping discovery, generation, movement, and alert work. Movement and alert contenders wait ten seconds and reread claims before selecting a winner so a concurrent Google Sheets append that becomes visible after the first read cannot authorize a stale writer.
+The Main workbook has five visible authoritative business stores: `Scraped Jobs`, `To Review`, `To Apply`, `Applied Jobs`, and `Archive`. A canonical identity can exist in only one. `Scraped Jobs` owns intake and autonomous browser processing; `To Review` and `To Apply` retain legacy/manual compatibility during migration; `Applied Jobs` and `Archive` are terminal. Alerter & Mover atomically sorts complete business rows in movement-touched stores by their store-specific lifecycle timestamp before rereading those stores and resolving deletion row numbers, so newest records stay directly below each header without weakening copy-confirm-delete. Its hidden `_System` tab contains only expiring append-winner claims used to arbitrate overlapping discovery, browser execution, movement, and alert work. Movement and alert contenders wait ten seconds and reread claims before selecting a winner so a concurrent Google Sheets append that becomes visible after the first read cannot authorize a stale writer.
 
 The separate Configuration workbook contains the twelve visible operator-owned tabs: `Search Keywords`, `Candidate`, `Skills`, `Experience`, `Projects`, `Education`, `Awards`, `Job Preferences`, `Application Settings`, `Required Style`, `Banned Phrases`, and `Prompts`. None is a business-record store. Workflows read these tabs directly from the Configuration workbook; the Main workbook contains no configuration copies or `IMPORTRANGE` bridge.
 
 Google Sheet validation improves usability, but workflow-side contract validation is authoritative. Generated fields use warning-only protection; an API or pasted value is still validated again before any status change, alert, or move.
 
-The retained old workbook is outside the replacement data plane. Its ID, `JOB_PIPELINE_SPREADSHEET_ID`, and `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` must all differ. No generated workflow contains a literal workbook ID, and cutover rejects active old/new overlap.
+The retained old workbook is outside the replacement data plane and is never imported. Its ID, `JOB_PIPELINE_SPREADSHEET_ID`, and `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` must all differ. No generated workflow contains a literal workbook ID, and cutover rejects active old/new overlap.
 
-No workflow submits a job application. The user reviews, copies, and submits the message manually.
+The v5 persistence contract supports an autonomous Chrome executor while keeping
+legacy manual rows readable. Autonomous work remains in `Scraped Jobs` through
+`queued`, claim, evaluation, generation, fill, persisted submit intent, and
+confirmation or a bounded failure state. Job text is untrusted context and can
+never set policy, decision, browser authorization, or confirmation fields.
+No workflow authorizes an application from job-page text or model output; only
+the validated trusted policy can authorize the browser executor.
+Alerter & Mover remains the sole owner of cross-store copy-confirm-delete.
+
+The stable submission identity binds canonical job, live job/form digests, and
+the persisted full candidate/ranking/application/pack configuration context but
+excludes attempt IDs and timestamps. `submit_started` is persisted before the
+click and cannot return to fill or ordinary retry. Confirmation is accepted only
+with an independent account-history adapter signature over the immutable
+submission witness. The bounded key ID, witness digest, and signature are
+persisted so Alerter & Mover can verify the receipt independently before
+copy-confirm-delete; credentials, cookies, DOM dumps, screenshots, descriptions,
+and message copies are never stored as confirmation evidence. Legacy `Proceed`,
+`Reject`, `I Applied`, and `Skip` actions do
+not grant autonomous authority.
 
 ## Scraper
 
@@ -63,7 +81,30 @@ Search is intentionally plain keyword matching. Pagination is source-exhaustion 
 
 Canonical source ID and canonical URL are compared across all five business stores. Multi-keyword results merge into one record. A new identity is appended only to `Scraped Jobs`. Rediscovery updates discovery-owned fields in whichever active sheet currently owns the record (`Scraped Jobs`, `To Review`, or `To Apply`), but it cannot reset status, action, message, retry, alert, notes, or reviewer state. `Applied Jobs` and `Archive` suppress reinsertion.
 
-## Evaluator & Generator
+## Browser executor
+
+The versioned executor protocol owns deterministic selection, claims, context
+exchange, draft validation, submit intent, result commit, and recovery. The
+scheduled task explicitly invokes the `job-autopilot` skill and installed
+Chrome plugin in the local project. Only the skill operates the visible page;
+only the protocol writes executor-owned fields; neither can relocate rows.
+
+The executor treats all job/page content as untrusted, generates messages only
+from current approved candidate evidence and trusted policy, and persists a
+stable submit identity and `submit_started` state before the final click. It
+accepts only definitive independently attested confirmation. An ambiguous post-click result is
+reconciled before any retry, preventing duplicate applications. Technical
+headroom defers remaining due jobs to later runs without introducing a daily
+application quota. There is no daily application cap.
+
+The active n8n build contains no Generator, Groq request, message-generation
+node, browser action, or submission path.
+
+## Retired Evaluator & Generator (legacy behavior reference)
+
+The following describes the prior manual compatibility unit only. It remains
+useful for classifying and draining legacy rows and for rollback analysis; it
+is not built or activated by the current mixed runtime.
 
 The workflow reads both `Scraped Jobs` and `To Apply`, orders all eligible evaluation/preparation candidates deterministically, freezes one global batch of at most five, and never backfills it. It processes those frozen identities sequentially. Each candidate independently appends a source-store-qualified `_System` claim, proves earliest unexpired ownership, writes the claim to that exact source store, and rereads it before evaluation or provider work. A sixth eligible row in either store waits for a later execution.
 
@@ -126,6 +167,9 @@ Moves are:
 
 | Source | Status/action | Destination | Reason |
 | --- | --- | --- | --- |
+| Scraped Jobs | autonomous `browser_state=confirmed` | Applied Jobs | `autonomous_confirmed` |
+| Scraped Jobs | autonomous decision `skip`, `browser_state=skipped` | Archive | `autonomous_skip` |
+| Scraped Jobs | autonomous blocked/retryable/ambiguous/unavailable | none | retain for bounded recovery |
 | Scraped Jobs | `review_needed` / blank | To Review | focused review queue |
 | Scraped Jobs | `ready_to_apply` / blank | To Apply | focused manual-application queue |
 | Scraped Jobs | `skip` / blank | Archive | `automatic_skip` |
@@ -139,20 +183,22 @@ The destination is upserted by canonical identity first, all non-empty planned f
 
 ## Runtime
 
-All workflows use `Asia/Manila`, remain inactive in source control, retain failed/manual executions, and omit successful production payloads/progress.
+All roles use `Asia/Manila`. The two n8n workflows remain inactive in source
+control and the browser task remains unscheduled. n8n retains failed/manual
+executions and omits successful production payloads/progress.
 
 | Role | Schedule | Timeout | Claim lease |
 | --- | ---: | ---: | ---: |
 | Scraper | 240 min, offset 8 | 900 s | 1,200 s |
-| Evaluator & Generator | 90 min, offset 2 | 480 s | 600 s |
+| Browser Executor (scheduled Codex) | 90 min, offset 2 | 480 s | 600 s |
 | Alerter & Mover | 15 min, offset 10 | 300 s | 360 s |
 
-The timeout-weighted demand is 0.4847 execution slots. Production uses a bounded two-slot execution limit; a one-week phase-aware simulation finds a maximum scheduled overlap of two, so ordinary scheduled work does not queue. Append-winner claims plus the bounded contention wait and stabilized claim reread form the correctness boundary for same-role sleep/wake overlap.
-
-The Generator has 17 conservative daily trigger boundaries and a nominal
-capacity of 80 jobs per 24 hours. At five jobs and at most two model requests
-per job, the schedule permits at most 170 logical Groq requests across those
-boundaries. Twenty-one-second request pacing bounds the all-repair provider
-path to 189 seconds. A 20-second post-candidate Sheet pacing interval adds at
-most 100 seconds, keeping the combined 289-second pacing ceiling inside the
-unchanged 480-second execution timeout.
+The two n8n roles produce 714 scheduled executions per week and have
+timeout-weighted demand of 0.3958 execution slots. Production uses a bounded
+two-slot n8n limit; a one-week simulation finds a maximum n8n overlap of two.
+The browser task contributes 112 separate scheduled opportunities per week.
+Its 120-second minimum attempt headroom leaves unfinished due records eligible
+for the next run. There is no per-run application quota, daily application cap,
+daily counter, or Groq capacity in the active path. Append-winner claims plus
+the bounded contention wait and stabilized reread remain the overlap
+correctness boundary.

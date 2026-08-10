@@ -1,4 +1,10 @@
-# Requirement-aware in-place workflow cutover runbook
+# Legacy requirement-aware in-place workflow cutover runbook
+
+> This runbook documents the historical three-n8n-workflow Generator release.
+> It is not the active autonomous-browser deployment contract. Do not follow its
+> Generator/Groq activation steps for the mixed runtime. Use
+> `docs/autonomous-browser-cutover.md`; the historical procedure remains here
+> for rollback interpretation and audit continuity.
 
 This runbook is a gated operator procedure for updating the existing segmented
 Main and Configuration workbooks in place. Repository work must not activate
@@ -7,6 +13,8 @@ workbook. The exact reviewed commit must first be merged to `main`; an open pull
 request is not a deployment commit.
 
 Stop at any failed gate. Never run old and replacement workflows against either workbook at the same time.
+
+The retained old workbook is never imported into the replacement workbooks.
 
 Business-row relocation is workflow-owned. Never hard-copy, cut/paste, or
 otherwise manually relocate a business row between tabs. Manual execution of

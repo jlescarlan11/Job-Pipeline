@@ -42,7 +42,7 @@ const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
 const groqPolicy = await loadJson("../config/groq-provider-policy.json");
-const runtime = (await loadJson("../config/runtime.json")).generator;
+const runtime = await loadJson("./fixtures/legacy-generator-runtime.json");
 const alertPolicy = await loadJson("../config/alert-policy.json");
 const searchPlan = await loadJson("../config/search-plan.json");
 const directHtml = await readFile(
@@ -130,6 +130,24 @@ test("fresh lifecycle reaches alert, manual applied move, outcome store, and ded
   active.canonical_job_id = "onlinejobs.ph:6001";
   active.canonical_url =
     "https://onlinejobs.ph/jobseekers/job/full-stack-6001";
+  active.execution_mode = "legacy_manual";
+  for (const field of [
+    "automation_contract_version",
+    "autonomous_decision",
+    "browser_state",
+    "browser_attempt_id",
+    "browser_job_digest",
+    "browser_form_fingerprint",
+    "submission_idempotency_key",
+    "submission_started_at",
+    "submission_confirmed_at",
+    "submission_confirmation_kind",
+    "submission_confirmation_reference",
+    "submission_confirmation_digest",
+    "browser_block_category"
+  ]) {
+    active[field] = "";
+  }
   active.state_guard = stateGuard(active);
   const claimed = claimGeneratorRecord(
     active,

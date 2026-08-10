@@ -2,6 +2,7 @@ import {
   normalizeLegacyRecord,
   normalizeUserAction,
   stateGuard,
+  stateGuardMatches,
   validateRecordContract,
   validateRecordStoreContract
 } from "./contracts.mjs";
@@ -13,24 +14,29 @@ const RECORD_SHEET_KEYS = [
   "applied_jobs",
   "archive"
 ];
-const LEGACY_RECORD_STORAGE_VERSION = "2026-07-31-segmented-queues-v3";
+const LEGACY_RECORD_STORAGE_VERSION = "2026-08-04-preparation-lifecycle-v4";
 const RECORD_HEADER_INSERTIONS = [
   {
-    before: "review_approved_at",
+    before: "review_case_id",
     fields: [
-      "review_case_id",
-      "review_case_version",
-      "review_decision",
-      "review_decided_at"
-    ]
-  },
-  {
-    before: "alert_status",
-    fields: [
-      "prep_status",
-      "preparation_version",
-      "preparation_input_guard",
-      "preparation_updated_at"
+      "execution_mode",
+      "automation_contract_version",
+      "autonomous_decision",
+      "browser_state",
+      "browser_attempt_id",
+      "browser_job_digest",
+      "browser_context_digest",
+      "browser_form_fingerprint",
+      "submission_idempotency_key",
+      "submission_started_at",
+      "submission_confirmed_at",
+      "submission_confirmation_kind",
+      "submission_confirmation_reference",
+      "submission_confirmation_digest",
+      "submission_attestation_key_id",
+      "submission_attestation_witness_digest",
+      "submission_attestation_signature",
+      "browser_block_category"
     ]
   }
 ];
@@ -235,7 +241,7 @@ export function planRecordHeaderUpgrade(snapshot, review, schema) {
   }
 
   return {
-    mode: legacySheets.length > 0 ? "legacy_v3_to_v4" : "current_or_empty",
+    mode: legacySheets.length > 0 ? "legacy_v4_to_v5" : "current_or_empty",
     from_storage_version:
       legacySheets.length > 0
         ? review.record_header_upgrade.from_storage_version
@@ -247,8 +253,8 @@ export function planRecordHeaderUpgrade(snapshot, review, schema) {
 
 export function validateFreshSheetConfig(review, schema) {
   const errors = [];
-  if (review?.schema_version !== 8) {
-    errors.push("review-sheet schema_version must be 8");
+  if (review?.schema_version !== 9) {
+    errors.push("review-sheet schema_version must be 9");
   }
   const configuredNames = Object.values(review?.sheets ?? {}).map(
     (sheet) => sheet?.name
@@ -381,14 +387,14 @@ export function validateFreshSheetConfig(review, schema) {
     JSON.stringify(expectedLegacyFields)
   ) {
     errors.push(
-      "record_header_upgrade legacy_fields must exactly match the v3 record layout"
+      "record_header_upgrade legacy_fields must exactly match the v4 record layout"
     );
   }
   if (
     JSON.stringify(upgrade?.insertions) !==
     JSON.stringify(RECORD_HEADER_INSERTIONS)
   ) {
-    errors.push("record_header_upgrade insertions must match the v4 boundaries");
+    errors.push("record_header_upgrade insertions must match the v5 boundaries");
   } else if (
     JSON.stringify(
       applyHeaderInsertions(expectedLegacyFields, upgrade.insertions)
@@ -526,7 +532,7 @@ export function planFreshWorkbookSetup(
     const current = currentByName.get(name);
     const existingHeaders = current?.headers ?? [];
     const isLegacyRecordSheet =
-      recordHeaderPlan?.mode === "legacy_v3_to_v4" &&
+      recordHeaderPlan?.mode === "legacy_v4_to_v5" &&
       schema.business_stores.includes(name);
     if (
       existingHeaders.some((value) => String(value || "").trim()) &&
@@ -599,6 +605,121 @@ export function planFreshWorkbookSetup(
     timezone: review.timezone,
     sheets
   };
+}
+
+/**
+ * Classifies an exact five-store snapshot for the v5 contract. The plan is
+ * deliberately read-only: structural setup may add columns, but no business
+ * row gains autonomous authority or changes stores through this planner.
+ */
+export function planAutonomousContractMigration(snapshot, schema) {
+  const capturedAt = String(snapshot?.captured_at || "");
+  const plan = {
+    contract_version: schema?.storage_version || "",
+    captured_at: capturedAt,
+    ok: false,
+    writes_allowed: false,
+    business_row_relocation_allowed: false,
+    classifications: [],
+    counts: {
+      autonomous_compatible: 0,
+      legacy_manual: 0,
+      blocked: 0,
+      rejected: 0
+    }
+  };
+  if (!Number.isFinite(Date.parse(capturedAt))) {
+    plan.classifications.push({
+      classification: "rejected",
+      store: "",
+      row_number: null,
+      canonical_job_id: "",
+      reason: "captured_at must be a valid exact-reread timestamp"
+    });
+    plan.counts.rejected += 1;
+    return plan;
+  }
+  const stores = snapshot?.stores;
+  if (!stores || typeof stores !== "object" || Array.isArray(stores)) {
+    plan.classifications.push({
+      classification: "rejected",
+      store: "",
+      row_number: null,
+      canonical_job_id: "",
+      reason: "stores must contain the exact five-store snapshot"
+    });
+    plan.counts.rejected += 1;
+    return plan;
+  }
+  const actualStores = Object.keys(stores).sort();
+  const expectedStores = [...(schema?.business_stores ?? [])].sort();
+  if (JSON.stringify(actualStores) !== JSON.stringify(expectedStores)) {
+    plan.classifications.push({
+      classification: "rejected",
+      store: "",
+      row_number: null,
+      canonical_job_id: "",
+      reason: "snapshot must contain exactly the five business stores"
+    });
+    plan.counts.rejected += 1;
+    return plan;
+  }
+  const owners = new Map();
+  for (const store of schema.business_stores) {
+    if (!Array.isArray(stores[store])) {
+      plan.classifications.push({
+        classification: "rejected",
+        store,
+        row_number: null,
+        canonical_job_id: "",
+        reason: "store rows must be an array"
+      });
+      plan.counts.rejected += 1;
+      continue;
+    }
+    for (const [index, raw] of stores[store].entries()) {
+      const rowNumber = Number.isInteger(raw?.row_number)
+        ? raw.row_number
+        : index + 2;
+      const record = normalizeLegacyRecord(raw, schema, capturedAt);
+      const canonicalId = String(record.canonical_job_id || "");
+      const errors = validateRecordStoreContract(record, store, schema);
+      if (!String(raw?.state_guard || "") || !stateGuardMatches(record)) {
+        errors.push("state_guard is missing or stale");
+      }
+      const identityKey = canonicalId
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US");
+      if (identityKey && owners.has(identityKey)) {
+        errors.push("canonical identity has more than one store owner");
+      } else if (identityKey) {
+        owners.set(identityKey, { store, row_number: rowNumber });
+      }
+      let classification = "legacy_manual";
+      let reason = "blank or legacy execution mode remains manual-only";
+      if (errors.length > 0) {
+        classification = "rejected";
+        reason = errors.join("; ").slice(0, 500);
+      } else if (record.execution_mode === "autonomous_chrome") {
+        classification = record.browser_state === "blocked"
+          ? "blocked"
+          : "autonomous_compatible";
+        reason = record.browser_state === "blocked"
+          ? "bounded autonomous blocker remains non-submittable"
+          : "current autonomous record is contract-compatible";
+      }
+      plan.classifications.push({
+        classification,
+        store,
+        row_number: rowNumber,
+        canonical_job_id: canonicalId,
+        reason
+      });
+      plan.counts[classification] += 1;
+    }
+  }
+  plan.ok = plan.counts.rejected === 0;
+  return plan;
 }
 
 function migrationReject(category, details = {}) {

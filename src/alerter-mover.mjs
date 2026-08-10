@@ -55,8 +55,64 @@ function stableHash(value) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
+const ALERT_AUTONOMOUS_EXECUTION_MODE = "autonomous_chrome";
+const AUTONOMOUS_OPERATIONAL_ALERT_STATES = new Set([
+  "blocked",
+  "ambiguous"
+]);
+
+function isAutonomousRecord(record) {
+  return record?.execution_mode === ALERT_AUTONOMOUS_EXECUTION_MODE;
+}
+
+function autonomousOperationalAlertEnabled(record, policy) {
+  const config = policy?.autonomous_execution_alerts;
+  return Boolean(
+    config?.enabled === true &&
+      Array.isArray(config.statuses) &&
+      config.statuses.includes(record?.browser_state) &&
+      AUTONOMOUS_OPERATIONAL_ALERT_STATES.has(record?.browser_state)
+  );
+}
+
+function operationalCategorySource(record) {
+  return String(
+    record?.browser_block_category ||
+      record?.error_category ||
+      "execution_attention_required"
+  )
+    .trim()
+    .toLocaleLowerCase("en-US");
+}
+
+function safeOperationalCategory(record, policy) {
+  const maximum = Number(
+    policy?.autonomous_execution_alerts?.maximum_category_characters || 80
+  );
+  const value = operationalCategorySource(record);
+  return /^[a-z0-9][a-z0-9_.:-]*$/.test(value) && value.length <= maximum
+    ? value
+    : "execution_attention_required";
+}
+
 export function alertIdempotencyKey(record, policy) {
   const category = alertCategory(record, policy) || "ineligible";
+  if (isAutonomousRecord(record)) {
+    return [
+      "slack",
+      record.canonical_job_id,
+      policy.policy_version,
+      category,
+      stableHash(
+        [
+          record.browser_attempt_id,
+          record.browser_state,
+          safeOperationalCategory(record, policy),
+          record.submission_idempotency_key
+        ].join(":")
+      )
+    ].join(":");
+  }
   const preparationIdentity = [
     Number(record.preparation_version || 0),
     String(record.preparation_input_guard || "")
@@ -75,6 +131,12 @@ export function alertIdempotencyKey(record, policy) {
 }
 
 export function alertCategory(record, policy) {
+  if (isAutonomousRecord(record)) {
+    if (record?.user_action || !autonomousOperationalAlertEnabled(record, policy)) {
+      return "";
+    }
+    return `autonomous_${record.browser_state}`;
+  }
   if (
     record?.pipeline_status !== "ready_to_apply" ||
     record?.user_action
@@ -171,6 +233,32 @@ export function validateAlertPolicy(policy) {
   ) {
     errors.push("preparation reminders must be bounded to the supported states");
   }
+  const autonomousAlerts = policy?.autonomous_execution_alerts;
+  if (autonomousAlerts !== undefined) {
+    const statuses = autonomousAlerts?.statuses;
+    if (typeof autonomousAlerts?.enabled !== "boolean") {
+      errors.push("autonomous execution alerts enabled must be boolean");
+    }
+    if (
+      !Array.isArray(statuses) ||
+      statuses.length === 0 ||
+      new Set(statuses).size !== statuses.length ||
+      statuses.some(
+        (status) => !AUTONOMOUS_OPERATIONAL_ALERT_STATES.has(status)
+      )
+    ) {
+      errors.push(
+        "autonomous execution alerts must use unique blocked/ambiguous statuses"
+      );
+    }
+    if (
+      !Number.isInteger(autonomousAlerts?.maximum_category_characters) ||
+      autonomousAlerts.maximum_category_characters < 1 ||
+      autonomousAlerts.maximum_category_characters > 120
+    ) {
+      errors.push("autonomous execution alert categories must be bounded");
+    }
+  }
   for (const field of ["provider_webhook_url", "review_url"]) {
     if (!/^[A-Z][A-Z0-9_]+$/.test(policy?.environment?.[field] || "")) {
       errors.push(`${field} must name an environment variable`);
@@ -220,10 +308,13 @@ export function preselectPersistedAlertCandidates(
   rows,
   schema,
   policy,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  sourceStore = "To Apply"
 ) {
   if (!Array.isArray(rows)) {
-    throw new Error("Persisted alert preselection requires To Apply rows");
+    throw new Error(
+      `Persisted alert preselection requires ${sourceStore} rows`
+    );
   }
   const nowMs = Date.parse(now);
   if (!Number.isFinite(nowMs)) {
@@ -233,7 +324,10 @@ export function preselectPersistedAlertCandidates(
   const rejected = [];
   const identities = new Set();
   for (const record of rows) {
-    const errors = validateRecordStoreContract(record, "To Apply", schema);
+    if (sourceStore === "Scraped Jobs" && !isAutonomousRecord(record)) {
+      continue;
+    }
+    const errors = validateRecordStoreContract(record, sourceStore, schema);
     if (errors.length > 0) {
       rejected.push({
         canonical_job_id: String(record?.canonical_job_id || ""),
@@ -245,10 +339,15 @@ export function preselectPersistedAlertCandidates(
       .normalize("NFKC")
       .toLocaleLowerCase("en-US");
     if (identities.has(identity)) {
-      throw new Error("Alert preselection rejected ambiguous To Apply identity");
+      throw new Error(
+        `Alert preselection rejected ambiguous ${sourceStore} identity`
+      );
     }
     identities.add(identity);
 
+    if (isAutonomousRecord(record) && !alertCategory(record, policy)) {
+      continue;
+    }
     if (record.alert_status === "sending") {
       const attemptedAt = Date.parse(record.alert_last_attempt_at || "");
       if (
@@ -361,12 +460,23 @@ export function planAlerterMoverPhases(
   );
   assertRecoverableBusinessOwnership(stores, schema, movement);
   const outcome = planOutcomeUpdates(stores["Applied Jobs"], schema, now);
-  const potentialAlerts = preselectPersistedAlertCandidates(
+  const manualAlerts = preselectPersistedAlertCandidates(
     stores["To Apply"],
     schema,
     policy,
     now
   );
+  const autonomousAlerts = preselectPersistedAlertCandidates(
+    stores["Scraped Jobs"],
+    schema,
+    policy,
+    now,
+    "Scraped Jobs"
+  );
+  const potentialAlerts = {
+    candidates: [...manualAlerts.candidates, ...autonomousAlerts.candidates],
+    rejected: [...manualAlerts.rejected, ...autonomousAlerts.rejected]
+  };
   const touched = new Set();
   for (const plan of movement.moves) {
     touched.add(plan.source_sheet);
@@ -431,8 +541,14 @@ export function summarizeAlerterMoverRun({
       proceeded: routes.filter((value) => value === "review_proceeded").length,
       rejected: routes.filter((value) => value === "review_rejected").length,
       applied: routes.filter((value) => value === "user_applied").length,
+      autonomous_applied: routes.filter(
+        (value) => value === "autonomous_confirmed"
+      ).length,
       skipped: routes.filter((value) =>
         ["user_skip", "automatic_skip"].includes(value)
+      ).length,
+      autonomous_skipped: routes.filter(
+        (value) => value === "autonomous_skip"
       ).length,
       repeated_case_suppressions: rejections.filter((entry) =>
         [
@@ -506,13 +622,30 @@ export function evaluateAlertEligibility(
   record,
   policy,
   now,
-  messageSafetyContext
+  messageSafetyContext,
+  sourceStore = "To Apply"
 ) {
   const reasons = [];
-  if (record.pipeline_status !== "ready_to_apply") reasons.push("status_not_ready");
   if (record.user_action) reasons.push("operator_action_pending");
   const category = alertCategory(record, policy);
   if (!category) reasons.push("preparation_not_alertable");
+  if (isAutonomousRecord(record)) {
+    if (!["Scraped Jobs", "To Apply"].includes(sourceStore)) {
+      reasons.push("autonomous_owner_not_alertable");
+    }
+    if (!AUTONOMOUS_OPERATIONAL_ALERT_STATES.has(record.browser_state)) {
+      reasons.push("autonomous_state_not_alertable");
+    }
+    if (
+      safeOperationalCategory(record, policy) !==
+        operationalCategorySource(record) &&
+      String(record.browser_block_category || record.error_category || "").trim()
+    ) {
+      reasons.push("autonomous_category_unsafe");
+    }
+  } else if (record.pipeline_status !== "ready_to_apply") {
+    reasons.push("status_not_ready");
+  }
   if (category === "copy_ready") {
     if (record.prep_status !== "message_ready") {
       reasons.push("preparation_not_message_ready");
@@ -521,7 +654,7 @@ export function evaluateAlertEligibility(
     if (record.message_validation_status !== "valid") reasons.push("message_not_valid");
     const safety = evaluatePersistedMessageSafety(record, messageSafetyContext);
     if (!safety.safe) reasons.push(...safety.reasons);
-  } else if (category) {
+  } else if (!isAutonomousRecord(record) && category) {
     const checklist = String(record.required_input || "");
     const maximum = Number(
       policy?.preparation_reminders?.maximum_checklist_characters || 0
@@ -565,16 +698,20 @@ export function selectFreshAlertCandidates(
   schema,
   policy,
   now,
-  messageSafetyContext
+  messageSafetyContext,
+  sourceStore = "To Apply"
 ) {
   const candidates = [];
   const rejected = [];
   const stateUpdates = [];
   const identities = new Set();
   for (const record of freshToApplyRows) {
+    if (sourceStore === "Scraped Jobs" && !isAutonomousRecord(record)) {
+      continue;
+    }
     const contractErrors = validateRecordStoreContract(
       record,
-      "To Apply",
+      sourceStore,
       schema
     );
     if (contractErrors.length > 0) {
@@ -595,9 +732,25 @@ export function selectFreshAlertCandidates(
       .normalize("NFKC")
       .toLocaleLowerCase("en-US");
     if (identities.has(identity)) {
-      throw new Error("Alert selection rejected ambiguous duplicate To Apply identity");
+      throw new Error(
+        `Alert selection rejected ambiguous duplicate ${sourceStore} identity`
+      );
     }
     identities.add(identity);
+    if (isAutonomousRecord(record) && !alertCategory(record, policy)) {
+      const eligibility = evaluateAlertEligibility(
+        record,
+        policy,
+        now,
+        messageSafetyContext,
+        sourceStore
+      );
+      rejected.push({
+        canonical_job_id: record.canonical_job_id,
+        reasons: eligibility.reasons
+      });
+      continue;
+    }
     if (record.alert_status === "sending") {
       const attemptedAt = Date.parse(record.alert_last_attempt_at || "");
       const expired =
@@ -628,11 +781,15 @@ export function selectFreshAlertCandidates(
       record,
       policy,
       now,
-      messageSafetyContext
+      messageSafetyContext,
+      sourceStore
     );
     if (eligibility.eligible) {
-      candidates.push({ record, ...eligibility });
-    } else if (record.pipeline_status === "ready_to_apply") {
+      candidates.push({ record, source_store: sourceStore, ...eligibility });
+    } else if (
+      record.pipeline_status === "ready_to_apply" ||
+      isAutonomousRecord(record)
+    ) {
       rejected.push({
         canonical_job_id: record.canonical_job_id,
         reasons: eligibility.reasons
@@ -713,10 +870,39 @@ export function renderSlackAlert(
     { ...record, alert_status: "", alert_idempotency_key: "" },
     policy,
     record.alert_last_attempt_at || new Date().toISOString(),
-    messageSafetyContext
+    messageSafetyContext,
+    isAutonomousRecord(record) ? "Scraped Jobs" : "To Apply"
   );
   if (!eligibility.eligible) {
     throw new Error(`Slack alert rejected unsafe record: ${eligibility.reasons.join(",")}`);
+  }
+  const safeReviewUrl = safeHttpsUrl(
+    reviewUrl,
+    policy.maximum_action_url_characters
+  );
+  if (isAutonomousRecord(record)) {
+    const operationalCategory = safeOperationalCategory(record, policy);
+    const text = [
+      "*Autonomous application execution needs attention*",
+      `State: ${slackEscape(record.browser_state)}`,
+      `Category: ${slackEscape(operationalCategory)}`,
+      `Record: ${slackEscape(record.canonical_job_id)}`,
+      `Updated: ${slackEscape(record.updated_at)}`,
+      safeReviewUrl
+        ? `<${safeReviewUrl}|Open Job Pipeline>`
+        : "Job Pipeline: unavailable"
+    ].join("\n");
+    if (text.length > policy.maximum_message_characters) {
+      throw new Error("Slack autonomous execution alert exceeds configured length");
+    }
+    return {
+      channel: "slack",
+      category: eligibility.category,
+      idempotency_key: eligibility.idempotency_key,
+      text,
+      review_action: { mode: "open_only", url: safeReviewUrl },
+      source_action: { mode: "open_only", url: "" }
+    };
   }
   const message = String(record.generated_message || "");
   if (
@@ -729,10 +915,6 @@ export function renderSlackAlert(
   }
   const sourceUrl = safeHttpsUrl(
     normalizeCanonicalUrl(record.canonical_url),
-    policy.maximum_action_url_characters
-  );
-  const safeReviewUrl = safeHttpsUrl(
-    reviewUrl,
     policy.maximum_action_url_characters
   );
   const links = [
@@ -902,13 +1084,29 @@ export function planAlerterMoverRun(
     messageSafetyContext,
     movementOptions
   );
-  const alerts = selectFreshAlertCandidates(
+  const manualAlerts = selectFreshAlertCandidates(
     stores["To Apply"],
     schema,
     policy,
     now,
     messageSafetyContext
   );
+  const autonomousAlerts = selectFreshAlertCandidates(
+    stores["Scraped Jobs"],
+    schema,
+    policy,
+    now,
+    messageSafetyContext,
+    "Scraped Jobs"
+  );
+  const alerts = {
+    candidates: [...manualAlerts.candidates, ...autonomousAlerts.candidates],
+    rejected: [...manualAlerts.rejected, ...autonomousAlerts.rejected],
+    state_updates: [
+      ...manualAlerts.state_updates,
+      ...autonomousAlerts.state_updates
+    ]
+  };
   return {
     movement,
     writes: destinationWrites(movement),

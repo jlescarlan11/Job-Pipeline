@@ -7,6 +7,12 @@ facts. `Application Settings`, `Required Style`, `Banned Phrases`, and `Prompts`
 provide editable writing controls. Repository policies retain non-editable
 extraction and deterministic safety bounds.
 
+The v4 pack policy also defines the autonomous resolution contract. A ready,
+answerable pack can proceed to `apply`; low-fit and deterministically unsupported
+jobs resolve to `skip`; missing candidate facts, unsafe external actions, and
+ambiguous instructions resolve to `blocked`. These outcomes are policy-owned,
+not model-owned, and do not create routine review actions.
+
 ## Pack contents
 
 Each successfully generated pack persists:
@@ -14,9 +20,10 @@ Each successfully generated pack persists:
 - source-ordered instructions classified as `subject`, `format`, `content`,
   `submission`, `attachment`, `test`, or `evidence`, including inherited
   required scope, alternatives, and count constraints;
-- screening questions marked for review, for an approved answer in the next
-  generated message, or for manual completion when they request sensitive
-  commitments such as salary, availability, schedules, or start dates;
+- screening questions marked for a policy-authorized answer in the next
+  generated message or blocked when they require unknown sensitive commitments
+  such as salary, availability, schedules, or start dates; legacy manual rows
+  retain their review/manual-completion markers;
 - one coverage entry per mandatory requirement, classified as `exact`,
   `adjacent`, `partial`, `missing`, or `manual_action`, with bounded answer
   elements, canonical evidence references, and any material difference;
@@ -46,32 +53,33 @@ Coverage is deterministic and technology-agnostic. `exact` means the active
 profile directly supports the requested fact. `adjacent` means approved
 evidence is relevant but has a material difference that must be stated, such
 as a Groq-based agentic workflow answering a Claude-workflow request.
-`partial` and `missing` require review. After `Proceed`, the generator answers
-non-sensitive requests by positively framing the closest selected proof,
-transferable strengths, or a prospective proposal without claiming the missing
-fact. Unsupported technologies remain unnamed and unsupported frequency is
-softened to approved tool usage. `manual_action` records a required external
-step or an allowed alternative such as supplying an approved project URL.
+For autonomous rows, an evidence-backed `partial` item may use the recorded
+policy-authorized positive framing; `missing` required facts block. Legacy rows
+retain their explicit `Proceed` review path. Unsupported technologies remain
+unnamed and unsupported frequency is softened only to approved tool usage.
+`manual_action` records a required external step or an allowed alternative such
+as supplying an approved project URL; a required unsupported step blocks
+autonomous execution.
 
 ## Readiness
 
 The pack statuses are internal safety results. `ready` means the message passed
 deterministic validation and the pack has no unresolved extraction warning.
-It may retain review warnings and screening questions only when each carries a
+For an explicit `autonomous_chrome` row, profile-answerable questions and the
+small allowlist of evidence-backed framing warnings carry
+`policy_authorized=true`; they never manufacture `review_acknowledged`, a
+review timestamp, or a review guard. Legacy manual rows may instead carry a
 persisted `Proceed` resolution tied to `review_case_id`, `review_decided_at`,
-and the exact `review_approval_guard` digest of the requirements, coverage, plan, warnings,
-proof references, and active versions reviewed. Profile-answerable
-questions become `answer_in_message` and are supplied to both the initial and
-repair prompts. Sensitive commitment questions remain
-`manual_submission_required` and are shown in the application context.
+and the exact `review_approval_guard`. Profile-answerable questions become
+`answer_in_message` and are supplied to generation and repair prompts.
+Sensitive commitment questions make an autonomous pack `blocked`.
 Message validation requires every `answer_in_message` item to be woven into
 natural first-person prose and rejects Markdown or `Question:`/`Answer:` labels,
 so an otherwise valid draft cannot silently skip a required answer.
-`review_required` means the candidate must interpret an ambiguous instruction,
-answer a screening question, resolve conflicting subject requirements, approve
-a transparent adjacent strategy, or accept a proof
-shortfall, or positive framing for partial or missing non-sensitive coverage.
-Those approved gaps remain auditable and cannot authorize an unsupported fact.
+`review_required` is a legacy-manual result. The autonomous contract converts
+unresolved review conditions to `blocked`; it does not route routine work to a
+human queue. Policy-authorized gaps remain auditable and cannot authorize an
+unsupported fact.
 `blocked` marks extraction truncation or overflow, a durable JSON-budget
 overflow, an unresolved required attachment/test/external form or unsafe
 instruction, or an unavailable/insufficient description.
@@ -89,7 +97,7 @@ Requested adjacent terms are permitted only in the same sentence as an
 explicit difference qualifier. At least one substantive first-person ownership
 statement is required; repeated project/tool fragments are not an answer.
 
-A record enters To Apply immediately after a final `Proceed` decision, with
+For legacy compatibility, a record enters To Apply after a final `Proceed`, with
 `ready_to_apply` ownership and `prep_status=pending`. Copy readiness is separate:
 only a commit with a `ready` pack and a message that passes the shared content
 and provenance gate may set `prep_status=message_ready`. Internal
@@ -100,15 +108,16 @@ attachments, tests, or employer tasks become
 `external_steps`. A proceeded record never returns to review solely because
 preparation is incomplete. Unsafe instructions remain excluded from prompts.
 An unavailable/insufficient description is not acknowledgeable and cannot
-generate a message. The candidate remains responsible for every acknowledged
-question, external action, and submission.
+generate a message. Autonomous records stay in `Scraped Jobs` through
+generation, fill, submit intent, and confirmation; only the versioned browser
+capability protocol can authorize the final click.
 
 A `ready` pack must contain current coverage and message-plan versions, one
 consistent plan entry per mandatory requirement, all required canonical proof
-references, and no unresolved partial or missing mandatory coverage. Review
-resolution may authorize only the recorded positive-framing or transparent
-adjacent strategy; it cannot remove a material difference or authorize an
-unsupported claim.
+references, and no unresolved partial or missing mandatory coverage. Review or
+autonomous policy authorization may allow only the recorded positive-framing
+or transparent adjacent strategy; neither can remove a material difference or
+authorize an unsupported claim.
 
 Question extraction requires candidate-directed language such as `you` or
 `your` and excludes known rhetorical section headings. This prevents headings

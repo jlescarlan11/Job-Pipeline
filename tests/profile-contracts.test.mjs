@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   assertValidProfileConfiguration,
+  validateAutonomousResolutionPolicy,
   validateApplicationPolicy,
   validateCandidateProfile
 } from "../src/profile.mjs";
@@ -36,6 +37,77 @@ test("current profile, application policy, and schema are valid", () => {
   assert.deepEqual(validateApplicationPolicy(policy, profile), []);
   assert.deepEqual(validatePipelineSchema(schema), []);
   assert.equal(assertValidProfileConfiguration(profile, policy), true);
+  assert.deepEqual(validateAutonomousResolutionPolicy(packPolicy, policy), []);
+});
+
+test("autonomous policy is explicit and daily application caps are unsupported", () => {
+  assert.equal(policy.execution_mode, "autonomous_chrome");
+  assert.equal(policy.automation_contract_version, "browser-contract-v1");
+  assert.equal(policy.manual_submission_required, false);
+
+  const contradictory = {
+    ...policy,
+    manual_submission_required: true
+  };
+  assert.match(
+    validateApplicationPolicy(contradictory, profile).join("\n"),
+    /contradicts execution_mode/
+  );
+
+  for (const field of [
+    "max_applications_per_day",
+    "max_daily_applications",
+    "application_daily_limit",
+    "daily_apply_limit",
+    "apply_per_day",
+    "per_day_apply_limit",
+    "daily_applies_quota",
+    "daily_submission_limit",
+    "submissions_per_day",
+    "max_applications_each_day",
+    "application_day_limit",
+    "applications_per_24_hours",
+    "daily_application_ceiling",
+    "daily_app_cap",
+    "max_apps_per_day",
+    "daily_application_budget",
+    "daily_apply_points_budget"
+  ]) {
+    assert.match(
+      validateApplicationPolicy({ ...policy, [field]: 5 }, profile).join("\n"),
+      /daily application limit field is unsupported/
+    );
+    assert.match(
+      validateAutonomousResolutionPolicy(
+        { ...packPolicy, [field]: 5 },
+        policy
+      ).join("\n"),
+      /daily application limit field is unsupported/
+    );
+  }
+  for (const nestedLimit of [
+    { application_quota: { period: "day", maximum: 5 } },
+    { application_limit: { window_hours: 24, value: 5 } }
+  ]) {
+    assert.match(
+      validateApplicationPolicy({ ...policy, ...nestedLimit }, profile).join("\n"),
+      /daily application limit field is unsupported|is unsupported/
+    );
+    assert.match(
+      validateAutonomousResolutionPolicy(
+        { ...packPolicy, ...nestedLimit },
+        policy
+      ).join("\n"),
+      /daily application limit field is unsupported|is unsupported/
+    );
+  }
+  assert.match(
+    validateApplicationPolicy(
+      { ...policy, apply_points: { ...policy.apply_points, daily_application_budget: 5 } },
+      profile
+    ).join("\n"),
+    /daily application limit field is unsupported/
+  );
 });
 
 test("profile validation rejects missing required data", () => {

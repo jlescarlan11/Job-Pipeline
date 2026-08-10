@@ -75,24 +75,25 @@ const visibleSheets = Object.values(review.sheets)
   .filter((sheet) => sheet.visible)
   .map((sheet) => sheet.name);
 
-test("primary docs describe the exact simplified workflow and manual boundary", () => {
-  for (const document of [readme, architecture, operations, deployment]) {
+test("primary docs describe the exact mixed runtime and autonomous boundary", () => {
+  for (const document of [readme, architecture, deployment]) {
     assert.match(document, /Scraper/i);
-    assert.match(document, /Evaluator\s*&\s*Generator|Evaluator and Generator/i);
+    assert.match(document, /Browser Executor/i);
     assert.match(document, /Alerter\s*&\s*Mover|Alerter and Mover/i);
+  }
+  for (const document of [readme, architecture]) {
     assert.match(document, /Scraped Jobs/i);
     assert.match(document, /To Review/i);
     assert.match(document, /To Apply/i);
   }
-  for (const document of [readme, architecture, operations]) {
-    assert.match(document, /manual/i);
-    assert.match(
-      document,
-      /never (?:submitted|submits?)|no (?:step|workflow) (?:authorizes|submits?)[\s\S]{0,30}application/i
-    );
+  for (const document of [readme, architecture, deployment]) {
+    assert.match(document, /autonomous/i);
+    assert.match(document, /no (?:application[ -])?per-day cap|no maximum applications per day|no daily application cap/i);
   }
-  assert.match(readme, /exactly three workflow exports|all three workflow exports/i);
-  assert.match(architecture, /exactly three/i);
+  assert.match(readme, /exactly two n8n workflow exports/i);
+  assert.match(architecture, /two n8n workflows and one scheduled Codex/i);
+  assert.match(operations, /legacy requirement-aware/i);
+  assert.match(operations, /autonomous-browser-cutover\.md/i);
 });
 
 test("segmented cutover runbook preserves its authorization boundary and compatibility unit", () => {
@@ -122,7 +123,11 @@ test("segmented cutover runbook preserves its authorization boundary and compati
 });
 
 test("docs match all schedules, timeouts, and the Manila timezone", () => {
-  const configs = [runtime.scraper, runtime.generator, runtime.alerter_mover];
+  const configs = [
+    runtime.scraper,
+    runtime.browser_executor,
+    runtime.alerter_mover
+  ];
   for (const document of [architecture, operations, deployment]) {
     assert.match(document, new RegExp(runtime.timezone, "i"));
     for (const config of configs) {
@@ -234,24 +239,18 @@ test("deployment docs and policy agree on capacity, retention, and bindings", ()
       )
     )
   );
-  assert.match(architecture, /bounded two-slot execution limit/i);
+  assert.match(architecture, /bounded\s+two-slot n8n limit/i);
   assert.match(operations, /JOB_PIPELINE_SPREADSHEET_ID/);
-  assert.match(deployment, /complete instance-wide inventory/i);
-  assert.match(deployment, /unrecognized|duplicate/i);
+  assert.match(deployment, /exactly the Scraper and Alerter & Mover exports/i);
+  assert.match(deployment, /exactly one scheduled browser task/i);
+  assert.match(deployment, /(?:retired|former).*Generator/i);
   assert.match(deployment, /policy-only/i);
 });
 
 test("Generator batch docs cover the five-job runtime, provider envelope, and production gate", () => {
-  for (const document of [
-    readme,
-    architecture,
-    operations,
-    deployment,
-    generatorBatchVerification
-  ]) {
-    assert.match(document, /five|5/);
-    assert.match(document, /sequential/i);
-  }
+  assert.match(generatorBatchVerification, /five|5/);
+  assert.match(generatorBatchVerification, /sequential/i);
+  assert.match(deployment, /Groq is not part of the active deployment/i);
   assert.match(generatorBatchVerification, /17 trigger boundaries/i);
   assert.match(generatorBatchVerification, /170\s+logical requests/i);
   assert.match(generatorBatchVerification, /189 seconds/i);
@@ -1161,10 +1160,11 @@ test("requirement-aware Generator accounting covers implementation and honest li
   assert.match(operations, /pre_deployment/);
   assert.match(operations, /build-bound-workflow-rollout\.mjs/);
   assert.doesNotMatch(operations, /## 5\. Provision the blank production workbook/i);
-  assert.match(deployment, /application compatibility unit/i);
-  assert.match(deployment, /Cutover evidence schema v3/i);
+  assert.match(deployment, /compatibility unit/i);
+  assert.match(deployment, /workflow_cutover.*legacy_only/i);
   assert.match(requirementAwareVerification, /287 tests: 275 pass/);
-  assert.equal(deploymentPolicy.policy_version, "2026-08-10/v4");
+  assert.equal(deploymentPolicy.policy_version, "2026-08-10/v5");
+  assert.equal(deploymentPolicy.active_contract, "mixed_cutover");
   assert.equal(deploymentPolicy.workflow_cutover.schema_version, 3);
   assert.equal(
     deploymentPolicy.workbook_binding.deployment_mode,

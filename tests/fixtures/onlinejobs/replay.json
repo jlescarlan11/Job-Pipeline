@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "cases": [
+    { "fixture": "standard.html", "expected": "fillable" },
+    { "fixture": "changed-form.html", "expected": "blocked" },
+    { "fixture": "required-question.html", "expected": "blocked" },
+    { "fixture": "apply-points.html", "expected": "fillable" },
+    { "fixture": "unavailable.html", "expected": "unavailable" },
+    { "fixture": "login.html", "expected": "blocked" },
+    { "fixture": "challenge.html", "expected": "blocked" },
+    { "fixture": "captcha.html", "expected": "blocked" },
+    { "fixture": "upload-test-agreement.html", "expected": "blocked" },
+    { "fixture": "success.html", "expected": "confirmed" },
+    { "fixture": "already-applied.html", "expected": "confirmed" },
+    { "fixture": "ambiguous-navigation.html", "expected": "ambiguous" }
+  ]
+}

@@ -1,157 +1,145 @@
-# n8n deployment policy
+# Mixed runtime deployment policy
 
-`config/n8n-deployment-policy.json` policy `2026-08-10/v4` validates a
-self-hosted regular-mode n8n instance for exactly three workflow roles:
+`config/n8n-deployment-policy.json` policy `2026-08-10/v5` defines one
+compatibility unit across two execution surfaces:
 
-- Scraper (`scraper`)
-- Evaluator & Generator (`evaluator_generator`)
-- Alerter & Mover (`alerter_mover`)
+- n8n Scraper (`scraper`);
+- a scheduled Codex browser executor (`browser_executor`); and
+- n8n Alerter & Mover (`alerter_mover`).
 
-The validator rejects missing or duplicate signatures, any active retired workflow, a mixed old/new inventory, wrong workbook binding, insufficient capacity, stale execution counts, disabled pruning, or execution-data settings that retain successful production payloads.
+The active n8n build contains exactly the Scraper and Alerter & Mover exports.
+The former n8n Evaluator & Generator is retained only as a rollback identity
+and must be inactive before the browser executor is activated. The historical
+three-workflow `workflow_cutover` policy remains `legacy_only`; it is not the
+active release contract.
 
-It also pins one application compatibility unit: pipeline/storage schema,
-the deterministic pipeline contract digest, candidate profile, application
-policy, application-pack policy, pack,
-requirement-coverage, and message-plan versions. Policy-only validation fails if
-any one of those values drifts. Generator and Alerter & Mover must therefore be
-built, reviewed, imported inactive, and rolled back together; activating a new
-Generator against an old message-safety consumer is forbidden.
+Source control is inert. Both n8n exports have `active=false`, and the browser
+task contract has `source_control_state=inactive_unscheduled`. Building and
+validating do not import a workflow, register a scheduled task, open Chrome,
+or write to a workbook.
 
-The exports run in `Asia/Manila`: Scraper every 240 minutes with a 900-second timeout, Evaluator & Generator every 90 minutes with a 480-second timeout, and Alerter & Mover every 15 minutes with a 300-second timeout. This deployment policy does not authorize or automate application submission.
+## Compatibility unit
 
-Production Alerter & Mover may be started manually when deliberately requested,
-but manual and scheduled runs use the same guarded workflow. Business rows must
-never be hard-copied, cut/pasted, or otherwise manually relocated between tabs;
-all relocation remains copy-confirm-delete-only and is pinned by deployment
-policy.
+The application compatibility unit is pinned by policy-only validation across
+the exact pipeline/storage schema and digest,
+candidate profile, ranking, application and application-pack policies, pack, coverage,
+message plan, autonomous execution mode, automation contract, executor
+protocol, browser skill, task contract, prompt, runtime, and workflow digests.
+A partial update fails closed.
 
-The Generator freezes at most five eligible `Scraped Jobs` rows and processes
-them sequentially, with a 20-second post-candidate interval for production
-Sheet request capacity. Its conservative 17 daily trigger boundaries yield 80
-nominal jobs per day and at most 170 logical Groq requests per day. The initial
-and repair requests use separate production models and are validated against
-each model's documented and live-observed quota; the five-job all-repair pacing
-path remains inside the 480-second timeout.
+The browser protocol bundle covers the CLI plus the complete transitive local
+execution graph (`browser-executor`, confirmation verification, contracts,
+evaluation, profile, claim arbitration) and the applicable root `AGENTS.md`.
+Changing any of those sources invalidates scheduled-task provenance.
 
-The Scraper must contain `Get Search Keywords` before `Capture Fixed Window and
-Keywords`. It reads the visible `Search Keywords` tab from the Configuration workbook once per execution and
-contains no embedded runtime keyword catalog. Missing or invalid configuration
-must stop before OnlineJobs.ph requests and workbook writes.
+The scheduled-task contract additionally requires:
 
-All three exports share the segmented storage contract: Scraper and Generator use `Scraped Jobs`, Alerter & Mover routes review decisions through `To Review`, and ready alerts/actions originate only from `To Apply`. `Applied Jobs` and `Archive` remain terminal stores.
+- explicit `job-autopilot` skill invocation;
+- the installed Chrome plugin URI `plugin://chrome@openai-bundled`;
+- a signed-in Chrome profile and an independent account-history attestation
+  adapter whose private key is unavailable to the task;
+- an OnlineJobs.ph host allowlist;
+- the selected local project root;
+- the authoritative Main and Configuration workbook bindings; and
+- no generic Sheet writer or business-row relocation operation.
 
-## Required bindings
+Only Alerter & Mover may relocate a business row, and it does so with guarded
+copy-confirm-delete. A deliberate manual workflow execution is allowed only
+when the operator requests it and it runs that same guarded path.
 
-Instance/runtime values must match the policy exactly. The production-context validator also requires:
+## Runtime and capacity
 
-- `JOB_PIPELINE_SPREADSHEET_ID` — Main queue workbook containing the five business tabs and hidden `_System`;
-- `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` — Configuration workbook containing Search Keywords and the eleven context tabs, including `Prompts`;
-- `JOB_PIPELINE_OLD_SPREADSHEET_ID` — retained old workbook; all three workbook IDs must differ;
-- `JOB_PIPELINE_REVIEW_URL` — HTTPS deep link to the production `To Apply` tab (the environment-variable name is retained for deployment compatibility);
-- `JOB_PIPELINE_GROQ_API_KEY`;
-- `JOB_PIPELINE_SLACK_WEBHOOK_URL`.
-- `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID` — durable n8n Data Table for bounded
-  Slack delivery receipts;
-- `N8N_RUNNERS_AUTH_TOKEN` — shared n8n/runner secret, stored in macOS Keychain by the managed deployment.
+All roles use `Asia/Manila` and staggered schedules:
 
-Values are checked but never printed or stored in cutover evidence. Workflow exports contain environment-variable expressions and no credential binding.
+- Scraper: every 240 minutes, offset 8, timeout 900 seconds;
+- browser executor: every 90 minutes, offset 2, timeout 480 seconds; and
+- Alerter & Mover: every 15 minutes, offset 10, timeout 300 seconds.
 
-## Capacity and retention
+The browser attempt requires 120 seconds of technical headroom. Remaining due
+jobs stay eligible for a later scheduled run; the runtime has no application
+per-day cap, daily counter, quota date bucket, or daily rejection path. There is
+no daily application cap.
 
-The final schedules produce 826 executions per week: 42 Scraper, 112 Generator, and 672 Alerter & Mover. Timeout-weighted demand is 0.4847. Production concurrency 2 admits the maximum normal scheduled overlap without queueing. Same-role overlap from sleep/wake catch-up is serialized by append-winner claims followed by a bounded contention wait and stabilized claim reread before any business write.
+n8n itself produces 714 scheduled executions per week: 42 Scraper and 672
+Alerter & Mover. Its timeout-weighted demand is 0.3958, and concurrency 2
+admits the maximum scheduled n8n overlap. The external browser task produces
+112 scheduled opportunities per week and is counted separately. Fourteen days
+(336 hours)
+of all-failure n8n retention is 1,428 executions, below the 10,000 pruning cap.
 
-The 336 hours (fourteen days) of all-failure retention is 1,652 executions, below the 10,000-count pruning cap. Failure and manual execution data are retained; successful production payloads and per-node progress are not. Successful scheduled runs are confirmed through the internal workflow-labelled metrics.
+Failed and manual n8n executions are retained. Successful production payloads
+and per-node progress are not. Internal workflow-labelled metrics and logs must
+cover discovery, movement, confirmation, alert selection/delivery, and the
+browser task's bounded run/result categories without private content.
 
-Production uses n8n's external JavaScript task-runner mode. The n8n service and runner are separate `launchd` jobs, both configured with `KeepAlive`; the shared authentication token is read from the `io.codex.job-pipeline.runners-auth-token` Keychain service and is never committed. The runner waits for the local task broker at `127.0.0.1:5679`, obtains a short-lived grant, and reconnects automatically after a service restart.
-The deployable startup scripts and LaunchAgent definitions are checked in under `outputs/cutover-20260731/`; install the scripts in `~/Library/Application Support/Job-Pipeline/` and the plists in `~/Library/LaunchAgents/` when rebuilding the host.
+## Required environment bindings
 
-Metrics must remain internal, include workflow IDs, and be accompanied by saved failures/log ingestion. Required structured events cover discovery, generator result, movement plan/confirmation, alert selection, and alert delivery.
+The production-context validator requires:
 
-Run the repository-only calculation with:
+- `JOB_PIPELINE_SPREADSHEET_ID` — Main queue workbook;
+- `JOB_PIPELINE_CONFIG_SPREADSHEET_ID` — Configuration workbook;
+- `JOB_PIPELINE_OLD_SPREADSHEET_ID` — retained prior workbook;
+- `JOB_PIPELINE_REVIEW_URL` — HTTPS deep link to the current Main workbook;
+- `JOB_PIPELINE_SLACK_WEBHOOK_URL`;
+- `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID`; and
+- `N8N_RUNNERS_AUTH_TOKEN`.
 
-```bash
+Set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` exactly. The generated Alerter & Mover
+uses that single built-in to verify the persisted Ed25519 confirmation receipt
+again before copy-confirm-delete; no other external or built-in module is
+allowlisted for Code nodes.
+
+The three workbook IDs must differ. Groq is not part of the active deployment,
+so `JOB_PIPELINE_GROQ_API_KEY` is neither required nor validated. Values are
+checked but never printed or stored in cutover evidence.
+
+Run the repository-only gate with:
+
+```sh
 npm run validate:deployment -- --policy-only
 ```
 
-Run without `--policy-only` inside the actual production environment before activation.
+Run without `--policy-only` only in the deliberately authorized production
+environment before activation.
 
-Deployment of the rebuilt compatibility unit is permitted only from the exact
-reviewed generated commit after it is present on `main`. Before activation, inventory
-every unsent `To Apply` record with the current shared message-safety gate.
-Records with missing, malformed, stale, unresolved, or forged coverage/plan
-state must be regenerated through guarded lifecycle transitions, returned to
-review, or quarantined; direct message or contract edits are forbidden. Update
-workflow `TRUqD9atneyDyMNx` in place while it is inactive; preserve its
-identity, schedule, timezone, timeout, and workbook binding, and keep it
-inactive until the controlled activation gate. Reject any operation that would create a
-fourth active pipeline workflow or a duplicate Generator.
+## Build and inactive import
 
-The sanitized compatibility inventory may retain canonical identity, record
-version, state guard/digest, version values, and bounded reason codes. It must
-not retain job descriptions, generated messages, candidate-profile content,
-provider responses, credentials, or reviewer notes.
+Build and inspect only:
 
-## Cutover inventory
+```sh
+npm run build
+npm run check:artifacts
+npm run validate:policy
+```
 
-Cutover evidence schema v3 has three phases: `pre_deployment` records the
-currently active versions and readable rollback assets; `pre_activation`
-records the exact reviewed versions after in-place inactive import and all
-disposable gates; `post_activation` records the final 240-minute observation.
+The workflow directory must contain exactly:
 
-Capture stores target workflow ID/name/state and node names, while unrelated
-workflow names and node names are replaced by bounded pipeline classifications
-and a SHA-256 surface digest. It also stores version/timestamp, schedule,
-timeout, timezone, exact credential-free artifact digest, actual per-workflow
-environment-binding modes, workbook IDs, and a SHA-256 digest of the common
-Google credential reference. Node
-parameters, credential IDs/names, headers, webhooks, API keys, job descriptions,
-messages, reviewer notes, profile payloads, and provider responses are never
-captured. The same Google credential must cover 13 Scraper, 19 Generator, and
-35 Alerter Google-capable nodes.
+- `workflows/scraper.json`
+- `workflows/alerter-mover.json`
 
-The capture client sends its API key only to the policy-approved loopback n8n
-origins and rejects redirects and URL userinfo/query/fragment values. Before
-any API read, repository provenance must be clean and `HEAD` must equal both
-local `main` and `origin/main`; the target-map commit must equal that exact
-commit. Production environment validation also requires the Slack value to use
-the official webhook host/path and the review URL to deep-link to the current
-Main workbook.
+Import or update both under the exact pinned production IDs while inactive.
+Bind the reviewed Google credential reference and environment-backed workbook
+expressions; never put workbook IDs or credentials into repository artifacts.
+Register exactly one scheduled browser task in a paused state from the pinned
+task prompt, skill, protocol, project, and runtime contract. Do not activate
+anything from the source-build step.
 
-The cutover gate requires a complete instance-wide inventory; a name-filtered
-or partially paginated response is invalid.
+## Live cutover boundary
 
-The policy pins the existing production IDs and credential-free digests for all
-three reviewed artifacts. Use `scripts/build-bound-workflow-rollout.mjs` to
-build permission-restricted inactive imports under those IDs. Pre-activation
-evidence requires all three targets and every detected pipeline-bound or
-retired copy inactive. A write-capable Google node with a dynamic unresolved
-destination is pipeline-ambiguous unless its unrelated workflow ID is explicitly
-approved in policy. The builder rejects credential-bearing repository artifacts,
-requires every live Google-capable node to expose the same reference, and copies
-only the validated credential `id`, never its display name or other fields.
-The pinned live target may be an older compatible graph and is therefore not
-required to already contain the replacement's new node names; the builder
-still requires its exact production ID and role name, validates every Google
-node that actually exists in that live export, and binds only the reviewed
-replacement node set.
-Post-activation evidence permits exactly one active target for each role and no
-active renamed, pipeline-bound, duplicate, or retired signature. Active version
-IDs must match the imported reviewed versions, while pre-deployment rollback
-versions must match the versions actually active at capture time.
+The production migration is a separate authorized maintenance operation. It
+requires clean reviewed `main` provenance, exact private rereads, readable
+backups, zero unsafe preflight counts, a deterministic legacy migration plan,
+Chrome/profile/session/allowlist checks, provisioned attestation verification
+keys, and proof that final submission plus independent confirmation can run
+without a human confirmation. If that proof is blocked, zero-touch activation
+is blocked; safeguards must not be bypassed.
 
-For the requirement-aware Generator, do not pass this gate until the unsent
-compatibility inventory has zero unhandled records and disposable verification
-has covered the reported structured posting, an exact-evidence control, an
-unrelated non-Claude control, adjacent/partial/missing/manual coverage, invalid
-initial and repair drafts, provider failures, stale commits, and forged
-persisted state. Repository tests are prerequisite evidence, not a substitute
-for inactive imported-workflow and disposable-workbook evidence.
+The Generator is disabled before the browser executor can claim a production
+job. Enable Alerter & Mover, then Scraper, then the browser executor. Afterward,
+observe at least one normal scheduled cycle for every active role and zero
+Generator runs. Rollback disables browser executor, Alerter & Mover, then
+Scraper and restores only a recorded compatible unit. It never authorizes
+manual row relocation.
 
-Generate the compatibility inventory from a private current `To Apply`
-snapshot with `npm run inventory:unsent`; only digests, versions, bounded reason
-codes, and guarded dispositions may enter the target map. Schema-v3 validation
-also requires exact current Main/Configuration workbook contracts, nine
-readable restore-verified backup kinds, sanitized execution IDs for every
-required disposable case, one scheduled boundary per role, bounded production
-record provenance, and one non-replayed Slack canary whose payload digest equals
-the stored-message digest.
+See `docs/autonomous-browser-cutover.md` for the evidence schema, capability
+gate, activation sequence, observation, privacy boundary, and rollback rules.

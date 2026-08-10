@@ -1,0 +1,7 @@
+interface:
+  display_name: "Job Autopilot"
+  short_description: "Apply through verified signed-in Chrome steps"
+  default_prompt: "Use $job-autopilot and the installed Chrome plugin to process the next eligible Job Pipeline record."
+
+policy:
+  allow_implicit_invocation: false

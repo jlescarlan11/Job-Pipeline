@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
@@ -25,8 +26,15 @@ import {
 import { parseJobDetail } from "../src/evaluation.mjs";
 import {
   normalizeLegacyRecord,
-  stateGuard
+  stateGuard,
+  submissionIdempotencyKey
 } from "../src/contracts.mjs";
+import {
+  browserConfirmationPublicKeyDigest,
+  browserConfirmationWitness,
+  browserConfirmationWitnessDigest,
+  serializeBrowserConfirmationWitness
+} from "../src/browser-confirmation-attestation.mjs";
 
 const loadJson = async (path) =>
   JSON.parse(await readFile(new URL(path, import.meta.url)));
@@ -36,14 +44,33 @@ const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
 const groqPolicy = await loadJson("../config/groq-provider-policy.json");
-const runtime = (await loadJson("../config/runtime.json")).generator;
+const runtimeConfig = await loadJson("../config/runtime.json");
+const confirmationKeyId = "alerter-history-adapter-v1";
+const confirmationKeys = generateKeyPairSync("ed25519");
+const confirmationPublicKey = confirmationKeys.publicKey.export({
+  type: "spki",
+  format: "pem"
+});
+const confirmationTrust = {
+  keyId: confirmationKeyId,
+  publicKey: confirmationPublicKey,
+  publicKeySpkiSha256: browserConfirmationPublicKeyDigest(confirmationPublicKey)
+};
+const generatorClaimLeaseMs =
+  runtimeConfig.generator?.claim_lease_ms ??
+  runtimeConfig.browser_executor?.claim_lease_ms;
 const alertPolicy = await loadJson("../config/alert-policy.json");
 const directHtml = await readFile(
   new URL("./fixtures/job-direct.html", import.meta.url),
   "utf8"
 );
 const now = "2026-07-31T11:00:00.000Z";
-const safetyContext = { profile, applicationPolicy, packPolicy };
+const safetyContext = {
+  profile,
+  applicationPolicy,
+  packPolicy,
+  confirmationTrust
+};
 
 function businessStores(overrides = {}) {
   return {
@@ -99,7 +126,7 @@ function makeReady(id, overrides = {}) {
     "evaluation",
     `generator-${id}`,
     now,
-    runtime.claim_lease_ms
+    generatorClaimLeaseMs
   ).record;
   const evaluated = evaluateAndRoute(
     claimed,
@@ -136,6 +163,127 @@ function makeReady(id, overrides = {}) {
   return ready;
 }
 
+function makeAutonomous(id, browserState, overrides = {}) {
+  const digest = String(id).padStart(64, "0").slice(-64);
+  const formStates = new Set([
+    "generating",
+    "filling",
+    "submit_started",
+    "confirmed",
+    "ambiguous"
+  ]);
+  const startedStates = new Set(["submit_started", "confirmed", "ambiguous"]);
+  const record = normalizeLegacyRecord(
+    {
+      source: "onlinejobs.ph",
+      source_job_id: String(id),
+      canonical_job_id: `onlinejobs.ph:${id}`,
+      canonical_url: `https://onlinejobs.ph/jobseekers/job/private-${id}`,
+      row_number: Number(id) % 100 + 2,
+      record_version: 1,
+      pipeline_status: browserState === "skipped" ? "skip" : "ready_to_apply",
+      user_action: "",
+      execution_mode: "autonomous_chrome",
+      automation_contract_version: "browser-contract-v1",
+      autonomous_decision:
+        browserState === "skipped"
+          ? "skip"
+          : ["generating", ...formStates].includes(browserState)
+            ? "apply"
+            : "",
+      browser_state: browserState,
+      browser_attempt_id:
+        browserState === "queued" || browserState === "skipped"
+          ? ""
+          : `attempt-v1:${digest}`,
+      browser_job_digest: `job-v1:${digest}`,
+      browser_context_digest: ["queued", "claimed"].includes(browserState)
+        ? ""
+        : `context-v1:${digest}`,
+      browser_form_fingerprint: formStates.has(browserState)
+        ? `form-v1:${digest}`
+        : "",
+      submission_idempotency_key: "",
+      submission_started_at: startedStates.has(browserState)
+        ? "2026-07-31T10:56:00.000Z"
+        : "",
+      submission_confirmed_at:
+        browserState === "confirmed" ? "2026-07-31T10:57:00.000Z" : "",
+      submission_confirmation_kind:
+        browserState === "confirmed" ? "confirmation_page" : "",
+      submission_confirmation_reference:
+        browserState === "confirmed" ? `confirmation-ref-v1:${digest}` : "",
+      submission_confirmation_digest:
+        browserState === "confirmed" ? `confirmation-v1:${digest}` : "",
+      browser_block_category: browserState === "blocked" ? "captcha" : "",
+      source_availability: "active",
+      attempt_count: 0,
+      alert_attempt_count: 0,
+      matched_keywords: ["full stack developer"],
+      job_title: `Private role ${id}`,
+      company: "Private employer",
+      job_description: `PRIVATE JOB DESCRIPTION ${id}`,
+      decision_reason: "Private ranking explanation",
+      generated_message: `PRIVATE APPLICATION MESSAGE ${id}`,
+      application_pack_status: "ready",
+      message_validation_status: "valid",
+      profile_version: profile.profile_version,
+      message_profile_version: profile.profile_version,
+      application_pack_profile_version: profile.profile_version,
+      policy_version: rankingPolicy.policy_version,
+      message_policy_version: applicationPolicy.policy_version,
+      application_pack_version: packPolicy.pack_version,
+      application_pack_policy_version: packPolicy.policy_version,
+      coverage_contract_version: packPolicy.coverage_contract_version,
+      message_plan_version: packPolicy.message_plan_version,
+      prep_status: "",
+      preparation_version: 0,
+      preparation_input_guard: "",
+      preparation_updated_at: "",
+      error_category:
+        browserState === "ambiguous" ? "ambiguous_submission" : "",
+      error_summary: `PRIVATE BROWSER CONTENT ${id}`,
+      posted_at: "2026-07-31T10:00:00.000Z",
+      discovered_at: "2026-07-31T10:05:00.000Z",
+      generated_at: "2026-07-31T10:55:00.000Z",
+      created_at: "2026-07-31T10:05:00.000Z",
+      updated_at: "2026-07-31T10:58:00.000Z",
+      ...overrides
+    },
+    schema,
+    now
+  );
+  record.prep_status = "";
+  record.preparation_version = 0;
+  record.preparation_input_guard = "";
+  record.preparation_updated_at = "";
+  record.submission_idempotency_key = formStates.has(record.browser_state)
+    ? submissionIdempotencyKey(record)
+    : "";
+  if (record.browser_state === "confirmed") {
+    const witness = browserConfirmationWitness(record);
+    record.submission_attestation_key_id = confirmationKeyId;
+    record.submission_attestation_witness_digest =
+      browserConfirmationWitnessDigest(witness);
+    record.submission_attestation_signature = sign(
+      null,
+      Buffer.from(serializeBrowserConfirmationWitness(witness)),
+      confirmationKeys.privateKey
+    ).toString("base64url");
+  }
+  record.state_guard = stateGuard(record);
+  return record;
+}
+
+const autonomousAlertPolicy = {
+  ...alertPolicy,
+  autonomous_execution_alerts: {
+    enabled: true,
+    statuses: ["blocked", "ambiguous"],
+    maximum_category_characters: 80
+  }
+};
+
 test("alert policy is bounded and requires safe ready state", () => {
   assert.deepEqual(validateAlertPolicy(alertPolicy), []);
   assert.equal(alertPolicy.eligibility.pipeline_status, "ready_to_apply");
@@ -145,6 +293,92 @@ test("alert policy is bounded and requires safe ready state", () => {
   assert.ok(alertPolicy.provider_timeout_ms > 0);
   assert.ok(alertPolicy.provider_request_interval_ms > 0);
   assert.ok(alertPolicy.retry.max_attempts > 0);
+});
+
+test("autonomous alerts are opt-in and never reuse copy-ready reminders", () => {
+  assert.deepEqual(validateAlertPolicy(autonomousAlertPolicy), []);
+  for (const record of [
+    makeAutonomous(4901, "queued"),
+    makeAutonomous(4902, "generating"),
+    makeAutonomous(4903, "confirmed")
+  ]) {
+    assert.equal(alertCategory(record, alertPolicy), "");
+    assert.equal(alertCategory(record, autonomousAlertPolicy), "");
+  }
+
+  const blocked = makeAutonomous(4904, "blocked");
+  assert.equal(alertCategory(blocked, alertPolicy), "");
+  assert.equal(alertCategory(blocked, autonomousAlertPolicy), "autonomous_blocked");
+});
+
+test("policy-enabled autonomous blocker alerts expose only bounded operational fields", () => {
+  const records = [
+    makeAutonomous(4910, "blocked"),
+    makeAutonomous(4911, "ambiguous")
+  ];
+  const selected = selectFreshAlertCandidates(
+    records,
+    schema,
+    autonomousAlertPolicy,
+    now,
+    safetyContext,
+    "Scraped Jobs"
+  );
+  assert.deepEqual(
+    selected.candidates.map((entry) => entry.category),
+    ["autonomous_blocked", "autonomous_ambiguous"]
+  );
+  assert.ok(
+    selected.candidates.every((entry) => entry.source_store === "Scraped Jobs")
+  );
+
+  for (const record of records) {
+    const payload = renderSlackAlert(record, autonomousAlertPolicy, {
+      reviewUrl: "https://docs.google.com/spreadsheets/d/safe/edit",
+      messageSafetyContext: safetyContext
+    });
+    assert.match(payload.text, /Autonomous application execution needs attention/);
+    assert.match(payload.text, new RegExp(`Record: ${record.canonical_job_id}`));
+    assert.match(payload.text, /Open Job Pipeline/);
+    assert.deepEqual(payload.review_action, {
+      mode: "open_only",
+      url: "https://docs.google.com/spreadsheets/d/safe/edit"
+    });
+    assert.deepEqual(payload.source_action, { mode: "open_only", url: "" });
+    for (const secret of [
+      record.generated_message,
+      record.job_description,
+      record.decision_reason,
+      record.error_summary,
+      record.canonical_url
+    ]) {
+      assert.equal(JSON.stringify(payload).includes(secret), false);
+    }
+  }
+});
+
+test("confirmed autonomous movement is independent of Slack eligibility", () => {
+  const confirmed = makeAutonomous(4920, "confirmed", {
+    alert_status: "sending",
+    alert_idempotency_key: "legacy-copy-ready-alert",
+    alert_claim_token: "stale-alert-claim",
+    alert_attempt_count: 1,
+    alert_last_attempt_at: "2026-07-31T10:00:00.000Z"
+  });
+  const planned = planAlerterMoverRun(
+    businessStores({ "Scraped Jobs": [confirmed] }),
+    schema,
+    autonomousAlertPolicy,
+    now,
+    safetyContext
+  );
+  assert.equal(planned.movement.moves.length, 1);
+  assert.equal(planned.movement.moves[0].route_reason, "autonomous_confirmed");
+  assert.equal(planned.writes.applied.length, 1);
+  assert.equal(planned.writes.applied[0].alert_status, "suppressed");
+  assert.equal(planned.writes.applied[0].alert_claim_token, "");
+  assert.equal(planned.alerts.candidates.length, 0);
+  assert.equal(planned.alerts.state_updates.length, 0);
 });
 
 test("Slack copy contains complete context and the exact stored message", () => {

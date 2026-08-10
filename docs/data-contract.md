@@ -1,6 +1,6 @@
 # Simplified pipeline data contract
 
-The machine-readable source is `config/pipeline-schema.json` (schema version 4, storage contract `2026-08-04-preparation-lifecycle-v4`). It separates a final review decision from preparation readiness. Deployment compatibility pins the ordered fields, JSON bounds, timestamps, lifecycle rules, and contract digest, so a mixed v3/v4 workflow set fails closed. A narrowly bounded v3 state guard may be accepted once only when a fresh exact reread enters the guarded migration claim; that claim immediately persists a v4 guard.
+The machine-readable source is `config/pipeline-schema.json` (schema version 5, storage contract `2026-08-10-autonomous-browser-v5`). It adds an autonomous Chrome lifecycle without removing the bounded v4 manual compatibility path. Deployment compatibility pins the ordered fields, field bounds, timestamps, browser transitions, store ownership, and contract digest, so a mixed contract set fails closed. A blank `execution_mode` normalizes only to `legacy_manual`; it can never manufacture autonomous submission authority.
 
 ## Authoritative stores
 
@@ -30,7 +30,7 @@ Operational conditions are separate from those recommendations:
 - `error` — retryable or exhausted technical work, with categorized bounded evidence.
 - `unavailable` — the source listing cannot currently provide the input needed to evaluate it.
 
-`user_action` is user-owned and never inferred. Validity is the intersection of sheet ownership and status:
+`user_action` remains user-owned for `legacy_manual` records and is never inferred. Validity is the intersection of sheet ownership and status:
 
 | Store/status | Accepted actions |
 | --- | --- |
@@ -40,7 +40,21 @@ Operational conditions are separate from those recommendations:
 | Applied Jobs / `ready_to_apply` | blank |
 | Archive / `skip`, `review_needed`, `ready_to_apply`, or `unavailable` | blank |
 
-Unsupported store/status/action combinations are invalid even if Sheet validation is bypassed. `Proceed` is a final review resolution bound to `review_case_id`; Alerter & Mover copies it directly to To Apply with `prep_status=pending`. Generator prepares that same owner in place and never sends the unchanged case back to To Review. `Reject` reaches Archive. Legacy `Approve`/`Deny` are read-only migration aliases for `Proceed`/`Reject`; current UI and workflow writes never emit them. `I Applied` records a fact only after the user submits manually; no workflow opens or submits an application form.
+Unsupported store/status/action combinations are invalid even if Sheet validation is bypassed. `Proceed`, `Reject`, `I Applied`, and `Skip` remain available only for bounded legacy records. An `autonomous_chrome` record requires a blank `user_action` and cannot use review-case or preparation authorization fields.
+
+## Autonomous browser lifecycle
+
+New autonomous work explicitly persists `execution_mode=autonomous_chrome`, `automation_contract_version=browser-contract-v1`, and one of these guarded states:
+
+`queued → claimed → evaluating → generating → filling → submit_started → confirmed`.
+
+`retryable`, `blocked`, `unavailable`, `skipped`, and `ambiguous` are explicit recovery or terminal branches. `submit_started` is persisted before the browser click. It may advance only to `confirmed`, `ambiguous`, or `blocked`; it can never return directly to filling or ordinary retry because the source may already have accepted the application.
+
+The stable `submission_idempotency_key` binds canonical job identity, the live job digest, form fingerprint, candidate/message provenance, application-pack versions, and automation contract. It deliberately excludes `browser_attempt_id` and timestamps, so retries for compatible inputs derive the same key. Generation and later states require the form fingerprint and matching key.
+
+A confirmed record requires `autonomous_decision=apply`, start and confirmation timestamps, a persisted full-configuration `browser_context_digest`, and bounded confirmation/attestation fields: an allowlisted confirmation kind, hashed confirmation reference, confirmation digest, pinned adapter key ID, witness digest, and Ed25519 signature. `commit-result` verifies the receipt first, and Alerter & Mover independently reconstructs and verifies it again before copy-confirm-delete. No confirmation summary, DOM, screenshot, cookie, credential, generated message, or job description is added to the evidence fields. A skipped record requires `autonomous_decision=skip`. Missing candidate facts, login/security challenges, CAPTCHA, unexpected agreements, unsafe uploads, invalid forms, policy mismatch, and confirmation uncertainty remain categorized blockers rather than review approvals.
+
+Active autonomous records remain in `Scraped Jobs`. `To Review` and `To Apply` reject autonomous browser states. Alerter & Mover remains the only component permitted to relocate a confirmed record to `Applied Jobs` or a skipped/unavailable record to `Archive` through copy-confirm-delete.
 
 Preparation is monotonic and independently versioned:
 
@@ -52,10 +66,12 @@ Preparation is monotonic and independently versioned:
 
 An unchanged paused preparation is not reselected. A relevant input change must advance `preparation_version` and persist a matching `preparation_input_guard` before exactly one new claim can run.
 
-Archive reasons are exact and machine-readable: `automatic_skip` for a system
-skip, `user_skip` for the user’s Skip action, `review_denied` for Reject, and
-`source_unavailable` for a permanently removed source listing such as HTTP 404
-or 410. Temporary provider, network, and source failures remain retryable errors.
+Archive reasons are exact and machine-readable: `autonomous_skip` for a v5
+browser decision with `browser_state=skipped`, `automatic_skip` for a legacy
+system skip, `user_skip` for the user’s Skip action, `review_denied` for Reject,
+and `source_unavailable` for a permanently removed source listing such as HTTP
+404 or 410. Temporary provider, network, and source failures remain retryable
+errors.
 
 ## Safety and provenance
 

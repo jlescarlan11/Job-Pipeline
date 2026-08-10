@@ -3,7 +3,7 @@
   "policy_version": "2026-08-10/v4",
   "pack_version": "2026-08-10/v4",
   "candidate_profile_version": "2026-07-29",
-  "application_policy_version": "2026-08-10",
+  "application_policy_version": "2026-08-10/autonomous-v1",
   "minimum_preferred_proofs": 2,
   "maximum_proofs": 2,
   "maximum_instructions": 20,
@@ -20,6 +20,14 @@
   },
   "coverage_contract_version": "2026-08-10/v4",
   "message_plan_version": "2026-08-10/v4",
+  "autonomous_resolution": {
+    "ready_and_answerable": "apply",
+    "low_fit": "skip",
+    "deterministically_unsupported": "skip",
+    "missing_required_candidate_fact": "blocked",
+    "unsafe_external_action": "blocked",
+    "ambiguous_instruction": "blocked"
+  },
   "coverage_classifications": [
     "exact",
     "adjacent",

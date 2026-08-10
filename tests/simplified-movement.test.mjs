@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
@@ -7,7 +8,8 @@ import {
   normalizeLegacyRecord,
   preparationInputGuard,
   reviewCaseId,
-  stateGuard
+  stateGuard,
+  submissionIdempotencyKey
 } from "../src/contracts.mjs";
 import {
   applyOutcomeUpdate,
@@ -16,6 +18,12 @@ import {
   planOutcomeUpdates,
   planQueueActions as planQueueActionsRaw
 } from "../src/movement.mjs";
+import {
+  browserConfirmationPublicKeyDigest,
+  browserConfirmationWitness,
+  browserConfirmationWitnessDigest,
+  serializeBrowserConfirmationWitness
+} from "../src/browser-confirmation-attestation.mjs";
 
 const schema = JSON.parse(
   await readFile(new URL("../config/pipeline-schema.json", import.meta.url))
@@ -31,7 +39,23 @@ const packPolicy = JSON.parse(
     new URL("../config/application-pack-policy.json", import.meta.url)
   )
 );
-const safetyContext = { profile, applicationPolicy, packPolicy };
+const confirmationKeyId = "movement-history-adapter-v1";
+const confirmationKeys = generateKeyPairSync("ed25519");
+const confirmationPublicKey = confirmationKeys.publicKey.export({
+  type: "spki",
+  format: "pem"
+});
+const confirmationTrust = {
+  keyId: confirmationKeyId,
+  publicKey: confirmationPublicKey,
+  publicKeySpkiSha256: browserConfirmationPublicKeyDigest(confirmationPublicKey)
+};
+const safetyContext = {
+  profile,
+  applicationPolicy,
+  packPolicy,
+  confirmationTrust
+};
 const now = "2026-07-31T10:00:00.000Z";
 
 function planQueueActions(
@@ -153,6 +177,76 @@ function row(id, status, action = "", overrides = {}) {
   );
   normalized.state_guard = stateGuard(normalized);
   return normalized;
+}
+
+function autonomousConfirmedRow(id, overrides = {}) {
+  const digest = "a".repeat(64);
+  const record = row(id, "ready_to_apply", "", {
+    execution_mode: "autonomous_chrome",
+    automation_contract_version: "browser-contract-v1",
+    autonomous_decision: "apply",
+    browser_state: "confirmed",
+    browser_attempt_id: `attempt-v1:${digest}`,
+    browser_job_digest: `job-v1:${digest}`,
+    browser_context_digest: `context-v1:${digest}`,
+    browser_form_fingerprint: `form-v1:${digest}`,
+    submission_idempotency_key: "",
+    submission_started_at: "2026-07-31T09:55:00.000Z",
+    submission_confirmed_at: "2026-07-31T09:56:00.000Z",
+    submission_confirmation_kind: "confirmation_page",
+    submission_confirmation_reference: `confirmation-ref-v1:${digest}`,
+    submission_confirmation_digest: `confirmation-v1:${digest}`,
+    browser_block_category: "",
+    profile_version: profile.profile_version,
+    message_profile_version: profile.profile_version,
+    application_pack_profile_version: profile.profile_version,
+    policy_version: "ranking-policy/v1",
+    message_policy_version: applicationPolicy.policy_version,
+    application_pack_policy_version: packPolicy.policy_version,
+    application_pack_version: packPolicy.pack_version,
+    coverage_contract_version: packPolicy.coverage_contract_version,
+    message_plan_version: packPolicy.message_plan_version,
+    prep_status: "",
+    preparation_version: 0,
+    preparation_input_guard: "",
+    preparation_updated_at: "",
+    generated_at: now,
+    ...overrides
+  });
+  // Autonomous execution cannot reuse legacy review/preparation authority.
+  record.prep_status = "";
+  record.preparation_version = 0;
+  record.preparation_input_guard = "";
+  record.preparation_updated_at = "";
+  record.submission_idempotency_key = Object.hasOwn(
+    overrides,
+    "submission_idempotency_key"
+  )
+    ? overrides.submission_idempotency_key
+    : submissionIdempotencyKey(record);
+  if (record.browser_state === "confirmed") {
+    attestAutonomousConfirmation(record, overrides);
+  }
+  record.state_guard = stateGuard(record);
+  return record;
+}
+
+function attestAutonomousConfirmation(record, overrides = {}) {
+  const witness = browserConfirmationWitness(record);
+  const attestation = {
+    submission_attestation_key_id: confirmationKeyId,
+    submission_attestation_witness_digest:
+      browserConfirmationWitnessDigest(witness),
+    submission_attestation_signature: sign(
+      null,
+      Buffer.from(serializeBrowserConfirmationWitness(witness)),
+      confirmationKeys.privateKey
+    ).toString("base64url")
+  };
+  for (const [field, value] of Object.entries(attestation)) {
+    record[field] = Object.hasOwn(overrides, field) ? overrides[field] : value;
+  }
+  return record;
 }
 
 function legacyStateGuard(record, userAction = record.user_action) {
@@ -981,6 +1075,24 @@ test("last-minute source changes prevent deletion", () => {
   );
   assert.deepEqual(noteConfirmation.deletions, []);
   assert.equal(noteConfirmation.rejected[0].reason, "stale_source");
+
+  const rediscovered = {
+    ...source,
+    matched_keywords: [...source.matched_keywords, "new rediscovery keyword"],
+    last_seen_at: "2026-07-31T10:01:00.000Z",
+    updated_at: "2026-07-31T10:01:00.000Z"
+  };
+  assert.equal(rediscovered.state_guard, source.state_guard);
+  const rediscoveryConfirmation = confirmMoveDeletions(
+    plan,
+    businessStores({
+      ...sourceStores([rediscovered]),
+      "Applied Jobs": written.applied
+    }),
+    schema
+  );
+  assert.deepEqual(rediscoveryConfirmation.deletions, []);
+  assert.equal(rediscoveryConfirmation.rejected[0].reason, "stale_source");
 });
 
 test("ambiguous or conflicting destination identities fail closed", () => {
@@ -1072,4 +1184,365 @@ test("Applied Jobs outcome changes are guarded and retain application history", 
   );
   assert.equal(planned.updates.length, 1);
   assert.equal(planned.updates[0].outcome_recorded_value, "replied");
+});
+
+test("exact autonomous confirmation moves directly to Applied Jobs with submission provenance", () => {
+  const source = autonomousConfirmedRow(4200);
+  const plan = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [source] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(plan.rejected.length, 0);
+  assert.equal(plan.moves.length, 1);
+  assert.equal(plan.moves[0].destination, "Applied Jobs");
+  assert.equal(plan.moves[0].route_reason, "autonomous_confirmed");
+  assert.match(plan.moves[0].claim_scope, /autonomous_confirmed/);
+  assert.match(plan.moves[0].claim_scope, /submission-v1/);
+  const [destination] = destinationWrites(plan).applied;
+  assert.equal(destination.applied_at, source.submission_confirmed_at);
+  assert.equal(destination.user_action, "");
+  for (const field of [
+    "execution_mode",
+    "autonomous_decision",
+    "browser_state",
+    "browser_attempt_id",
+    "browser_job_digest",
+    "browser_form_fingerprint",
+    "submission_idempotency_key",
+    "submission_confirmed_at",
+    "submission_confirmation_kind",
+    "submission_confirmation_reference",
+    "submission_confirmation_digest",
+    "submission_attestation_key_id",
+    "submission_attestation_witness_digest",
+    "submission_attestation_signature",
+    "message_profile_version",
+    "message_policy_version",
+    "application_pack_profile_version",
+    "application_pack_policy_version"
+  ]) {
+    assert.deepEqual(destination[field], source[field], field);
+  }
+});
+
+test("Alerter & Mover independently rejects forged confirmation receipts", () => {
+  const forged = autonomousConfirmedRow(4202);
+  forged.submission_attestation_signature = "Z".repeat(86);
+  forged.state_guard = stateGuard(forged);
+  const plan = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [forged] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(plan.moves.length, 0);
+  assert.ok(
+    plan.rejected.some(
+      (entry) =>
+        entry.reason === "invalid_autonomous_confirmation" &&
+        /independent_confirmation_attestation/.test(entry.summary)
+    )
+  );
+});
+
+test("autonomous skip archives distinctly without manufacturing an operator action", () => {
+  const source = autonomousConfirmedRow(4201, {
+    pipeline_status: "skip",
+    prep_status: "",
+    preparation_version: 0,
+    preparation_input_guard: "",
+    preparation_updated_at: "",
+    autonomous_decision: "skip",
+    browser_state: "skipped",
+    submission_idempotency_key: "",
+    submission_started_at: "",
+    submission_confirmed_at: "",
+    submission_confirmation_kind: "",
+    submission_confirmation_reference: "",
+    submission_confirmation_digest: ""
+  });
+  source.preparation_input_guard = "";
+  source.state_guard = stateGuard(source);
+  const plan = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [source] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(plan.moves.length, 1);
+  assert.equal(plan.moves[0].route_reason, "autonomous_skip");
+  const [destination] = destinationWrites(plan).archive;
+  assert.equal(destination.archive_reason, "autonomous_skip");
+  assert.equal(destination.user_action, "");
+});
+
+test("every nonterminal or uncertain autonomous browser state remains unmoved", () => {
+  const formStates = new Set([
+    "generating",
+    "filling",
+    "submit_started",
+    "ambiguous"
+  ]);
+  const startedStates = new Set(["submit_started", "ambiguous"]);
+  for (const [index, browserState] of [
+    "queued",
+    "claimed",
+    "evaluating",
+    "generating",
+    "filling",
+    "submit_started",
+    "retryable",
+    "ambiguous",
+    "blocked",
+    "unavailable"
+  ].entries()) {
+    const source = autonomousConfirmedRow(4210 + index, {
+      browser_state: browserState,
+      autonomous_decision: [
+        "generating",
+        "filling",
+        "submit_started",
+        "ambiguous"
+      ].includes(browserState)
+        ? "apply"
+        : "",
+      browser_attempt_id: ["queued", "unavailable"].includes(browserState)
+        ? ""
+        : `attempt-v1:${"a".repeat(64)}`,
+      browser_form_fingerprint: formStates.has(browserState)
+        ? `form-v1:${"a".repeat(64)}`
+        : "",
+      submission_idempotency_key: formStates.has(browserState)
+        ? submissionIdempotencyKey({
+            ...autonomousConfirmedRow(4210 + index),
+            browser_state: browserState
+          })
+        : "",
+      submission_started_at: startedStates.has(browserState)
+        ? "2026-07-31T09:55:00.000Z"
+        : "",
+      submission_confirmed_at: "",
+      submission_confirmation_kind: "",
+      submission_confirmation_reference: "",
+      submission_confirmation_digest: "",
+      browser_block_category: browserState === "blocked" ? "captcha" : ""
+    });
+    source.state_guard = stateGuard(source);
+    const plan = planQueueActionsRaw(
+      businessStores({ "Scraped Jobs": [source] }),
+      schema,
+      now,
+      safetyContext
+    );
+    assert.equal(plan.moves.length, 0, browserState);
+    assert.equal(
+      plan.rejected.length,
+      0,
+      `${browserState}: ${JSON.stringify(plan.rejected)}`
+    );
+  }
+});
+
+test("malformed autonomous confirmation evidence cannot authorize movement", () => {
+  const mutations = {
+    browser_attempt_id: "",
+    browser_job_digest: "",
+    browser_form_fingerprint: "",
+    submission_idempotency_key: "",
+    submission_started_at: "invalid",
+    submission_confirmed_at: "",
+    submission_confirmation_kind: "",
+    submission_confirmation_reference: "",
+    submission_confirmation_digest: "",
+    message_profile_version: "different-profile"
+  };
+  let id = 4230;
+  for (const [field, value] of Object.entries(mutations)) {
+    const source = autonomousConfirmedRow(id, { [field]: value });
+    source.state_guard = stateGuard(source);
+    const plan = planQueueActionsRaw(
+      businessStores({ "Scraped Jobs": [source] }),
+      schema,
+      now,
+      safetyContext
+    );
+    assert.equal(plan.moves.length, 0, field);
+    assert.ok(plan.rejected.length > 0, field);
+    id += 1;
+  }
+
+  const policyMismatch = autonomousConfirmedRow(4245);
+  policyMismatch.message_policy_version = "stale-message-policy";
+  policyMismatch.state_guard = stateGuard(policyMismatch);
+  const mismatchedPolicyPlan = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [policyMismatch] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(mismatchedPolicyPlan.moves.length, 0);
+  assert.ok(
+    mismatchedPolicyPlan.rejected.some(
+      (entry) => entry.reason === "invalid_source"
+    )
+  );
+
+  const staleGuard = autonomousConfirmedRow(4246);
+  staleGuard.submission_confirmation_reference =
+    `confirmation-ref-v1:${"d".repeat(64)}`;
+  const stalePlan = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [staleGuard] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(stalePlan.moves.length, 0);
+  assert.ok(
+    stalePlan.rejected.some(
+      (entry) =>
+        entry.reason === "invalid_source" &&
+        /state guard/i.test(entry.summary)
+    )
+  );
+});
+
+test("autonomous destination recovery repairs partial copies but rejects another submission identity", () => {
+  const source = autonomousConfirmedRow(4250);
+  const initial = planQueueActionsRaw(
+    businessStores({ "Scraped Jobs": [source] }),
+    schema,
+    now,
+    safetyContext
+  );
+  const complete = { ...destinationWrites(initial).applied[0], row_number: 2 };
+  const repeated = planQueueActionsRaw(
+    businessStores({
+      "Scraped Jobs": [source],
+      "Applied Jobs": [complete]
+    }),
+    schema,
+    "2026-07-31T10:05:00.000Z",
+    safetyContext
+  );
+  assert.equal(repeated.moves[0].write_required, false);
+  const confirmation = confirmMoveDeletions(
+    repeated,
+    businessStores({
+      "Scraped Jobs": [source],
+      "Applied Jobs": [complete]
+    }),
+    schema,
+    confirmationTrust
+  );
+  assert.equal(confirmation.deletions.length, 1);
+
+  const partial = {
+    ...complete,
+    submission_confirmation_reference: "",
+    notes: "Newer destination note",
+    record_version: complete.record_version + 1
+  };
+  partial.state_guard = stateGuard(partial);
+  const repair = planQueueActionsRaw(
+    businessStores({
+      "Scraped Jobs": [source],
+      "Applied Jobs": [partial]
+    }),
+    schema,
+    "2026-07-31T10:06:00.000Z",
+    safetyContext
+  );
+  assert.equal(repair.moves[0].write_required, true);
+  assert.equal(
+    repair.moves[0].destination_record.submission_confirmation_reference,
+    source.submission_confirmation_reference
+  );
+  assert.equal(repair.moves[0].destination_record.notes, partial.notes);
+
+  const strongerDigest = "c".repeat(64);
+  const strongerConfirmedAt = "2026-07-31T09:58:00.000Z";
+  const stronger = {
+    ...complete,
+    job_title: "",
+    notes: "Keep the destination-owned note",
+    outcome: "interview",
+    outcome_recorded_value: "interview",
+    outcome_at: "2026-07-31T10:04:00.000Z",
+    browser_attempt_id: `attempt-v1:${strongerDigest}`,
+    submission_confirmed_at: strongerConfirmedAt,
+    submission_confirmation_kind: "application_history",
+    submission_confirmation_reference: `confirmation-ref-v1:${strongerDigest}`,
+    submission_confirmation_digest: `confirmation-v1:${strongerDigest}`,
+    applied_at: strongerConfirmedAt,
+    record_version: complete.record_version + 2
+  };
+  attestAutonomousConfirmation(stronger);
+  stronger.state_guard = stateGuard(stronger);
+  const strongerRepair = planQueueActionsRaw(
+    businessStores({
+      "Scraped Jobs": [source],
+      "Applied Jobs": [stronger]
+    }),
+    schema,
+    "2026-07-31T10:06:30.000Z",
+    safetyContext
+  );
+  assert.equal(strongerRepair.moves[0].write_required, true);
+  assert.equal(
+    strongerRepair.moves[0].destination_record.submission_confirmation_kind,
+    "application_history"
+  );
+  assert.equal(
+    strongerRepair.moves[0].destination_record.submission_confirmation_digest,
+    stronger.submission_confirmation_digest
+  );
+  assert.equal(
+    strongerRepair.moves[0].destination_record.applied_at,
+    strongerConfirmedAt
+  );
+  assert.equal(strongerRepair.moves[0].destination_record.job_title, source.job_title);
+  assert.equal(
+    strongerRepair.moves[0].destination_record.notes,
+    stronger.notes
+  );
+  assert.equal(
+    strongerRepair.moves[0].destination_record.outcome,
+    "interview"
+  );
+
+  const conflicting = {
+    ...complete,
+    submission_idempotency_key: `submission-v1:${"b".repeat(64)}`
+  };
+  conflicting.state_guard = stateGuard(conflicting);
+  const conflict = planQueueActionsRaw(
+    businessStores({
+      "Scraped Jobs": [source],
+      "Applied Jobs": [conflicting]
+    }),
+    schema,
+    "2026-07-31T10:07:00.000Z",
+    safetyContext
+  );
+  assert.equal(conflict.moves.length, 0);
+  assert.ok(conflict.rejected.some((entry) => entry.reason === "destination_conflict"));
+});
+
+test("legacy manual actions cannot authorize an autonomous record", () => {
+  const forged = autonomousConfirmedRow(4260, { user_action: "I Applied" });
+  forged.state_guard = stateGuard(forged);
+  const plan = planQueueActionsRaw(
+    businessStores({ "To Apply": [forged] }),
+    schema,
+    now,
+    safetyContext
+  );
+  assert.equal(plan.moves.length, 0);
+  assert.ok(
+    plan.rejected.some((entry) =>
+      ["invalid_source", "forged_autonomous_action"].includes(entry.reason)
+    )
+  );
 });

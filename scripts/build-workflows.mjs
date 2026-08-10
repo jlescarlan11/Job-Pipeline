@@ -16,10 +16,6 @@ import {
   validateSearchPlan
 } from "../src/discovery.mjs";
 import {
-  validateGroqProviderPolicy,
-  validateGroqRuntimeCapacity
-} from "../src/groq-provider.mjs";
-import {
   validateWorkflowArtifactManifest,
   validateRuntimeConfig,
   workflowExecutionDataSettings
@@ -43,9 +39,9 @@ const [
   rankingPolicy,
   applicationPolicy,
   packPolicy,
-  groqPolicy,
   alertPolicy,
-  alertReceiptPolicy
+  alertReceiptPolicy,
+  browserTask
 ] = await Promise.all([
   readJson("config/pipeline-schema.json"),
   readJson("config/review-sheet.json"),
@@ -55,9 +51,9 @@ const [
   readJson("config/ranking-policy.json"),
   readJson("config/application-policy.json"),
   readJson("config/application-pack-policy.json"),
-  readJson("config/groq-provider-policy.json"),
   readJson("config/alert-policy.json"),
-  readJson("config/alert-receipts.json")
+  readJson("config/alert-receipts.json"),
+  readJson("config/browser-executor-task.json")
 ]);
 
 const runtimeErrors = validateRuntimeConfig(runtime);
@@ -83,13 +79,6 @@ if (alertReceiptErrors.length > 0) {
   throw new Error(
     `Invalid alert receipt policy:\n- ${alertReceiptErrors.join("\n- ")}`
   );
-}
-const groqErrors = [
-  ...validateGroqProviderPolicy(groqPolicy),
-  ...validateGroqRuntimeCapacity(groqPolicy, runtime.generator)
-];
-if (groqErrors.length > 0) {
-  throw new Error(`Invalid Groq provider/runtime configuration:\n- ${groqErrors.join("\n- ")}`);
 }
 if (
   review.sheets.scraped_jobs.name !== "Scraped Jobs" ||
@@ -123,24 +112,10 @@ const discoveryCore = await bundledCore(
   "src/contracts.mjs",
   "src/discovery.mjs"
 );
-const generatorCore = await bundledCore(
-  "src/contracts.mjs",
-  "src/profile.mjs",
-  "src/evaluation.mjs",
-  "src/groq-provider.mjs",
-  "src/system-claims.mjs",
-  "src/generator.mjs"
-);
 const sheetContextCore = await bundledCore(
   "src/contracts.mjs",
   "src/profile.mjs",
   "src/sheet-context.mjs"
-);
-const groqModel = groqPolicy.models.find(
-  (model) => model.id === groqPolicy.selected_model
-);
-const groqRepairModel = groqPolicy.models.find(
-  (model) => model.id === groqPolicy.repair_model
 );
 const {
   prompt_templates: applicationPromptTemplates,
@@ -149,23 +124,27 @@ const {
 if (!applicationPromptTemplates) {
   throw new Error("Application prompt bootstrap templates are missing");
 }
-const movementCore = await bundledCore(
+const confirmationCryptoCore =
+  'const { createHash, createPublicKey, verify: verifySignature } = require("crypto");';
+const movementCore = `${confirmationCryptoCore}\n${await bundledCore(
   "src/contracts.mjs",
+  "src/browser-confirmation-attestation.mjs",
   "src/profile.mjs",
   "src/evaluation.mjs",
   "src/message-safety.mjs",
   "src/system-claims.mjs",
   "src/movement.mjs"
-);
-const alertCore = await bundledCore(
+)}`;
+const alertCore = `${confirmationCryptoCore}\n${await bundledCore(
   "src/contracts.mjs",
+  "src/browser-confirmation-attestation.mjs",
   "src/profile.mjs",
   "src/evaluation.mjs",
   "src/message-safety.mjs",
   "src/system-claims.mjs",
   "src/movement.mjs",
   "src/alerter-mover.mjs"
-);
+)}`;
 const receiptCore = await bundledCore("src/alert-receipts.mjs");
 const alertReceiptCore = `${alertCore}\n${receiptCore}`;
 const sheetOrderCore = await bundledCore("src/sheet-order.mjs");
@@ -2647,7 +2626,14 @@ const plan = planAlerterMoverPhases(
   SCHEMA,
   POLICY,
   snapshot.now,
-  { movementPerRunCap: RUNTIME.movement_per_run_cap }
+  {
+    movementPerRunCap: RUNTIME.movement_per_run_cap,
+    confirmationTrust: {
+      publicKey: $env.${browserTask.confirmation_attestation.public_key_environment_variable},
+      keyId: ${JSON.stringify(browserTask.confirmation_attestation.key_id)},
+      publicKeySpkiSha256: ${JSON.stringify(browserTask.confirmation_attestation.public_key_spki_sha256)}
+    }
+  }
 );
 console.log(JSON.stringify({
   event: 'movement_plan',
@@ -3075,7 +3061,12 @@ const plans = $('Keep Winning Movement Claims').first().json.movement;
 const result = confirmMoveDeletions(
   plans,
   $('Normalize Touched Business Snapshot').first().json.stores,
-  SCHEMA
+  SCHEMA,
+  {
+    publicKey: $env.${browserTask.confirmation_attestation.public_key_environment_variable},
+    keyId: ${JSON.stringify(browserTask.confirmation_attestation.key_id)},
+    publicKeySpkiSha256: ${JSON.stringify(browserTask.confirmation_attestation.public_key_spki_sha256)}
+  }
 );
 console.log(JSON.stringify({
   event: 'movement_confirmation',
@@ -4954,8 +4945,9 @@ return [{ json: {
       promptTemplateKeys: Object.keys(applicationPromptTemplates),
       sourceSheets: [scraped, toReview, toApply],
       destinationSheets: schema.business_stores,
-      alertSourceSheet: toApply,
-      manualSubmissionOnly: true,
+      alertSourceSheets: [scraped, toApply],
+      autonomousSubmissionAware: true,
+      manualSubmissionOnly: false,
       movementIndependentOfSlack: true,
       movementBeforeAlertSelection: true,
       consolidatedBusinessSnapshot: true,
@@ -4987,7 +4979,6 @@ return [{ json: {
 
 const outputs = [
   ["workflows/scraper.json", buildScraper()],
-  ["workflows/generator.json", buildGenerator()],
   ["workflows/alerter-mover.json", buildAlerterMover()]
 ];
 
@@ -5060,7 +5051,7 @@ if (manifestErrors.length > 0) {
 }
 
 if (checkOnly) {
-  console.log("Three workflow artifacts are up to date.");
+  console.log("Two n8n workflow artifacts are up to date.");
 } else {
-  console.log("Rebuilt Scraper, Evaluator & Generator, and Alerter & Mover.");
+  console.log("Rebuilt Scraper and Alerter & Mover; browser execution is external.");
 }

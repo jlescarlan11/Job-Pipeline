@@ -48,7 +48,6 @@ function bindLiveCredential(workflow, credentialId = "google-credential") {
 test("generic bound rollout preserves every pinned role and one credential", async () => {
   for (const [fileName, roleName] of [
     ["scraper", "scraper"],
-    ["generator", "evaluator_generator"],
     ["alerter-mover", "alerter_mover"]
   ]) {
     const directory = await mkdtemp(join(tmpdir(), "workflow-rollout-test-"));
@@ -58,7 +57,7 @@ test("generic bound rollout preserves every pinned role and one credential", asy
     const artifact = JSON.parse(
       await readFile(new URL(`../workflows/${fileName}.json`, import.meta.url))
     );
-    const role = policy.workflow_cutover.roles.find(
+    const role = policy.mixed_cutover.n8n_roles.find(
       (entry) => entry.role === roleName
     );
     const live = bindLiveCredential(artifact);
@@ -92,22 +91,22 @@ test("generic bound rollout preserves every pinned role and one credential", asy
   }
 });
 
-test("generic rollout upgrades a pinned legacy graph with one unanimous credential", async () => {
+test("generic rollout upgrades a pinned older graph with one unanimous credential", async () => {
   const directory = await mkdtemp(join(tmpdir(), "workflow-rollout-test-"));
   const artifactPath = join(directory, "artifact.json");
   const livePath = join(directory, "live.json");
   const outputPath = join(directory, "bound.json");
   const artifact = JSON.parse(
-    await readFile(new URL("../workflows/generator.json", import.meta.url))
+    await readFile(new URL("../workflows/alerter-mover.json", import.meta.url))
   );
-  const role = policy.workflow_cutover.roles.find(
-    (entry) => entry.role === "evaluator_generator"
+  const role = policy.mixed_cutover.n8n_roles.find(
+    (entry) => entry.role === "alerter_mover"
   );
   const live = bindLiveCredential(artifact);
   live.id = role.target_workflow_id;
   live.active = true;
   live.nodes = live.nodes.filter(
-    (node) => node.name !== "Get To Apply Preparation"
+    (node) => node.name !== "Get Fresh To Apply Snapshot"
   );
   const liveCredentialNodeCount = googleCredentialNodeNames(live).length;
   assert.ok(liveCredentialNodeCount < role.google_credential_node_count);
@@ -127,7 +126,7 @@ test("generic rollout upgrades a pinned legacy graph with one unanimous credenti
   );
   assert.equal(workflowDeploymentDigest(bound), role.artifact_digest);
   assert.equal(bound.nodes.length, artifact.nodes.length);
-  assert.ok(bound.nodes.some((node) => node.name === "Get To Apply Preparation"));
+  assert.ok(bound.nodes.some((node) => node.name === "Get Fresh To Apply Snapshot"));
 });
 
 test("generic rollout rejects a wrong target and ambiguous credentials", async () => {
@@ -136,7 +135,7 @@ test("generic rollout rejects a wrong target and ambiguous credentials", async (
   const livePath = join(directory, "live.json");
   const outputPath = join(directory, "bound.json");
   const artifact = JSON.parse(
-    await readFile(new URL("../workflows/generator.json", import.meta.url))
+    await readFile(new URL("../workflows/scraper.json", import.meta.url))
   );
   const live = bindLiveCredential(artifact);
   live.id = "wrong-target";
@@ -148,7 +147,9 @@ test("generic rollout rejects a wrong target and ambiguous credentials", async (
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /pinned production target/);
 
-  live.id = "TRUqD9atneyDyMNx";
+  live.id = policy.mixed_cutover.n8n_roles.find(
+    (entry) => entry.role === "scraper"
+  ).target_workflow_id;
   const credentialNodes = new Set(googleCredentialNodeNames(live));
   const second = live.nodes.find((node) => credentialNodes.has(node.name));
   second.credentials.googleSheetsOAuth2Api = {
@@ -167,10 +168,10 @@ test("generic rollout rejects embedded secrets, unsafe references, and partial l
   const livePath = join(directory, "live.json");
   const outputPath = join(directory, "bound.json");
   const cleanArtifact = JSON.parse(
-    await readFile(new URL("../workflows/generator.json", import.meta.url))
+    await readFile(new URL("../workflows/scraper.json", import.meta.url))
   );
-  const role = policy.workflow_cutover.roles.find(
-    (entry) => entry.role === "evaluator_generator"
+  const role = policy.mixed_cutover.n8n_roles.find(
+    (entry) => entry.role === "scraper"
   );
   const live = bindLiveCredential(cleanArtifact);
   live.id = role.target_workflow_id;

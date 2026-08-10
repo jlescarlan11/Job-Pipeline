@@ -47,7 +47,10 @@ const [artifactText, liveText, policyText] = await Promise.all([
 const artifact = unwrapWorkflow(JSON.parse(artifactText), "generated artifact");
 const live = unwrapWorkflow(JSON.parse(liveText), "live workflow export");
 const policy = JSON.parse(policyText);
-const matches = policy.workflow_cutover.roles.filter((role) =>
+if (policy.active_contract !== "mixed_cutover") {
+  throw new Error("deployment policy does not select the mixed cutover contract");
+}
+const matches = policy.mixed_cutover.n8n_roles.filter((role) =>
   roleMatches(artifact, role)
 );
 if (matches.length !== 1) {

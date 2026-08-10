@@ -1,6 +1,30 @@
-import { parseHttpUrl } from "./contracts.mjs";
+import {
+  isDailyApplicationLimitFieldName,
+  parseHttpUrl
+} from "./contracts.mjs";
 
 const PROFILE_VERSION_PATTERN = /^(?:\d{4}-\d{2}-\d{2}|sheet\/[a-f0-9]{16})$/;
+const APPLICATION_POLICY_VERSION_PATTERN =
+  /^(?:\d{4}-\d{2}-\d{2}\/autonomous-v\d+|sheet\/[a-f0-9]{16})$/;
+function dailyApplicationLimitKeys(value, path = "", output = []) {
+  if (Array.isArray(value)) {
+    value.forEach((nested, index) =>
+      dailyApplicationLimitKeys(nested, `${path}[${index}]`, output)
+    );
+    return output;
+  }
+  if (!isPlainObject(value)) return output;
+  for (const [key, nested] of Object.entries(value)) {
+    const fieldPath = path ? `${path}.${key}` : key;
+    const scalar =
+      nested === null || typeof nested === "object" ? "" : String(nested);
+    if (isDailyApplicationLimitFieldName(`${fieldPath} ${scalar}`)) {
+      output.push(fieldPath);
+    }
+    dailyApplicationLimitKeys(nested, fieldPath, output);
+  }
+  return output;
+}
 const UNRESOLVED_PLACEHOLDER_PATTERN =
   /\[(?:add|insert|month|year|tbd|todo|unknown|not provided)\b[^\]]*\]/i;
 
@@ -115,6 +139,60 @@ function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function unsupportedObjectKeys(value, allowed, path) {
+  if (!isPlainObject(value)) return [];
+  const allowedSet = new Set(allowed);
+  return Object.keys(value)
+    .filter((key) => !allowedSet.has(key))
+    .map((key) => `${path}.${key} is unsupported`);
+}
+
+const APPLICATION_POLICY_KEYS = [
+  "schema_version",
+  "policy_version",
+  "candidate_profile_version",
+  "execution_mode",
+  "automation_contract_version",
+  "manual_submission_required",
+  "allowed_browser_hosts",
+  "apply_points",
+  "max_body_words",
+  "subject_template",
+  "default_greeting",
+  "employer_format_overrides_default",
+  "approved_candidate_url_keys",
+  "approved_project_ids",
+  "required_style",
+  "prompt_templates",
+  "prohibited_claims",
+  "banned_phrases"
+];
+
+const APPLICATION_PACK_POLICY_KEYS = [
+  "schema_version",
+  "policy_version",
+  "pack_version",
+  "candidate_profile_version",
+  "application_policy_version",
+  "minimum_preferred_proofs",
+  "maximum_proofs",
+  "maximum_instructions",
+  "maximum_questions",
+  "maximum_answer_elements_per_requirement",
+  "maximum_item_characters",
+  "maximum_description_characters",
+  "persistence_json_limits",
+  "coverage_contract_version",
+  "message_plan_version",
+  "autonomous_resolution",
+  "coverage_classifications",
+  "review_approval",
+  "required_markers",
+  "ambiguous_markers",
+  "instruction_markers",
+  "unsafe_instruction_categories"
+];
+
 function collectStrings(value, output = []) {
   if (typeof value === "string") {
     output.push(value);
@@ -226,15 +304,63 @@ export function validateCandidateProfile(profile) {
 export function validateApplicationPolicy(policy, profile) {
   const errors = [];
   if (!isPlainObject(policy)) return ["policy must be an object"];
-  if (policy.schema_version !== 1) errors.push("policy schema_version must be 1");
-  if (!PROFILE_VERSION_PATTERN.test(policy.policy_version ?? "")) {
-    errors.push("policy_version must use YYYY-MM-DD or sheet/<context-hash>");
+  errors.push(
+    ...unsupportedObjectKeys(policy, APPLICATION_POLICY_KEYS, "policy"),
+    ...unsupportedObjectKeys(
+      policy.apply_points,
+      ["mode", "value_source"],
+      "policy.apply_points"
+    )
+  );
+  if (policy.schema_version !== 2) errors.push("policy schema_version must be 2");
+  if (!APPLICATION_POLICY_VERSION_PATTERN.test(policy.policy_version ?? "")) {
+    errors.push(
+      "policy_version must use YYYY-MM-DD/autonomous-vN or sheet/<context-hash>"
+    );
   }
   if (policy.candidate_profile_version !== profile?.profile_version) {
     errors.push("policy candidate_profile_version must match the candidate profile");
   }
-  if (policy.manual_submission_required !== true) {
-    errors.push("manual_submission_required must be true");
+  if (!["legacy_manual", "autonomous_chrome"].includes(policy.execution_mode)) {
+    errors.push("execution_mode must be legacy_manual or autonomous_chrome");
+  }
+  if (
+    policy.execution_mode === "autonomous_chrome" &&
+    policy.automation_contract_version !== "browser-contract-v1"
+  ) {
+    errors.push(
+      "autonomous_chrome requires automation_contract_version browser-contract-v1"
+    );
+  }
+  if (
+    policy.execution_mode === "legacy_manual" &&
+    String(policy.automation_contract_version || "")
+  ) {
+    errors.push("legacy_manual cannot authorize an automation contract");
+  }
+  if (
+    Object.hasOwn(policy, "manual_submission_required") &&
+    policy.manual_submission_required !== (policy.execution_mode === "legacy_manual")
+  ) {
+    errors.push("manual_submission_required contradicts execution_mode");
+  }
+  for (const key of dailyApplicationLimitKeys(policy)) {
+    errors.push(`daily application limit field is unsupported: ${key}`);
+  }
+  if (
+    JSON.stringify(policy.allowed_browser_hosts) !==
+    JSON.stringify(["onlinejobs.ph", "www.onlinejobs.ph"])
+  ) {
+    errors.push("allowed_browser_hosts must contain only the OnlineJobs hosts");
+  }
+  if (
+    JSON.stringify(policy.apply_points) !==
+    JSON.stringify({
+      mode: "source_required_per_application",
+      value_source: "live_job_form"
+    })
+  ) {
+    errors.push("apply_points must use the live per-application source value");
   }
   if (!Number.isInteger(policy.max_body_words) || policy.max_body_words < 1) {
     errors.push("max_body_words must be a positive integer");
@@ -251,6 +377,83 @@ export function validateApplicationPolicy(policy, profile) {
     if (!projectIds.has(projectId)) errors.push(`unsupported approved_project_id: ${projectId}`);
   }
 
+  return errors;
+}
+
+export function validateAutonomousResolutionPolicy(
+  packPolicy,
+  applicationPolicy
+) {
+  const errors = [];
+  if (!isPlainObject(packPolicy)) {
+    return ["application-pack policy must be an object"];
+  }
+  errors.push(
+    ...unsupportedObjectKeys(
+      packPolicy,
+      APPLICATION_PACK_POLICY_KEYS,
+      "application_pack_policy"
+    ),
+    ...unsupportedObjectKeys(
+      packPolicy.persistence_json_limits,
+      [
+        "application_instructions",
+        "screening_questions",
+        "requirement_coverage",
+        "application_message_plan",
+        "application_warnings"
+      ],
+      "application_pack_policy.persistence_json_limits"
+    ),
+    ...unsupportedObjectKeys(
+      packPolicy.autonomous_resolution,
+      [
+        "ready_and_answerable",
+        "low_fit",
+        "deterministically_unsupported",
+        "missing_required_candidate_fact",
+        "unsafe_external_action",
+        "ambiguous_instruction"
+      ],
+      "application_pack_policy.autonomous_resolution"
+    ),
+    ...unsupportedObjectKeys(
+      packPolicy.review_approval,
+      ["acknowledgeable_warning_codes", "screening_question_answer_status"],
+      "application_pack_policy.review_approval"
+    ),
+    ...unsupportedObjectKeys(
+      packPolicy.instruction_markers,
+      ["subject", "format", "submission", "attachment", "test", "evidence", "content"],
+      "application_pack_policy.instruction_markers"
+    ),
+    ...unsupportedObjectKeys(
+      packPolicy.unsafe_instruction_categories,
+      ["policy_bypass", "hidden_configuration", "private_data", "automatic_action"],
+      "application_pack_policy.unsafe_instruction_categories"
+    )
+  );
+  if (
+    packPolicy.application_policy_version !== applicationPolicy?.policy_version
+  ) {
+    errors.push("application-pack policy must match the application policy version");
+  }
+  const expected = {
+    ready_and_answerable: "apply",
+    low_fit: "skip",
+    deterministically_unsupported: "skip",
+    missing_required_candidate_fact: "blocked",
+    unsafe_external_action: "blocked",
+    ambiguous_instruction: "blocked"
+  };
+  if (
+    JSON.stringify(packPolicy.autonomous_resolution) !== JSON.stringify(expected)
+  ) {
+    errors.push("autonomous_resolution must match the fail-closed decision contract");
+  }
+  for (const key of dailyApplicationLimitKeys(packPolicy)) {
+    errors.push(`daily application limit field is unsupported: ${key}`);
+  }
   return errors;
 }
 

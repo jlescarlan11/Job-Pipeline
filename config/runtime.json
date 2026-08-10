@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "timezone": "Asia/Manila",
   "execution_data": {
     "save_successful_production_executions": "none",
@@ -19,19 +19,19 @@
     "execution_timeout_seconds": 900,
     "claim_lease_ms": 1200000
   },
-  "generator": {
+  "browser_executor": {
+    "role_type": "codex_scheduled_task",
     "schedule_minutes": 90,
     "schedule_offset_minutes": 2,
     "execution_timeout_seconds": 480,
-    "per_run_cap": 5,
     "claim_lease_ms": 600000,
-    "candidate_pacing_delay_ms": 20000,
-    "request_retry_backoff_ms": 5000,
+    "minimum_attempt_headroom_ms": 120000,
+    "continuation_mode": "technical_headroom_next_schedule",
+    "project_mode": "local_project_root",
     "retry": {
       "max_attempts": 3,
       "backoff_ms": 300000
-    },
-    "http_timeout_ms": 15000
+    }
   },
   "alerter_mover": {
     "schedule_minutes": 15,

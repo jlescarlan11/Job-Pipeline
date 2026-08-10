@@ -1,6 +1,6 @@
 {
-  "schema_version": 8,
-  "view_version": "2026-08-09/v1",
+  "schema_version": 9,
+  "view_version": "2026-08-10/autonomous-v1",
   "timezone": "Asia/Manila",
   "sheets": {
     "scraped_jobs": {
@@ -10,6 +10,10 @@
       "latest_first_column": "discovered_at",
       "visible_columns": [
         "pipeline_status",
+        "execution_mode",
+        "autonomous_decision",
+        "browser_state",
+        "browser_block_category",
         "job_title",
         "company",
         "opportunity_score",
@@ -68,6 +72,8 @@
       "latest_first_column": "applied_at",
       "visible_columns": [
         "applied_at",
+        "submission_confirmed_at",
+        "submission_confirmation_kind",
         "job_title",
         "company",
         "generated_message",
@@ -85,6 +91,8 @@
       "visible_columns": [
         "archived_at",
         "archive_reason",
+        "browser_state",
+        "browser_block_category",
         "job_title",
         "company",
         "decision_reason",
@@ -299,6 +307,8 @@
       "authoritative_for": "application_settings",
       "fields": ["key", "value"],
       "initial_rows": [
+        { "key": "execution_mode", "value": "autonomous_chrome" },
+        { "key": "automation_contract_version", "value": "browser-contract-v1" },
         { "key": "max_body_words", "value": "300" },
         { "key": "subject_template", "value": "Subject line: {{job_title}} Application — {{candidate_name}}" },
         { "key": "default_greeting", "value": "Hi there," },
@@ -314,7 +324,7 @@
         { "enabled": true, "style": "first person" },
         { "enabled": true, "style": "direct and evidence-led" },
         { "enabled": true, "style": "specific to the job description" },
-        { "enabled": true, "style": "copy-ready after manual review" },
+        { "enabled": true, "style": "validated before browser fill and submission" },
         { "enabled": true, "style": "no unsupported claims" }
       ]
     },
@@ -388,7 +398,7 @@
     }
   },
   "record_header_upgrade": {
-    "from_storage_version": "2026-07-31-segmented-queues-v3",
+    "from_storage_version": "2026-08-04-preparation-lifecycle-v4",
     "legacy_fields": [
       "source",
       "source_job_id",
@@ -409,6 +419,10 @@
       "user_action",
       "decision_reason",
       "required_input",
+      "review_case_id",
+      "review_case_version",
+      "review_decision",
+      "review_decided_at",
       "review_approved_at",
       "review_approval_note",
       "review_approval_guard",
@@ -445,6 +459,10 @@
       "coverage_contract_version",
       "message_plan_version",
       "application_pack_generated_at",
+      "prep_status",
+      "preparation_version",
+      "preparation_input_guard",
+      "preparation_updated_at",
       "alert_status",
       "alert_idempotency_key",
       "alert_claim_token",
@@ -467,21 +485,26 @@
     ],
     "insertions": [
       {
-        "before": "review_approved_at",
+        "before": "review_case_id",
         "fields": [
-          "review_case_id",
-          "review_case_version",
-          "review_decision",
-          "review_decided_at"
-        ]
-      },
-      {
-        "before": "alert_status",
-        "fields": [
-          "prep_status",
-          "preparation_version",
-          "preparation_input_guard",
-          "preparation_updated_at"
+          "execution_mode",
+          "automation_contract_version",
+          "autonomous_decision",
+          "browser_state",
+          "browser_attempt_id",
+          "browser_job_digest",
+          "browser_context_digest",
+          "browser_form_fingerprint",
+          "submission_idempotency_key",
+          "submission_started_at",
+          "submission_confirmed_at",
+          "submission_confirmation_kind",
+          "submission_confirmation_reference",
+          "submission_confirmation_digest",
+          "submission_attestation_key_id",
+          "submission_attestation_witness_digest",
+          "submission_attestation_signature",
+          "browser_block_category"
         ]
       }
     ]
@@ -506,6 +529,24 @@
     "user_action",
     "decision_reason",
     "required_input",
+    "execution_mode",
+    "automation_contract_version",
+    "autonomous_decision",
+    "browser_state",
+    "browser_attempt_id",
+    "browser_job_digest",
+    "browser_context_digest",
+    "browser_form_fingerprint",
+    "submission_idempotency_key",
+    "submission_started_at",
+    "submission_confirmed_at",
+    "submission_confirmation_kind",
+    "submission_confirmation_reference",
+    "submission_confirmation_digest",
+    "submission_attestation_key_id",
+    "submission_attestation_witness_digest",
+    "submission_attestation_signature",
+    "browser_block_category",
     "review_case_id",
     "review_case_version",
     "review_decision",

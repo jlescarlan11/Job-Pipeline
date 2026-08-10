@@ -82,6 +82,43 @@ export function extractOnlineJobsId(url) {
   return match?.[1] ?? "";
 }
 
+export function isDailyApplicationLimitFieldName(value) {
+  const normalized = String(value || "")
+    .normalize("NFKC")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  const compact = normalized.replaceAll(" ", "");
+  const tokens = new Set(normalized.split(" ").filter(Boolean));
+  if (!compact) return false;
+  if (compact.includes("datebucket")) return true;
+  const daily =
+    compact.includes("daily") ||
+    compact.includes("perday") ||
+    compact.includes("eachday") ||
+    compact.includes("day") ||
+    compact.includes("24hour") ||
+    compact.includes("hours24") ||
+    compact.includes("24hr") ||
+    compact.includes("hrs24") ||
+    compact.includes("24h");
+  const application =
+    compact.includes("application") ||
+    compact.includes("apply") ||
+    compact.includes("applies") ||
+    compact.includes("submission") ||
+    compact.includes("submit") ||
+    compact.includes("applypoint") ||
+    compact.includes("applypoints") ||
+    tokens.has("app") ||
+    tokens.has("apps");
+  // Any day-scoped application/submission control is forbidden. Requiring a
+  // particular limiter word lets aliases such as `applications_per_24_hours`
+  // or `daily_application_ceiling` silently recreate the same cap.
+  return daily && application;
+}
+
 export function canonicalJobId(record) {
   const source = String(record.source || "onlinejobs.ph").trim().toLowerCase();
   const sourceJobId = String(record.source_job_id || extractOnlineJobsId(record.canonical_url || record.job_url) || "").trim();
@@ -196,6 +233,34 @@ function contractDigest(value) {
     .join("");
 }
 
+const BROWSER_JOB_DIGEST_FIELDS = [
+  "source",
+  "source_job_id",
+  "canonical_job_id",
+  "canonical_url",
+  "job_title",
+  "company",
+  "job_description",
+  "salary_text",
+  "posted_at",
+  "source_availability",
+  "role_families",
+  "matched_keywords"
+];
+
+/**
+ * Binds autonomous browser work to the material job facts that were
+ * discovered. Asynchronous observation timestamps are deliberately excluded,
+ * so merely seeing the same posting again cannot manufacture a new job input.
+ */
+export function browserJobDigest(record) {
+  return `job-v1:${contractDigest(
+    Object.fromEntries(
+      BROWSER_JOB_DIGEST_FIELDS.map((field) => [field, record?.[field] ?? ""])
+    )
+  )}`;
+}
+
 /**
  * Binds a human review approval to the exact application strategy that was
  * visible at review time. Operator notes and timestamps are intentionally not
@@ -255,6 +320,64 @@ export function preparationInputGuard(record) {
   })}`;
 }
 
+/**
+ * Produces one stable submission identity for the same canonical job and
+ * compatible trusted inputs. Attempt identifiers and timestamps are excluded
+ * deliberately so a retry cannot manufacture a second submission authority.
+ */
+export function submissionIdempotencyKey(record) {
+  const values = {
+    canonical_job_id: record?.canonical_job_id ?? canonicalJobId(record ?? {}),
+    browser_job_digest: record?.browser_job_digest ?? "",
+    browser_context_digest: record?.browser_context_digest ?? "",
+    browser_form_fingerprint: record?.browser_form_fingerprint ?? "",
+    profile_version: record?.profile_version ?? "",
+    message_profile_version: record?.message_profile_version ?? "",
+    message_policy_version: record?.message_policy_version ?? "",
+    application_pack_version: record?.application_pack_version ?? "",
+    application_pack_policy_version:
+      record?.application_pack_policy_version ?? "",
+    automation_contract_version: record?.automation_contract_version ?? ""
+  };
+  if (Object.values(values).some((value) => !String(value || "").trim())) {
+    return "";
+  }
+  return `submission-v1:${contractDigest(values)}`;
+}
+
+const BROWSER_SUBMIT_AUTHORIZATION_FIELDS = [
+  "canonical_job_id",
+  "browser_attempt_id",
+  "browser_job_digest",
+  "browser_context_digest",
+  "browser_form_fingerprint",
+  "submission_idempotency_key",
+  "submission_started_at",
+  "message_profile_version",
+  "message_policy_version",
+  "application_pack_version",
+  "application_pack_policy_version"
+];
+
+export function browserSubmitAuthorizationDigest(record) {
+  return contractDigest(
+    Object.fromEntries(
+      BROWSER_SUBMIT_AUTHORIZATION_FIELDS.map((field) => [
+        field,
+        record?.[field] ?? ""
+      ])
+    )
+  );
+}
+
+export function recordCopyDigest(record, schema) {
+  const fields = Array.isArray(schema?.fields) ? schema.fields : [];
+  if (fields.length === 0) return "";
+  return `copy-v1:${contractDigest(
+    Object.fromEntries(fields.map((field) => [field, record?.[field] ?? ""]))
+  )}`;
+}
+
 export function normalizeUserAction(action, schema) {
   const value = String(action ?? "").trim();
   return schema?.legacy_user_action_mapping?.[value] ?? value;
@@ -284,7 +407,15 @@ export const STATE_GUARD_FIELDS = [
   "canonical_url", "job_title", "company", "job_description", "salary_text",
   "posted_at", "discovered_at",
   "source_availability", "pipeline_status", "decision_reason",
-  "required_input", "review_case_id", "review_case_version",
+  "required_input", "execution_mode", "automation_contract_version",
+  "autonomous_decision", "browser_state", "browser_attempt_id",
+  "browser_job_digest", "browser_context_digest", "browser_form_fingerprint",
+  "submission_idempotency_key", "submission_started_at",
+  "submission_confirmed_at", "submission_confirmation_kind",
+  "submission_confirmation_reference", "submission_confirmation_digest",
+  "submission_attestation_key_id", "submission_attestation_witness_digest",
+  "submission_attestation_signature",
+  "browser_block_category", "review_case_id", "review_case_version",
   "review_decision", "review_decided_at", "review_approved_at",
   "review_approval_note", "review_approval_guard", "qualification_score",
   "opportunity_score",
@@ -308,11 +439,36 @@ export const STATE_GUARD_FIELDS = [
   "created_at"
 ];
 
+export const AUTONOMOUS_STATE_GUARD_FIELDS = Object.freeze([
+  "execution_mode",
+  "automation_contract_version",
+  "autonomous_decision",
+  "browser_state",
+  "browser_attempt_id",
+  "browser_job_digest",
+  "browser_context_digest",
+  "browser_form_fingerprint",
+  "submission_idempotency_key",
+  "submission_started_at",
+  "submission_confirmed_at",
+  "submission_confirmation_kind",
+  "submission_confirmation_reference",
+  "submission_confirmation_digest",
+  "submission_attestation_key_id",
+  "submission_attestation_witness_digest",
+  "submission_attestation_signature",
+  "browser_block_category"
+]);
+
+export const LEGACY_STATE_GUARD_FIELDS_V4 = STATE_GUARD_FIELDS.filter(
+  (field) => !AUTONOMOUS_STATE_GUARD_FIELDS.includes(field)
+);
+
 // Compatibility is intentionally limited to the immediately preceding
 // persisted contract. It lets the guarded workflows claim a freshly reread v3
 // row and rewrite it under v4; it does not make old workflow definitions
 // compatible with new lifecycle state.
-export const LEGACY_STATE_GUARD_FIELDS_V3 = STATE_GUARD_FIELDS.filter(
+export const LEGACY_STATE_GUARD_FIELDS_V3 = LEGACY_STATE_GUARD_FIELDS_V4.filter(
   (field) =>
     ![
       "review_case_id",
@@ -345,10 +501,22 @@ export function legacyStateGuardV3(record) {
   return stateGuardForFields(record, LEGACY_STATE_GUARD_FIELDS_V3);
 }
 
+export function legacyStateGuardV4(record) {
+  return stateGuardForFields(record, LEGACY_STATE_GUARD_FIELDS_V4);
+}
+
 export function stateGuardMatches(record) {
   const persisted = String(record?.state_guard || "");
   if (!persisted) return false;
   if (persisted === stateGuard(record)) return true;
+  const hasAutonomousLifecycleState =
+    record?.execution_mode === "autonomous_chrome" ||
+    AUTONOMOUS_STATE_GUARD_FIELDS.some(
+      (field) =>
+        field !== "execution_mode" && String(record?.[field] ?? "").trim()
+    );
+  if (hasAutonomousLifecycleState) return false;
+  if (persisted === legacyStateGuardV4(record)) return true;
   const hasV4LifecycleState =
     Boolean(
       record?.review_case_id ||
@@ -505,6 +673,9 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   record.user_action = normalizeUserAction(rawUserAction, schema);
   record.compatibility_legacy_user_action =
     record.user_action !== rawUserAction ? rawUserAction : "";
+  // A blank mode is compatibility data, never autonomous authorization.
+  record.execution_mode =
+    String(record.execution_mode || "").trim() || "legacy_manual";
   record.source = String(record.source || "onlinejobs.ph").trim().toLowerCase();
   record.canonical_url = normalizeCanonicalUrl(record.canonical_url || record.job_url);
   record.source_job_id = String(record.source_job_id || extractOnlineJobsId(record.canonical_url) || "");
@@ -692,22 +863,179 @@ export function validateRecordContract(record, schema) {
   if (!allowedActions.includes(record?.user_action ?? "")) {
     errors.push("user_action is not supported for pipeline_status");
   }
+  const autonomous = record?.execution_mode === "autonomous_chrome";
+  const browserState = String(record?.browser_state || "");
+  if (autonomous) {
+    if (record?.automation_contract_version !== "browser-contract-v1") {
+      errors.push("autonomous_chrome requires browser-contract-v1");
+    }
+    if (record?.user_action) {
+      errors.push("autonomous_chrome cannot use a manual user_action");
+    }
+    if (!(schema?.browser_states ?? []).includes(browserState)) {
+      errors.push("autonomous_chrome requires a supported browser_state");
+    }
+    if (!String(record?.browser_job_digest || "")) {
+      errors.push("autonomous_chrome requires browser_job_digest");
+    }
+    const legacyAuthorizationFields = [
+      "review_case_id",
+      "review_case_version",
+      "review_decision",
+      "review_decided_at",
+      "review_approved_at",
+      "review_approval_note",
+      "review_approval_guard",
+      "prep_status",
+      "preparation_input_guard",
+      "preparation_updated_at"
+    ];
+    if (
+      legacyAuthorizationFields.some((field) =>
+        String(record?.[field] ?? "").trim()
+      ) || Number(record?.preparation_version || 0) > 0
+    ) {
+      errors.push("autonomous_chrome cannot use legacy review authorization");
+    }
+    const attemptStates = new Set([
+      "claimed",
+      "evaluating",
+      "generating",
+      "filling",
+      "submit_started",
+      "confirmed",
+      "retryable",
+      "ambiguous",
+      "blocked"
+    ]);
+    if (attemptStates.has(browserState) && !record?.browser_attempt_id) {
+      errors.push(`${browserState} requires browser_attempt_id`);
+    }
+    const contextStates = new Set([
+      "evaluating",
+      "generating",
+      "filling",
+      "submit_started",
+      "confirmed",
+      "retryable",
+      "ambiguous",
+      "blocked",
+      "unavailable",
+      "skipped"
+    ]);
+    if (contextStates.has(browserState) && !record?.browser_context_digest) {
+      errors.push(`${browserState} requires browser_context_digest`);
+    }
+    if (
+      ["generating", "filling", "submit_started", "confirmed", "ambiguous"].includes(
+        browserState
+      )
+    ) {
+      if (!record?.browser_form_fingerprint) {
+        errors.push(`${browserState} requires browser_form_fingerprint`);
+      }
+      const expectedSubmissionKey = submissionIdempotencyKey(record);
+      if (!expectedSubmissionKey) {
+        errors.push(`${browserState} requires complete submission identity inputs`);
+      } else if (record?.submission_idempotency_key !== expectedSubmissionKey) {
+        errors.push("submission_idempotency_key does not match trusted inputs");
+      }
+    } else if (record?.submission_idempotency_key) {
+      errors.push("submission_idempotency_key is only valid after form inspection");
+    }
+    const startedState = ["submit_started", "confirmed", "ambiguous"].includes(
+      browserState
+    );
+    if (startedState !== Boolean(record?.submission_started_at)) {
+      errors.push(
+        startedState
+          ? `${browserState} requires submission_started_at`
+          : "submission_started_at is only valid after submit intent"
+      );
+    }
+    const confirmationFields = [
+      "submission_confirmed_at",
+      "submission_confirmation_kind",
+      "submission_confirmation_reference",
+      "submission_confirmation_digest",
+      "submission_attestation_key_id",
+      "submission_attestation_witness_digest",
+      "submission_attestation_signature"
+    ];
+    if (browserState === "confirmed") {
+      if (record?.autonomous_decision !== "apply") {
+        errors.push("confirmed requires autonomous_decision apply");
+      }
+      for (const field of confirmationFields) {
+        if (!String(record?.[field] || "")) {
+          errors.push(`confirmed requires ${field}`);
+        }
+      }
+    } else if (
+      confirmationFields.some((field) => String(record?.[field] || ""))
+    ) {
+      errors.push("confirmation evidence is only valid for confirmed state");
+    }
+    if (browserState === "skipped" && record?.autonomous_decision !== "skip") {
+      errors.push("skipped requires autonomous_decision skip");
+    }
+    if (record?.autonomous_decision === "skip" && browserState !== "skipped") {
+      errors.push("autonomous_decision skip requires skipped state");
+    }
+    if (
+      ["generating", "filling", "submit_started", "confirmed", "ambiguous"].includes(
+        browserState
+      ) && record?.autonomous_decision !== "apply"
+    ) {
+      errors.push(`${browserState} requires autonomous_decision apply`);
+    }
+    if (browserState === "blocked" && !record?.browser_block_category) {
+      errors.push("blocked requires browser_block_category");
+    }
+    if (browserState !== "blocked" && record?.browser_block_category) {
+      errors.push("browser_block_category is only valid for blocked state");
+    }
+  } else {
+    const forbidden = AUTONOMOUS_STATE_GUARD_FIELDS.filter(
+      (field) => field !== "execution_mode"
+    );
+    if (forbidden.some((field) => String(record?.[field] ?? "").trim())) {
+      errors.push("legacy_manual cannot contain autonomous browser authorization");
+    }
+  }
   const processingToken = String(record?.processing_token || "").trim();
   const processingStage = String(record?.processing_stage || "").trim();
   const processingStartedAt = String(record?.processing_started_at || "").trim();
+  const validProcessingStage =
+    ["evaluation", "generation"].includes(processingStage) ||
+    (autonomous &&
+      processingStage === "browser_executor" &&
+      [
+        "claimed",
+        "evaluating",
+        "generating",
+        "filling",
+        "submit_started",
+        "confirmed",
+        "retryable",
+        "ambiguous",
+        "blocked",
+        "unavailable",
+        "skipped"
+      ].includes(browserState));
   if (
     processingToken &&
-    (!["evaluation", "generation"].includes(processingStage) ||
+    (!validProcessingStage ||
       !Number.isFinite(Date.parse(processingStartedAt)))
   ) {
     errors.push(
-      "processing_token requires an evaluation/generation stage and valid start time"
+      "processing_token requires a supported stage and valid start time"
     );
   }
   if (!processingToken && processingStartedAt) {
     errors.push("processing_started_at requires processing_token");
   }
-  if (record?.pipeline_status === "processing" && !processingToken) {
+  if (!autonomous && record?.pipeline_status === "processing" && !processingToken) {
     errors.push("processing status requires processing_token");
   }
   const alertClaimToken = String(record?.alert_claim_token || "").trim();
@@ -746,10 +1074,10 @@ export function validateRecordContract(record, schema) {
   const preparationVersion = Number(record?.preparation_version || 0);
   const preparationGuard = String(record?.preparation_input_guard || "");
   const preparationUpdatedAt = String(record?.preparation_updated_at || "");
-  if (record?.pipeline_status === "ready_to_apply" && !prepStatus) {
+  if (!autonomous && record?.pipeline_status === "ready_to_apply" && !prepStatus) {
     errors.push("ready_to_apply requires prep_status");
   }
-  if (prepStatus && record?.pipeline_status !== "ready_to_apply") {
+  if (!autonomous && prepStatus && record?.pipeline_status !== "ready_to_apply") {
     errors.push("prep_status is only valid for ready_to_apply records");
   }
   const legacyPreparationError =
@@ -798,6 +1126,17 @@ export function validateRecordStoreContract(record, store, schema) {
     errors.push(`record store is not authoritative: ${normalizedStore || "(blank)"}`);
     return errors;
   }
+  if (record?.execution_mode === "autonomous_chrome") {
+    const ownedStates =
+      schema?.autonomous_store_browser_states?.[normalizedStore];
+    if (!Array.isArray(ownedStates) || !ownedStates.includes(record?.browser_state)) {
+      errors.push(
+        `${normalizedStore} does not own autonomous browser_state ${
+          record?.browser_state || "(blank)"
+        }`
+      );
+    }
+  }
   const allowedActions =
     schema?.actions_by_store_status?.[normalizedStore]?.[
       record?.pipeline_status
@@ -832,7 +1171,7 @@ export function applyValidatedRecordUpdate(record, updates, schema) {
 
 export function validatePipelineSchema(schema) {
   const errors = [];
-  if (schema?.schema_version !== 4) errors.push("schema_version must be 4");
+  if (schema?.schema_version !== 5) errors.push("schema_version must be 5");
   if (!Array.isArray(schema?.fields) || schema.fields.length === 0) errors.push("fields are required");
   if (!Array.isArray(schema?.pipeline_statuses) || schema.pipeline_statuses.length === 0) {
     errors.push("pipeline_statuses are required");
@@ -913,6 +1252,59 @@ export function validatePipelineSchema(schema) {
     JSON.stringify({ Approve: "Proceed", Deny: "Reject" })
   ) {
     errors.push("legacy_user_action_mapping must normalize Approve and Deny");
+  }
+  const expectedBrowserStates = [
+    "queued",
+    "claimed",
+    "evaluating",
+    "generating",
+    "filling",
+    "submit_started",
+    "confirmed",
+    "retryable",
+    "ambiguous",
+    "blocked",
+    "unavailable",
+    "skipped"
+  ];
+  if (
+    JSON.stringify(schema?.browser_states) !==
+    JSON.stringify(expectedBrowserStates)
+  ) {
+    errors.push("browser_states must contain the supported ordered lifecycle");
+  }
+  const browserStateSet = new Set(schema?.browser_states ?? []);
+  for (const state of expectedBrowserStates) {
+    const destinations = schema?.browser_transitions?.[state];
+    if (!Array.isArray(destinations) || destinations.length === 0) {
+      errors.push(`missing browser transitions for state: ${state}`);
+    } else if (destinations.some((value) => !browserStateSet.has(value))) {
+      errors.push(`browser transition contains an unknown state: ${state}`);
+    }
+  }
+  for (const state of Object.keys(schema?.browser_transitions ?? {})) {
+    if (!browserStateSet.has(state)) {
+      errors.push(`browser transition source is not a state: ${state}`);
+    }
+  }
+  for (const [store, statesForStore] of Object.entries(
+    schema?.autonomous_store_browser_states ?? {}
+  )) {
+    if (!(schema?.business_stores ?? []).includes(store)) {
+      errors.push(`autonomous store contract references unknown store: ${store}`);
+    }
+    if (
+      !Array.isArray(statesForStore) ||
+      statesForStore.some((state) => !browserStateSet.has(state))
+    ) {
+      errors.push(`autonomous store contract has invalid states for ${store}`);
+    }
+  }
+  if (
+    Object.keys(schema?.autonomous_store_browser_states ?? {}).length !==
+    (schema?.business_stores ?? []).length
+  ) {
+    errors.push("autonomous store contract must cover all business stores");
   }
   const preparationStatuses = new Set(schema?.preparation_statuses ?? []);
   const expectedPreparationStatuses = [
@@ -1060,6 +1452,31 @@ export function canTransition(schema, from, to) {
 
 export function canTransitionPreparation(schema, from, to) {
   return (schema.preparation_transitions?.[from ?? ""] ?? []).includes(to ?? "");
+}
+
+export function canTransitionBrowser(schema, from, to) {
+  return (schema.browser_transitions?.[from ?? ""] ?? []).includes(to ?? "");
+}
+
+export function transitionBrowserState(
+  record,
+  to,
+  schema,
+  now = new Date().toISOString()
+) {
+  const from = record?.browser_state;
+  if (record?.execution_mode !== "autonomous_chrome") {
+    throw new Error("Browser transitions require autonomous_chrome mode");
+  }
+  if (!canTransitionBrowser(schema, from, to)) {
+    throw new Error(`Invalid browser transition: ${from} -> ${to}`);
+  }
+  const next = { ...record, browser_state: to, updated_at: now };
+  const errors = validateRecordContract(next, schema);
+  if (errors.length > 0) {
+    throw new Error(`Invalid browser transition record: ${errors.join("; ")}`);
+  }
+  return { ...next, state_guard: stateGuard(next) };
 }
 
 export function transitionRecord(record, to, schema, now = new Date().toISOString()) {

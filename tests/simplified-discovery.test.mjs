@@ -13,7 +13,11 @@ import {
   validateKeywordSheetRows,
   validateSearchPlan
 } from "../src/discovery.mjs";
-import { normalizeLegacyRecord, stateGuard } from "../src/contracts.mjs";
+import {
+  browserJobDigest,
+  normalizeLegacyRecord,
+  stateGuard
+} from "../src/contracts.mjs";
 
 const plan = JSON.parse(
   await readFile(new URL("../config/search-plan.json", import.meta.url))
@@ -259,6 +263,16 @@ test("multi-keyword results become one new Scraped Jobs record", () => {
   );
   assert.equal(result.new_jobs.length, 1);
   assert.equal(result.new_jobs[0].pipeline_status, "new");
+  assert.equal(result.new_jobs[0].execution_mode, "autonomous_chrome");
+  assert.equal(
+    result.new_jobs[0].automation_contract_version,
+    "browser-contract-v1"
+  );
+  assert.equal(result.new_jobs[0].browser_state, "queued");
+  assert.equal(
+    result.new_jobs[0].browser_job_digest,
+    browserJobDigest(result.new_jobs[0])
+  );
   assert.deepEqual(result.new_jobs[0].matched_keywords, [
     "react developer",
     "web developer"

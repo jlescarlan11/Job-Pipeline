@@ -9,6 +9,8 @@ const loadJson = async (relativePath) =>
   JSON.parse(
     await readFile(new URL(relativePath, import.meta.url), "utf8")
   );
+const loadText = (relativePath) =>
+  readFile(new URL(relativePath, import.meta.url), "utf8");
 
 const [
   policy,
@@ -17,8 +19,11 @@ const [
   alertPolicy,
   pipelineSchema,
   candidateProfile,
+  rankingPolicy,
   applicationPolicy,
-  applicationPackPolicy
+  applicationPackPolicy,
+  browserTask,
+  browserTaskPrompt
 ] = await Promise.all([
   loadJson("../config/n8n-deployment-policy.json"),
   loadJson("../config/runtime.json"),
@@ -26,12 +31,37 @@ const [
   loadJson("../config/alert-policy.json"),
   loadJson("../config/pipeline-schema.json"),
   loadJson("../config/candidate-profile.json"),
+  loadJson("../config/ranking-policy.json"),
   loadJson("../config/application-policy.json"),
-  loadJson("../config/application-pack-policy.json")
+  loadJson("../config/application-pack-policy.json"),
+  loadJson("../config/browser-executor-task.json"),
+  readFile(new URL("../docs/browser-executor-task-prompt.md", import.meta.url), "utf8")
 ]);
 const generatedWorkflows = await Promise.all(
-  ["scraper", "generator", "alerter-mover"].map((name) =>
+  ["scraper", "alerter-mover"].map((name) =>
     loadJson(`../workflows/${name}.json`)
+  )
+);
+const browserSkillBundle = await Promise.all(
+  [
+    "../.agents/skills/job-autopilot/SKILL.md",
+    "../.agents/skills/job-autopilot/references/executor-protocol.md",
+    "../.agents/skills/job-autopilot/references/onlinejobs-form-boundary.md",
+    "../.agents/skills/job-autopilot/agents/openai.yaml"
+  ].map(async (path) => ({ path, content: await loadText(path) }))
+);
+const browserProtocolBundle = await Promise.all(
+  [
+    "../AGENTS.md",
+    "../src/browser-confirmation-attestation.mjs",
+    "../src/browser-executor.mjs",
+    "../src/contracts.mjs",
+    "../src/evaluation.mjs",
+    "../src/profile.mjs",
+    "../src/system-claims.mjs",
+    "../scripts/browser-executor.mjs"
+  ].map(
+    async (path) => ({ path, content: await loadText(path) })
   )
 );
 
@@ -41,9 +71,14 @@ const policyErrors = validateN8nDeploymentPolicy(policy, {
   alertPolicy,
   pipelineSchema,
   candidateProfile,
+  rankingPolicy,
   applicationPolicy,
   applicationPackPolicy,
-  generatedWorkflows
+  generatedWorkflows,
+  browserTask,
+  browserTaskPrompt,
+  browserSkillBundle,
+  browserProtocolBundle
 });
 if (policyErrors.length > 0) {
   throw new Error(

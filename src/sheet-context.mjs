@@ -1,6 +1,7 @@
 import {
   APPLICATION_PROMPT_TEMPLATE_CONTRACT,
   validateApplicationPolicy,
+  validateAutonomousResolutionPolicy,
   validateApplicationPromptTemplates,
   validateCandidateProfile
 } from "./profile.mjs";
@@ -274,6 +275,14 @@ function parseApplicationPreferences(
   basePolicy
 ) {
   const settings = new Map();
+  const allowedSettings = new Set([
+    "execution_mode",
+    "automation_contract_version",
+    "max_body_words",
+    "subject_template",
+    "default_greeting",
+    "employer_format_overrides_default"
+  ]);
   for (const row of nonemptyRows(applicationSettingRows)) {
     const key = normalizedText(row.key);
     const value = normalizedText(row.value);
@@ -281,6 +290,11 @@ function parseApplicationPreferences(
       throw new Error("Application Settings contains an invalid or duplicate setting");
     }
     settings.set(key, value);
+  }
+  for (const key of settings.keys()) {
+    if (!allowedSettings.has(key)) {
+      throw new Error(`Application Settings contains an unsupported setting: ${key}`);
+    }
   }
   const requiredStyle = enabledTextRows(
     requiredStyleRows,
@@ -314,6 +328,8 @@ function parseApplicationPreferences(
   requireFields(
     settings,
     [
+      "execution_mode",
+      "automation_contract_version",
       "max_body_words",
       "subject_template",
       "default_greeting",
@@ -329,6 +345,14 @@ function parseApplicationPreferences(
   if (!/^(?:true|false)$/i.test(employerOverride)) {
     throw new Error("Application Settings employer_format_overrides_default must be true or false");
   }
+  if (settings.get("execution_mode") !== "autonomous_chrome") {
+    throw new Error("Application Settings execution_mode must be autonomous_chrome");
+  }
+  if (settings.get("automation_contract_version") !== "browser-contract-v1") {
+    throw new Error(
+      "Application Settings automation_contract_version must be browser-contract-v1"
+    );
+  }
   const source = {
     settings: Object.fromEntries(settings),
     required_style: requiredStyle,
@@ -339,6 +363,8 @@ function parseApplicationPreferences(
     ...jsonClone(basePolicy),
     policy_version: sheetContextVersion(source),
     candidate_profile_version: profile.profile_version,
+    execution_mode: settings.get("execution_mode"),
+    automation_contract_version: settings.get("automation_contract_version"),
     max_body_words: maxBodyWords,
     subject_template: settings
       .get("subject_template")
@@ -434,6 +460,17 @@ export function compileSheetContext(
     candidate_profile_version: profile.profile_version,
     application_policy_version: effectiveApplicationPolicy.policy_version
   };
+  const autonomousResolutionErrors = validateAutonomousResolutionPolicy(
+    effectivePackPolicy,
+    effectiveApplicationPolicy
+  );
+  if (autonomousResolutionErrors.length > 0) {
+    throw new Error(
+      `Invalid autonomous application-pack Sheet context: ${autonomousResolutionErrors.join(
+        "; "
+      )}`
+    );
+  }
   return {
     source: "google_sheets",
     captured_at: new Date().toISOString(),

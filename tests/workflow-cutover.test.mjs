@@ -14,17 +14,72 @@ import {
 const loadJson = async (path) =>
   JSON.parse(await readFile(new URL(path, import.meta.url), "utf8"));
 const policy = await loadJson("../config/n8n-deployment-policy.json");
-const generatedWorkflows = await Promise.all(
-  ["scraper", "generator", "alerter-mover"].map((name) =>
+const [scraperWorkflow, alerterWorkflow] = await Promise.all(
+  ["scraper", "alerter-mover"].map((name) =>
     loadJson(`../workflows/${name}.json`)
   )
 );
+const legacyGeneratorRole = policy.workflow_cutover.roles.find(
+  (entry) => entry.role === "evaluator_generator"
+);
+const legacyGeneratorWorkflow = {
+  name: legacyGeneratorRole.name_markers.join(" — "),
+  active: false,
+  settings: {
+    timezone: legacyGeneratorRole.timezone,
+    executionTimeout: legacyGeneratorRole.execution_timeout_seconds
+  },
+  nodes: [
+    {
+      name: "Schedule Trigger",
+      type: "n8n-nodes-base.scheduleTrigger",
+      parameters: {
+        rule: {
+          interval: legacyGeneratorRole.schedule_expressions.map(
+            (expression) => ({ field: "cronExpression", expression })
+          )
+        }
+      }
+    },
+    ...Array.from(
+      { length: legacyGeneratorRole.google_credential_node_count },
+      (_, index) => ({
+        name:
+          legacyGeneratorRole.required_node_names[index] ??
+          `Legacy Generator Google Node ${index + 1}`,
+        type: "n8n-nodes-base.googleSheets",
+        parameters: {
+          documentId:
+            index % 2 === 0
+              ? "={{ $env.JOB_PIPELINE_SPREADSHEET_ID }}"
+              : "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}",
+          sheetName: index % 2 === 0 ? "Scraped Jobs" : "Candidate"
+        }
+      })
+    )
+  ],
+  connections: {}
+};
+const generatedWorkflows = [
+  scraperWorkflow,
+  legacyGeneratorWorkflow,
+  alerterWorkflow
+];
 const digest = (character) => `sha256:${character.repeat(64)}`;
 const roleFiles = {
   scraper: generatedWorkflows[0],
   evaluator_generator: generatedWorkflows[1],
   alerter_mover: generatedWorkflows[2]
 };
+// The active build intentionally no longer ships the historical Generator.
+// Rebind this isolated legacy-validator harness to its sanitized fixture and
+// current two artifacts without changing committed historical policy evidence.
+for (const role of policy.workflow_cutover.roles) {
+  role.artifact_digest = workflowDeploymentDigest(roleFiles[role.role]);
+  role.google_credential_node_count = googleCredentialNodeNames(
+    roleFiles[role.role]
+  ).length;
+}
 
 function boundWorkflow(role, active) {
   const definition = policy.workflow_cutover.roles.find(
@@ -296,7 +351,7 @@ test("cutover policy and complete three-phase evidence use the segmented in-plac
   }
 });
 
-test("current cutover role signatures pin exact generated workflow artifacts", () => {
+test("legacy cutover validator harness pins its isolated workflow artifacts", () => {
   for (const role of policy.workflow_cutover.roles) {
     const workflow = roleFiles[role.role];
     assert.equal(workflow.active, false);

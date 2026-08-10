@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "phase": "pre_activation",
+  "policy_version": "2026-08-10/v5",
+  "deployment_commit": "REPLACE_WITH_EXACT_CLEAN_MAIN_COMMIT",
+  "captured_at": "REPLACE_WITH_UTC_TIMESTAMP",
+  "example_only": true,
+  "release_status": "BLOCKED_UNTIL_EXTERNAL_EVIDENCE_EXISTS",
+  "privacy": {
+    "sanitized": false,
+    "secret_scan_clean": false,
+    "messages_included": false,
+    "descriptions_included": false,
+    "dom_included": false,
+    "screenshots_included": false,
+    "cookies_or_credentials_included": false,
+    "browser_history_included": false
+  },
+  "n8n_workflows": [],
+  "instance_inventory": {
+    "scraper_active_count": null,
+    "alerter_mover_active_count": null,
+    "browser_task_count": null,
+    "retired_generator_active_count": null,
+    "duplicate_role_or_task_count": null,
+    "active_verification_copy_count": null,
+    "observed_at": "REPLACE_WITH_UTC_TIMESTAMP"
+  },
+  "retired_generator": {
+    "workflow_id": "TRUqD9atneyDyMNx",
+    "artifact_digest": "REPLACE_WITH_CAPTURED_DIGEST",
+    "active": null,
+    "observed_at": "REPLACE_WITH_UTC_TIMESTAMP"
+  },
+  "scheduled_task": {
+    "task_id": "REPLACE_WITH_EXACT_TASK_ID",
+    "state": "paused",
+    "contract_version": "2026-08-10/browser-task-v1",
+    "artifact_digest": "REPLACE_WITH_POLICY_DIGEST",
+    "prompt_digest": "REPLACE_WITH_POLICY_DIGEST",
+    "skill_version": "job-autopilot-v1",
+    "protocol_version": "2026-08-10/v1",
+    "task_version": "REPLACE_WITH_EXACT_TASK_VERSION",
+    "binding_digest": "REPLACE_WITH_SANITIZED_SHA256",
+    "attestation_key_id": "REPLACE_WITH_PINNED_ADAPTER_KEY_ID",
+    "attestation_public_key_spki_sha256": "REPLACE_WITH_PINNED_SHA256",
+    "observed_at": "REPLACE_WITH_UTC_TIMESTAMP"
+  },
+  "backups": [],
+  "preflight": {
+    "duplicate_owner_count": null,
+    "active_claim_count": null,
+    "partial_unknown_move_count": null,
+    "malformed_receipt_count": null,
+    "unsupported_manual_action_count": null,
+    "policy_or_schema_drift_count": null,
+    "wrong_binding_count": null,
+    "fresh_exact_reread": false,
+    "all_writers_frozen": false,
+    "passed": false,
+    "snapshot_digest": "REPLACE_WITH_SANITIZED_SHA256",
+    "ownership_digest": "REPLACE_WITH_SANITIZED_SHA256",
+    "store_row_counts": {},
+    "browser_state_counts": {},
+    "receipt_status_counts": {},
+    "compatibility": {}
+  },
+  "migration": {
+    "active_legacy_rows": null,
+    "classified_rows": null,
+    "executed_rows": 0,
+    "route_count": null,
+    "rejected_rows": null,
+    "duplicate_owner_count": null,
+    "preserved_field_mismatch_count": null,
+    "plan_digest": "REPLACE_WITH_SANITIZED_SHA256",
+    "copy_confirm_delete_only": true,
+    "no_manual_relocation": true
+  },
+  "capability": {
+    "chrome_plugin_enabled": false,
+    "correct_profile": false,
+    "onlinejobs_allowlisted": false,
+    "signed_in_session_valid": false,
+    "local_project_selected": false,
+    "skill_invocation_verified": false,
+    "mock_sequence_passed": false,
+    "independent_attestation_adapter_verified": false,
+    "attestation_public_key_verified": false,
+    "unattended_submit_status": "not_tested",
+    "activation_allowed": false
+  },
+  "activation": {
+    "order": [
+      "freeze_writers_and_capture_backups",
+      "upgrade_structure_without_business_moves",
+      "import_n8n_roles_inactive",
+      "register_browser_task_paused",
+      "disable_retired_generator_and_drain_claims",
+      "enable_alerter_mover",
+      "enable_scraper",
+      "enable_browser_executor"
+    ],
+    "retired_generator_inactive_before_browser": false,
+    "no_mixed_writer_window": false,
+    "completed": false
+  },
+  "controls": [],
+  "rollback": {
+    "documented": false,
+    "verified_without_execution": false,
+    "disable_order": [
+      "browser_executor",
+      "alerter_mover",
+      "scraper"
+    ],
+    "compatibility_limits_recorded": false,
+    "manual_row_relocation_required": false,
+    "prior_assets": []
+  },
+  "observations": {}
+}

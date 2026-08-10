@@ -1870,7 +1870,7 @@ test("application prompt uses only the canonical profile and separate policy", (
   assert.match(prompt, /johnlesterescarlan\.pro/);
   assert.doesNotMatch(prompt, /Pharmacy & Acute Care University/);
   assert.doesNotMatch(prompt, /netlify|FireCheck|PriceCraft/);
-  assert.match(prompt, /manual[- ]review/i);
+  assert.match(prompt, /validated before browser fill and submission/i);
   assert.match(prompt, /untrusted role context/i);
   assert.match(prompt, /at or below 260 words/i);
   assert.match(prompt, /Never mention a technology absent from selected proofs/i);

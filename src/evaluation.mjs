@@ -3059,6 +3059,21 @@ export function validateApplicationPackPolicy(packPolicy, profile, applicationPo
   if (!/^\d{4}-\d{2}-\d{2}\/v\d+$/.test(packPolicy.message_plan_version ?? "")) {
     errors.push("message_plan_version must use YYYY-MM-DD/vN");
   }
+  const autonomousResolution = packPolicy.autonomous_resolution;
+  const expectedAutonomousResolution = {
+    ready_and_answerable: "apply",
+    low_fit: "skip",
+    deterministically_unsupported: "skip",
+    missing_required_candidate_fact: "blocked",
+    unsafe_external_action: "blocked",
+    ambiguous_instruction: "blocked"
+  };
+  if (
+    JSON.stringify(autonomousResolution) !==
+    JSON.stringify(expectedAutonomousResolution)
+  ) {
+    errors.push("autonomous_resolution must define deterministic apply, skip, and block outcomes");
+  }
   if (
     JSON.stringify(packPolicy.coverage_classifications) !==
     JSON.stringify(["exact", "adjacent", "partial", "missing", "manual_action"])
@@ -3332,6 +3347,25 @@ function approvedQuestionAnswerStatus(question, packPolicy) {
   return packPolicy.review_approval.screening_question_answer_status;
 }
 
+function applicationItemAuthorized(item) {
+  return item?.review_acknowledged === true || item?.policy_authorized === true;
+}
+
+const AUTONOMOUS_POLICY_AUTHORIZABLE_WARNING_CODES = new Set([
+  "proof_shortfall",
+  "screening_question_requires_review",
+  "adjacent_coverage_requires_review",
+  "partial_coverage_requires_review"
+]);
+
+function isAutonomousApplication(job, applicationPolicy) {
+  return (
+    job?.execution_mode === "autonomous_chrome" &&
+    applicationPolicy?.execution_mode === "autonomous_chrome" &&
+    applicationPolicy?.manual_submission_required === false
+  );
+}
+
 function hasReviewApproval(job) {
   const decidedAt = job?.review_decided_at || job?.review_approved_at || "";
   if (!Number.isFinite(Date.parse(decidedAt))) return false;
@@ -3480,7 +3514,7 @@ function coverageWarningAcknowledged(pack, coverage, warningCodes) {
     (warning) =>
       codes.has(warning.code) &&
       warning.coverage_id === coverage.id &&
-      warning.review_acknowledged === true
+      applicationItemAuthorized(warning)
   );
 }
 
@@ -3919,14 +3953,43 @@ export function buildApplicationPack(
     }
   }
 
+  const autonomousApplication = isAutonomousApplication(
+    job,
+    applicationPolicy
+  );
+  if (autonomousApplication) {
+    for (const question of questions) {
+      question.answer_status = approvedQuestionAnswerStatus(
+        question,
+        packPolicy
+      );
+      if (question.answer_status === "answer_in_message") {
+        question.policy_authorized = true;
+      }
+    }
+    for (const [index, warning] of warnings.entries()) {
+      const question = warning.question_id
+        ? questions.find((entry) => entry.id === warning.question_id)
+        : null;
+      const authorizable =
+        AUTONOMOUS_POLICY_AUTHORIZABLE_WARNING_CODES.has(warning.code) &&
+        (!question || question.answer_status === "answer_in_message");
+      warnings[index] = authorizable
+        ? { ...warning, policy_authorized: true }
+        : warning.severity === "review"
+          ? { ...warning, severity: "blocked" }
+          : warning;
+    }
+  }
+
   const status = warnings.some(
     (warning) =>
-      warning.severity === "blocked" && !warning.review_acknowledged
+      warning.severity === "blocked" && !applicationItemAuthorized(warning)
   )
     ? "blocked"
     : warnings.some(
           (warning) =>
-            warning.severity === "review" && !warning.review_acknowledged
+            warning.severity === "review" && !applicationItemAuthorized(warning)
         )
       ? "review_required"
       : "ready";
@@ -3952,11 +4015,16 @@ export function buildApplicationPack(
     application_pack_policy_version: packPolicy.policy_version,
     coverage_contract_version: packPolicy.coverage_contract_version,
     application_pack_generated_at: now,
-    review_approved_at: approvedReview || compatiblePositiveFramingApproval
+    review_approved_at:
+      !autonomousApplication &&
+      (approvedReview || compatiblePositiveFramingApproval)
       ? job.review_decided_at || job.review_approved_at
       : "",
     review_approval_guard:
-      approvedReview || compatiblePositiveFramingApproval ? reviewGuard : ""
+      !autonomousApplication &&
+      (approvedReview || compatiblePositiveFramingApproval)
+        ? reviewGuard
+        : ""
   };
   return applicationPackPersistenceErrors(result, packPolicy).length > 0
     ? persistenceOverflowPack(profile, packPolicy, now)
@@ -3999,7 +4067,7 @@ export function validateApplicationPack(pack, profile, packPolicy) {
     const acknowledgedShortfall = (pack?.application_warnings ?? []).some(
       (warning) =>
         warning.code === "proof_shortfall" &&
-        warning.review_acknowledged === true
+        applicationItemAuthorized(warning)
     );
     if (
       (pack?.selected_proof_refs?.length ?? 0) === 0 ||
@@ -4050,7 +4118,7 @@ export function validateApplicationPack(pack, profile, packPolicy) {
         (warning) =>
           warning.code === "unsupported_external_action" &&
           warning.instruction_id === instruction.id &&
-          warning.review_acknowledged === true
+          applicationItemAuthorized(warning)
       )
     ) {
       errors.push("a ready pack cannot contain a required external action");
@@ -4070,11 +4138,18 @@ export function validateApplicationPack(pack, profile, packPolicy) {
     }
     if (
       question?.answer_status === "answer_in_message" &&
-      question?.review_acknowledged !== true
+      !applicationItemAuthorized(question)
     ) {
       errors.push(
-        "a generated screening answer requires review acknowledgment"
+        "a generated screening answer requires review or policy authorization"
       );
+    }
+    if (
+      question?.policy_authorized !== undefined &&
+      (question.policy_authorized !== true ||
+        question.answer_status !== "answer_in_message")
+    ) {
+      errors.push("screening_questions contains an invalid policy authorization");
     }
     if (containsAnyUnsafeInstruction(question?.text ?? "", packPolicy)) {
       errors.push("screening_questions contains rejected unsafe content");
@@ -4309,7 +4384,7 @@ export function validateApplicationPack(pack, profile, packPolicy) {
         (warning) =>
           warning.code === "adjacent_coverage_requires_review" &&
           warning.coverage_id === coverage.id &&
-          warning.review_acknowledged === true
+          applicationItemAuthorized(warning)
       )
     ) {
       errors.push(`ready adjacent coverage lacks approval: ${coverage.id}`);
@@ -4322,7 +4397,7 @@ export function validateApplicationPack(pack, profile, packPolicy) {
         !["answer_in_message", "manual_submission_required"].includes(
           question.answer_status
         ) ||
-        question.review_acknowledged !== true
+        !applicationItemAuthorized(question)
     )
   ) {
     errors.push(
@@ -4345,6 +4420,12 @@ export function validateApplicationPack(pack, profile, packPolicy) {
       errors.push("application_warnings contains an invalid review acknowledgment");
     }
     if (
+      warning?.policy_authorized !== undefined &&
+      warning.policy_authorized !== true
+    ) {
+      errors.push("application_warnings contains an invalid policy authorization");
+    }
+    if (
       warning?.review_acknowledged === true &&
       !packPolicy.review_approval.acknowledgeable_warning_codes.includes(
         warning.code
@@ -4352,6 +4433,14 @@ export function validateApplicationPack(pack, profile, packPolicy) {
     ) {
       errors.push(
         "application_warnings acknowledges a warning that approval cannot resolve"
+      );
+    }
+    if (
+      warning?.policy_authorized === true &&
+      !AUTONOMOUS_POLICY_AUTHORIZABLE_WARNING_CODES.has(warning.code)
+    ) {
+      errors.push(
+        "application_warnings authorizes a warning outside autonomous policy"
       );
     }
     if (
@@ -4380,11 +4469,11 @@ export function validateApplicationPack(pack, profile, packPolicy) {
   }
   const hasBlockingWarning = (pack?.application_warnings ?? []).some(
     (warning) =>
-      warning.severity === "blocked" && warning.review_acknowledged !== true
+      warning.severity === "blocked" && !applicationItemAuthorized(warning)
   );
   const hasReviewWarning = (pack?.application_warnings ?? []).some(
     (warning) =>
-      warning.severity === "review" && warning.review_acknowledged !== true
+      warning.severity === "review" && !applicationItemAuthorized(warning)
   );
   const hasReviewAcknowledgment =
     (pack?.application_warnings ?? []).some(
@@ -4665,7 +4754,7 @@ export function buildApplicationUserMessage(
         .filter(
           (question) =>
             question.answer_status === "answer_in_message" &&
-            question.review_acknowledged === true
+            applicationItemAuthorized(question)
         )
         .map((question) => ({
           id: String(question?.id || ""),
@@ -4674,12 +4763,12 @@ export function buildApplicationUserMessage(
     : [];
   const unresolvedQuestions = Array.isArray(pack.screening_questions)
     ? pack.screening_questions.filter(
-        (question) => question.review_acknowledged !== true
+        (question) => !applicationItemAuthorized(question)
       )
     : pack.screening_questions;
   const unresolvedWarnings = Array.isArray(pack.application_warnings)
     ? pack.application_warnings.filter(
-        (warning) => warning.review_acknowledged !== true
+        (warning) => !applicationItemAuthorized(warning)
       )
     : pack.application_warnings;
   const promptMessagePlan = pack.message_plan
@@ -4904,7 +4993,7 @@ export function buildApplicationRepairMessage(
         .filter(
           (question) =>
             question?.answer_status === "answer_in_message" &&
-            question?.review_acknowledged === true
+            applicationItemAuthorized(question)
         )
         .map((question) => ({
           id: String(question?.id || ""),
@@ -5178,7 +5267,7 @@ function screeningAnswerErrors(
   const questions = (pack?.screening_questions ?? []).filter(
     (question) =>
       question?.answer_status === "answer_in_message" &&
-      question?.review_acknowledged === true &&
+      applicationItemAuthorized(question) &&
       (!positiveFramingOnly ||
         (pack?.requirement_coverage ?? []).some(
           (coverage) =>

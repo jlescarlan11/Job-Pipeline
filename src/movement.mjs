@@ -2,11 +2,16 @@ import {
   applicationReviewGuard,
   isGuardedLegacyReviewAction,
   preparationInputGuard,
+  recordCopyDigest,
   reviewCaseId,
   stateGuard,
   stateGuardMatches,
   validateRecordStoreContract
 } from "./contracts.mjs";
+import {
+  browserConfirmationWitness,
+  verifyBrowserConfirmationAttestation
+} from "./browser-confirmation-attestation.mjs";
 
 function identityKey(value) {
   return String(value || "")
@@ -23,7 +28,216 @@ function sanitize(value, maximum = 240) {
     .slice(0, maximum);
 }
 
-function permanentSourceUnavailable(record) {
+const AUTONOMOUS_EXECUTION_MODE = "autonomous_chrome";
+const AUTONOMOUS_NON_MOVABLE_STATES = new Set([
+  "queued",
+  "claimed",
+  "evaluating",
+  "generating",
+  "filling",
+  "submit_started",
+  "retryable",
+  "ambiguous",
+  "blocked",
+  "unavailable"
+]);
+const AUTONOMOUS_CONFIRMATION_FIELDS = [
+  "browser_attempt_id",
+  "browser_job_digest",
+  "browser_form_fingerprint",
+  "submission_idempotency_key",
+  "submission_started_at",
+  "submission_confirmed_at",
+  "submission_confirmation_kind",
+  "submission_confirmation_reference",
+  "submission_confirmation_digest",
+  "submission_attestation_key_id",
+  "submission_attestation_witness_digest",
+  "submission_attestation_signature"
+];
+const AUTONOMOUS_CONFIRMATION_RECEIPT_FIELDS = [
+  "browser_attempt_id",
+  "submission_started_at",
+  "submission_confirmed_at",
+  "submission_confirmation_kind",
+  "submission_confirmation_reference",
+  "submission_confirmation_digest",
+  "submission_attestation_key_id",
+  "submission_attestation_witness_digest",
+  "submission_attestation_signature"
+];
+
+function isAutonomousRecord(record) {
+  return record?.execution_mode === AUTONOMOUS_EXECUTION_MODE;
+}
+
+function nonemptyBounded(value, maximum = 512) {
+  const text = String(value || "").trim();
+  return Boolean(
+    text &&
+      text.length <= maximum &&
+      !/[\u0000-\u001f\u007f-\u009f]/u.test(text)
+  );
+}
+
+function autonomousConfirmationErrors(record, confirmationTrust) {
+  const errors = [];
+  if (!isAutonomousRecord(record)) errors.push("execution_mode");
+  if (record?.autonomous_decision !== "apply") {
+    errors.push("autonomous_decision");
+  }
+  if (record?.browser_state !== "confirmed") errors.push("browser_state");
+  if (record?.user_action) errors.push("user_action");
+  for (const field of AUTONOMOUS_CONFIRMATION_FIELDS) {
+    if (!nonemptyBounded(record?.[field])) errors.push(field);
+  }
+  const attestation = {
+    algorithm: "ed25519",
+    key_id: record?.submission_attestation_key_id,
+    witness_digest: record?.submission_attestation_witness_digest,
+    signature: record?.submission_attestation_signature
+  };
+  if (
+    !verifyBrowserConfirmationAttestation(
+      browserConfirmationWitness(record),
+      attestation,
+      confirmationTrust ?? {}
+    )
+  ) {
+    errors.push("independent_confirmation_attestation");
+  }
+  const startedAt = Date.parse(record?.submission_started_at || "");
+  const confirmedAt = Date.parse(record?.submission_confirmed_at || "");
+  if (
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(confirmedAt) ||
+    confirmedAt < startedAt
+  ) {
+    errors.push("submission_timestamps");
+  }
+  if (
+    record?.processing_token ||
+    record?.processing_stage ||
+    record?.processing_started_at
+  ) {
+    errors.push("active_processing_claim");
+  }
+  if (record?.application_pack_status !== "ready") {
+    errors.push("application_pack_status");
+  }
+  if (record?.message_validation_status !== "valid") {
+    errors.push("message_validation_status");
+  }
+  if (!String(record?.generated_message || "").trim()) {
+    errors.push("generated_message");
+  }
+  const profileVersions = [
+    record?.profile_version,
+    record?.message_profile_version,
+    record?.application_pack_profile_version
+  ].map((value) => String(value || "").trim());
+  if (
+    profileVersions.some((value) => !value) ||
+    new Set(profileVersions).size !== 1
+  ) {
+    errors.push("profile_provenance");
+  }
+  for (const field of [
+    "policy_version",
+    "message_policy_version",
+    "application_pack_policy_version",
+    "application_pack_version",
+    "coverage_contract_version",
+    "message_plan_version"
+  ]) {
+    if (!String(record?.[field] || "").trim()) errors.push(field);
+  }
+  return [...new Set(errors)];
+}
+
+function validAutonomousSkip(record) {
+  return Boolean(
+    isAutonomousRecord(record) &&
+      record?.autonomous_decision === "skip" &&
+      record?.browser_state === "skipped" &&
+      record?.pipeline_status === "skip" &&
+      !record?.user_action &&
+      !record?.processing_token &&
+      !record?.processing_stage &&
+      !record?.processing_started_at &&
+      !record?.submission_idempotency_key &&
+      !record?.submission_started_at &&
+      !record?.submission_confirmed_at &&
+      !record?.submission_confirmation_kind &&
+      !record?.submission_confirmation_reference &&
+      !record?.submission_confirmation_digest &&
+      !record?.submission_attestation_key_id &&
+      !record?.submission_attestation_witness_digest &&
+      !record?.submission_attestation_signature
+  );
+}
+
+function strongerAutonomousConfirmation(source, actual, confirmationTrust) {
+  return Boolean(
+    autonomousConfirmationErrors(source, confirmationTrust).length === 0 &&
+      autonomousConfirmationErrors(actual, confirmationTrust).length === 0 &&
+      actual.execution_mode === source.execution_mode &&
+      actual.autonomous_decision === source.autonomous_decision &&
+      actual.browser_state === source.browser_state &&
+      actual.browser_job_digest === source.browser_job_digest &&
+      actual.browser_form_fingerprint === source.browser_form_fingerprint &&
+      actual.submission_idempotency_key === source.submission_idempotency_key &&
+      source.submission_confirmation_kind === "confirmation_page" &&
+      actual.submission_confirmation_kind === "application_history" &&
+      Date.parse(actual.submission_confirmed_at) >=
+        Date.parse(source.submission_confirmed_at) &&
+      (!actual.applied_at ||
+        actual.applied_at === actual.submission_confirmed_at)
+  );
+}
+
+function sameAutonomousConfirmation(source, actual, confirmationTrust) {
+  const exact = AUTONOMOUS_CONFIRMATION_FIELDS.every(
+    (field) => String(actual?.[field] || "") === String(source?.[field] || "")
+  );
+  return (
+    autonomousConfirmationErrors(source, confirmationTrust).length === 0 &&
+    autonomousConfirmationErrors(actual, confirmationTrust).length === 0 &&
+    actual.execution_mode === source.execution_mode &&
+    actual.autonomous_decision === source.autonomous_decision &&
+    actual.browser_state === source.browser_state &&
+    (exact || strongerAutonomousConfirmation(source, actual, confirmationTrust)) &&
+    actual.applied_at === actual.submission_confirmed_at
+  );
+}
+
+function conflictingAutonomousConfirmation(source, actual, confirmationTrust) {
+  if (!actual) return false;
+  if (strongerAutonomousConfirmation(source, actual, confirmationTrust)) {
+    return false;
+  }
+  for (const field of AUTONOMOUS_CONFIRMATION_FIELDS) {
+    const actualValue = String(actual?.[field] || "");
+    if (actualValue && actualValue !== String(source?.[field] || "")) {
+      return true;
+    }
+  }
+  for (const field of [
+    "execution_mode",
+    "autonomous_decision",
+    "browser_state"
+  ]) {
+    const actualValue = String(actual?.[field] || "");
+    if (actualValue && actualValue !== String(source?.[field] || "")) {
+      return true;
+    }
+  }
+  return Boolean(
+    actual.applied_at && actual.applied_at !== source.submission_confirmed_at
+  );
+}
+
+export function permanentSourceUnavailable(record) {
   if (
     record?.source_availability === "unavailable" ||
     record?.error_category === "source_unavailable"
@@ -54,7 +268,13 @@ function indexStore(rows, name) {
   return index;
 }
 
-function destinationConflict(actual, destination, reason) {
+function destinationConflict(
+  actual,
+  destination,
+  reason,
+  source,
+  confirmationTrust
+) {
   if (destination === "To Review" && actual.review_decision) return true;
   if (
     destination === "To Apply" &&
@@ -65,6 +285,13 @@ function destinationConflict(actual, destination, reason) {
   if (
     destination === "Applied Jobs" &&
     (actual.archive_reason || actual.archived_at)
+  ) {
+    return true;
+  }
+  if (
+    destination === "Applied Jobs" &&
+    reason === "autonomous_confirmed" &&
+    conflictingAutonomousConfirmation(source, actual, confirmationTrust)
   ) {
     return true;
   }
@@ -84,8 +311,26 @@ function destinationConflict(actual, destination, reason) {
   return false;
 }
 
-function validExistingDestination(source, actual, destination, reason, schema) {
-  if (!actual || destinationConflict(actual, destination, reason)) return false;
+function validExistingDestination(
+  source,
+  actual,
+  destination,
+  reason,
+  schema,
+  confirmationTrust
+) {
+  if (
+    !actual ||
+    destinationConflict(
+      actual,
+      destination,
+      reason,
+      source,
+      confirmationTrust
+    )
+  ) {
+    return false;
+  }
   if (validateRecordStoreContract(actual, destination, schema).length > 0) {
     return false;
   }
@@ -146,6 +391,13 @@ function validExistingDestination(source, actual, destination, reason, schema) {
     return false;
   }
   if (
+    destination === "Applied Jobs" &&
+    reason === "autonomous_confirmed" &&
+    !sameAutonomousConfirmation(source, actual, confirmationTrust)
+  ) {
+    return false;
+  }
+  if (
     destination === "Archive" &&
     (!Number.isFinite(Date.parse(actual.archived_at || "")) ||
       actual.archive_reason !== reason)
@@ -160,6 +412,17 @@ function validExistingDestination(source, actual, destination, reason, schema) {
       actual.review_decision !== "reject" ||
       !Number.isFinite(Date.parse(actual.review_decided_at || "")))
   ) return false;
+  if (
+    destination === "Archive" &&
+    reason === "autonomous_skip" &&
+    (!validAutonomousSkip(source) ||
+      actual.execution_mode !== AUTONOMOUS_EXECUTION_MODE ||
+      actual.autonomous_decision !== "skip" ||
+      actual.browser_state !== "skipped" ||
+      actual.user_action)
+  ) {
+    return false;
+  }
   if (
     destination === "Archive" &&
     reason === "source_unavailable" &&
@@ -207,6 +470,15 @@ function validExistingDestination(source, actual, destination, reason, schema) {
       "review_approval_guard"
     ]) destinationOwned.add(field);
   }
+  if (
+    destination === "Applied Jobs" &&
+    reason === "autonomous_confirmed" &&
+    strongerAutonomousConfirmation(source, actual, confirmationTrust)
+  ) {
+    for (const field of AUTONOMOUS_CONFIRMATION_RECEIPT_FIELDS) {
+      destinationOwned.add(field);
+    }
+  }
   if (destination === "To Apply" && reason === "review_proceeded") {
     for (const field of [
       "pipeline_status",
@@ -253,7 +525,17 @@ function validExistingDestination(source, actual, destination, reason, schema) {
   });
 }
 
-function destinationRecord(source, destination, reason, now, existing) {
+function destinationRecord(
+  source,
+  destination,
+  reason,
+  now,
+  existing,
+  confirmationTrust
+) {
+  const preserveStrongerAutonomousConfirmation =
+    reason === "autonomous_confirmed" &&
+    strongerAutonomousConfirmation(source, existing, confirmationTrust);
   const record = {
     ...source,
     row_number: undefined,
@@ -270,7 +552,12 @@ function destinationRecord(source, destination, reason, now, existing) {
     updated_at: now
   };
   if (destination === "Applied Jobs") {
-    record.applied_at = existing?.applied_at || source.applied_at || now;
+    record.applied_at =
+      preserveStrongerAutonomousConfirmation
+        ? existing.submission_confirmed_at
+        : reason === "autonomous_confirmed"
+          ? source.submission_confirmed_at
+        : existing?.applied_at || source.applied_at || now;
     record.archived_at = "";
     record.archive_reason = "";
     record.notes = existing ? existing.notes || "" : source.notes || "";
@@ -362,16 +649,32 @@ function destinationRecord(source, destination, reason, now, existing) {
       }
     }
   }
-  if (["user_applied", "user_skip"].includes(reason)) {
+  if (preserveStrongerAutonomousConfirmation) {
+    for (const field of AUTONOMOUS_CONFIRMATION_RECEIPT_FIELDS) {
+      record[field] = existing[field];
+    }
+  }
+  if (
+    [
+      "user_applied",
+      "user_skip",
+      "autonomous_confirmed",
+      "autonomous_skip"
+    ].includes(reason)
+  ) {
     // An operator terminal action wins over an in-flight or retryable Slack
     // delivery. The destination must never retain `sending` after movement
     // clears the source claim token, otherwise the record fails its own store
     // contract and becomes stranded in To Apply.
     if (["pending", "sending", "retryable_failure"].includes(record.alert_status)) {
       record.alert_status = "suppressed";
-      record.alert_error_category = "operator_terminal_action";
-      record.alert_error_summary =
-        "Slack alert cancelled because the operator completed a terminal queue action.";
+      const autonomousTerminal = reason.startsWith("autonomous_");
+      record.alert_error_category = autonomousTerminal
+        ? "autonomous_terminal_state"
+        : "operator_terminal_action";
+      record.alert_error_summary = autonomousTerminal
+        ? "Slack alert cancelled because autonomous execution reached a terminal state."
+        : "Slack alert cancelled because the operator completed a terminal queue action.";
     }
     record.alert_claim_token = "";
     record.alert_next_retry_at = "";
@@ -380,7 +683,52 @@ function destinationRecord(source, destination, reason, now, existing) {
   return record;
 }
 
-function classifyQueueRow(sourceSheet, record, schema) {
+function classifyQueueRow(sourceSheet, record, schema, confirmationTrust) {
+  if (isAutonomousRecord(record)) {
+    if (record.user_action) {
+      return {
+        suppressed: true,
+        reason: "forged_autonomous_action",
+        summary: "Autonomous records cannot use legacy manual queue actions"
+      };
+    }
+    if (record.browser_state === "confirmed") {
+      const confirmationErrors = autonomousConfirmationErrors(
+        record,
+        confirmationTrust
+      );
+      return confirmationErrors.length === 0
+        ? { destination: "Applied Jobs", reason: "autonomous_confirmed" }
+        : {
+            suppressed: true,
+            reason: "invalid_autonomous_confirmation",
+            summary: `Autonomous confirmation is incomplete: ${confirmationErrors.join(", ")}`
+          };
+    }
+    if (
+      record.autonomous_decision === "skip" ||
+      record.browser_state === "skipped"
+    ) {
+      return validAutonomousSkip(record)
+        ? { destination: "Archive", reason: "autonomous_skip" }
+        : {
+            suppressed: true,
+            reason: "invalid_autonomous_skip",
+            summary: "Autonomous skip evidence is incomplete or contradictory"
+          };
+    }
+    if (
+      AUTONOMOUS_NON_MOVABLE_STATES.has(String(record.browser_state || "")) ||
+      record.browser_state === ""
+    ) {
+      return null;
+    }
+    return {
+      suppressed: true,
+      reason: "invalid_autonomous_state",
+      summary: "Autonomous browser state is unsupported for movement"
+    };
+  }
   if (
     sourceSheet === "Scraped Jobs" &&
     isGuardedLegacyReviewAction(record, sourceSheet, schema)
@@ -491,7 +839,10 @@ export function planQueueActions(
   schema,
   now = new Date().toISOString(),
   messageSafetyContext,
-  { movementPerRunCap = Number.POSITIVE_INFINITY } = {}
+  {
+    movementPerRunCap = Number.POSITIVE_INFINITY,
+    confirmationTrust = messageSafetyContext?.confirmationTrust
+  } = {}
 ) {
   const expectedStores = schema?.business_stores ?? [];
   if (
@@ -550,7 +901,12 @@ export function planQueueActions(
       }
       let classification;
       try {
-        classification = classifyQueueRow(sourceSheet, source, schema);
+        classification = classifyQueueRow(
+          sourceSheet,
+          source,
+          schema,
+          confirmationTrust
+        );
       } catch (error) {
         rejected.push({
           canonical_job_id: String(source?.canonical_job_id || ""),
@@ -614,7 +970,9 @@ export function planQueueActions(
       destinationConflict(
         existing,
         classification.destination,
-        classification.reason
+        classification.reason,
+        source,
+        confirmationTrust
       )
     ) {
       rejected.push({
@@ -639,7 +997,8 @@ export function planQueueActions(
       existing,
       classification.destination,
       classification.reason,
-      schema
+      schema,
+      confirmationTrust
     );
     const destination = existingComplete
       ? { ...existing }
@@ -648,7 +1007,8 @@ export function planQueueActions(
           classification.destination,
           classification.reason,
           now,
-          existing
+          existing,
+          confirmationTrust
         );
     const destinationErrors = validateRecordStoreContract(
       destination,
@@ -669,13 +1029,25 @@ export function planQueueActions(
       source_sheet: sourceSheet,
       source_row_number: source.row_number,
       source_state_guard: source.state_guard,
+      source_copy_digest: recordCopyDigest(source, schema),
       source_record_version: source.record_version,
       source_status: source.pipeline_status,
       source_action: source.user_action,
       source_notes: source.notes || "",
       destination: classification.destination,
       route_reason: classification.reason,
-      claim_scope: `${sourceSheet}:${classification.destination}`,
+      claim_scope: [
+        sourceSheet,
+        classification.destination,
+        ...(classification.reason.startsWith("autonomous_")
+          ? [
+              classification.reason,
+              source.submission_idempotency_key || source.browser_attempt_id
+            ]
+          : [])
+      ]
+        .filter(Boolean)
+        .join(":"),
       archive_reason:
         classification.destination === "Archive"
           ? classification.reason
@@ -720,7 +1092,8 @@ export function destinationWrites(plans) {
 export function confirmMoveDeletions(
   plans,
   freshStores,
-  schema
+  schema,
+  confirmationTrust
 ) {
   const expectedStores = schema?.business_stores ?? [];
   if (expectedStores.some((store) => !Array.isArray(freshStores?.[store]))) {
@@ -745,6 +1118,7 @@ export function confirmMoveDeletions(
     const sourceUnchanged =
       stateGuardMatches(source) &&
       source.state_guard === plan.source_state_guard &&
+      recordCopyDigest(source, schema) === plan.source_copy_digest &&
       source.record_version === plan.source_record_version &&
       source.pipeline_status === plan.source_status &&
       source.user_action === plan.source_action &&
@@ -763,7 +1137,8 @@ export function confirmMoveDeletions(
         destination,
         plan.destination,
         plan.route_reason,
-        schema
+        schema,
+        confirmationTrust
       )
     ) {
       rejected.push({

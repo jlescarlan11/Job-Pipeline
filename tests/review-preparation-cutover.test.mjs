@@ -24,6 +24,9 @@ const loadJson = async (path) =>
   JSON.parse(await readFile(new URL(path, import.meta.url)));
 const schema = await loadJson("../config/pipeline-schema.json");
 const runtime = await loadJson("../config/runtime.json");
+const legacyGeneratorRuntime = await loadJson(
+  "./fixtures/legacy-generator-runtime.json"
+);
 const deploymentPolicy = await loadJson("../config/n8n-deployment-policy.json");
 const receiptPolicy = await loadJson("../config/alert-receipts.json");
 const profile = await loadJson("../config/candidate-profile.json");
@@ -317,7 +320,7 @@ test("Generator converts one valid v3 To Apply guard into the v4 preparation cla
   const selected = selectGeneratorCandidate(
     { "Scraped Jobs": [], "To Apply": [normalized] },
     schema,
-    runtime.generator,
+    legacyGeneratorRuntime,
     now
   );
   assert.equal(selected.length, 1);
@@ -326,7 +329,7 @@ test("Generator converts one valid v3 To Apply guard into the v4 preparation cla
     selected[0].stage,
     "migration-execution",
     now,
-    runtime.generator.claim_lease_ms,
+    legacyGeneratorRuntime.claim_lease_ms,
     "To Apply"
   );
   assert.equal(claim.record.review_decision, "proceed");
@@ -354,7 +357,7 @@ test("Generator converts one valid v3 To Apply guard into the v4 preparation cla
         "generation",
         "mixed-contract",
         now,
-        runtime.generator.claim_lease_ms,
+        legacyGeneratorRuntime.claim_lease_ms,
         "To Apply"
       ),
     /stale source state guard/

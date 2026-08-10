@@ -1,6 +1,6 @@
 {
-  "schema_version": 4,
-  "storage_version": "2026-08-04-preparation-lifecycle-v4",
+  "schema_version": 5,
+  "storage_version": "2026-08-10-autonomous-browser-v5",
   "authoritative_stores": {
     "scraped": "Scraped Jobs",
     "review": "To Review",
@@ -42,6 +42,24 @@
     "user_action",
     "decision_reason",
     "required_input",
+    "execution_mode",
+    "automation_contract_version",
+    "autonomous_decision",
+    "browser_state",
+    "browser_attempt_id",
+    "browser_job_digest",
+    "browser_context_digest",
+    "browser_form_fingerprint",
+    "submission_idempotency_key",
+    "submission_started_at",
+    "submission_confirmed_at",
+    "submission_confirmation_kind",
+    "submission_confirmation_reference",
+    "submission_confirmation_digest",
+    "submission_attestation_key_id",
+    "submission_attestation_witness_digest",
+    "submission_attestation_signature",
+    "browser_block_category",
     "review_case_id",
     "review_case_version",
     "review_decision",
@@ -131,6 +149,8 @@
     "discovered_at",
     "last_seen_at",
     "evaluated_at",
+    "submission_started_at",
+    "submission_confirmed_at",
     "review_decided_at",
     "review_approved_at",
     "processing_started_at",
@@ -179,6 +199,127 @@
     "required_input": {
       "type": "string",
       "maximum_length": 4000
+    },
+    "execution_mode": {
+      "type": "enum",
+      "values": [
+        "legacy_manual",
+        "autonomous_chrome"
+      ],
+      "nullable": false
+    },
+    "automation_contract_version": {
+      "type": "enum",
+      "values": [
+        "",
+        "browser-contract-v1"
+      ]
+    },
+    "autonomous_decision": {
+      "type": "enum",
+      "values": [
+        "",
+        "apply",
+        "skip"
+      ]
+    },
+    "browser_state": {
+      "type": "enum",
+      "values": [
+        "",
+        "queued",
+        "claimed",
+        "evaluating",
+        "generating",
+        "filling",
+        "submit_started",
+        "confirmed",
+        "retryable",
+        "ambiguous",
+        "blocked",
+        "unavailable",
+        "skipped"
+      ]
+    },
+    "browser_attempt_id": {
+      "type": "string",
+      "maximum_length": 75,
+      "pattern": "^(?:|attempt-v1:[a-f0-9]{64})$"
+    },
+    "browser_job_digest": {
+      "type": "string",
+      "maximum_length": 74,
+      "pattern": "^(?:|job-v1:[a-f0-9]{64})$"
+    },
+    "browser_context_digest": {
+      "type": "string",
+      "maximum_length": 75,
+      "pattern": "^(?:|context-v1:[a-f0-9]{64})$"
+    },
+    "browser_form_fingerprint": {
+      "type": "string",
+      "maximum_length": 75,
+      "pattern": "^(?:|form-v1:[a-f0-9]{64})$"
+    },
+    "submission_idempotency_key": {
+      "type": "string",
+      "maximum_length": 81,
+      "pattern": "^(?:|submission-v1:[a-f0-9]{64})$"
+    },
+    "submission_confirmation_kind": {
+      "type": "enum",
+      "values": [
+        "",
+        "confirmation_page",
+        "application_history"
+      ]
+    },
+    "submission_confirmation_reference": {
+      "type": "string",
+      "maximum_length": 86,
+      "pattern": "^(?:|confirmation-ref-v1:[a-f0-9]{64})$"
+    },
+    "submission_confirmation_digest": {
+      "type": "string",
+      "maximum_length": 82,
+      "pattern": "^(?:|confirmation-v1:[a-f0-9]{64})$"
+    },
+    "submission_attestation_key_id": {
+      "type": "string",
+      "maximum_length": 120,
+      "pattern": "^(?:|[A-Za-z0-9][A-Za-z0-9._:-]{0,119})$"
+    },
+    "submission_attestation_witness_digest": {
+      "type": "string",
+      "maximum_length": 75,
+      "pattern": "^(?:|witness-v1:[a-f0-9]{64})$"
+    },
+    "submission_attestation_signature": {
+      "type": "string",
+      "maximum_length": 120,
+      "pattern": "^(?:|[A-Za-z0-9_-]{80,120})$"
+    },
+    "browser_block_category": {
+      "type": "enum",
+      "values": [
+        "",
+        "missing_candidate_fact",
+        "login_required",
+        "challenge",
+        "captcha",
+        "unexpected_agreement",
+        "unsafe_upload",
+        "unsupported_external_step",
+        "invalid_form",
+        "policy_mismatch",
+        "unsafe_page_content",
+        "posting_unavailable",
+        "navigation_failed",
+        "transient_browser_failure",
+        "submission_uncertain",
+        "submission_rejected",
+        "confirmation_mismatch"
+      ]
     },
     "review_case_id": {
       "type": "string",
@@ -356,6 +497,54 @@
   "legacy_user_action_mapping": {
     "Approve": "Proceed",
     "Deny": "Reject"
+  },
+  "browser_states": [
+    "queued",
+    "claimed",
+    "evaluating",
+    "generating",
+    "filling",
+    "submit_started",
+    "confirmed",
+    "retryable",
+    "ambiguous",
+    "blocked",
+    "unavailable",
+    "skipped"
+  ],
+  "browser_transitions": {
+    "queued": ["claimed", "skipped", "unavailable", "blocked"],
+    "claimed": ["evaluating", "retryable", "blocked", "unavailable"],
+    "evaluating": ["generating", "skipped", "retryable", "blocked", "unavailable"],
+    "generating": ["filling", "retryable", "blocked", "unavailable"],
+    "filling": ["submit_started", "retryable", "blocked", "unavailable"],
+    "submit_started": ["confirmed", "ambiguous", "blocked"],
+    "confirmed": ["confirmed"],
+    "retryable": ["claimed", "retryable", "blocked", "unavailable"],
+    "ambiguous": ["ambiguous", "confirmed", "blocked"],
+    "blocked": ["blocked"],
+    "unavailable": ["unavailable", "claimed"],
+    "skipped": ["skipped"]
+  },
+  "autonomous_store_browser_states": {
+    "Scraped Jobs": [
+      "queued",
+      "claimed",
+      "evaluating",
+      "generating",
+      "filling",
+      "submit_started",
+      "confirmed",
+      "retryable",
+      "ambiguous",
+      "blocked",
+      "unavailable",
+      "skipped"
+    ],
+    "To Review": [],
+    "To Apply": [],
+    "Applied Jobs": ["confirmed"],
+    "Archive": ["skipped", "unavailable"]
   },
   "actions_by_status": {
     "new": [
@@ -535,6 +724,7 @@
   },
   "archive_reasons": [
     "automatic_skip",
+    "autonomous_skip",
     "user_skip",
     "review_denied",
     "source_unavailable"

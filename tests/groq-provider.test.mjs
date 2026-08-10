@@ -33,7 +33,9 @@ const profile = await loadJson("../config/candidate-profile.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
-const runtime = await loadJson("../config/runtime.json");
+const legacyGeneratorRuntime = await loadJson(
+  "./fixtures/legacy-generator-runtime.json"
+);
 const directHtml = await loadText("./fixtures/job-direct.html");
 
 test("Groq policy selects an approved production replacement and rejects unsafe selections", () => {
@@ -114,7 +116,7 @@ test("Groq policy selects an approved production replacement and rejects unsafe 
 });
 
 test("Groq scheduled capacity stays within the conservative developer-base envelope", () => {
-  const capacity = groqScheduledCapacity(groqPolicy, runtime.generator);
+  const capacity = groqScheduledCapacity(groqPolicy, legacyGeneratorRuntime);
   assert.deepEqual(capacity, {
     initial_model_id: "openai/gpt-oss-120b",
     repair_model_id: "openai/gpt-oss-20b",
@@ -143,14 +145,14 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
     maximum_pacing_milliseconds: 289000
   });
   assert.deepEqual(
-    validateGroqRuntimeCapacity(groqPolicy, runtime.generator),
+    validateGroqRuntimeCapacity(groqPolicy, legacyGeneratorRuntime),
     []
   );
 
   const unsafePolicy = structuredClone(groqPolicy);
   unsafePolicy.generation.request_interval_ms = 1000;
   const unsafeRuntime = {
-    ...runtime.generator,
+    ...legacyGeneratorRuntime,
     schedule_minutes: 15,
     per_run_cap: 5,
     execution_timeout_seconds: 90,
@@ -174,7 +176,7 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
   oversizedRequest.generation.maximum_combined_input_characters = 25000;
   const requestErrors = validateGroqRuntimeCapacity(
     oversizedRequest,
-    runtime.generator
+    legacyGeneratorRuntime
   ).join("\n");
   assert.match(requestErrors, /verified TPM limit/i);
 
@@ -192,7 +194,7 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
     assert.match(
       validateGroqRuntimeCapacity(
         belowRequired,
-        runtime.generator
+        legacyGeneratorRuntime
       ).join("\n"),
       expected
     );
@@ -207,7 +209,7 @@ test("Groq scheduled capacity stays within the conservative developer-base envel
   assert.match(
     validateGroqRuntimeCapacity(
       sharedModelQuota,
-      runtime.generator
+      legacyGeneratorRuntime
     ).join("\n"),
     /120b.*TPD limit/i,
     "initial and repair traffic must combine when both roles share one quota"
@@ -246,8 +248,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   assert.ok(system.length < 6000);
   assert.equal(pack.selected_proofs.length, 2);
   assert.equal(groqPolicy.generation.maximum_prompt_proofs, 2);
-  assert.equal(measurement.combined_characters, 4816);
-  assert.equal(measurement.character_based_token_estimate, 1606);
+  assert.equal(measurement.combined_characters, 4830);
+  assert.equal(measurement.character_based_token_estimate, 1610);
   assert.ok(user.includes(pack.selected_proofs[0].reference));
   assert.ok(user.includes(pack.selected_proofs[1].reference));
   assert.doesNotMatch(user, /"label"|"relevance_score"/);

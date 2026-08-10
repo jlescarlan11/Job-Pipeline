@@ -5,15 +5,21 @@ import {
   STATE_GUARD_EXCLUDED_FIELDS,
   STATE_GUARD_FIELDS,
   applicationReviewGuard,
+  browserJobDigest,
   canonicalJobId,
   canTransitionPreparation,
+  canTransitionBrowser,
   canTransition,
   normalizeCanonicalUrl,
   normalizeLegacyRecord,
   legacyStateGuardV3,
+  legacyStateGuardV4,
   preparationInputGuard,
   reviewCaseId,
   stateGuard,
+  stateGuardMatches,
+  submissionIdempotencyKey,
+  transitionBrowserState,
   transitionRecord,
   validatePipelineSchema,
   validateRecordContract,
@@ -22,6 +28,7 @@ import {
 } from "../src/contracts.mjs";
 import {
   planFreshWorkbookSetup,
+  planAutonomousContractMigration,
   planRecordHeaderUpgrade,
   planSegmentedQueueMigration,
   validateFreshSheetConfig
@@ -56,6 +63,100 @@ function validRecord(overrides = {}) {
     updated_at: "2026-07-31T00:00:00.000Z"
   };
   return normalizeLegacyRecord({ ...base, ...overrides }, schema, base.created_at);
+}
+
+function autonomousRecord(browserState = "queued", overrides = {}) {
+  const attemptStates = new Set([
+    "claimed",
+    "evaluating",
+    "generating",
+    "filling",
+    "submit_started",
+    "confirmed",
+    "retryable",
+    "ambiguous",
+    "blocked"
+  ]);
+  const formStates = new Set([
+    "generating",
+    "filling",
+    "submit_started",
+    "confirmed",
+    "ambiguous"
+  ]);
+  const startedStates = new Set(["submit_started", "confirmed", "ambiguous"]);
+  const raw = {
+    source: "onlinejobs.ph",
+    source_job_id: "54321",
+    canonical_job_id: "onlinejobs.ph:54321",
+    record_version: 1,
+    canonical_url: "https://onlinejobs.ph/jobseekers/job/example-54321",
+    pipeline_status: browserState === "skipped" ? "skip" : "new",
+    user_action: "",
+    source_availability: "active",
+    attempt_count: 0,
+    matched_keywords: ["react developer"],
+    match_reasons: [],
+    requirement_gaps: [],
+    selected_proof_refs: [],
+    application_instructions: [],
+    screening_questions: [],
+    application_warnings: [],
+    execution_mode: "autonomous_chrome",
+    automation_contract_version: "browser-contract-v1",
+    autonomous_decision:
+      browserState === "skipped"
+        ? "skip"
+        : ["generating", ...formStates].includes(browserState)
+          ? "apply"
+          : "",
+    browser_state: browserState,
+    browser_attempt_id: attemptStates.has(browserState)
+      ? `attempt-v1:${"1".repeat(64)}`
+      : "",
+    browser_job_digest: `job-v1:${"2".repeat(64)}`,
+    browser_context_digest: ["queued", "claimed"].includes(browserState)
+      ? ""
+      : `context-v1:${"7".repeat(64)}`,
+    browser_form_fingerprint: formStates.has(browserState)
+      ? `form-v1:${"3".repeat(64)}`
+      : "",
+    submission_started_at: startedStates.has(browserState)
+      ? "2026-08-10T01:00:00.000Z"
+      : "",
+    submission_confirmed_at:
+      browserState === "confirmed" ? "2026-08-10T01:01:00.000Z" : "",
+    submission_confirmation_kind:
+      browserState === "confirmed" ? "confirmation_page" : "",
+    submission_confirmation_reference:
+      browserState === "confirmed"
+        ? `confirmation-ref-v1:${"4".repeat(64)}`
+        : "",
+    submission_confirmation_digest:
+      browserState === "confirmed"
+        ? `confirmation-v1:${"5".repeat(64)}`
+        : "",
+    submission_attestation_key_id:
+      browserState === "confirmed" ? "test-history-adapter-v1" : "",
+    submission_attestation_witness_digest:
+      browserState === "confirmed" ? `witness-v1:${"8".repeat(64)}` : "",
+    submission_attestation_signature:
+      browserState === "confirmed" ? "A".repeat(86) : "",
+    browser_block_category:
+      browserState === "blocked" ? "missing_candidate_fact" : "",
+    profile_version: "2026-07-29",
+    message_profile_version: "2026-07-29",
+    message_policy_version: "2026-08-10/autonomous-v1",
+    application_pack_version: "2026-08-10/v4",
+    application_pack_policy_version: "2026-08-10/v4",
+    created_at: "2026-08-10T00:00:00.000Z",
+    updated_at: "2026-08-10T00:00:00.000Z",
+    ...overrides
+  };
+  if (formStates.has(browserState) && !Object.hasOwn(overrides, "submission_idempotency_key")) {
+    raw.submission_idempotency_key = submissionIdempotencyKey(raw);
+  }
+  return normalizeLegacyRecord(raw, schema, raw.created_at);
 }
 
 test("simplified schema has exactly three business results and separate operational conditions", () => {
@@ -185,6 +286,197 @@ test("coverage and message-plan changes invalidate the record state guard", () =
     stateGuard(sparse),
     stateGuard(sheetRoundTrip),
     "blank Sheet cells and absent sparse fields must produce the same guard"
+  );
+});
+
+test("autonomous browser lifecycle is guarded and submit intent cannot retry backward", () => {
+  for (const state of schema.browser_states) {
+    const record = autonomousRecord(state);
+    assert.deepEqual(
+      validateRecordContract(record, schema),
+      [],
+      `${state} must be a valid autonomous state`
+    );
+  }
+  assert.equal(canTransitionBrowser(schema, "queued", "claimed"), true);
+  assert.equal(canTransitionBrowser(schema, "filling", "submit_started"), true);
+  assert.equal(canTransitionBrowser(schema, "submit_started", "confirmed"), true);
+  assert.equal(canTransitionBrowser(schema, "submit_started", "ambiguous"), true);
+  assert.equal(canTransitionBrowser(schema, "submit_started", "filling"), false);
+  assert.equal(canTransitionBrowser(schema, "submit_started", "retryable"), false);
+  assert.throws(
+    () =>
+      transitionBrowserState(
+        autonomousRecord("submit_started"),
+        "filling",
+        schema
+      ),
+    /Invalid browser transition/
+  );
+
+  assert.deepEqual(
+    validateRecordContract(
+      autonomousRecord("claimed", {
+        processing_stage: "browser_executor",
+        processing_token: "browser-claim-token",
+        processing_started_at: "2026-08-10T00:30:00.000Z"
+      }),
+      schema
+    ),
+    []
+  );
+  assert.match(
+    validateRecordContract(
+      validRecord({
+        processing_stage: "browser_executor",
+        processing_token: "forged-browser-claim",
+        processing_started_at: "2026-08-10T00:30:00.000Z"
+      }),
+      schema
+    ).join("; "),
+    /supported stage/
+  );
+
+  const baseline = autonomousRecord("confirmed");
+  for (const [field, value] of Object.entries({
+    execution_mode: "legacy_manual",
+    automation_contract_version: "changed",
+    autonomous_decision: "skip",
+    browser_state: "ambiguous",
+    browser_attempt_id: `attempt-v1:${"6".repeat(64)}`,
+    browser_job_digest: `job-v1:${"6".repeat(64)}`,
+    browser_context_digest: `context-v1:${"6".repeat(64)}`,
+    browser_form_fingerprint: `form-v1:${"6".repeat(64)}`,
+    submission_idempotency_key: `submission-v1:${"6".repeat(64)}`,
+    submission_started_at: "2026-08-10T02:00:00.000Z",
+    submission_confirmed_at: "2026-08-10T02:01:00.000Z",
+    submission_confirmation_kind: "application_history",
+    submission_confirmation_reference: `confirmation-ref-v1:${"6".repeat(64)}`,
+    submission_confirmation_digest: `confirmation-v1:${"6".repeat(64)}`,
+    submission_attestation_key_id: "changed-adapter-key",
+    submission_attestation_witness_digest: `witness-v1:${"6".repeat(64)}`,
+    submission_attestation_signature: "B".repeat(86),
+    browser_block_category: "confirmation_mismatch"
+  })) {
+    assert.notEqual(
+      stateGuard({ ...baseline, [field]: value }),
+      baseline.state_guard,
+      `${field} must invalidate the state guard`
+    );
+  }
+});
+
+test("browser job identity binds material inputs but excludes observation timestamps", () => {
+  const record = autonomousRecord("queued", {
+    job_title: "Senior React Developer",
+    company: "Example Company",
+    job_description: "Build a customer portal.",
+    salary_text: "PHP 100,000 / month",
+    posted_at: "2026-08-09T00:00:00.000Z",
+    role_families: ["full-stack", "frontend"],
+    matched_keywords: ["react developer"]
+  });
+  const baseline = browserJobDigest(record);
+  assert.match(baseline, /^job-v1:[a-f0-9]{64}$/);
+  assert.equal(
+    browserJobDigest({
+      ...record,
+      last_seen_at: "2026-08-10T04:00:00.000Z",
+      updated_at: "2026-08-10T04:00:00.000Z"
+    }),
+    baseline
+  );
+  for (const [field, value] of Object.entries({
+    source: "another-source.example",
+    source_job_id: "different-id",
+    canonical_job_id: "onlinejobs.ph:99999",
+    canonical_url: "https://onlinejobs.ph/jobseekers/job/changed-99999",
+    job_title: "Changed title",
+    company: "Changed Company",
+    job_description: "Changed requirements",
+    salary_text: "PHP 200,000 / month",
+    posted_at: "2026-08-08T00:00:00.000Z",
+    source_availability: "unavailable",
+    role_families: ["automation"],
+    matched_keywords: ["automation engineer"]
+  })) {
+    assert.notEqual(
+      browserJobDigest({ ...record, [field]: value }),
+      baseline,
+      `${field} must change the browser job digest`
+    );
+  }
+});
+
+test("submission identity is stable across attempts and binds trusted inputs", () => {
+  const first = autonomousRecord("filling");
+  const second = autonomousRecord("filling", {
+    browser_attempt_id: `attempt-v1:${"9".repeat(64)}`,
+    updated_at: "2026-08-10T03:00:00.000Z"
+  });
+  assert.equal(
+    submissionIdempotencyKey(first),
+    submissionIdempotencyKey(second)
+  );
+  assert.equal(first.submission_idempotency_key, second.submission_idempotency_key);
+  assert.notEqual(
+    submissionIdempotencyKey({
+      ...first,
+      browser_form_fingerprint: `form-v1:${"8".repeat(64)}`
+    }),
+    first.submission_idempotency_key
+  );
+  assert.notEqual(
+    submissionIdempotencyKey({ ...first, profile_version: "sheet/0123456789abcdef" }),
+    first.submission_idempotency_key
+  );
+});
+
+test("confirmation evidence is bounded, allowlisted, and fail-closed", () => {
+  const confirmed = autonomousRecord("confirmed");
+  assert.deepEqual(validateRecordContract(confirmed, schema), []);
+  for (const mutation of [
+    { submission_confirmation_kind: "dom_dump" },
+    { submission_confirmation_reference: "https://example.com/private" },
+    { submission_confirmation_digest: "full generated message" },
+    { submission_confirmed_at: "not-a-timestamp" },
+    { browser_block_category: "captcha" }
+  ]) {
+    assert.ok(
+      validateRecordContract({ ...confirmed, ...mutation }, schema).length > 0
+    );
+  }
+  assert.equal(
+    schema.fields.some((field) =>
+      /cookie|credential|screenshot|dom|confirmation_summary/i.test(field)
+    ),
+    false
+  );
+});
+
+test("blank execution mode remains bounded legacy compatibility only", () => {
+  const legacy = validRecord({ pipeline_status: "review_needed" });
+  delete legacy.execution_mode;
+  legacy.state_guard = legacyStateGuardV4(legacy);
+  const normalized = normalizeLegacyRecord(legacy, schema, legacy.created_at);
+  assert.equal(normalized.execution_mode, "legacy_manual");
+  assert.equal(stateGuardMatches(normalized), true);
+  assert.deepEqual(
+    validateRecordStoreContract(normalized, "To Review", schema),
+    []
+  );
+
+  const forged = {
+    ...normalized,
+    execution_mode: "autonomous_chrome",
+    automation_contract_version: "browser-contract-v1",
+    browser_state: "queued",
+    browser_job_digest: `job-v1:${"7".repeat(64)}`
+  };
+  assert.equal(stateGuardMatches(forged), false);
+  assert.match(
+    validateRecordStoreContract(forged, "To Review", schema).join("; "),
+    /does not own autonomous browser_state/
   );
 });
 
@@ -723,7 +1015,7 @@ test("setup is idempotent and preserves valid operator data", () => {
   );
 });
 
-test("record header setup upgrades the exact v3 layout without moving row data", () => {
+test("record header setup upgrades the exact v4 layout without moving row data", () => {
   const legacyFields = review.record_header_upgrade.legacy_fields;
   const legacyValues = legacyFields.map((field) => `value:${field}`);
   const legacySnapshot = {
@@ -735,16 +1027,13 @@ test("record header setup upgrades the exact v3 layout without moving row data",
   };
 
   const headerPlan = planRecordHeaderUpgrade(legacySnapshot, review, schema);
-  assert.equal(headerPlan.mode, "legacy_v3_to_v4");
-  assert.equal(headerPlan.operations.length, 10);
+  assert.equal(headerPlan.mode, "legacy_v4_to_v5");
+  assert.equal(headerPlan.operations.length, 5);
   assert.deepEqual(
     headerPlan.operations
       .filter((operation) => operation.sheet === "Scraped Jobs")
       .map((operation) => [operation.before_field, operation.before_column]),
-    [
-      ["review_approved_at", 20],
-      ["alert_status", 60]
-    ]
+    [["review_case_id", 20]]
   );
 
   const upgraded = planFreshWorkbookSetup(
@@ -761,13 +1050,61 @@ test("record header setup upgrades the exact v3 layout without moving row data",
     assert.equal(
       upgradedRow[index],
       legacyFields.includes(field) ? `value:${field}` : "",
-      `column ${field} must preserve its v3 value or be introduced blank`
+      `column ${field} must preserve its v4 value or be introduced blank`
     );
   }
   assert.equal(
     planRecordHeaderUpgrade(upgraded, review, schema).mode,
     "current_or_empty"
   );
+});
+
+test("autonomous contract migration preflight is deterministic and never writes", () => {
+  const legacy = validRecord({
+    source_job_id: "100",
+    canonical_job_id: "onlinejobs.ph:100",
+    canonical_url: "https://onlinejobs.ph/jobseekers/job/example-100"
+  });
+  delete legacy.execution_mode;
+  legacy.state_guard = legacyStateGuardV4(legacy);
+  const current = autonomousRecord("queued", {
+    source_job_id: "101",
+    canonical_job_id: "onlinejobs.ph:101",
+    canonical_url: "https://onlinejobs.ph/jobseekers/job/example-101"
+  });
+  const blocked = autonomousRecord("blocked", {
+    source_job_id: "102",
+    canonical_job_id: "onlinejobs.ph:102",
+    canonical_url: "https://onlinejobs.ph/jobseekers/job/example-102"
+  });
+  const snapshot = {
+    captured_at: "2026-08-10T04:00:00.000Z",
+    stores: {
+      "Scraped Jobs": [legacy, current, blocked],
+      "To Review": [],
+      "To Apply": [],
+      "Applied Jobs": [],
+      Archive: []
+    }
+  };
+  const first = planAutonomousContractMigration(snapshot, schema);
+  const second = planAutonomousContractMigration(snapshot, schema);
+  assert.deepEqual(second, first);
+  assert.equal(first.ok, true);
+  assert.equal(first.writes_allowed, false);
+  assert.equal(first.business_row_relocation_allowed, false);
+  assert.deepEqual(first.counts, {
+    autonomous_compatible: 1,
+    legacy_manual: 1,
+    blocked: 1,
+    rejected: 0
+  });
+
+  const duplicate = structuredClone(snapshot);
+  duplicate.stores["To Review"].push({ ...legacy });
+  const rejected = planAutonomousContractMigration(duplicate, schema);
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.counts.rejected > 0);
 });
 
 test("record header setup fails closed on mixed, partial, and extra-data layouts", () => {

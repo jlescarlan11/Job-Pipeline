@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "contract_version": "2026-08-10/browser-task-v1",
+  "role": "browser_executor",
+  "surface": "codex_scheduled_task",
+  "source_control_state": "inactive_unscheduled",
+  "prompt": {
+    "version": "2026-08-10/browser-task-prompt-v1",
+    "path": "docs/browser-executor-task-prompt.md"
+  },
+  "skill": {
+    "name": "job-autopilot",
+    "version": "job-autopilot-v1",
+    "path": ".agents/skills/job-autopilot/SKILL.md",
+    "explicit_invocation_required": true
+  },
+  "browser_plugin": {
+    "name": "Chrome",
+    "uri": "plugin://chrome@openai-bundled",
+    "browser_family": "chrome",
+    "explicit_invocation_required": true,
+    "signed_in_profile_required": true,
+    "history_access_required": false,
+    "allowed_hosts": [
+      "onlinejobs.ph",
+      "www.onlinejobs.ph"
+    ]
+  },
+  "confirmation_attestation": {
+    "required": true,
+    "source": "independent_application_history_adapter",
+    "algorithm": "ed25519",
+    "public_key_environment_variable": "JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY",
+    "key_id": "unprovisioned",
+    "public_key_spki_sha256": "unprovisioned",
+    "private_key_available_to_task": false
+  },
+  "executor": {
+    "protocol_version": "2026-08-10/v1",
+    "module_path": "src/browser-executor.mjs",
+    "cli_path": "scripts/browser-executor.mjs",
+    "allowed_operations": [
+      "select",
+      "plan-claim",
+      "confirm-claim",
+      "validate-decision",
+      "confirm-browser-ready",
+      "plan-submit-intent",
+      "confirm-submit-intent",
+      "commit-result",
+      "recover"
+    ],
+    "generic_sheet_write_allowed": false,
+    "business_row_relocation_allowed": false
+  },
+  "runtime": {
+    "timezone": "Asia/Manila",
+    "schedule_minutes": 90,
+    "schedule_offset_minutes": 2,
+    "execution_timeout_seconds": 480,
+    "claim_lease_ms": 600000,
+    "minimum_attempt_headroom_ms": 120000,
+    "continuation_mode": "technical_headroom_next_schedule",
+    "retry": {
+      "max_attempts": 3,
+      "backoff_ms": 300000
+    }
+  },
+  "provenance": {
+    "prompt_digest": "sha256:585233950e9ff3e23b86815d672673249e7bd150ef2da57fe80bb063ee135d76",
+    "skill_bundle_digest": "sha256:5ba00a1da85bbd3569d5f4d2389420424455bd39f2d9d067baeedc653df6fe2b",
+    "protocol_bundle_digest": "sha256:a5103d461e4d3c1c46796347429bb3bf967eb0d4f7187a39095144c57c305f55",
+    "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
+    "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
+    "application_policy_digest": "sha256:d3f2b946e2ec85eff83ba94db1b71edc648e42d8256f3c48e74c9b99baee88d8",
+    "application_pack_policy_digest": "sha256:d787932b7cd40fb0a19b5a485a0f44b1734e2d07262f25abab0446c5bb9f33c2",
+    "configuration_bundle_digest": "sha256:9e8aa64c7a77d2fc67d9840ceeb68893d3dfdb054411f6b3a7e68777f9cebadf"
+  },
+  "compatibility": {
+    "application_execution_mode": "autonomous_chrome",
+    "automation_contract_version": "browser-contract-v1",
+    "pipeline_schema_version": 5,
+    "pipeline_storage_version": "2026-08-10-autonomous-browser-v5"
+  },
+  "project": {
+    "mode": "local_project_root",
+    "required_root_markers": [
+      "AGENTS.md",
+      "package.json"
+    ]
+  },
+  "workbooks": {
+    "queue_environment_variable": "JOB_PIPELINE_SPREADSHEET_ID",
+    "configuration_environment_variable": "JOB_PIPELINE_CONFIG_SPREADSHEET_ID"
+  },
+  "privacy": {
+    "log_generated_message": false,
+    "log_job_description": false,
+    "log_dom": false,
+    "log_screenshots": false,
+    "log_browser_history": false,
+    "log_credentials_or_cookies": false
+  }
+}

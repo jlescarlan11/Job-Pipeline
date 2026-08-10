@@ -28,17 +28,13 @@ function allCode(workflow) {
     .join("\n");
 }
 
-test("build emits exactly the three inactive replacement roles", () => {
-  assert.deepEqual(files, [
-    "alerter-mover.json",
-    "generator.json",
-    "scraper.json"
-  ]);
+test("build emits exactly the two inactive n8n replacement roles", () => {
+  assert.deepEqual(files, ["alerter-mover.json", "scraper.json"]);
   assert.deepEqual(
     Object.values(workflows)
       .map((workflow) => workflow.meta.workflowRole)
       .sort(),
-    ["alerter_mover", "evaluator_generator", "scraper"]
+    ["alerter_mover", "scraper"]
   );
   for (const workflow of Object.values(workflows)) {
     assert.equal(workflow.active, false);
@@ -60,16 +56,20 @@ test("build emits exactly the three inactive replacement roles", () => {
     "Archive"
   ]);
   assert.equal(workflows["scraper.json"].meta.discoveryWriteSheet, "Scraped Jobs");
-  assert.deepEqual(workflows["generator.json"].meta.processingSourceSheets, [
-    "Scraped Jobs",
-    "To Apply"
-  ]);
   assert.deepEqual(workflows["alerter-mover.json"].meta.sourceSheets, [
     "Scraped Jobs",
     "To Review",
     "To Apply"
   ]);
-  assert.equal(workflows["alerter-mover.json"].meta.alertSourceSheet, "To Apply");
+  assert.deepEqual(
+    workflows["alerter-mover.json"].meta.alertSourceSheets,
+    ["Scraped Jobs", "To Apply"]
+  );
+  assert.equal(
+    workflows["alerter-mover.json"].meta.autonomousSubmissionAware,
+    true
+  );
+  assert.equal(workflows["alerter-mover.json"].meta.manualSubmissionOnly, false);
   assert.equal(
     workflows["alerter-mover.json"].meta.businessRowRelocationMode,
     "copy_confirm_delete_only"
@@ -123,42 +123,7 @@ test("profile helpers are bundled wherever evaluation code uses them", () => {
   }
 });
 
-test("Generator freezes context eagerly while Alerter loads it lazily without embedded personal facts", () => {
-  const generator = workflows["generator.json"];
-  assert.equal(
-    generator.connections["Schedule Trigger"].main[0][0].node,
-    "Get Candidate Context"
-  );
-  for (const name of [
-    "Candidate",
-    "Skills",
-    "Experience",
-    "Projects",
-    "Education",
-    "Awards",
-    "Job Preferences",
-    "Application Settings",
-    "Required Style",
-    "Banned Phrases",
-    "Prompts"
-  ]) {
-    const read = node(generator, `Get ${name} Context`);
-    assert.equal(read.parameters.sheetName.value, name);
-    assert.equal(
-      read.parameters.documentId.value,
-      "={{ $env.JOB_PIPELINE_CONFIG_SPREADSHEET_ID }}"
-    );
-  }
-  node(generator, "Compile Candidate Context");
-  assert.equal(generator.meta.promptSource, "Prompts");
-  assert.deepEqual(generator.meta.promptTemplateKeys, [
-    "application_system",
-    "application_user",
-    "application_repair_system",
-    "application_repair_user",
-    "application_repair_user_compact"
-  ]);
-
+test("Alerter loads configuration lazily without embedded personal facts", () => {
   const alerter = workflows["alerter-mover.json"];
   assert.equal(
     alerter.connections["Schedule Trigger"].main[0][0].node,
@@ -181,7 +146,7 @@ test("Generator freezes context eagerly while Alerter loads it lazily without em
   node(alerter, "Compile Alert Configuration");
   assert.equal(alerter.meta.promptSource, "Prompts");
 
-  for (const workflow of [generator, alerter]) {
+  for (const workflow of [alerter]) {
     const serialized = JSON.stringify(workflow);
     assert.doesNotMatch(
       serialized,
@@ -200,26 +165,14 @@ test("Generator freezes context eagerly while Alerter loads it lazily without em
   }
 });
 
-test("Groq requests disable compressed streaming responses", () => {
-  const workflow = workflows["generator.json"];
-  for (const name of [
-    "Generate Initial Application with Groq",
-    "Generate Application Repair with Groq"
-  ]) {
-    const parameters = node(workflow, name).parameters;
-    const headers = parameters.headerParameters?.parameters ?? [];
-    assert.ok(
-      headers.some(
-        (header) =>
-          header.name === "Accept-Encoding" && header.value === "identity"
-      ),
-      `${workflow.name}/${name} must request an identity response`
-    );
-    assert.equal(parameters.specifyBody, "json");
-    assert.match(parameters.jsonBody, /JSON\.stringify/);
-    assert.equal("body" in parameters, false);
-    assert.equal("rawContentType" in parameters, false);
-  }
+test("active n8n workflows contain no Groq or Generator execution surface", () => {
+  const serialized = JSON.stringify(workflows);
+  assert.doesNotMatch(serialized, /api\.groq\.com|JOB_PIPELINE_GROQ_API_KEY/);
+  assert.doesNotMatch(
+    serialized,
+    /Generate Initial Application with Groq|Generate Application Repair with Groq/
+  );
+  assert.equal("generator.json" in workflows, false);
 });
 
 test("workflows bind queue and configuration workbooks by environment, never the old workbook", () => {
@@ -356,204 +309,6 @@ test("Scraper owns one fixed inclusive 24-hour keyword window and five-store rec
   assert.match(
     node(workflow, "Keep Winning Discovery Claims").parameters.jsCode,
     /Emit Discovery Claims/
-  );
-});
-
-test("Evaluator & Generator persists claims and gates readiness after pack and message validation", () => {
-  const workflow = workflows["generator.json"];
-  const code = allCode(workflow);
-  for (const symbol of [
-    "selectGeneratorCandidate",
-    "claimGeneratorRecord",
-    "confirmGeneratorClaimPersisted",
-    "createSystemClaim",
-    "selectWinningSystemClaims",
-    "evaluateAndRoute",
-    "prepareApplicationGeneration",
-    "applyValidatedGeneration",
-    "assessInitialGenerationDraft",
-    "commitGeneratorResult",
-    "confirmGeneratorResultPersisted",
-    "recordGeneratorFailure"
-  ]) {
-    assert.match(code, new RegExp(symbol));
-  }
-  node(workflow, "Persist Generator Claim");
-  node(workflow, "Append Generator System Claim");
-  node(workflow, "Confirm Generator System Claim");
-  node(workflow, "Get To Apply Preparation");
-  node(workflow, "Get Generator Source Before Candidate Claim");
-  node(workflow, "Aggregate Generator Source Before Candidate Claim");
-  node(workflow, "Confirm Generator Claim Persisted");
-  node(workflow, "Get Generator Source Before Commit");
-  node(workflow, "Guard and Commit Generator Result");
-  node(workflow, "Get Generator Source After Commit");
-  node(workflow, "Confirm Generator Result Persisted");
-  node(workflow, "Needs One Repair");
-  node(workflow, "Wait Before Repair");
-  assert.equal(workflow.meta.manualSubmissionOnly, true);
-  assert.equal(
-    node(workflow, "Generate Initial Application with Groq").parameters.url,
-    "https://api.groq.com/openai/v1/chat/completions"
-  );
-  assert.match(
-    JSON.stringify(node(workflow, "Generate Initial Application with Groq")),
-    /JOB_PIPELINE_GROQ_API_KEY/
-  );
-  assert.equal(
-    node(workflow, "Generate Initial Application with Groq").maxTries,
-    undefined
-  );
-  assert.equal(
-    node(workflow, "Generate Application Repair with Groq").maxTries,
-    undefined
-  );
-  assert.equal(workflow.meta.maximumModelRequestsPerItem, 2);
-  assert.equal(workflow.meta.maximumItemsPerExecution, 5);
-  assert.equal(workflow.meta.sequentialBatchSize, 1);
-  assert.equal(workflow.meta.candidatePacingDelayMs, 20000);
-  assert.equal(workflow.meta.initialModel, "openai/gpt-oss-120b");
-  assert.equal(workflow.meta.repairModel, "openai/gpt-oss-20b");
-  assert.equal(workflow.meta.boundedRepairEnabled, true);
-  assert.equal(node(workflow, "Fetch Job Detail").maxTries, 3);
-  const claimUpdate = node(workflow, "Persist Generator Claim");
-  assert.deepEqual(claimUpdate.parameters.columns.matchingColumns, [
-    "canonical_job_id"
-  ]);
-  assert.equal("user_action" in claimUpdate.parameters.columns.value, false);
-  assert.equal("notes" in claimUpdate.parameters.columns.value, false);
-
-  const resultUpdate = node(workflow, "Update Generator Source Result");
-  assert.deepEqual(resultUpdate.parameters.columns.matchingColumns, [
-    "canonical_job_id"
-  ]);
-  assert.equal("user_action" in resultUpdate.parameters.columns.value, true);
-  assert.equal("notes" in resultUpdate.parameters.columns.value, false);
-});
-
-test("Evaluator & Generator loops over a fixed batch sequentially without cross-item first references", () => {
-  const workflow = workflows["generator.json"];
-  const loop = node(workflow, "Process Candidates Sequentially");
-  assert.equal(loop.type, "n8n-nodes-base.splitInBatches");
-  assert.equal(loop.typeVersion, 3);
-  assert.equal(loop.parameters.batchSize, 1);
-  assert.equal(
-    workflow.connections["Select Generator Candidates"].main[0][0].node,
-    loop.name
-  );
-  assert.equal(
-    workflow.connections[loop.name].main[0][0].node,
-    "Summarize Generator Run"
-  );
-  assert.equal(
-    workflow.connections[loop.name].main[1][0].node,
-    "Create Generator System Claim"
-  );
-  const candidatePacing = node(workflow, "Wait After Generator Candidate");
-  assert.equal(candidatePacing.type, "n8n-nodes-base.wait");
-  assert.equal(candidatePacing.parameters.amount, 20);
-  assert.equal(candidatePacing.parameters.unit, "seconds");
-  assert.equal(
-    workflow.connections["Finalize Candidate"].main[0][0].node,
-    candidatePacing.name
-  );
-  assert.equal(
-    workflow.connections[candidatePacing.name].main[0][0].node,
-    loop.name
-  );
-  assert.equal(
-    [
-      ...node(
-        workflow,
-        "Select Generator Candidates"
-      ).parameters.jsCode.matchAll(/claimGeneratorRecord\(/g)
-    ].length,
-    1,
-    "selection may bundle the helper definition but must not invoke it"
-  );
-  assert.equal(
-    workflow.connections["Confirm Generator System Claim"].main[0][0].node,
-    "Generator System Claim Won"
-  );
-  assert.equal(
-    workflow.connections["Generator System Claim Won"].main[0][0].node,
-    "Get Generator Source Before Candidate Claim"
-  );
-  assert.equal(
-    workflow.connections["Aggregate Generator Source Before Candidate Claim"]
-      .main[0][0].node,
-    "Claim Current Candidate"
-  );
-  assert.match(
-    node(workflow, "Claim Current Candidate").parameters.jsCode,
-    /selected source identity is missing or ambiguous/
-  );
-  assert.match(
-    node(workflow, "Claim Current Candidate").parameters.jsCode,
-    /no longer eligible in the frozen stage/
-  );
-  assert.equal(
-    workflow.connections["Confirm Generator Claim Persisted"].main[0][0].node,
-    "Generator Source Claim Verified"
-  );
-  for (const entry of workflow.nodes.filter(
-    (candidate) => candidate.type === "n8n-nodes-base.code"
-  )) {
-    assert.doesNotMatch(
-      entry.parameters.jsCode,
-      /\$\('[^']+'\)\.first\(\)/,
-      `${entry.name} must use current-item linkage instead of .first()`
-    );
-    if (entry.parameters.mode === "runOnceForEachItem") {
-      assert.doesNotMatch(
-        entry.parameters.jsCode,
-        /\$input\.first\(\)/,
-        `${entry.name} must use $json in per-item mode instead of $input.first()`
-      );
-    }
-  }
-  assert.match(
-    node(workflow, "Claim Current Candidate").parameters.jsCode,
-    /\(\$json\.fresh_rows \|\| \[\]\)/
-  );
-  const initialBody = node(
-    workflow,
-    "Generate Initial Application with Groq"
-  ).parameters.jsonBody;
-  const repairBody = node(
-    workflow,
-    "Generate Application Repair with Groq"
-  ).parameters.jsonBody;
-  assert.match(initialBody, /openai\/gpt-oss-120b/);
-  assert.doesNotMatch(initialBody, /openai\/gpt-oss-20b/);
-  assert.match(repairBody, /openai\/gpt-oss-20b/);
-  assert.doesNotMatch(repairBody, /openai\/gpt-oss-120b/);
-  assert.match(repairBody, /repair_system_message/);
-  assert.doesNotMatch(repairBody, /content: \$json\.system_message/);
-  for (const name of ["Validate Initial Draft", "Validate Repaired Draft"]) {
-    const validationCode = node(workflow, name).parameters.jsCode;
-    assert.match(validationCode, /const providerStatus = Number\(/);
-    assert.match(validationCode, /\$json\?\.error\?\.status/);
-    assert.match(
-      validationCode,
-      /const providerError = externalResultErrorMessage\(\$json\)/
-    );
-    assert.match(validationCode, /String\(providerStatus\) \+ ': '/);
-  }
-  assert.equal(
-    workflow.connections["Provider Required"].main[0][0].node,
-    "Needs Provider Pacing Delay"
-  );
-  assert.equal(
-    workflow.connections["Needs One Repair"].main[0][0].node,
-    "Wait Before Repair"
-  );
-  assert.equal(
-    [
-      ...allCode(workflow).matchAll(/event:\s*'generator_result'/g)
-    ].length,
-    1,
-    "every attempted candidate must emit exactly one sanitized result event"
   );
 });
 
@@ -972,11 +727,15 @@ test("network calls and critical Sheet writes remain bounded and fail closed", (
   }
 });
 
-test("no workflow automates OnlineJobs application or spends Apply Points", () => {
+test("n8n workflows contain no OnlineJobs application or browser execution path", () => {
   const serialized = JSON.stringify(workflows).toLowerCase();
   assert.doesNotMatch(
     serialized,
     /onlinejobs\.ph\/(?:apply|jobseekers\/apply)|submitapplication|mark_applied|apply_points_used/
   );
-  assert.match(serialized, /manualsubmissiononly/);
+  assert.doesNotMatch(
+    serialized,
+    /plugin:\/\/chrome|job-autopilot|api\.groq\.com/
+  );
+  assert.match(serialized, /copy_confirm_delete_only/);
 });

@@ -27,7 +27,7 @@ An empty default `Sheet1` or another empty unexpected tab is removed. Setup refu
 
 `Scraped Jobs` owns new, processing, error, and unavailable intake records. It also briefly owns Generator results until Alerter & Mover routes them. Its visible columns are:
 
-`pipeline_status`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, `error_summary`, and `notes`.
+`pipeline_status`, `execution_mode`, `autonomous_decision`, `browser_state`, `browser_block_category`, `job_title`, `company`, `opportunity_score`, `decision_reason`, `required_input`, `generated_message`, `canonical_url`, `posted_at`, `matched_keywords`, `error_summary`, and `notes`.
 
 Only `notes` is editable. There is no normal user-action dropdown on this sheet.
 
@@ -66,13 +66,24 @@ All five business sheets share the exact ordered fields in `config/pipeline-sche
 
 The business tabs are kept latest-first as complete rows. `Scraped Jobs` sorts by `discovered_at`, `To Review` by `evaluated_at`, `To Apply` by `generated_at`, `Applied Jobs` by `applied_at`, and `Archive` by `archived_at`. Equal timestamps use `created_at` descending and canonical identity ascending for deterministic order. The header is excluded from sorting, and movement resolves fresh row numbers after the atomic sort before deleting confirmed source rows.
 
-The exact record columns are:
+The exact record columns are defined by `config/pipeline-schema.json`. Immediately after `required_input`, v5 adds:
+
+`execution_mode`, `automation_contract_version`, `autonomous_decision`, `browser_state`, `browser_attempt_id`, `browser_job_digest`, `browser_context_digest`, `browser_form_fingerprint`, `submission_idempotency_key`, `submission_started_at`, `submission_confirmed_at`, `submission_confirmation_kind`, `submission_confirmation_reference`, `submission_confirmation_digest`, `submission_attestation_key_id`, `submission_attestation_witness_digest`, `submission_attestation_signature`, and `browser_block_category`.
+
+`browser_context_digest` binds the exact candidate profile, ranking policy,
+application policy, application-pack policy, executor protocol, and bounded job
+inputs used for the attempt. It is persisted before model decision and remains
+part of fill, submit, and confirmation authorization.
+
+These columns are protected system state. Confirmation evidence is structurally limited to an allowlisted kind and hashed reference/digest; there is no column for browser credentials, cookies, DOM dumps, screenshots, full job descriptions, generated-message copies, or reusable action tokens.
+
+The remaining record columns are:
 
 `source`, `source_job_id`, `canonical_job_id`, `record_version`,
 `state_guard`, `canonical_url`, `job_title`, `company`, `job_description`,
 `salary_text`, `posted_at`, `discovered_at`, `last_seen_at`,
 `matched_keywords`, `source_availability`, `pipeline_status`, `user_action`,
-`decision_reason`, `required_input`, `review_case_id`, `review_case_version`,
+`decision_reason`, `required_input`, followed by the v5 autonomous fields above, then `review_case_id`, `review_case_version`,
 `review_decision`, `review_decided_at`, `review_approved_at`,
 `review_approval_note`, `review_approval_guard`, `qualification_score`,
 `opportunity_score`, `ranking_confidence`, `match_reasons`,
@@ -116,21 +127,20 @@ actionable without permitting stale generated-state commits.
 
 Setup is idempotent: rerunning it reconciles formatting, validation, protection, and visibility while preserving valid headers and operator data. It does not insert placeholders, call `openById`, use `IMPORTRANGE`, or copy a row from any old workbook.
 
-### Exact v3 record-header upgrade
+### Exact v4 record-header upgrade
 
 The Main setup also supports one structural upgrade for the existing segmented
 workbook. Before its first write, it requires all five business tabs to exist
-with the exact same ordered 74-field
-`2026-07-31-segmented-queues-v3` header. It then inserts four blank review-case
-columns immediately before `review_approved_at` and four blank preparation
-columns immediately before `alert_status`. Column insertion shifts each
+with the exact same ordered 82-field
+`2026-08-04-preparation-lifecycle-v4` header. It then inserts the eighteen blank
+autonomous browser fields immediately before `review_case_id`. Column insertion shifts each
 existing cell with its original field; no business row is copied, deleted, or
-relocated. The final header must exactly match the 82-field v4 schema.
+relocated. The final header must exactly match the 100-field v5 schema.
 
-The upgrade refuses mixed v3/v4 tabs, missing business tabs, partial insertion,
+The upgrade refuses mixed v4/v5 tabs, missing business tabs, partial insertion,
 reordered or unknown headers, and row data beyond the declared header width.
-Rerunning after success sees the exact v4 header and inserts nothing. The
-ordered legacy fields and both insertion boundaries are pinned in
+Rerunning after success sees the exact v5 header and inserts nothing. The
+ordered legacy fields and insertion boundary are pinned in
 `config/review-sheet.json`, and `planRecordHeaderUpgrade()` provides the same
 non-mutating deterministic plan for tests and preflight tooling.
 
@@ -144,6 +154,13 @@ non-mutating deterministic plan for tests and preflight tooling.
 - blank-action `skip` rows route to `Archive` as `automatic_skip`.
 
 The same snapshot and reference time produce the same plan. Unknown status/action values, unsupported combinations, duplicate canonical identities, conflicting headers, coexisting `Review Queue`/`Scraped Jobs`, and unexpected non-empty tabs return bounded rejection categories with no routes or planned deletion. Production execution and rollback remain separate operator-controlled rollout steps.
+
+`planAutonomousContractMigration()` performs the v4/v5 compatibility preflight
+without writes or movement. It classifies every exact-reread row as
+`autonomous_compatible`, `legacy_manual`, `blocked`, or `rejected`. Missing or
+stale guards, invalid store/state ownership, malformed confirmation evidence,
+and duplicate identities reject the plan. A blank legacy mode remains manual;
+the planner never fills autonomous authorization fields.
 
 ## Search Keywords
 
@@ -183,8 +200,10 @@ edit version identifiers.
 - `Awards` uses `enabled` and `award`.
 - `Job Preferences` uses `enabled`, `type`, `group`, `value`, and `score` for
   role-family evidence, unsupported technologies, and PHP monthly salary bands.
-- `Application Settings` uses `key` and `value` for the word limit, subject
-  template, greeting, and employer-format override.
+- `Application Settings` uses `key` and `value` for the autonomous execution
+  mode, browser contract version, word limit, subject template, greeting, and
+  employer-format override. Unknown settings, including daily application caps
+  or budgets, fail closed.
 - `Required Style` uses `enabled` and `style`; add one writing instruction per
   row.
 - `Banned Phrases` uses `enabled` and `phrase`; add one disallowed phrase per

@@ -1,4 +1,5 @@
 import {
+  browserJobDigest,
   canonicalJobId,
   extractOnlineJobsId,
   normalizeCanonicalUrl,
@@ -692,6 +693,11 @@ export function reconcileDiscovery(
         ...job,
         pipeline_status: "new",
         user_action: "",
+        execution_mode: "autonomous_chrome",
+        automation_contract_version: "browser-contract-v1",
+        autonomous_decision: "",
+        browser_state: "queued",
+        browser_job_digest: `job-v1:${"0".repeat(64)}`,
         record_version: 1,
         discovered_at: now,
         last_seen_at: now,
@@ -704,6 +710,7 @@ export function reconcileDiscovery(
       schema,
       now
     );
+    record.browser_job_digest = browserJobDigest(record);
     record.state_guard = stateGuard(record);
     const recordErrors = validateRecordStoreContract(
       record,

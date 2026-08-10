@@ -1,16 +1,48 @@
 import { validateMinuteIntervalSchedule } from "./schedules.mjs";
+import { isDailyApplicationLimitFieldName } from "./contracts.mjs";
 
 const REQUIRED_TIMEZONE = "Asia/Manila";
-const WORKFLOW_ROLES = ["scraper", "generator", "alerter_mover"];
-const MINIMUM_GENERATOR_CANDIDATE_PACING_DELAY_MS = 20000;
+export const N8N_WORKFLOW_ROLES = ["scraper", "alerter_mover"];
+export const SCHEDULED_ROLES = [
+  "scraper",
+  "browser_executor",
+  "alerter_mover"
+];
 export const EXPECTED_WORKFLOW_ARTIFACTS = [
   "alerter-mover.json",
-  "generator.json",
   "scraper.json"
 ];
 
 function positiveInteger(value) {
   return Number.isInteger(value) && value > 0;
+}
+
+function unsupportedObjectKeys(value, allowed, path) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const allowedSet = new Set(allowed);
+  return Object.keys(value)
+    .filter((key) => !allowedSet.has(key))
+    .map((key) => `${path}.${key} is unsupported`);
+}
+
+const SCHEDULE_KEYS = [
+  "schedule_minutes",
+  "schedule_offset_minutes",
+  "execution_timeout_seconds",
+  "claim_lease_ms"
+];
+
+export function dailyApplicationLimitPaths(value, path = "runtime") {
+  if (!value || typeof value !== "object") return [];
+  const paths = [];
+  for (const [key, nested] of Object.entries(value)) {
+    const next = `${path}.${key}`;
+    const scalar =
+      nested === null || typeof nested === "object" ? "" : String(nested);
+    if (isDailyApplicationLimitFieldName(`${next} ${scalar}`)) paths.push(next);
+    paths.push(...dailyApplicationLimitPaths(nested, next));
+  }
+  return paths;
 }
 
 export function validateWorkflowArtifactManifest(files) {
@@ -66,8 +98,78 @@ export function validateRuntimeConfig(runtime) {
   if (!runtime || typeof runtime !== "object" || Array.isArray(runtime)) {
     return ["runtime configuration must be an object"];
   }
-  if (runtime.schema_version !== 2) {
-    errors.push("runtime schema_version must be 2");
+  errors.push(
+    ...unsupportedObjectKeys(
+      runtime,
+      [
+        "schema_version",
+        "timezone",
+        "execution_data",
+        "google_sheets",
+        "scraper",
+        "browser_executor",
+        "alerter_mover"
+      ],
+      "runtime"
+    ),
+    ...unsupportedObjectKeys(
+      runtime.execution_data,
+      [
+        "save_successful_production_executions",
+        "save_failed_production_executions",
+        "save_execution_progress",
+        "save_manual_executions"
+      ],
+      "runtime.execution_data"
+    ),
+    ...unsupportedObjectKeys(
+      runtime.google_sheets,
+      ["read_retry"],
+      "runtime.google_sheets"
+    ),
+    ...unsupportedObjectKeys(
+      runtime.google_sheets?.read_retry,
+      ["max_attempts", "backoff_ms"],
+      "runtime.google_sheets.read_retry"
+    ),
+    ...unsupportedObjectKeys(runtime.scraper, SCHEDULE_KEYS, "runtime.scraper"),
+    ...unsupportedObjectKeys(
+      runtime.browser_executor,
+      [
+        ...SCHEDULE_KEYS,
+        "role_type",
+        "minimum_attempt_headroom_ms",
+        "continuation_mode",
+        "project_mode",
+        "retry"
+      ],
+      "runtime.browser_executor"
+    ),
+    ...unsupportedObjectKeys(
+      runtime.browser_executor?.retry,
+      ["max_attempts", "backoff_ms"],
+      "runtime.browser_executor.retry"
+    ),
+    ...unsupportedObjectKeys(
+      runtime.alerter_mover,
+      [
+        ...SCHEDULE_KEYS,
+        "claim_contention_settle_ms",
+        "movement_per_run_cap",
+        "alert_per_run_cap",
+        "minimum_provider_commit_headroom_ms",
+        "google_sheets_read_retry"
+      ],
+      "runtime.alerter_mover"
+    ),
+    ...unsupportedObjectKeys(
+      runtime.alerter_mover?.google_sheets_read_retry,
+      ["max_attempts", "backoff_ms", "quota_window_delay_ms"],
+      "runtime.alerter_mover.google_sheets_read_retry"
+    )
+  );
+  if (runtime.schema_version !== 3) {
+    errors.push("runtime schema_version must be 3");
   }
   if (runtime.timezone !== REQUIRED_TIMEZONE) {
     errors.push(`runtime timezone must be ${REQUIRED_TIMEZONE}`);
@@ -91,43 +193,39 @@ export function validateRuntimeConfig(runtime) {
       errors.push(`google_sheets.read_retry.${field} must be a positive integer`);
     }
   }
-  for (const role of WORKFLOW_ROLES) {
+  for (const role of SCHEDULED_ROLES) {
     errors.push(...validateScheduledWorkflow(runtime[role], role));
   }
-  if (!positiveInteger(runtime.generator?.per_run_cap)) {
-    errors.push("generator.per_run_cap must be a positive integer");
-  } else if (runtime.generator.per_run_cap > 5) {
-    errors.push("generator.per_run_cap must not exceed 5");
+  if (runtime.browser_executor?.role_type !== "codex_scheduled_task") {
+    errors.push("browser_executor.role_type must be codex_scheduled_task");
   }
-  for (const field of [
-    "candidate_pacing_delay_ms",
-    "request_retry_backoff_ms",
-    "http_timeout_ms"
-  ]) {
-    if (!positiveInteger(runtime.generator?.[field])) {
-      errors.push(`generator.${field} must be a positive integer`);
-    }
+  if (runtime.browser_executor?.project_mode !== "local_project_root") {
+    errors.push("browser_executor.project_mode must be local_project_root");
   }
   if (
-    positiveInteger(runtime.generator?.candidate_pacing_delay_ms) &&
-    runtime.generator.candidate_pacing_delay_ms <
-      MINIMUM_GENERATOR_CANDIDATE_PACING_DELAY_MS
+    runtime.browser_executor?.continuation_mode !==
+    "technical_headroom_next_schedule"
   ) {
     errors.push(
-      `generator.candidate_pacing_delay_ms must be at least ${MINIMUM_GENERATOR_CANDIDATE_PACING_DELAY_MS}`
+      "browser_executor.continuation_mode must defer through technical headroom"
     );
   }
   for (const field of ["max_attempts", "backoff_ms"]) {
-    if (!positiveInteger(runtime.generator?.retry?.[field])) {
-      errors.push(`generator.retry.${field} must be a positive integer`);
+    if (!positiveInteger(runtime.browser_executor?.retry?.[field])) {
+      errors.push(`browser_executor.retry.${field} must be a positive integer`);
     }
   }
   if (
-    positiveInteger(runtime.generator?.http_timeout_ms) &&
-    runtime.generator.http_timeout_ms >=
-      runtime.generator.execution_timeout_seconds * 1000
+    !positiveInteger(runtime.browser_executor?.minimum_attempt_headroom_ms) ||
+    runtime.browser_executor.minimum_attempt_headroom_ms >=
+      runtime.browser_executor.execution_timeout_seconds * 1000
   ) {
-    errors.push("generator HTTP timeout must be shorter than workflow timeout");
+    errors.push(
+      "browser_executor minimum attempt headroom must be positive and fit its timeout"
+    );
+  }
+  for (const path of dailyApplicationLimitPaths(runtime)) {
+    errors.push(`${path} is forbidden; runtime has no daily application limit`);
   }
   for (const field of ["movement_per_run_cap", "alert_per_run_cap"]) {
     if (!positiveInteger(runtime.alerter_mover?.[field])) {
@@ -163,20 +261,26 @@ export function validateRuntimeConfig(runtime) {
       "alerter_mover provider commit headroom must be positive and fit its timeout"
     );
   }
-  const scheduleMinuteSets = WORKFLOW_ROLES.map((role) => ({
-    role,
-    minutes: new Set(
-      Array.from(
-        {
-          length:
-            1440 / runtime[role].schedule_minutes
-        },
-        (_, index) =>
-          runtime[role].schedule_offset_minutes +
-          index * runtime[role].schedule_minutes
+  const scheduleMinuteSets = SCHEDULED_ROLES.flatMap((role) => {
+    const config = runtime[role];
+    if (
+      !positiveInteger(config?.schedule_minutes) ||
+      !Number.isInteger(config?.schedule_offset_minutes) ||
+      1440 % config.schedule_minutes !== 0
+    ) {
+      return [];
+    }
+    return [{
+      role,
+      minutes: new Set(
+        Array.from(
+          { length: 1440 / config.schedule_minutes },
+          (_, index) =>
+            config.schedule_offset_minutes + index * config.schedule_minutes
+        )
       )
-    )
-  }));
+    }];
+  });
   for (let left = 0; left < scheduleMinuteSets.length; left += 1) {
     for (let right = left + 1; right < scheduleMinuteSets.length; right += 1) {
       if (
@@ -190,40 +294,40 @@ export function validateRuntimeConfig(runtime) {
       }
     }
   }
-  const generatorMinutes = scheduleMinuteSets.find(
-    ({ role }) => role === "generator"
+  const browserMinutes = scheduleMinuteSets.find(
+    ({ role }) => role === "browser_executor"
   )?.minutes;
   const alerterMinutes = scheduleMinuteSets.find(
     ({ role }) => role === "alerter_mover"
   )?.minutes;
   if (
-    generatorMinutes &&
+    browserMinutes &&
     alerterMinutes &&
-    positiveInteger(runtime.generator?.execution_timeout_seconds) &&
+    positiveInteger(runtime.browser_executor?.execution_timeout_seconds) &&
     positiveInteger(runtime.alerter_mover?.execution_timeout_seconds)
   ) {
     const dayMinutes = 1440;
-    const generatorDuration = Math.ceil(
-      runtime.generator.execution_timeout_seconds / 60
+    const browserDuration = Math.ceil(
+      runtime.browser_executor.execution_timeout_seconds / 60
     );
     const alerterDuration = Math.ceil(
       runtime.alerter_mover.execution_timeout_seconds / 60
     );
-    const overlaps = [...generatorMinutes].some((generatorMinute) =>
+    const overlaps = [...browserMinutes].some((browserMinute) =>
       [...alerterMinutes].some((alerterMinute) => {
-        const alerterAfterGenerator =
-          (alerterMinute - generatorMinute + dayMinutes) % dayMinutes;
-        const generatorAfterAlerter =
-          (generatorMinute - alerterMinute + dayMinutes) % dayMinutes;
+        const alerterAfterBrowser =
+          (alerterMinute - browserMinute + dayMinutes) % dayMinutes;
+        const browserAfterAlerter =
+          (browserMinute - alerterMinute + dayMinutes) % dayMinutes;
         return (
-          alerterAfterGenerator < generatorDuration ||
-          generatorAfterAlerter < alerterDuration
+          alerterAfterBrowser < browserDuration ||
+          browserAfterAlerter < alerterDuration
         );
       })
     );
     if (overlaps) {
       errors.push(
-        "generator and alerter_mover schedules must not overlap at configured timeouts"
+        "browser_executor and alerter_mover schedules must not overlap at configured timeouts"
       );
     }
   }
@@ -259,9 +363,16 @@ export function scheduledRunsPerWeek(runtime) {
     throw new Error(`Invalid runtime configuration:\n- ${errors.join("\n- ")}`);
   }
   return Object.fromEntries(
-    WORKFLOW_ROLES.map((role) => [
+    SCHEDULED_ROLES.map((role) => [
       role,
       (7 * 24 * 60) / runtime[role].schedule_minutes
     ])
+  );
+}
+
+export function n8nScheduledRunsPerWeek(runtime) {
+  const all = scheduledRunsPerWeek(runtime);
+  return Object.fromEntries(
+    N8N_WORKFLOW_ROLES.map((role) => [role, all[role]])
   );
 }

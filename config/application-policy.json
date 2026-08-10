@@ -1,8 +1,18 @@
 {
-  "schema_version": 1,
-  "policy_version": "2026-08-10",
+  "schema_version": 2,
+  "policy_version": "2026-08-10/autonomous-v1",
   "candidate_profile_version": "2026-07-29",
-  "manual_submission_required": true,
+  "execution_mode": "autonomous_chrome",
+  "automation_contract_version": "browser-contract-v1",
+  "manual_submission_required": false,
+  "allowed_browser_hosts": [
+    "onlinejobs.ph",
+    "www.onlinejobs.ph"
+  ],
+  "apply_points": {
+    "mode": "source_required_per_application",
+    "value_source": "live_job_form"
+  },
   "max_body_words": 300,
   "subject_template": "Subject line: {{job_title}} Application — {{candidate_name}}",
   "default_greeting": "Hi there,",
@@ -20,7 +30,7 @@
     "first person",
     "direct and evidence-led",
     "specific to the job description",
-    "copy-ready after manual review",
+    "validated before browser fill and submission",
     "no unsupported claims"
   ],
   "prompt_templates": {
@@ -38,7 +48,7 @@
     "phone numbers",
     "salary expectations unless separately configured",
     "availability or schedule commitments unless separately configured",
-    "automatic application submission"
+    "claiming an application was submitted without a persisted confirmation"
   ],
   "banned_phrases": [
     "solid foundation",

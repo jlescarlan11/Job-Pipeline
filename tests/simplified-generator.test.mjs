@@ -35,8 +35,7 @@ const rankingPolicy = await loadJson("../config/ranking-policy.json");
 const applicationPolicy = await loadJson("../config/application-policy.json");
 const packPolicy = await loadJson("../config/application-pack-policy.json");
 const groqPolicy = await loadJson("../config/groq-provider-policy.json");
-const runtimeConfig = await loadJson("../config/runtime.json");
-const runtime = runtimeConfig.generator;
+const runtime = await loadJson("./fixtures/legacy-generator-runtime.json");
 const directHtml = await readFile(
   new URL("./fixtures/job-direct.html", import.meta.url),
   "utf8"

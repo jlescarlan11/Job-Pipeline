@@ -1,7 +1,8 @@
 {
-  "schema_version": 2,
-  "policy_version": "2026-08-10/v4",
-  "deployment_scope": "self_hosted_regular",
+  "schema_version": 3,
+  "policy_version": "2026-08-10/v5",
+  "deployment_scope": "self_hosted_regular_plus_codex_scheduled",
+  "active_contract": "mixed_cutover",
   "verified_on": "2026-08-10",
   "official_sources": [
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
@@ -31,7 +32,8 @@
     "N8N_RUNNERS_MAX_CONCURRENCY": "3",
     "N8N_RUNNERS_TASK_TIMEOUT": "300",
     "N8N_RUNNERS_TASK_REQUEST_TIMEOUT": "60",
-    "N8N_RUNNERS_HEARTBEAT_INTERVAL": "15"
+    "N8N_RUNNERS_HEARTBEAT_INTERVAL": "15",
+    "NODE_FUNCTION_ALLOW_BUILTIN": "crypto"
   },
   "capacity": {
     "production_concurrency_limit": 2,
@@ -41,13 +43,14 @@
     "maximum_simultaneous_scheduled_executions": 2,
     "minimum_scheduled_burst_headroom": 0,
     "maximum_queued_scheduled_executions": 0,
-    "timeout_weighted_concurrency": 0.4847
+    "timeout_weighted_concurrency": 0.3958
   },
   "execution_retention": {
     "maximum_age_hours": 336,
     "maximum_count": 10000,
-    "scheduled_runs_per_week": 826,
-    "scheduled_failure_count_at_maximum_age": 1652
+    "scheduled_runs_per_week": 714,
+    "scheduled_failure_count_at_maximum_age": 1428,
+    "browser_task_runs_per_week": 112
   },
   "monitoring": {
     "metrics_internal_only": true,
@@ -57,11 +60,14 @@
     "log_ingestion_required": true,
     "required_events": [
       "discovery_run",
-      "generator_result",
       "movement_plan",
       "movement_confirmation",
       "alert_selection",
       "alert_delivery"
+    ],
+    "browser_task_required_events": [
+      "browser_executor_run",
+      "browser_attempt_result"
     ]
   },
   "workbook_binding": {
@@ -76,17 +82,158 @@
   "application_compatibility": {
     "legacy_state_guard_compatibility": "guarded_v3_claim_once",
     "business_row_relocation_mode": "copy_confirm_delete_only",
-    "pipeline_schema_version": 4,
-    "storage_version": "2026-08-04-preparation-lifecycle-v4",
-    "pipeline_contract_digest": "pipeline-v1:038ef670",
+    "pipeline_schema_version": 5,
+    "storage_version": "2026-08-10-autonomous-browser-v5",
+    "pipeline_contract_digest": "pipeline-v2:2b36034220cb8d9841bd448f95849d191fcd39b81ae568e9bb4c9c503815fecc",
     "candidate_profile_version": "2026-07-29",
-    "application_policy_version": "2026-08-10",
+    "application_policy_version": "2026-08-10/autonomous-v1",
     "application_pack_policy_version": "2026-08-10/v4",
     "application_pack_version": "2026-08-10/v4",
     "coverage_contract_version": "2026-08-10/v4",
-    "message_plan_version": "2026-08-10/v4"
+    "message_plan_version": "2026-08-10/v4",
+    "application_execution_mode": "autonomous_chrome",
+    "automation_contract_version": "browser-contract-v1",
+    "browser_executor_protocol_version": "2026-08-10/v1",
+    "browser_skill_version": "job-autopilot-v1",
+    "browser_task_contract_version": "2026-08-10/browser-task-v1",
+    "browser_task_prompt_version": "2026-08-10/browser-task-prompt-v1"
+  },
+  "mixed_cutover": {
+    "schema_version": 1,
+    "deployment_mode": "two_n8n_plus_scheduled_browser",
+    "n8n_roles": [
+      {
+        "role": "scraper",
+        "target_workflow_id": "qxPbOzNs5StaPY8B",
+        "artifact_digest": "sha256:63d34bae6947ec8af42a49ea06eb4a6349a5296c006895e9bf35674b11f0d7e7",
+        "timezone": "Asia/Manila",
+        "execution_timeout_seconds": 900,
+        "schedule_expressions": [
+          "0 8 0,4,8,12,16,20 * * *"
+        ],
+        "google_credential_node_count": 13,
+        "name_markers": [
+          "Scraper",
+          "Rolling 24-Hour Keywords"
+        ],
+        "required_node_names": [
+          "Get Search Keywords",
+          "Capture Fixed Window and Keywords",
+          "Get To Review",
+          "Get To Apply",
+          "Append New Scraped Jobs Rows"
+        ]
+      },
+      {
+        "role": "alerter_mover",
+        "target_workflow_id": "QO6OLK3pHetgGIGq",
+        "artifact_digest": "sha256:e265435bfeac29a49e420d6df8afe287268df3be7f84ade066092849d6eb0d4a",
+        "timezone": "Asia/Manila",
+        "execution_timeout_seconds": 300,
+        "schedule_expressions": [
+          "0 10,25,40,55 * * * *"
+        ],
+        "google_credential_node_count": 35,
+        "name_markers": [
+          "Alerter & Mover",
+          "Slack and Terminal Moves"
+        ],
+        "required_node_names": [
+          "Plan Independent Moves",
+          "Re-read Stabilized Movement Claims",
+          "Upsert To Review",
+          "Upsert To Apply",
+          "Delete Confirmed To Review Rows",
+          "Delete Confirmed To Apply Rows"
+        ]
+      }
+    ],
+    "scheduled_task": {
+      "role": "browser_executor",
+      "contract_version": "2026-08-10/browser-task-v1",
+      "artifact_digest": "sha256:830cf0e44a4d853b5255ce68ae3b3469fb1bff0814a4093395ba924f9aa51a8c",
+      "prompt_version": "2026-08-10/browser-task-prompt-v1",
+      "prompt_digest": "sha256:585233950e9ff3e23b86815d672673249e7bd150ef2da57fe80bb063ee135d76",
+      "skill_name": "job-autopilot",
+      "skill_version": "job-autopilot-v1",
+      "skill_path": ".agents/skills/job-autopilot/SKILL.md",
+      "protocol_version": "2026-08-10/v1",
+      "plugin_uri": "plugin://chrome@openai-bundled",
+      "project_mode": "local_project_root",
+      "timezone": "Asia/Manila",
+      "schedule_minutes": 90,
+      "schedule_offset_minutes": 2,
+      "execution_timeout_seconds": 480,
+      "claim_lease_ms": 600000,
+      "minimum_attempt_headroom_ms": 120000,
+      "continuation_mode": "technical_headroom_next_schedule",
+      "retry_max_attempts": 3,
+      "retry_backoff_ms": 300000,
+      "skill_bundle_digest": "sha256:5ba00a1da85bbd3569d5f4d2389420424455bd39f2d9d067baeedc653df6fe2b",
+      "protocol_bundle_digest": "sha256:a5103d461e4d3c1c46796347429bb3bf967eb0d4f7187a39095144c57c305f55",
+      "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
+      "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
+      "application_policy_digest": "sha256:d3f2b946e2ec85eff83ba94db1b71edc648e42d8256f3c48e74c9b99baee88d8",
+      "application_pack_policy_digest": "sha256:d787932b7cd40fb0a19b5a485a0f44b1734e2d07262f25abab0446c5bb9f33c2",
+      "configuration_bundle_digest": "sha256:9e8aa64c7a77d2fc67d9840ceeb68893d3dfdb054411f6b3a7e68777f9cebadf",
+      "attestation_key_id": "unprovisioned",
+      "attestation_public_key_spki_sha256": "unprovisioned",
+      "source_control_state": "inactive_unscheduled"
+    },
+    "retired_generator": {
+      "role": "evaluator_generator",
+      "target_workflow_id": "TRUqD9atneyDyMNx",
+      "last_manual_contract_artifact_digest": "sha256:987c8b7d7db03209d52dcc4abee27bdb9a43233360dbdedb3c96998e29fe667b",
+      "required_active_state": false
+    },
+    "activation_order": [
+      "freeze_writers_and_capture_backups",
+      "upgrade_structure_without_business_moves",
+      "import_n8n_roles_inactive",
+      "register_browser_task_paused",
+      "disable_retired_generator_and_drain_claims",
+      "enable_alerter_mover",
+      "enable_scraper",
+      "enable_browser_executor"
+    ],
+    "rollback_disable_order": [
+      "browser_executor",
+      "alerter_mover",
+      "scraper"
+    ],
+    "evidence_contract": {
+      "required_backup_kinds": [
+        "workflow_scraper",
+        "workflow_evaluator_generator",
+        "workflow_alerter_mover",
+        "scheduled_browser_task",
+        "main_workbook",
+        "configuration_workbook",
+        "old_workbook",
+        "n8n_database",
+        "alert_receipt_store",
+        "runtime_configuration",
+        "browser_skill_configuration"
+      ],
+      "required_control_cases": [
+        "eligible_confirmed_application",
+        "automatic_skip",
+        "noisy_parse_not_false_skip",
+        "required_unknown",
+        "login_or_challenge",
+        "captcha",
+        "unexpected_agreement_upload_test",
+        "browser_network_retryable",
+        "ambiguous_submit_reconciliation",
+        "duplicate_submit_suppression",
+        "mover_partial_failure_recovery",
+        "legacy_row_disposition"
+      ],
+      "minimum_observation_minutes": 90
+    }
   },
   "workflow_cutover": {
+    "legacy_only": true,
     "schema_version": 3,
     "deployment_mode": "in_place_segmented_update",
     "public_api_path": "/api/v1",
