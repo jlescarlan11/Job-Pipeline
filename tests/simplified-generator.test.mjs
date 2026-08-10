@@ -958,6 +958,57 @@ test("Proceed answers open-ended screening questions with positive truthful fram
   assert.doesNotMatch(proposed.generated_message, /\bdaily\b|every day/i);
 });
 
+test("Proceed carries positive-framing approval across a policy rebuild only when the review surface is unchanged", () => {
+  const approved = proceedForPreparation(recordFromDescription(3057, {
+    html: null,
+    title: "AI Workflow Builder",
+    status: "review_needed",
+    description: [
+      "What AI tools do you use every day?",
+      "What's the coolest thing you've ever built with AI?",
+      "What would you improve about your current AI workflow?",
+      "Why do you think you're the right person for this role?"
+    ].join("\n")
+  }));
+  const staleApproved = {
+    ...approved,
+    review_approval_guard: "application-review-v1:stale-policy-guard"
+  };
+  staleApproved.state_guard = stateGuard(staleApproved);
+  const rebuilt = prepareApplicationGeneration(
+    claim(staleApproved, "generation", "To Apply"),
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(rebuilt.provider_required, true);
+  assert.equal(rebuilt.pack.application_pack_status, "ready");
+  assert.ok(
+    rebuilt.pack.application_warnings
+      .filter((warning) => warning.code === "missing_required_coverage")
+      .every((warning) => warning.review_acknowledged === true)
+  );
+
+  const changedApproved = {
+    ...approved,
+    job_description: `${approved.job_description}\nWhat is your desired salary?`,
+    review_approval_guard: "application-review-v1:stale-policy-guard"
+  };
+  changedApproved.state_guard = stateGuard(changedApproved);
+  const changedSurface = prepareApplicationGeneration(
+    claim(changedApproved, "generation", "To Apply"),
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+  assert.equal(changedSurface.provider_required, false);
+  assert.notEqual(changedSurface.pack.application_pack_status, "ready");
+});
+
 test("human-only employer actions become bounded external steps without provider work", () => {
   const proceeded = proceedForPreparation(recordFromDescription(3055, {
     html: null,

@@ -3353,6 +3353,48 @@ function hasReviewApproval(job) {
   );
 }
 
+function applicationReviewSurface(instructions, questions) {
+  const normalizedInstructions = Array.isArray(instructions)
+    ? instructions.map((instruction) => ({
+        id: String(instruction?.id || ""),
+        type: String(instruction?.type || ""),
+        text: normalizeText(instruction?.text || ""),
+        value: normalizeText(instruction?.value || ""),
+        required: instruction?.required === true,
+        ambiguous: instruction?.ambiguous === true,
+        constraints: instruction?.constraints ?? null,
+        fulfillment: instruction?.fulfillment ?? null
+      }))
+    : [];
+  const normalizedQuestions = Array.isArray(questions)
+    ? questions.map((question) => ({
+        id: String(question?.id || ""),
+        text: normalizeText(question?.text || ""),
+        required: question?.required === true,
+        constraints: question?.constraints ?? null
+      }))
+    : [];
+  return {
+    instructions: normalizedInstructions,
+    questions: normalizedQuestions
+  };
+}
+
+function hasCompatiblePositiveFramingApproval(job, instructions, questions) {
+  if (!hasReviewApproval(job) || job?.pipeline_status !== "ready_to_apply") {
+    return false;
+  }
+  const current = applicationReviewSurface(instructions, questions);
+  if (current.instructions.length + current.questions.length === 0) {
+    return false;
+  }
+  const persisted = applicationReviewSurface(
+    job?.application_instructions,
+    job?.screening_questions
+  );
+  return JSON.stringify(current) === JSON.stringify(persisted);
+}
+
 function extractSubjectValue(text) {
   const prefix = text.match(
     /(?:subject line|email subject|use subject(?: line)?)(?:\s+(?:should be|must be|is|to be))?\s*[:\-]?\s*/i
@@ -3845,10 +3887,13 @@ export function buildApplicationPack(
   });
   const approvedReview =
     hasReviewApproval(job) && job.review_approval_guard === reviewGuard;
+  const compatiblePositiveFramingApproval =
+    !approvedReview &&
+    hasCompatiblePositiveFramingApproval(job, instructions, questions);
   const acknowledgeableWarnings = new Set(
     packPolicy.review_approval.acknowledgeable_warning_codes
   );
-  if (approvedReview) {
+  if (approvedReview || compatiblePositiveFramingApproval) {
     for (const question of questions) {
       question.answer_status = approvedQuestionAnswerStatus(
         question,
@@ -3857,7 +3902,15 @@ export function buildApplicationPack(
       question.review_acknowledged = true;
     }
     for (const [index, warning] of warnings.entries()) {
-      if (acknowledgeableWarnings.has(warning.code)) {
+      if (
+        acknowledgeableWarnings.has(warning.code) &&
+        (approvedReview ||
+          [
+            "screening_question_requires_review",
+            "missing_required_coverage",
+            "partial_coverage_requires_review"
+          ].includes(warning.code))
+      ) {
         warnings[index] = {
           ...warning,
           review_acknowledged: true
@@ -3899,10 +3952,11 @@ export function buildApplicationPack(
     application_pack_policy_version: packPolicy.policy_version,
     coverage_contract_version: packPolicy.coverage_contract_version,
     application_pack_generated_at: now,
-    review_approved_at: approvedReview
+    review_approved_at: approvedReview || compatiblePositiveFramingApproval
       ? job.review_decided_at || job.review_approved_at
       : "",
-    review_approval_guard: approvedReview ? reviewGuard : ""
+    review_approval_guard:
+      approvedReview || compatiblePositiveFramingApproval ? reviewGuard : ""
   };
   return applicationPackPersistenceErrors(result, packPolicy).length > 0
     ? persistenceOverflowPack(profile, packPolicy, now)
