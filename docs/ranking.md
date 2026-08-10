@@ -104,3 +104,7 @@ Within lifecycle priority, the single Evaluator & Generator queue sorts by:
 Apply Points recommendations are `save_points`, `low_allocation`,
 `normal_allocation`, or `high_allocation`. They never represent qualification,
 read or alter a live points balance, submit an application, or spend points.
+For autonomous submission, trusted application policy maps low to 1 point,
+normal to 5, and high to 10; `save_points` does not apply. The value must also
+exist in the live form's offered options. This is a per-application allocation,
+not a daily quota.

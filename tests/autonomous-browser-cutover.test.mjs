@@ -16,6 +16,20 @@ policy.mixed_cutover.scheduled_task.attestation_key_id =
   "test-history-adapter-v1";
 policy.mixed_cutover.scheduled_task.attestation_public_key_spki_sha256 =
   `sha256:${"8".repeat(64)}`;
+policy.mixed_cutover.scheduled_task.click_receipt_store_id =
+  `browser-click-store-v1:${"a".repeat(64)}`;
+policy.mixed_cutover.scheduled_task.click_receipt_ledger_id =
+  `browser-click-ledger-v1:${"b".repeat(64)}`;
+policy.mixed_cutover.scheduled_task.click_receipt_generation_id =
+  `browser-click-generation-v1:${"e".repeat(64)}`;
+policy.mixed_cutover.scheduled_task.click_receipt_manifest_sha256 =
+  `sha256:${"c".repeat(64)}`;
+policy.mixed_cutover.scheduled_task.click_receipt_directory_binding_digest =
+  `sha256:${"d".repeat(64)}`;
+policy.mixed_cutover.scheduled_task.click_receipt_directory_identity =
+  "fs-object-v1:1:2:501";
+policy.mixed_cutover.scheduled_task.click_receipt_witness_identity =
+  "fs-object-v1:1:3:501";
 
 function evidenceFor(phase = "pre_activation") {
   const post = phase === "post_activation";
@@ -71,6 +85,21 @@ function evidenceFor(phase = "pre_activation") {
         policy.mixed_cutover.scheduled_task.attestation_key_id,
       attestation_public_key_spki_sha256:
         policy.mixed_cutover.scheduled_task.attestation_public_key_spki_sha256,
+      click_receipt_store_id:
+        policy.mixed_cutover.scheduled_task.click_receipt_store_id,
+      click_receipt_ledger_id:
+        policy.mixed_cutover.scheduled_task.click_receipt_ledger_id,
+      click_receipt_generation_id:
+        policy.mixed_cutover.scheduled_task.click_receipt_generation_id,
+      click_receipt_manifest_sha256:
+        policy.mixed_cutover.scheduled_task.click_receipt_manifest_sha256,
+      click_receipt_binding_digest:
+        policy.mixed_cutover.scheduled_task
+          .click_receipt_directory_binding_digest,
+      click_receipt_directory_identity:
+        policy.mixed_cutover.scheduled_task.click_receipt_directory_identity,
+      click_receipt_witness_identity:
+        policy.mixed_cutover.scheduled_task.click_receipt_witness_identity,
       observed_at: prepared ? "2026-08-10T08:00:00.000Z" : ""
     },
     instance_inventory: {
@@ -157,6 +186,10 @@ function evidenceFor(phase = "pre_activation") {
       local_project_selected: prepared,
       skill_invocation_verified: prepared,
       mock_sequence_passed: prepared,
+      single_use_click_receipt_verified: prepared,
+      dual_anchor_rollback_verified: prepared,
+      effective_form_submitter_verified: prepared,
+      deterministic_apply_points_verified: prepared,
       independent_attestation_adapter_verified: prepared,
       attestation_public_key_verified: prepared,
       unattended_submit_status: prepared ? "proven" : "not_tested",
@@ -181,24 +214,20 @@ function evidenceFor(phase = "pre_activation") {
       documented: true,
       verified_without_execution: true,
       disable_order: [...policy.mixed_cutover.rollback_disable_order],
+      restore_order: [...policy.mixed_cutover.rollback_restore_order],
       compatibility_limits_recorded: true,
       manual_row_relocation_required: false,
-      prior_assets: [
-        "n8n_scraper",
-        "n8n_generator",
-        "n8n_alerter_mover",
-        "scheduled_browser_task",
-        "application_policy",
-        "pipeline_schema",
-        "main_workbook",
-        "configuration_workbook"
-      ].map((kind, index) => ({
+      prior_assets: policy.mixed_cutover.rollback_restore_order.map((kind) => {
+        const backupIndex =
+          policy.mixed_cutover.evidence_contract.required_backup_kinds.indexOf(kind);
+        return {
         kind,
-        restore_id: `restore-${index + 1}`,
-        version: `prior-${index + 1}`,
-        sha256: String(index + 1).padStart(64, "0"),
+        restore_id: `private-backup-${backupIndex + 1}`,
+        version: `prior-${backupIndex + 1}`,
+        sha256: String(backupIndex + 1).padStart(64, "0"),
         compatibility_verified: true
-      }))
+        };
+      })
     },
     observations: post
       ? {
@@ -396,21 +425,34 @@ test("cutover rejects reordered activation and rollback steps", () => {
   const evidence = evidenceFor("pre_activation");
   evidence.activation.order.reverse();
   evidence.rollback.disable_order.reverse();
+  evidence.rollback.restore_order.reverse();
   assert.match(
     validateAutonomousBrowserCutoverEvidence(policy, evidence).join(";"),
     /activation order|rollback evidence/
   );
 });
 
+test("rollback assets are ordered and digest-linked to exact backups", () => {
+  const evidence = evidenceFor("pre_activation");
+  evidence.rollback.prior_assets[0].sha256 = "f".repeat(64);
+  evidence.rollback.prior_assets[1].restore_id = "unrelated-restore";
+  assert.match(
+    validateAutonomousBrowserCutoverEvidence(policy, evidence).join(";"),
+    /rollback asset .* not exact or compatible/
+  );
+});
+
 test("cutover rejects confirmation blockers, failed controls, and private payloads", () => {
   const evidence = evidenceFor("pre_activation");
+  evidence.capability.single_use_click_receipt_verified = false;
+  evidence.scheduled_task.click_receipt_binding_digest = "";
   evidence.capability.unattended_submit_status = "blocked_confirmation";
   evidence.capability.activation_allowed = false;
   evidence.controls[0].passed = false;
   evidence.private_debug = { generated_message: "must not be committed" };
   assert.match(
     validateAutonomousBrowserCutoverEvidence(policy, evidence).join(";"),
-    /private or secret material|unattended submit capability|every pre-activation/
+    /private or secret material|click-receipt store|single_use_click_receipt_verified|unattended submit capability|every pre-activation/
   );
 });
 

@@ -157,11 +157,15 @@ function setupFreshJobPipeline_(workbookRole) {
       recordHeaderStates
     );
     workbook.setSpreadsheetTimeZone(JOB_PIPELINE_SETUP.timezone);
-    if (recordHeaderMode === 'legacy') {
+    if (recordHeaderMode === 'upgrade') {
       expectedDefinitions
         .filter((definition) => recordSheetKeys.has(definition.key))
+        .filter((definition) =>
+          recordHeaderStates.get(definition.name) !== 'current'
+        )
         .forEach((definition) => upgradeLegacyRecordHeaders_(
-          workbook.getSheetByName(definition.name)
+          workbook.getSheetByName(definition.name),
+          recordHeaderStates.get(definition.name)
         ));
     }
 
@@ -538,6 +542,17 @@ function assertReconciliableHeaders_(sheet, headers, legacyHeaders) {
       ) {
         headerVersion = 'legacy';
       }
+      const legacySet = new Set(legacyHeaders);
+      const pendingHeaders = headers.map((field) =>
+        legacySet.has(field) ? field : ''
+      );
+      if (
+        JSON.stringify(actual) === JSON.stringify(pendingHeaders) &&
+        extra.length === 0 &&
+        lastColumn <= headers.length
+      ) {
+        headerVersion = 'upgrade_pending_headers';
+      }
     }
     if (headerVersion === 'conflicting') {
       throw new Error(
@@ -553,20 +568,24 @@ function assertReconciliableHeaders_(sheet, headers, legacyHeaders) {
 }
 
 function assertConsistentRecordHeaderVersions_(recordSheetNames, states) {
-  const legacy = recordSheetNames.filter((name) => states.get(name) === 'legacy');
-  if (legacy.length === 0) return 'current_or_empty';
+  const upgrade = recordSheetNames.filter((name) =>
+    ['legacy', 'upgrade_pending_headers'].includes(states.get(name))
+  );
+  if (upgrade.length === 0) return 'current_or_empty';
   if (
     states.size !== recordSheetNames.length ||
-    !recordSheetNames.every((name) => states.get(name) === 'legacy')
+    !recordSheetNames.every((name) =>
+      ['legacy', 'upgrade_pending_headers', 'current'].includes(states.get(name))
+    )
   ) {
     throw new Error(
       'Fresh setup refused mixed, missing, or partial record-sheet versions'
     );
   }
-  return 'legacy';
+  return 'upgrade';
 }
 
-function upgradeLegacyRecordHeaders_(sheet) {
+function upgradeLegacyRecordHeaders_(sheet, headerVersion) {
   const current = [...JOB_PIPELINE_SETUP.recordHeaderUpgrade.legacy_fields];
   JOB_PIPELINE_SETUP.recordHeaderUpgrade.insertions.forEach((insertion) => {
     const beforeIndex = current.indexOf(insertion.before);
@@ -578,9 +597,16 @@ function upgradeLegacyRecordHeaders_(sheet) {
         'Fresh setup refused an invalid record-header insertion boundary'
       );
     }
-    sheet.insertColumnsBefore(beforeIndex + 1, insertion.fields.length);
-    sheet.getRange(1, beforeIndex + 1, 1, insertion.fields.length)
-      .setValues([insertion.fields]);
+    if (headerVersion === 'legacy') {
+      sheet.insertColumnsBefore(beforeIndex + 1, insertion.fields.length);
+      sheet.getRange(1, beforeIndex + 1, 1, insertion.fields.length)
+        .setValues([insertion.fields]);
+    } else if (headerVersion === 'upgrade_pending_headers') {
+      sheet.getRange(1, beforeIndex + 1, 1, insertion.fields.length)
+        .setValues([insertion.fields]);
+    } else {
+      throw new Error('Fresh setup refused an unknown record upgrade state');
+    }
     current.splice(beforeIndex, 0, ...insertion.fields);
   });
   if (JSON.stringify(current) !== JSON.stringify(JOB_PIPELINE_SETUP.recordFields)) {

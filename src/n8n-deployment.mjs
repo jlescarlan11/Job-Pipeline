@@ -59,6 +59,7 @@ function browserTaskShapeErrors(task) {
         "skill",
         "browser_plugin",
         "confirmation_attestation",
+        "click_consumption",
         "executor",
         "runtime",
         "provenance",
@@ -100,6 +101,26 @@ function browserTaskShapeErrors(task) {
         "private_key_available_to_task"
       ],
       "browser_task.confirmation_attestation"
+    ),
+    ...unsupportedObjectKeys(
+      task?.click_consumption,
+      [
+        "receipt_store",
+        "directory_environment_variable",
+        "witness_file_environment_variable",
+        "store_id",
+        "ledger_id",
+        "generation_id",
+        "manifest_sha256",
+        "directory_binding_digest",
+        "directory_identity",
+        "witness_identity",
+        "receipt_schema_version",
+        "durability",
+        "existing_receipt_behavior",
+        "loss_or_restore_behavior"
+      ],
+      "browser_task.click_consumption"
     ),
     ...unsupportedObjectKeys(
       task?.executor,
@@ -625,6 +646,7 @@ export function validateN8nDeploymentPolicy(
     "plan-submit-intent",
     "confirm-submit-intent",
     "commit-result",
+    "reconcile-result",
     "recover"
   ];
   if (
@@ -648,6 +670,27 @@ export function validateN8nDeploymentPolicy(
     browserTask?.confirmation_attestation?.public_key_spki_sha256 !==
       "unprovisioned" ||
     browserTask?.confirmation_attestation?.private_key_available_to_task !== false ||
+    browserTask?.click_consumption?.receipt_store !==
+      "private_pinned_dual_anchor_hash_chain" ||
+    browserTask?.click_consumption?.directory_environment_variable !==
+      "JOB_PIPELINE_BROWSER_CLICK_RECEIPT_DIR" ||
+    browserTask?.click_consumption?.witness_file_environment_variable !==
+      "JOB_PIPELINE_BROWSER_CLICK_WITNESS_FILE" ||
+    browserTask?.click_consumption?.store_id !== "unprovisioned" ||
+    browserTask?.click_consumption?.ledger_id !== "unprovisioned" ||
+    browserTask?.click_consumption?.generation_id !== "unprovisioned" ||
+    browserTask?.click_consumption?.manifest_sha256 !== "unprovisioned" ||
+    browserTask?.click_consumption?.directory_binding_digest !==
+      "unprovisioned" ||
+    browserTask?.click_consumption?.directory_identity !== "unprovisioned" ||
+    browserTask?.click_consumption?.witness_identity !== "unprovisioned" ||
+    browserTask?.click_consumption?.receipt_schema_version !== 1 ||
+    browserTask?.click_consumption?.durability !==
+      "private_pinned_fs_identity_hash_chain_witness_fsync_before_capability" ||
+    browserTask?.click_consumption?.existing_receipt_behavior !==
+      "reconcile_without_click" ||
+    browserTask?.click_consumption?.loss_or_restore_behavior !==
+      "disable_reconcile_rotate_never_restore_witness" ||
     browserTask?.project?.mode !== "local_project_root" ||
     JSON.stringify(browserTask?.executor?.allowed_operations) !==
       JSON.stringify(expectedOperations)
@@ -724,6 +767,28 @@ export function validateN8nDeploymentPolicy(
       browserTask?.confirmation_attestation?.key_id ||
     scheduledTask.attestation_public_key_spki_sha256 !==
       browserTask?.confirmation_attestation?.public_key_spki_sha256 ||
+    scheduledTask.click_receipt_store !==
+      browserTask?.click_consumption?.receipt_store ||
+    scheduledTask.click_receipt_directory_environment_variable !==
+      browserTask?.click_consumption?.directory_environment_variable ||
+    scheduledTask.click_receipt_witness_environment_variable !==
+      browserTask?.click_consumption?.witness_file_environment_variable ||
+    scheduledTask.click_receipt_store_id !==
+      browserTask?.click_consumption?.store_id ||
+    scheduledTask.click_receipt_ledger_id !==
+      browserTask?.click_consumption?.ledger_id ||
+    scheduledTask.click_receipt_generation_id !==
+      browserTask?.click_consumption?.generation_id ||
+    scheduledTask.click_receipt_manifest_sha256 !==
+      browserTask?.click_consumption?.manifest_sha256 ||
+    scheduledTask.click_receipt_directory_binding_digest !==
+      browserTask?.click_consumption?.directory_binding_digest ||
+    scheduledTask.click_receipt_directory_identity !==
+      browserTask?.click_consumption?.directory_identity ||
+    scheduledTask.click_receipt_witness_identity !==
+      browserTask?.click_consumption?.witness_identity ||
+    scheduledTask.click_receipt_loss_or_restore_behavior !==
+      browserTask?.click_consumption?.loss_or_restore_behavior ||
     scheduledTask.source_control_state !== "inactive_unscheduled"
   ) {
     errors.push("scheduled browser task artifact or runtime signature is stale");
@@ -741,6 +806,22 @@ export function validateN8nDeploymentPolicy(
     )
   ) {
     errors.push("retired Generator rollback identity is incomplete");
+  }
+  const requiredBackupKinds =
+    mixed?.evidence_contract?.required_backup_kinds ?? [];
+  const restoreOrder = mixed?.rollback_restore_order ?? [];
+  if (
+    !Array.isArray(requiredBackupKinds) ||
+    !Array.isArray(restoreOrder) ||
+    requiredBackupKinds.length < 1 ||
+    restoreOrder.length !== requiredBackupKinds.length ||
+    new Set(requiredBackupKinds).size !== requiredBackupKinds.length ||
+    new Set(restoreOrder).size !== restoreOrder.length ||
+    !restoreOrder.every((kind) => requiredBackupKinds.includes(kind))
+  ) {
+    errors.push(
+      "rollback restore order must cover every required backup kind exactly once"
+    );
   }
   if (
     policy?.workbook_binding?.queue_spreadsheet_environment_variable !==

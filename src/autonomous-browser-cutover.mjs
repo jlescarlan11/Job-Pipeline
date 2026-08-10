@@ -12,16 +12,6 @@ import { permanentSourceUnavailable } from "./movement.mjs";
 const PHASES = new Set(["pre_cutover", "pre_activation", "post_activation"]);
 const ACTIVE_STORES = new Set(["Scraped Jobs", "To Review", "To Apply"]);
 const TERMINAL_STORES = new Set(["Applied Jobs", "Archive"]);
-const ROLLBACK_ASSET_KINDS = [
-  "n8n_scraper",
-  "n8n_generator",
-  "n8n_alerter_mover",
-  "scheduled_browser_task",
-  "application_policy",
-  "pipeline_schema",
-  "main_workbook",
-  "configuration_workbook"
-];
 const OBSERVATION_OUTCOME_KEYS = [
   "confirmed",
   "skipped",
@@ -554,6 +544,13 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
       "binding_digest",
       "attestation_key_id",
       "attestation_public_key_spki_sha256",
+      "click_receipt_store_id",
+      "click_receipt_ledger_id",
+      "click_receipt_generation_id",
+      "click_receipt_manifest_sha256",
+      "click_receipt_binding_digest",
+      "click_receipt_directory_identity",
+      "click_receipt_witness_identity",
       "observed_at"
     ],
     "scheduled_task",
@@ -568,8 +565,50 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
     || task.attestation_key_id !== mixed?.scheduled_task?.attestation_key_id
     || task.attestation_public_key_spki_sha256 !==
       mixed?.scheduled_task?.attestation_public_key_spki_sha256
+    || task.click_receipt_store_id !==
+      mixed?.scheduled_task?.click_receipt_store_id
+    || task.click_receipt_ledger_id !==
+      mixed?.scheduled_task?.click_receipt_ledger_id
+    || task.click_receipt_generation_id !==
+      mixed?.scheduled_task?.click_receipt_generation_id
+    || task.click_receipt_manifest_sha256 !==
+      mixed?.scheduled_task?.click_receipt_manifest_sha256
+    || task.click_receipt_binding_digest !==
+      mixed?.scheduled_task?.click_receipt_directory_binding_digest
+    || task.click_receipt_directory_identity !==
+      mixed?.scheduled_task?.click_receipt_directory_identity
+    || task.click_receipt_witness_identity !==
+      mixed?.scheduled_task?.click_receipt_witness_identity
   ) {
     errors.push("scheduled browser task compatibility evidence is stale");
+  }
+  if (
+    prepared &&
+    (
+      !/^browser-click-store-v1:[a-f0-9]{64}$/.test(
+        String(task.click_receipt_store_id || "")
+      ) ||
+      !/^browser-click-ledger-v1:[a-f0-9]{64}$/.test(
+        String(task.click_receipt_ledger_id || "")
+      ) ||
+      !/^browser-click-generation-v1:[a-f0-9]{64}$/.test(
+        String(task.click_receipt_generation_id || "")
+      ) ||
+      !/^sha256:[a-f0-9]{64}$/.test(
+        String(task.click_receipt_manifest_sha256 || "")
+      ) ||
+      !/^sha256:[a-f0-9]{64}$/.test(
+        String(task.click_receipt_binding_digest || "")
+      ) ||
+      !/^fs-object-v1:[0-9]+:[0-9]+:[0-9]+$/.test(
+        String(task.click_receipt_directory_identity || "")
+      ) ||
+      !/^fs-object-v1:[0-9]+:[0-9]+:[0-9]+$/.test(
+        String(task.click_receipt_witness_identity || "")
+      )
+    )
+  ) {
+    errors.push("scheduled browser click-receipt store is not provisioned and bound");
   }
   const expectedTaskState =
     phase === "pre_cutover" ? "absent" : post ? "active" : "paused";
@@ -799,6 +838,10 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
       "local_project_selected",
       "skill_invocation_verified",
       "mock_sequence_passed",
+      "single_use_click_receipt_verified",
+      "dual_anchor_rollback_verified",
+      "effective_form_submitter_verified",
+      "deterministic_apply_points_verified",
       "independent_attestation_adapter_verified",
       "attestation_public_key_verified",
       "unattended_submit_status",
@@ -816,6 +859,10 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
       "local_project_selected",
       "skill_invocation_verified",
       "mock_sequence_passed",
+      "single_use_click_receipt_verified",
+      "dual_anchor_rollback_verified",
+      "effective_form_submitter_verified",
+      "deterministic_apply_points_verified",
       "independent_attestation_adapter_verified",
       "attestation_public_key_verified"
     ]) {
@@ -893,6 +940,7 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
       "documented",
       "verified_without_execution",
       "disable_order",
+      "restore_order",
       "compatibility_limits_recorded",
       "manual_row_relocation_required",
       "prior_assets"
@@ -904,6 +952,7 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
     rollback.documented !== true ||
     rollback.verified_without_execution !== true ||
     !exactArray(rollback.disable_order, mixed?.rollback_disable_order ?? []) ||
+    !exactArray(rollback.restore_order, mixed?.rollback_restore_order ?? []) ||
     rollback.compatibility_limits_recorded !== true ||
     rollback.manual_row_relocation_required !== false
   ) {
@@ -912,9 +961,16 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
   const priorAssets = Array.isArray(rollback.prior_assets)
     ? rollback.prior_assets
     : [];
-  if (!exactSet(priorAssets.map((asset) => asset.kind), ROLLBACK_ASSET_KINDS)) {
+  const restoreOrder = mixed?.rollback_restore_order ?? [];
+  if (!exactArray(priorAssets.map((asset) => asset.kind), restoreOrder)) {
     errors.push("rollback prior assets are incomplete");
   }
+  const backupsByKind = new Map(
+    (Array.isArray(evidence?.backups) ? evidence.backups : []).map((backup) => [
+      backup?.kind,
+      backup
+    ])
+  );
   for (const [index, asset] of priorAssets.entries()) {
     requireExactObjectKeys(
       asset,
@@ -922,11 +978,14 @@ export function validateAutonomousBrowserCutoverEvidence(policy, evidence) {
       `rollback.prior_assets[${index}]`,
       errors
     );
+    const backup = backupsByKind.get(asset?.kind);
     if (
       !boundedIdentifier(asset?.restore_id) ||
       !boundedIdentifier(asset?.version) ||
       !sha256Digest(asset?.sha256) ||
-      asset?.compatibility_verified !== true
+      asset?.compatibility_verified !== true ||
+      asset?.restore_id !== backup?.reference ||
+      asset?.sha256 !== backup?.sha256
     ) {
       errors.push(`rollback asset ${String(asset?.kind || "(missing)")} is not exact or compatible`);
     }

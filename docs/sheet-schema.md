@@ -130,16 +130,19 @@ Setup is idempotent: rerunning it reconciles formatting, validation, protection,
 ### Exact v4 record-header upgrade
 
 The Main setup also supports one structural upgrade for the existing segmented
-workbook. Before its first write, it requires all five business tabs to exist
-with the exact same ordered 82-field
-`2026-08-04-preparation-lifecycle-v4` header. It then inserts the eighteen blank
-autonomous browser fields immediately before `review_case_id`. Column insertion shifts each
-existing cell with its original field; no business row is copied, deleted, or
-relocated. The final header must exactly match the 100-field v5 schema.
+workbook. It requires all five business tabs to exist and each tab to be an
+exact ordered 82-field v4 header, exact 100-field v5 header, or the one
+recoverable v5-width interruption state whose eighteen new header cells are
+still blank. It inserts the blank autonomous-browser columns only on v4 tabs,
+fills only the missing header cells on interruption-state tabs, and leaves v5
+tabs unchanged. Column insertion shifts each existing cell with its original
+field; no business row is copied, deleted, or relocated. The final header must
+exactly match the 100-field v5 schema.
 
-The upgrade refuses mixed v4/v5 tabs, missing business tabs, partial insertion,
+The upgrade refuses missing business tabs, any other partial insertion,
 reordered or unknown headers, and row data beyond the declared header width.
-Rerunning after success sees the exact v5 header and inserts nothing. The
+Rerunning after interruption or success converges to v5 without inserting the
+same columns twice. The
 ordered legacy fields and insertion boundary are pinned in
 `config/review-sheet.json`, and `planRecordHeaderUpgrade()` provides the same
 non-mutating deterministic plan for tests and preflight tooling.

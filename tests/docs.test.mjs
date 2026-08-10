@@ -23,6 +23,8 @@ const [
   searchKeywordsVerificationReport,
   generatorBatchVerification,
   requirementAwareVerification,
+  autonomousBrowserAcceptance,
+  autonomousBrowserLedger,
   productionPredeploymentBaseline,
   productionDeploymentVerification,
   schema,
@@ -56,6 +58,8 @@ const [
   loadText("../docs/search-keywords-verification-2026-07-31.md"),
   loadText("../docs/generator-batch-verification-2026-07-31.md"),
   loadText("../docs/requirement-aware-generator-verification-2026-08-03.md"),
+  loadText("../docs/autonomous-browser-acceptance-matrix.md"),
+  loadText("../docs/autonomous-browser-change-set-ledger-2026-08-10.md"),
   loadJson(
     "../outputs/generator-batch-20260731/production-predeployment-baseline.json"
   ),
@@ -1174,6 +1178,66 @@ test("requirement-aware Generator accounting covers implementation and honest li
     deploymentPolicy.application_compatibility.coverage_contract_version,
     "2026-08-10/v4"
   );
+});
+
+test("autonomous browser accounting uses exact criteria and preserves live blockers", () => {
+  const expected = new Map([
+    [82, { SATISFIED: 16 }],
+    [83, { SATISFIED: 18 }],
+    [84, { SATISFIED: 16 }],
+    [85, { SATISFIED: 9, PARTIAL: 8, BLOCKED: 1 }],
+    [86, { SATISFIED: 14 }],
+    [87, { SATISFIED: 1, PARTIAL: 7, BLOCKED: 15 }]
+  ]);
+  const allowed = new Set([
+    "UNVERIFIED",
+    "PARTIAL",
+    "SATISFIED",
+    "BLOCKED",
+    "NOT_APPLICABLE_WITH_EVIDENCE"
+  ]);
+
+  for (const [issue, expectedStatuses] of expected) {
+    const entries = [
+      ...autonomousBrowserAcceptance.matchAll(
+        new RegExp(
+          `^\\d+\\. \\*\\*${issue}-AC-\\d+ — ([A-Z_]+):\\*\\*`,
+          "gm"
+        )
+      )
+    ];
+    const expectedCount = Object.values(expectedStatuses).reduce(
+      (sum, count) => sum + count,
+      0
+    );
+    assert.equal(entries.length, expectedCount, `issue #${issue} criterion count`);
+    for (const entry of entries) {
+      assert.ok(allowed.has(entry[1]), `issue #${issue} invalid status ${entry[1]}`);
+    }
+    for (const [status, count] of Object.entries(expectedStatuses)) {
+      assert.equal(
+        entries.filter((entry) => entry[1] === status).length,
+        count,
+        `issue #${issue} ${status} count`
+      );
+    }
+  }
+
+  assert.match(autonomousBrowserAcceptance, /repository is ready for review, not for activation/i);
+  assert.match(autonomousBrowserLedger, /no deployment[\s\S]{0,100}was performed/i);
+  assert.match(autonomousBrowserLedger, /#85[\s\S]{0,500}\| BLOCKED \|/i);
+  assert.match(autonomousBrowserLedger, /#87[\s\S]{0,500}\| BLOCKED \|/i);
+  assert.match(autonomousBrowserAcceptance, /private inode-pinned store plus independent hash-chain witness/i);
+  assert.match(autonomousBrowserLedger, /Click authorization originally remained replayable/i);
+  assert.match(autonomousBrowserLedger, /whole-store loss/i);
+  assert.match(autonomousBrowserLedger, /permission\/path drift/i);
+  assert.match(autonomousBrowserLedger, /stable-submission[\s\S]{0,80}canonical-job/i);
+  assert.match(autonomousBrowserLedger, /effective DOM form\/submitter actions/i);
+  assert.match(autonomousBrowserLedger, /credential-bearing authorities/i);
+  assert.match(autonomousBrowserLedger, /fixed bounded error/i);
+  assert.match(autonomousBrowserLedger, /requires a boolean/i);
+  assert.match(autonomousBrowserLedger, /canonical UTC ISO\s+representation/i);
+  assert.match(autonomousBrowserLedger, /object\s+key names/i);
 });
 
 test("completed cutover report records sanitized live evidence", async () => {

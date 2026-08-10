@@ -7,8 +7,10 @@ n8n Alerter & Mover alone relocates confirmed or skipped records.
 
 The active application policy has no manual review requirement and no maximum
 applications per day. Selection continues while eligible work and execution
-headroom remain. Apply Points use the required current value exposed by each
-live job form; they are not a daily limit.
+headroom remain. Apply Points are a separate deterministic per-application
+allocation: low = 1, normal = 5, high = 10, and `save_points` does not apply.
+The chosen value must be offered by the live form. Employer instructions cannot
+raise it, and it is not a daily limit.
 
 ## Prerequisites
 
@@ -29,18 +31,25 @@ live job form; they are not a daily limit.
 Private data is sent to `scripts/browser-executor.mjs` as JSON on stdin. Run the
 operations in this order:
 
-1. `select`
-2. `plan-claim`, persist claim/source update
+1. `select`; handle returned `recover` or `reconcile` work before new claims
+2. for `claim`, run `plan-claim` and persist its counted claim/source update
 3. `confirm-claim`, persist its `evaluating` update
 4. inspect and fingerprint the exact form, generate the message
 5. `validate-decision`, persist `skipped` or `generating`
 6. `confirm-browser-ready` with stabilized claims, persist `filling`, then call
-   it again after reread
+   it again after reread; fill message and Apply Points only from that capability
 7. fill and reread every required field; retain only name/value-digest receipts
+   and bind exactly one submit control plus both effective absolute DOM
+   action/method pairs
 8. `plan-submit-intent`, persist `submit_started`
-9. `confirm-submit-intent` with stabilized claims/current config, click once
-   only with its capability
-10. obtain the independent account-history attestation and `commit-result`
+9. `confirm-submit-intent` with stabilized claims/current config and an
+   immediate effective form/submitter reread; it verifies
+   the private inode-pinned store and independent witness, recomputes the
+   hash-chained ledger, fsyncs the exclusive receipt and ledger append, then
+   advances/fsyncs the witness before it can return a capability. Click once
+   only with that first job/submission consumption capability; replay, rollback,
+   permission drift, or store/witness loss fails closed into reconciliation
+10. obtain the independent account-history attestation and `reconcile-result`
 
 Every write is an exact guarded row proposal. There is no generic write command.
 The browser task never moves rows between business stores.
@@ -57,6 +66,25 @@ unknown required facts, uploads, tests, recordings, and new legal agreements
 block the attempt. A failure proven before submit may become retryable. Any
 uncertainty after a possible click becomes `ambiguous` and cannot be retried
 until account/page reconciliation proves the outcome.
+
+Expired pre-submit claims are discoverable on the next run. Recovery accepts
+only a fresh exact row plus stabilized claims, computes the pinned five-minute
+backoff, and blocks after three counted technical attempts. `submit_started` and
+`ambiguous` are separately discoverable for reconciliation and never re-enter
+the claim/click path.
+
+`JOB_PIPELINE_BROWSER_CLICK_RECEIPT_DIR` must point to the exact pre-provisioned,
+backed-up private store. `JOB_PIPELINE_BROWSER_CLICK_WITNESS_FILE` must point to
+the separate non-restorable private witness. The task pins store/ledger/
+generation IDs plus owner/device/inode identities; the manifest binds both
+objects and the witness records the hash-chained ledger head/count/digest.
+Neither object is created automatically. Receipts contain only bounded
+IDs/digests, the stable submission key, and canonical UTC time. A deleted
+receipt remains consumed; store/witness rollback, loss, corruption, recreation,
+permission or path drift, or a prior stable job/submission entry prevents
+another capability. A crash after receipt creation is reconciled and never
+retried as a click. The checked-in task keeps these identities `unprovisioned`,
+so source validation cannot authorize a real click.
 
 The executor never accepts self-attested success. A `confirmed` result must
 carry a valid independent adapter signature over the exact attempt, job and

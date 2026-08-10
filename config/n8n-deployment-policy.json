@@ -127,7 +127,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:e265435bfeac29a49e420d6df8afe287268df3be7f84ade066092849d6eb0d4a",
+        "artifact_digest": "sha256:6d03162d58a071248ffb208f97da48a571923c75d76b3e6b61d7a450d2afaab9",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [
@@ -151,9 +151,9 @@
     "scheduled_task": {
       "role": "browser_executor",
       "contract_version": "2026-08-10/browser-task-v1",
-      "artifact_digest": "sha256:830cf0e44a4d853b5255ce68ae3b3469fb1bff0814a4093395ba924f9aa51a8c",
+      "artifact_digest": "sha256:12dc9783df7001619e6da0cd904416120af206ae90bdff28d657d9882daf6555",
       "prompt_version": "2026-08-10/browser-task-prompt-v1",
-      "prompt_digest": "sha256:585233950e9ff3e23b86815d672673249e7bd150ef2da57fe80bb063ee135d76",
+      "prompt_digest": "sha256:2af34d768e8410475bd07cef215ecdf47abfb3bd3b01f57fe328e2ecbbee51b8",
       "skill_name": "job-autopilot",
       "skill_version": "job-autopilot-v1",
       "skill_path": ".agents/skills/job-autopilot/SKILL.md",
@@ -169,15 +169,26 @@
       "continuation_mode": "technical_headroom_next_schedule",
       "retry_max_attempts": 3,
       "retry_backoff_ms": 300000,
-      "skill_bundle_digest": "sha256:5ba00a1da85bbd3569d5f4d2389420424455bd39f2d9d067baeedc653df6fe2b",
-      "protocol_bundle_digest": "sha256:a5103d461e4d3c1c46796347429bb3bf967eb0d4f7187a39095144c57c305f55",
+      "skill_bundle_digest": "sha256:567cf7961c0b32bab3233a6ff8d10bd6152ddacd4597e850206be331d91c7bbc",
+      "protocol_bundle_digest": "sha256:565858207190072ccf6dffd54875e1175886a12d042a5f5a587e50afd4b3919b",
       "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
       "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
-      "application_policy_digest": "sha256:d3f2b946e2ec85eff83ba94db1b71edc648e42d8256f3c48e74c9b99baee88d8",
+      "application_policy_digest": "sha256:4d295387f4620c3432dfde33c5d4e010872b2bad87b42546bea68183ab7165bb",
       "application_pack_policy_digest": "sha256:d787932b7cd40fb0a19b5a485a0f44b1734e2d07262f25abab0446c5bb9f33c2",
-      "configuration_bundle_digest": "sha256:9e8aa64c7a77d2fc67d9840ceeb68893d3dfdb054411f6b3a7e68777f9cebadf",
+      "configuration_bundle_digest": "sha256:9b25d9474ccca4e98c4c3c34196f4d48372c774c90296d13d50ebdcdc97577df",
       "attestation_key_id": "unprovisioned",
       "attestation_public_key_spki_sha256": "unprovisioned",
+      "click_receipt_store": "private_pinned_dual_anchor_hash_chain",
+      "click_receipt_directory_environment_variable": "JOB_PIPELINE_BROWSER_CLICK_RECEIPT_DIR",
+      "click_receipt_witness_environment_variable": "JOB_PIPELINE_BROWSER_CLICK_WITNESS_FILE",
+      "click_receipt_store_id": "unprovisioned",
+      "click_receipt_ledger_id": "unprovisioned",
+      "click_receipt_generation_id": "unprovisioned",
+      "click_receipt_manifest_sha256": "unprovisioned",
+      "click_receipt_directory_binding_digest": "unprovisioned",
+      "click_receipt_directory_identity": "unprovisioned",
+      "click_receipt_witness_identity": "unprovisioned",
+      "click_receipt_loss_or_restore_behavior": "disable_reconcile_rotate_never_restore_witness",
       "source_control_state": "inactive_unscheduled"
     },
     "retired_generator": {
@@ -201,6 +212,20 @@
       "alerter_mover",
       "scraper"
     ],
+    "rollback_restore_order": [
+      "n8n_database",
+      "main_workbook",
+      "configuration_workbook",
+      "old_workbook",
+      "alert_receipt_store",
+      "browser_click_receipt_store",
+      "runtime_configuration",
+      "browser_skill_configuration",
+      "workflow_scraper",
+      "workflow_evaluator_generator",
+      "workflow_alerter_mover",
+      "scheduled_browser_task"
+    ],
     "evidence_contract": {
       "required_backup_kinds": [
         "workflow_scraper",
@@ -212,6 +237,7 @@
         "old_workbook",
         "n8n_database",
         "alert_receipt_store",
+        "browser_click_receipt_store",
         "runtime_configuration",
         "browser_skill_configuration"
       ],

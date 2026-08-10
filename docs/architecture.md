@@ -92,6 +92,15 @@ only the protocol writes executor-owned fields; neither can relocate rows.
 The executor treats all job/page content as untrusted, generates messages only
 from current approved candidate evidence and trusted policy, and persists a
 stable submit identity and `submit_started` state before the final click. It
+verifies a private store and separate witness by task-pinned owner/device/inode
+identities, recomputes the hash-chained ledger, then fsyncs the exclusive
+receipt, ledger append, and advanced witness before exposing the click
+capability. The ledger suppresses repeat authorization, stable-submission, and
+canonical-job identities. Replay, rollback, individual receipt loss,
+store/witness/path/permission drift, or a crash after consumption enters
+reconciliation without another click. The witness is never restored or rebound;
+loss requires task disablement, independent history reconciliation, and a new
+generation with new task pins. It
 accepts only definitive independently attested confirmation. An ambiguous post-click result is
 reconciled before any retry, preventing duplicate applications. Technical
 headroom defers remaining due jobs to later runs without introducing a daily

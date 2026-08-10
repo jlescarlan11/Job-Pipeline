@@ -1107,7 +1107,7 @@ test("autonomous contract migration preflight is deterministic and never writes"
   assert.ok(rejected.counts.rejected > 0);
 });
 
-test("record header setup fails closed on mixed, partial, and extra-data layouts", () => {
+test("record header setup resumes exact mixed upgrades and rejects malformed layouts", () => {
   const legacyFields = review.record_header_upgrade.legacy_fields;
   const mixed = {
     sheets: schema.business_stores.map((name, index) => ({
@@ -1116,8 +1116,48 @@ test("record header setup fails closed on mixed, partial, and extra-data layouts
       rows: []
     }))
   };
+  const mixedPlan = planRecordHeaderUpgrade(mixed, review, schema);
+  assert.equal(mixedPlan.mode, "legacy_v4_to_v5");
+  assert.equal(mixedPlan.operations.length, 4);
+  assert.ok(mixedPlan.operations.every((operation) => operation.insert_columns));
+  const resumedMixed = planFreshWorkbookSetup(mixed, review, schema, "main");
+  assert.ok(
+    resumedMixed.sheets
+      .filter((sheet) => schema.business_stores.includes(sheet.name))
+      .every((sheet) => JSON.stringify(sheet.headers) === JSON.stringify(schema.fields))
+  );
+
+  const inserted = new Set(
+    review.record_header_upgrade.insertions.flatMap(
+      (insertion) => insertion.fields
+    )
+  );
+  const pendingHeaders = schema.fields.map((field) =>
+    inserted.has(field) ? "" : field
+  );
+  const interrupted = structuredClone(mixed);
+  interrupted.sheets[1].headers = pendingHeaders;
+  const interruptedPlan = planRecordHeaderUpgrade(interrupted, review, schema);
+  const pendingOperation = interruptedPlan.operations.find(
+    (operation) => operation.sheet === interrupted.sheets[1].name
+  );
+  assert.equal(pendingOperation.insert_columns, false);
+  const resumedInterrupted = planFreshWorkbookSetup(
+    interrupted,
+    review,
+    schema,
+    "main"
+  );
+  assert.ok(
+    resumedInterrupted.sheets
+      .filter((sheet) => schema.business_stores.includes(sheet.name))
+      .every((sheet) => JSON.stringify(sheet.headers) === JSON.stringify(schema.fields))
+  );
+
+  const missingDuringUpgrade = structuredClone(mixed);
+  missingDuringUpgrade.sheets.pop();
   assert.throws(
-    () => planRecordHeaderUpgrade(mixed, review, schema),
+    () => planRecordHeaderUpgrade(missingDuringUpgrade, review, schema),
     /mixed, missing, or partial/
   );
 
@@ -1230,6 +1270,7 @@ test("generated setup has no legacy import surface or placeholder writes", async
   assert.match(artifact, /assertReconciliableHeaders_/);
   assert.match(artifact, /assertConsistentRecordHeaderVersions_/);
   assert.match(artifact, /upgradeLegacyRecordHeaders_/);
+  assert.match(artifact, /upgrade_pending_headers/);
   assert.match(artifact, /requireValueInList\(rule\.values, true\)/);
   assert.match(artifact, /clearDataValidations/);
   assert.doesNotMatch(artifact, /Review Queue/);

@@ -80,7 +80,9 @@ fields and path- or URL-shaped backup references are rejected.
 
 `pre_activation` is the release gate. It requires:
 
-- readable, restore-identified backups for every policy-listed asset;
+- readable, restore-identified backups for every policy-listed asset, plus the
+  exact policy-ordered restore plan whose IDs and SHA-256 digests match those
+  backups one-for-one;
 - a fresh frozen preflight with zero duplicate owners, active claims, unknown
   partial moves, malformed receipts, unsupported actions, contract drift, or
   wrong bindings;
@@ -89,6 +91,17 @@ fields and path- or URL-shaped backup references are rejected.
 - the installed Chrome plugin, correct signed-in profile, OnlineJobs.ph
   allowlist, selected local project, explicit `$job-autopilot` invocation, and
   sanitized mock sequence all verified;
+- private durable click-receipt storage provisioned for the single task host,
+  with exact generation plus owner/device/inode pins for the store and separate
+  witness, a manifest binding both objects, recomputed hash-chain/count/head,
+  exclusive create, exact writes, fsync, restart persistence, and replay,
+  rollback, permission-drift, same-path-recreation, stable-submission, and
+  canonical-job duplicate rejection verified before any real submit. The
+  witness is never a rollback restore target: loss keeps the browser disabled
+  until independent history reconciliation and generation/task-pin rotation;
+- effective absolute owner-form and chosen-submitter DOM actions/methods,
+  exactly-one-submitter behavior, immediate pre-click reread, and deterministic
+  1/5/10 per-application Apply Points capability output verified independently;
 - the normal final submission path and independent account-history attestation
   adapter proven unattended, with the adapter private key unavailable to the
   browser task. Missing attestation or a required human confirmation is a
@@ -151,7 +164,10 @@ Source implementation and validation can be completed without external
 mutation. Production acceptance remains blocked until an authorized maintenance
 window supplies exact clean-main provenance, private fresh rereads, backups,
 Chrome/profile/session/allowlist checks, a provisioned independent attestation
-adapter/public key, a real unattended-submit capability proof, registration of
-one paused task, guarded legacy draining, ordered
+adapter/public key, private inode-pinned click storage and separate witness with
+hash-chain, non-restoration, rollback/recreation/permission-drift proof, a real
+unattended-submit capability proof,
+registration of one paused task,
+guarded legacy draining, ordered
 activation, and the full scheduled observation. If final submission requires a
 human confirmation, zero-touch production activation remains blocked.

@@ -138,6 +138,21 @@ test("active deployment declares two n8n roles and one external browser task", (
   assert.equal(policy.workbook_binding.all_workbook_ids_must_differ, true);
 });
 
+test("rollback restore order covers every required backup kind exactly once", () => {
+  const required = policy.mixed_cutover.evidence_contract.required_backup_kinds;
+  const restoreOrder = policy.mixed_cutover.rollback_restore_order;
+  assert.equal(new Set(restoreOrder).size, required.length);
+  assert.deepEqual([...restoreOrder].sort(), [...required].sort());
+  assert.ok(required.includes("browser_click_receipt_store"));
+
+  const stale = structuredClone(policy);
+  stale.mixed_cutover.rollback_restore_order.pop();
+  assert.match(
+    validateN8nDeploymentPolicy(stale, compatibilityContext).join(";"),
+    /restore order must cover every required backup kind/
+  );
+});
+
 test("application compatibility pins the autonomous policy and browser protocol", () => {
   assert.deepEqual(policy.application_compatibility, {
     legacy_state_guard_compatibility: "guarded_v3_claim_once",
@@ -171,6 +186,32 @@ test("scheduled task policy pins its source contract, prompt, and runtime", () =
   assert.equal(scheduled.source_control_state, "inactive_unscheduled");
   assert.equal(scheduled.skill_path, ".agents/skills/job-autopilot/SKILL.md");
   assert.equal(scheduled.plugin_uri, "plugin://chrome@openai-bundled");
+  assert.equal(
+    scheduled.click_receipt_store,
+    "private_pinned_dual_anchor_hash_chain"
+  );
+  assert.equal(
+    scheduled.click_receipt_directory_environment_variable,
+    "JOB_PIPELINE_BROWSER_CLICK_RECEIPT_DIR"
+  );
+  assert.equal(
+    scheduled.click_receipt_witness_environment_variable,
+    "JOB_PIPELINE_BROWSER_CLICK_WITNESS_FILE"
+  );
+  assert.equal(scheduled.click_receipt_store_id, "unprovisioned");
+  assert.equal(scheduled.click_receipt_ledger_id, "unprovisioned");
+  assert.equal(scheduled.click_receipt_generation_id, "unprovisioned");
+  assert.equal(scheduled.click_receipt_manifest_sha256, "unprovisioned");
+  assert.equal(
+    scheduled.click_receipt_directory_binding_digest,
+    "unprovisioned"
+  );
+  assert.equal(scheduled.click_receipt_directory_identity, "unprovisioned");
+  assert.equal(scheduled.click_receipt_witness_identity, "unprovisioned");
+  assert.equal(
+    scheduled.click_receipt_loss_or_restore_behavior,
+    "disable_reconcile_rotate_never_restore_witness"
+  );
   assert.equal(scheduled.schedule_minutes, runtime.browser_executor.schedule_minutes);
   assert.equal(
     scheduled.minimum_attempt_headroom_ms,

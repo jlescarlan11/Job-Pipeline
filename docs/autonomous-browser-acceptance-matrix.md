@@ -2,11 +2,16 @@
 
 Status labels:
 
-- **SATISFIED** — implemented and covered by repository validation.
-- **SOURCE READY** — the guarded source/tooling exists; external execution evidence is still required.
-- **BLOCKED (live)** — requires an authorized maintenance window, real account/browser/task checks, or production observation. This change deliberately does not deploy, schedule, or merge anything.
+- **SATISFIED** — the complete criterion is directly proven.
+- **PARTIAL** — source behavior is proven, but required external behavior is not.
+- **BLOCKED** — completion requires a prohibited deployment action or unavailable authorized live evidence.
+- **UNVERIFIED** — required evidence has not yet been gathered.
+- **NOT_APPLICABLE_WITH_EVIDENCE** — authoritative scope or deterministic repository evidence proves that the criterion does not apply.
 
-The release command for source evidence is `npm run build && npm run check:artifacts && npm run validate:policy && npm run validate`. It currently passes with 377 tests: 365 passed, 12 intentional skips, and zero failures.
+Only these issue-loop statuses are used. This change deliberately does not
+deploy, schedule, mutate production data, or merge anything.
+
+The release command for source evidence is `npm run build && npm run check:artifacts && npm run validate:policy && npm run validate`. It currently passes with 382 tests: 370 passed, 12 intentional skips, and zero failures.
 
 ## Issue #82 — autonomous application and submission contract
 
@@ -37,13 +42,13 @@ The release command for source evidence is `npm run build && npm run check:artif
 6. **83-AC-06 — SATISFIED:** evaluation/message/pack tests reject unsupported facts, numbers, URLs, commitments, missing answers, injection, stale policy, and invalid state before fill/click capabilities.
 7. **83-AC-07 — SATISFIED:** deterministic non-recommendation can skip with a trusted bounded reason and no review.
 8. **83-AC-08 — SATISFIED:** ambiguous/noisy evaluation cannot be model-skipped or applied.
-9. **83-AC-09 — SATISFIED:** submit planning returns only an exact `submit_started` proposal; the one-click capability is returned only after persistence and reread.
-10. **83-AC-10 — SATISFIED:** a crash in `submit_started` cannot re-enter selection, fill, ordinary recovery, or a second submit.
-11. **83-AC-11 — SATISFIED:** result commit binds attempt, job/context/form digests, idempotency key, authorization digest, exact profile/ranking/application/pack provenance, processing ownership, and state guard.
-12. **83-AC-12 — SATISFIED:** exact-reread tests reject stale rows, edits, lost claims, and mismatched job/form/submission digests.
+9. **83-AC-09 — SATISFIED:** submit planning returns only an exact `submit_started` proposal; after persistence/reread and immediate authorized-field/effective-form/submitter reread, a provisioned executor verifies private pinned store/witness identities, the manifest and hash chain, then exclusively creates/verifies/fsyncs the canonical-job receipt and directory, ledger append, witness advance, and final directory state before returning click capability.
+10. **83-AC-10 — SATISFIED:** selection separately discovers `submit_started`/`ambiguous` for reconciliation; neither can re-enter claim, fill, ordinary recovery, or a second submit, while receipt replay/deletion, an orphan job-keyed crash receipt, store loss/path drift, or an interrupted consumption fails closed.
+11. **83-AC-11 — SATISFIED:** pre-submit result commit requires an exact fresh source reread, current winning claim with the exact key/scope/token/creation/lease expiry, current configuration, and bound attempt/job/context/form identity; post-submit reconciliation is a separate no-click operation.
+12. **83-AC-12 — SATISFIED:** exact-reread tests reject stale rows, concurrent edits, missing/duplicate/altered/expired/lost claims, wrong claim scope, stale configuration, replayed/deleted/drifted click consumption, non-canonical timestamps, and mismatched job/form/submission digests.
 13. **83-AC-13 — SATISFIED:** empty selection succeeds with `candidate=null`, `due_count=0`, and no write/browser capability.
 14. **83-AC-14 — SATISFIED:** selector returns all due work; CLI takes one at a time and technical headroom leaves the remainder due without a quota/date counter.
-15. **83-AC-15 — SATISFIED:** retryable pre-submit failures require future backoff and fixed-category evidence; unavailable, blocked, and ambiguous remain distinct.
+15. **83-AC-15 — SATISFIED:** each persisted claim increments the attempt count; executor-owned five-minute backoff and the three-attempt technical maximum are enforced by both selection and direct claim planning, while the unsupported retry alias is rejected and unavailable, blocked, and ambiguous remain distinct.
 16. **83-AC-16 — SATISFIED:** `browser-executor.test.mjs` covers the strict command schemas and lifecycle boundaries.
 17. **83-AC-17 — SATISFIED:** all legacy evaluation, generation, safety, discovery, contract, and movement regressions pass.
 18. **83-AC-18 — SATISFIED:** build and validation pass with no artifact drift.
@@ -69,23 +74,23 @@ The release command for source evidence is `npm run build && npm run check:artif
 
 ## Issue #85 — Chrome job-autopilot skill
 
-1. **85-AC-01 — SATISFIED (fixtures):** the skill requires the exact canonical OnlineJobs page/source identity before form work.
-2. **85-AC-02 — SATISFIED (fixtures):** changed, deleted, redirected, login, challenge, and unknown pages produce bounded no-fill results.
+1. **85-AC-01 — PARTIAL:** source tests require credential-free URLs, the exact canonical page/source ID, and literal query-free `/jobseekers/job/<id>/apply` path before form work; execution in the installed signed-in Chrome profile is not authorized or proven.
+2. **85-AC-02 — PARTIAL:** changed, deleted, redirected, login, challenge, and unknown fixtures produce bounded no-fill results; structural form input is capped at 64 fields/32 KiB, every `required` flag must be boolean, and any additional interactive control (including optional checkbox/text controls) is rejected; live plugin behavior is not proven.
 3. **85-AC-03 — SATISFIED:** the skill obtains ChatGPT context/draft authorization through #83 and never requires an n8n/Groq draft.
 4. **85-AC-04 — SATISFIED:** rejection by #83 produces no fill or submit capability.
-5. **85-AC-05 — SATISFIED (fixtures):** required authorized fields must be reread before submit intent.
-6. **85-AC-06 — SATISFIED (fixtures):** Apply Points follow the current deterministic recommendation/resource field, never a daily budget.
-7. **85-AC-07 — SATISFIED (fixtures):** missing facts, attachments, external work, CAPTCHA, agreements, credentials, and permission expansion stop with exact bounded categories.
-8. **85-AC-08 — SATISFIED:** executor ordering makes persisted `submit_started` a prerequisite for the one-click capability.
-9. **85-AC-09 — SATISFIED (fixtures):** definitive confirmation binds exact attempt/submission/configuration identity, time, reference hash, and an independently verified Ed25519 adapter attestation; unsigned or wrong-key results fail closed.
-10. **85-AC-10 — SATISFIED (fixtures):** post-click uncertainty becomes `ambiguous` and cannot click again after restart.
-11. **85-AC-11 — SATISFIED (fixtures):** prior ambiguity requires account/page reconciliation before any proven result.
-12. **85-AC-12 — SATISFIED (contract):** the normal sequence contains no review, copy/edit, user click, or `I Applied` step.
-13. **85-AC-13 — BLOCKED (live):** no real final-submit capability test or independent attestation adapter/key provisioning was authorized. The task contract and cutover validator forbid self-attested success, bypass, or zero-touch claims.
+5. **85-AC-05 — PARTIAL:** authorized fixture fields must be reread both before submit intent and again immediately before click consumption; a live Chrome form-fill/reread has not been authorized.
+6. **85-AC-06 — SATISFIED:** Apply Points follow the repository-owned per-application mapping (low 1, normal 5, high 10; `save_points` blocks), must be offered by the live form, and never act as a daily budget or model/employer-selected spend.
+7. **85-AC-07 — PARTIAL:** missing facts, required or optional unknown controls, attachments, external work, CAPTCHA, agreements, credentials, and permission expansion stop with exact bounded fixture categories; the live browser controls remain unproven.
+8. **85-AC-08 — SATISFIED:** executor ordering makes persisted `submit_started`, fresh authorized-field/form/submitter receipts, a still-winning claim/current configuration, and the first canonical-job-keyed receipt plus authorization/stable-submission/canonical-job ledger consumption in the exact private inode-pinned store plus independent hash-chain witness prerequisites for the one-click capability; the checked-in unprovisioned CLI fails closed.
+9. **85-AC-09 — PARTIAL:** fixture confirmation binds exact attempt/submission/configuration identity, time, reference hash, and an independently verified Ed25519 adapter attestation; the real account-history adapter/key is unprovisioned.
+10. **85-AC-10 — SATISFIED:** post-click uncertainty becomes `ambiguous`, is rediscovered as reconciliation-only work after restart, and cannot claim or click again; source tests reject authorization, stable-submission, and canonical-job replay plus orphan job receipts after a pre-ledger crash, deleted receipts, ledger/witness rollback, whole-store loss, same-path recreation, permission drift, and path drift.
+11. **85-AC-11 — PARTIAL:** the separate reconciliation operation requires an exact fresh row/current configuration and can confirm only through trusted account history; the real adapter is not available.
+12. **85-AC-12 — PARTIAL:** the designed normal sequence contains no review, copy/edit, user click, or `I Applied` step, but a normal successful live application has not been proven.
+13. **85-AC-13 — BLOCKED:** no real final-submit capability test, pinned private click-store/witness generation, or independent attestation adapter/key provisioning was authorized. The checked-in task remains unprovisioned and the cutover validator forbids self-attested success, bypass, or zero-touch claims.
 14. **85-AC-14 — SATISFIED:** fixtures cover standard/changed forms, required question, Apply Points, unavailable, login, challenge, CAPTCHA, upload/test/agreement, success, already applied, and ambiguous navigation.
-15. **85-AC-15 — SATISFIED:** skill/protocol tests enforce verify → validate → fill/reread → persist intent → click → reconcile.
-16. **85-AC-16 — SATISFIED:** skill, executor, fixture, and cutover privacy contracts exclude raw private browser/job/application content.
-17. **85-AC-17 — SOURCE READY:** the explicit `job-autopilot-v1` skill and local fixture server are manually testable; normal-profile execution remains part of the live gate.
+15. **85-AC-15 — SATISFIED:** skill/protocol tests enforce verify → validate → fill/reread → persist intent → durably consume once → click → reconcile.
+16. **85-AC-16 — SATISFIED:** skill, executor, fixture, and cutover privacy contracts exclude raw private browser/job/application content; invalid URLs, hostile keys, and non-canonical timestamps produce bounded secret-free errors, while manifest/receipt/ledger content is bounded metadata only.
+17. **85-AC-17 — PARTIAL:** the explicit `job-autopilot-v1` skill and local fixture server are manually testable; normal-profile execution remains part of the live gate.
 18. **85-AC-18 — SATISFIED:** skill validation and fixture tests are included in `npm run validate`; all regressions pass.
 
 ## Issue #86 — mixed runtime and Generator retirement
@@ -93,44 +98,48 @@ The release command for source evidence is `npm run build && npm run check:artif
 1. **86-AC-01 — SATISFIED:** artifact manifest requires exactly inactive `scraper.json` and `alerter-mover.json`; `generator.json` is deleted and unexpected exports fail.
 2. **86-AC-02 — SATISFIED:** generated-Code scans reject Generator evaluation, Groq requests, application prompt/message generation, Chrome control, and submit paths.
 3. **86-AC-03 — SATISFIED:** runtime validation requires one Scraper, one external browser executor, and one Alerter & Mover with exact ownership.
-4. **86-AC-04 — SATISFIED:** browser-task configuration pins protocol, skill, full profile/ranking/application/pack configuration, policy/schema, Chrome URI/hosts, independent-attestation boundary, project mode, Manila schedule, timeout, claim, retry/headroom, and provenance digests.
+4. **86-AC-04 — SATISFIED:** browser-task configuration pins protocol/operations, skill, full profile/ranking/application/pack configuration, policy/schema, Chrome URI/hosts, independent-attestation boundary, click-store/ledger/manifest boundary (currently unprovisioned), project mode, Manila schedule, timeout, claim, retry/headroom, and provenance digests.
 5. **86-AC-05 — SATISFIED:** deployment compatibility hashes reject schema/profile/ranking/application/pack/executor/skill/mover/runtime drift; the executor bundle includes all transitive local code plus `AGENTS.md`.
 6. **86-AC-06 — SATISFIED:** recursive runtime/policy tests reject application daily limits, counters, budgets, and date buckets.
-7. **86-AC-07 — SATISFIED:** continuation is defined only by technical headroom, claims, recovery, and the next scheduled run.
+7. **86-AC-07 — SATISFIED:** continuation is defined only by technical headroom, counted claims, discoverable recovery/reconciliation, pinned retry policy, and the next scheduled run.
 8. **86-AC-08 — SATISFIED:** relocation-marker scans permit copy-confirm-delete only in Alerter & Mover.
 9. **86-AC-09 — SATISFIED:** both n8n artifacts have `active=false`; task source has `inactive_unscheduled`; build performs no registration/activation.
-10. **86-AC-10 — SATISFIED (validator):** production-evidence validation requires exactly one mixed-role set and rejects an active Generator or duplicate task.
-11. **86-AC-11 — SATISFIED (validator):** rollback evidence pins prior workflows/Generator/task/compatibility assets and exact disable/restore order.
+10. **86-AC-10 — SATISFIED:** production-evidence validation requires exactly one mixed-role set and rejects an active Generator or duplicate task.
+11. **86-AC-11 — SATISFIED:** rollback evidence pins all 12 required backup kinds, including the browser click-receipt store, exact disable/restore order, and one-for-one restore-ID/SHA-256 linkage between prior assets and backups.
 12. **86-AC-12 — SATISFIED:** deployment/runtime tests cover missing/extra roles, stale hashes, active residue, duplicates, bindings/timezone, headroom, forbidden code, and movement ownership.
 13. **86-AC-13 — SATISFIED:** historical evidence remains unchanged and sanitized; legacy runtime fixtures are isolated.
 14. **86-AC-14 — SATISFIED:** build, artifact check, policy validation, and full validation pass.
 
 ## Issue #87 — production migration and activation
 
-1. **87-AC-01 — SOURCE READY:** #82-#86 source gates pass, but the reviewed commit is not merged to clean remote `main` and therefore is not a deployment commit.
-2. **87-AC-02 — BLOCKED (live):** no authorized pre-cutover workflow/task/workbook inventory was captured.
-3. **87-AC-03 — BLOCKED (live):** no authorized production backups or restore identifiers were created.
-4. **87-AC-04 — SOURCE READY:** the fail-closed global preflight validator exists and is tested; no fresh private production reread was authorized.
-5. **87-AC-05 — SOURCE READY:** the structural v4→v5 upgrade is idempotent and row-preserving in tests; it was not run on production.
-6. **87-AC-06 — SOURCE READY:** the pure no-write migration planner classifies every supported row; no private production snapshot was supplied.
-7. **87-AC-07 — BLOCKED (live):** no business transition was executed. The runbook preserves the mandatory #84 copy-confirm-delete-only rule.
-8. **87-AC-08 — BLOCKED (live):** installed-profile, extension, OnlineJobs allowlist, session, and scheduled local-project invocation require direct external verification.
-9. **87-AC-09 — BLOCKED (live):** unattended final submission and independently attested account-history confirmation have not been proven or provisioned; activation must not proceed without them.
-10. **87-AC-10 — BLOCKED (live):** no Generator/task activation change was authorized.
-11. **87-AC-11 — BLOCKED (live):** the one-active-instance mixed role set is enforced by the validator but has not been activated.
-12. **87-AC-12 — BLOCKED (live):** no real eligible control application was submitted or moved.
-13. **87-AC-13 — BLOCKED (live):** fixture behavior passes; no production skip/noisy controls were executed.
-14. **87-AC-14 — BLOCKED (live):** fixture behavior passes; no production blocker/network control matrix was executed.
-15. **87-AC-15 — BLOCKED (live):** ambiguous reconciliation is covered by fixtures/executor tests, not a controlled production click.
-16. **87-AC-16 — BLOCKED (live):** mover delete-failure recovery passes tests but was not induced in production.
-17. **87-AC-17 — BLOCKED (live):** migration classification is implemented; no legacy production row was drained or retained.
-18. **87-AC-18 — SOURCE READY:** checked-in configuration/prompt/policy/telemetry have no daily maximum/counter/date bucket; production state still requires evidence.
-19. **87-AC-19 — SOURCE READY:** technical headroom leaves due jobs eligible in tests and runtime validation; live task evidence is pending.
-20. **87-AC-20 — BLOCKED (live):** no post-cutover evidence exists because no cutover ran.
-21. **87-AC-21 — BLOCKED (live):** no active-role scheduled observation was authorized.
-22. **87-AC-22 — SOURCE READY:** rollback order and compatibility validation are implemented and tested; no live rollback evidence was captured or executed.
-23. **87-AC-23 — SATISFIED (repository):** discovery, deduplication, rediscovery, legacy automatic skip, outcomes, archive history, receipts, and guarded manual mover parity pass the full regression suite.
+1. **87-AC-01 — PARTIAL:** #82-#86 source gates pass, but the reviewed commit is not merged to clean remote `main` and therefore is not a deployment commit.
+2. **87-AC-02 — BLOCKED:** no authorized pre-cutover workflow/task/workbook inventory was captured.
+3. **87-AC-03 — BLOCKED:** no authorized production backups or restore identifiers were created.
+4. **87-AC-04 — PARTIAL:** the fail-closed global preflight validator exists and is tested; no fresh private production reread was authorized.
+5. **87-AC-05 — PARTIAL:** the structural v4→v5 upgrade is row-preserving and resumes exact v4/current/blank-header interruption states without duplicate insertion in tests; it was not run on production.
+6. **87-AC-06 — PARTIAL:** the pure no-write migration planner classifies every supported row; no private production snapshot was supplied.
+7. **87-AC-07 — BLOCKED:** no business transition was executed. The runbook preserves the mandatory #84 copy-confirm-delete-only rule.
+8. **87-AC-08 — BLOCKED:** installed-profile, extension, OnlineJobs allowlist, session, and scheduled local-project invocation require direct external verification.
+9. **87-AC-09 — BLOCKED:** unattended final submission, the exact pinned click store/ledger/manifest, and independently attested account-history confirmation have not been proven or provisioned; activation must not proceed without them.
+10. **87-AC-10 — BLOCKED:** no Generator/task activation change was authorized.
+11. **87-AC-11 — BLOCKED:** the one-active-instance mixed role set is enforced by the validator but has not been activated.
+12. **87-AC-12 — BLOCKED:** no real eligible control application was submitted or moved.
+13. **87-AC-13 — BLOCKED:** fixture behavior passes; no production skip/noisy controls were executed.
+14. **87-AC-14 — BLOCKED:** fixture behavior passes; no production blocker/network control matrix was executed.
+15. **87-AC-15 — BLOCKED:** restart discovery, durable same-authorization replay/deletion/store-loss/path-drift rejection, and no-click ambiguous reconciliation are covered by executor tests; the cutover gate requires live pinned-store proof, but no controlled production click/account-history run occurred.
+16. **87-AC-16 — BLOCKED:** mover delete-failure recovery passes tests but was not induced in production.
+17. **87-AC-17 — BLOCKED:** migration classification is implemented; no legacy production row was drained or retained.
+18. **87-AC-18 — PARTIAL:** checked-in configuration/prompt/policy/telemetry have no daily maximum/counter/date bucket; production state still requires evidence.
+19. **87-AC-19 — PARTIAL:** technical headroom leaves work eligible, while expired claims and post-submit states remain discoverable and technical retries are bounded in tests; live task evidence is pending.
+20. **87-AC-20 — BLOCKED:** no post-cutover evidence exists because no cutover ran.
+21. **87-AC-21 — BLOCKED:** no active-role scheduled observation was authorized.
+22. **87-AC-22 — PARTIAL:** exact 12-kind rollback order plus restore-ID/digest linkage now includes the browser click-receipt store and is tested; no live backup or rollback evidence was captured or executed.
+23. **87-AC-23 — SATISFIED:** discovery, deduplication, rediscovery, legacy automatic skip, outcomes, archive history, receipts, and guarded manual mover parity pass the full regression suite.
 
 ## Release conclusion
 
-Issues #82-#84 and #86 are source-complete. Issue #85 is source-complete except for the real unattended final-submit capability proof. Issue #87 remains a deliberately blocked production rollout. The repository is ready for independent review and a PR, not for activation.
+Issues #82-#84 and #86 are complete. Issue #85 remains partial and blocked on
+the real installed-profile/unattended-submit/independent-attestation proof.
+Issue #87 remains blocked on the prohibited live production rollout. The
+repository is ready for review, not for activation. No required criterion is
+silently represented as satisfied by fixture-only or source-only evidence.

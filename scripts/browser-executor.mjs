@@ -8,8 +8,9 @@ import {
   confirmSubmitIntent,
   planAutonomousClaim,
   planSubmitIntent,
+  reconcileBrowserResult,
   recoverBrowserRecord,
-  selectAutonomousCandidates,
+  selectAutonomousWork,
   validateAutonomousDecision
 } from "../src/browser-executor.mjs";
 import {
@@ -25,6 +26,7 @@ const COMMANDS = new Set([
   "plan-submit-intent",
   "confirm-submit-intent",
   "commit-result",
+  "reconcile-result",
   "recover"
 ]);
 
@@ -58,9 +60,8 @@ function exactInput(input, required, optional = []) {
   const extra = Object.keys(input).filter((key) => !allowed.has(key));
   if (missing.length || extra.length) {
     throw new Error(
-      `Browser executor input keys are invalid` +
-        `${missing.length ? `; missing: ${missing.join(", ")}` : ""}` +
-        `${extra.length ? `; unsupported: ${extra.join(", ")}` : ""}`
+      `Browser executor input keys are invalid; missing count: ${missing.length}; ` +
+        `unsupported count: ${extra.length}`
     );
   }
 }
@@ -91,30 +92,39 @@ let output;
 
 switch (command) {
   case "select":
-    exactInput(input, ["stores"], ["now", "deadline_ms", "minimum_headroom_ms"]);
+    exactInput(
+      input,
+      ["stores", "persisted_claims"],
+      ["now", "deadline_ms", "minimum_headroom_ms"]
+    );
     {
-      const candidates = selectAutonomousCandidates(input.stores, schema, {
+      const work = selectAutonomousWork(input.stores, schema, {
         now: input.now,
         deadline_ms: input.deadline_ms,
-        minimum_headroom_ms: input.minimum_headroom_ms
+        minimum_headroom_ms: input.minimum_headroom_ms,
+        persisted_claims: input.persisted_claims,
+        runtime: browserTask.runtime
       });
       output = {
-        candidate: candidates[0] ?? null,
-        due_count: candidates.length
+        candidate: work[0]?.record ?? null,
+        operation: work[0]?.operation ?? null,
+        due_count: work.length,
+        recovery_count: work.filter((entry) => entry.operation === "recover").length,
+        reconciliation_count: work.filter((entry) => entry.operation === "reconcile").length
       };
     }
     break;
   case "plan-claim":
     exactInput(
       input,
-      ["record", "execution_id", "now", "lease_ms"],
+      ["record", "execution_id", "now"],
       ["attempt_id"]
     );
     output = planAutonomousClaim(input.record, {
       execution_id: input.execution_id,
       now: input.now,
-      lease_ms: input.lease_ms,
-      attempt_id: input.attempt_id
+      attempt_id: input.attempt_id,
+      runtime: browserTask.runtime
     });
     break;
   case "confirm-claim":
@@ -148,12 +158,18 @@ switch (command) {
       "planned_record",
       "fresh_source_rows",
       "persisted_claims",
+      "form",
       "now"
     ]);
     output = confirmBrowserReady(
       input.planned_record,
       input.fresh_source_rows,
-      { ...configuration, persistedClaims: input.persisted_claims },
+      {
+        ...configuration,
+        persistedClaims: input.persisted_claims,
+        runtime: browserTask.runtime,
+        form: input.form
+      },
       input.now
     );
     break;
@@ -162,19 +178,57 @@ switch (command) {
     output = planSubmitIntent(input.fresh_record, {
       form: input.form,
       field_receipts: input.field_receipts,
+      profile,
+      rankingPolicy,
       now: input.now
     });
     break;
   case "confirm-submit-intent":
-    exactInput(input, ["plan", "fresh_source_rows", "persisted_claims", "now"]);
+    exactInput(input, [
+      "plan",
+      "fresh_source_rows",
+      "persisted_claims",
+      "form",
+      "field_receipts",
+      "now"
+    ]);
     output = confirmSubmitIntent(input.plan, input.fresh_source_rows, {
       ...configuration,
       persistedClaims: input.persisted_claims,
+      runtime: browserTask.runtime,
+      receiptStore: {
+        directory:
+          process.env[
+            browserTask.click_consumption.directory_environment_variable
+          ] || "",
+        witness_path:
+          process.env[
+            browserTask.click_consumption.witness_file_environment_variable
+          ] || "",
+        store_id: browserTask.click_consumption.store_id,
+        ledger_id: browserTask.click_consumption.ledger_id,
+        generation_id: browserTask.click_consumption.generation_id,
+        manifest_sha256: browserTask.click_consumption.manifest_sha256,
+        directory_binding_digest:
+          browserTask.click_consumption.directory_binding_digest,
+        directory_identity:
+          browserTask.click_consumption.directory_identity,
+        witness_identity:
+          browserTask.click_consumption.witness_identity
+      },
+      form: input.form,
+      fieldReceipts: input.field_receipts,
       now: input.now
     });
     break;
   case "commit-result":
-    exactInput(input, ["fresh_record", "result", "now"]);
+    exactInput(input, [
+      "fresh_record",
+      "fresh_source_rows",
+      "persisted_claims",
+      "result",
+      "now"
+    ]);
     {
       const publicKey =
         process.env.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY || "";
@@ -194,18 +248,62 @@ switch (command) {
           publicKey: publicKeyIsPinned ? publicKey : "",
           keyId: browserTask.confirmation_attestation.key_id,
           publicKeySpkiSha256: expectedPublicKeyDigest
+        },
+        {
+          freshSourceRows: input.fresh_source_rows,
+          persistedClaims: input.persisted_claims,
+          configuration,
+          runtime: browserTask.runtime
         }
       )
     };
     }
     break;
+  case "reconcile-result":
+    exactInput(input, ["fresh_record", "fresh_source_rows", "result", "now"]);
+    {
+      const publicKey =
+        process.env.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY || "";
+      const expectedPublicKeyDigest =
+        browserTask.confirmation_attestation.public_key_spki_sha256;
+      const publicKeyIsPinned =
+        /^sha256:[a-f0-9]{64}$/.test(expectedPublicKeyDigest) &&
+        browserConfirmationPublicKeyDigest(publicKey) === expectedPublicKeyDigest;
+      output = {
+        proposed_record: reconcileBrowserResult(
+          input.fresh_record,
+          input.result,
+          input.now,
+          schema,
+          {
+            publicKey: publicKeyIsPinned ? publicKey : "",
+            keyId: browserTask.confirmation_attestation.key_id,
+            publicKeySpkiSha256: expectedPublicKeyDigest
+          },
+          {
+            freshSourceRows: input.fresh_source_rows,
+            configuration
+          }
+        )
+      };
+    }
+    break;
   case "recover":
-    exactInput(input, ["fresh_record", "now", "retry_at", "evidence"]);
+    exactInput(input, [
+      "fresh_record",
+      "fresh_source_rows",
+      "persisted_claims",
+      "now",
+      "evidence"
+    ]);
     output = {
       proposed_record: recoverBrowserRecord(input.fresh_record, {
         now: input.now,
-        retry_at: input.retry_at,
-        evidence: input.evidence
+        evidence: input.evidence,
+        freshSourceRows: input.fresh_source_rows,
+        persistedClaims: input.persisted_claims,
+        configuration,
+        runtime: browserTask.runtime
       }, schema)
     };
     break;

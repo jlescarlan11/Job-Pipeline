@@ -128,6 +128,15 @@ function recordHeaderVersion(headers, legacyFields, currentFields) {
   if (!Array.isArray(headers) || headers.length === 0) return "empty";
   if (JSON.stringify(headers) === JSON.stringify(currentFields)) return "current";
   if (JSON.stringify(headers) === JSON.stringify(legacyFields)) return "legacy";
+  const insertedFields = new Set(
+    RECORD_HEADER_INSERTIONS.flatMap((insertion) => insertion.fields)
+  );
+  const pendingHeaders = currentFields.map((field) =>
+    insertedFields.has(field) ? "" : field
+  );
+  if (JSON.stringify(headers) === JSON.stringify(pendingHeaders)) {
+    return "upgrade_pending_headers";
+  }
   return "conflicting";
 }
 
@@ -207,11 +216,16 @@ export function planRecordHeaderUpgrade(snapshot, review, schema) {
   const legacySheets = [...versions]
     .filter(([, version]) => version === "legacy")
     .map(([name]) => name);
-  if (legacySheets.length > 0) {
-    const everyLegacySheetPresent = schema.business_stores.every(
-      (name) => versions.get(name) === "legacy"
+  const pendingSheets = [...versions]
+    .filter(([, version]) => version === "upgrade_pending_headers")
+    .map(([name]) => name);
+  if (legacySheets.length > 0 || pendingSheets.length > 0) {
+    const everyRecordSheetPresentAndRecognized = schema.business_stores.every(
+      (name) => ["legacy", "upgrade_pending_headers", "current"].includes(
+        versions.get(name)
+      )
     );
-    if (!everyLegacySheetPresent) {
+    if (!everyRecordSheetPresentAndRecognized) {
       throw new Error(
         "Record header upgrade refused mixed, missing, or partial record-sheet versions"
       );
@@ -219,8 +233,10 @@ export function planRecordHeaderUpgrade(snapshot, review, schema) {
   }
 
   const operations = [];
-  if (legacySheets.length > 0) {
+  if (legacySheets.length > 0 || pendingSheets.length > 0) {
     for (const name of schema.business_stores) {
+      const version = versions.get(name);
+      if (version === "current") continue;
       const evolving = [...legacyFields];
       for (const insertion of review.record_header_upgrade.insertions) {
         const beforeIndex = evolving.indexOf(insertion.before);
@@ -228,7 +244,8 @@ export function planRecordHeaderUpgrade(snapshot, review, schema) {
           sheet: name,
           before_field: insertion.before,
           before_column: beforeIndex + 1,
-          fields: [...insertion.fields]
+          fields: [...insertion.fields],
+          insert_columns: version === "legacy"
         });
         evolving.splice(beforeIndex, 0, ...insertion.fields);
       }
@@ -241,9 +258,12 @@ export function planRecordHeaderUpgrade(snapshot, review, schema) {
   }
 
   return {
-    mode: legacySheets.length > 0 ? "legacy_v4_to_v5" : "current_or_empty",
+    mode:
+      legacySheets.length > 0 || pendingSheets.length > 0
+        ? "legacy_v4_to_v5"
+        : "current_or_empty",
     from_storage_version:
-      legacySheets.length > 0
+      legacySheets.length > 0 || pendingSheets.length > 0
         ? review.record_header_upgrade.from_storage_version
         : schema.storage_version,
     to_storage_version: schema.storage_version,
@@ -531,9 +551,24 @@ export function planFreshWorkbookSetup(
   for (const [name, definition] of expected) {
     const current = currentByName.get(name);
     const existingHeaders = current?.headers ?? [];
+    const recordUpgradeOperations = (recordHeaderPlan?.operations ?? []).filter(
+      (operation) => operation.sheet === name
+    );
     const isLegacyRecordSheet =
       recordHeaderPlan?.mode === "legacy_v4_to_v5" &&
-      schema.business_stores.includes(name);
+      recordUpgradeOperations.some((operation) => operation.insert_columns);
+    const isPendingRecordSheet =
+      recordHeaderPlan?.mode === "legacy_v4_to_v5" &&
+      recordUpgradeOperations.some((operation) => !operation.insert_columns);
+    const pendingHeaders = definition.headers.map((field) =>
+      new Set(
+        review.record_header_upgrade.insertions.flatMap(
+          (insertion) => insertion.fields
+        )
+      ).has(field)
+        ? ""
+        : field
+    );
     if (
       existingHeaders.some((value) => String(value || "").trim()) &&
       JSON.stringify(existingHeaders) !== JSON.stringify(definition.headers) &&
@@ -541,6 +576,10 @@ export function planFreshWorkbookSetup(
         isLegacyRecordSheet &&
         JSON.stringify(existingHeaders) ===
           JSON.stringify(review.record_header_upgrade.legacy_fields)
+      ) &&
+      !(
+        isPendingRecordSheet &&
+        JSON.stringify(existingHeaders) === JSON.stringify(pendingHeaders)
       )
     ) {
       throw new Error(`Fresh setup found conflicting headers in ${name}`);
@@ -549,9 +588,6 @@ export function planFreshWorkbookSetup(
       ? cloneRows(current.rows)
       : cloneRows(definition.seedRows);
     if (isLegacyRecordSheet) {
-      const operations = recordHeaderPlan.operations.filter(
-        (operation) => operation.sheet === name
-      );
       rows = rows.map((row) => {
         if (!Array.isArray(row)) {
           return Object.fromEntries(
@@ -562,7 +598,7 @@ export function planFreshWorkbookSetup(
           0,
           review.record_header_upgrade.legacy_fields.length
         );
-        for (const operation of operations) {
+        for (const operation of recordUpgradeOperations) {
           upgraded.splice(
             operation.before_column - 1,
             0,

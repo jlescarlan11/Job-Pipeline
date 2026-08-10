@@ -10,8 +10,15 @@
     "www.onlinejobs.ph"
   ],
   "apply_points": {
-    "mode": "source_required_per_application",
-    "value_source": "live_job_form"
+    "mode": "deterministic_per_application_allocation",
+    "value_source": "repository_owned_allocation_map",
+    "allocation_points": {
+      "low_allocation": 1,
+      "normal_allocation": 5,
+      "high_allocation": 10
+    },
+    "save_points_behavior": "do_not_apply",
+    "maximum_per_application": 10
   },
   "max_body_words": 300,
   "subject_template": "Subject line: {{job_title}} Application — {{candidate_name}}",

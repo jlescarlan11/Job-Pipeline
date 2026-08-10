@@ -308,8 +308,19 @@ export function validateApplicationPolicy(policy, profile) {
     ...unsupportedObjectKeys(policy, APPLICATION_POLICY_KEYS, "policy"),
     ...unsupportedObjectKeys(
       policy.apply_points,
-      ["mode", "value_source"],
+      [
+        "mode",
+        "value_source",
+        "allocation_points",
+        "save_points_behavior",
+        "maximum_per_application"
+      ],
       "policy.apply_points"
+    ),
+    ...unsupportedObjectKeys(
+      policy.apply_points?.allocation_points,
+      ["low_allocation", "normal_allocation", "high_allocation"],
+      "policy.apply_points.allocation_points"
     )
   );
   if (policy.schema_version !== 2) errors.push("policy schema_version must be 2");
@@ -356,11 +367,18 @@ export function validateApplicationPolicy(policy, profile) {
   if (
     JSON.stringify(policy.apply_points) !==
     JSON.stringify({
-      mode: "source_required_per_application",
-      value_source: "live_job_form"
+      mode: "deterministic_per_application_allocation",
+      value_source: "repository_owned_allocation_map",
+      allocation_points: {
+        low_allocation: 1,
+        normal_allocation: 5,
+        high_allocation: 10
+      },
+      save_points_behavior: "do_not_apply",
+      maximum_per_application: 10
     })
   ) {
-    errors.push("apply_points must use the live per-application source value");
+    errors.push("apply_points must use the trusted per-application allocation map");
   }
   if (!Number.isInteger(policy.max_body_words) || policy.max_body_words < 1) {
     errors.push("max_body_words must be a positive integer");

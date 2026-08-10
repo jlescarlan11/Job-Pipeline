@@ -121,8 +121,14 @@ Import or update both under the exact pinned production IDs while inactive.
 Bind the reviewed Google credential reference and environment-backed workbook
 expressions; never put workbook IDs or credentials into repository artifacts.
 Register exactly one scheduled browser task in a paused state from the pinned
-task prompt, skill, protocol, project, and runtime contract. Do not activate
-anything from the source-build step.
+task prompt, skill, protocol, project, and runtime contract. Provision private
+durable storage through `JOB_PIPELINE_BROWSER_CLICK_RECEIPT_DIR`; the executor
+must pin the exact store/ledger/generation IDs plus private owner/device/inode
+identities for the store and independent witness, prove manifest binding,
+hash-chain/count/head recomputation, exact receipt/ledger/witness fsync writes,
+and replay/rollback/loss/recreation/permission-drift rejection,
+and include the store in backup/restore evidence before activation. Do not
+activate anything from the source-build step.
 
 ## Live cutover boundary
 

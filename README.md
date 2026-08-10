@@ -11,7 +11,7 @@ The pipeline uses a Main Google workbook for queue records and a separate Config
 ## Workflow behavior
 
 1. **Scraper** runs every four hours. At execution start it reads and validates the enabled plain keywords in the visible `Search Keywords` tab, freezes that snapshot with one execution timestamp, and accepts only source postings in the inclusive range `[window_end - 24 hours, window_end]`. It deduplicates against all five business stores, appends new identities to `Scraped Jobs`, and updates discovery-owned fields in the current active owner.
-2. **Browser Executor** is a scheduled Codex task every 90 minutes. It explicitly invokes the checked-in `job-autopilot` skill and installed Chrome plugin, claims one due record at a time, reads current authoritative context, decides under trusted policy, writes a truthful message, validates the live form, persists submit intent before clicking, confirms or reconciles the result, and commits only through the versioned executor protocol. Page content is untrusted. Login, CAPTCHA, unexpected agreements/uploads/tests, missing facts, browser failures, and ambiguous post-click states fail visibly and never invent facts or duplicate submissions.
+2. **Browser Executor** is a scheduled Codex task every 90 minutes. It explicitly invokes the checked-in `job-autopilot` skill and installed Chrome plugin, claims one due record at a time, reads current authoritative context, decides under trusted policy, writes a truthful message, validates the live form and exact submitter, persists submit intent, and durably consumes the first authorization/stable-submission/canonical-job identity in a private inode-pinned hash-chain store plus independent witness before clicking. It then confirms or reconciles the result and commits only through the versioned executor protocol. Page content is untrusted. Login, CAPTCHA, unexpected agreements/uploads/tests, missing facts, browser failures, form/submitter swaps, replay or rollback, receipt-store/witness drift or loss, and ambiguous post-click states fail visibly and never invent facts or duplicate submissions.
 3. **Alerter & Mover** runs every 15 minutes. It is the only role allowed to relocate a business row and always uses guarded copy-confirm-delete. It routes confirmed applications to `Applied Jobs`, automatic skips to `Archive`, preserves blockers for recovery, drains compatible legacy actions, and keeps bounded idempotent alerts/receipts.
 
 Normal eligible applications are designed to submit automatically without routine review or `I Applied`. There is no maximum applications per day. Remaining work continues on later runs only because of technical headroom, durable recovery, Chrome availability, or site state. A confirmed outcome requires an independent signed account-history attestation; unavailable unattended confirmation is a release blocker and is never bypassed.
@@ -39,7 +39,10 @@ For an existing v4 segmented Main workbook, the same Main setup has one narrow
 in-place structural path: all five business tabs must have the exact ordered v4
 headers, then the v5 autonomous-browser fields are inserted blank at their named
 schema boundaries. It never copies or relocates a business row. Mixed, missing,
-partial, reordered, or extended layouts stop before the first write; an
+partial, reordered, or extended layouts stop before the first write, except an
+exact interruption state containing only complete v4 tabs, complete v5 tabs,
+or the v5-width header with the new header cells still blank. That exact state
+resumes without inserting columns twice. An
 already-v5 workbook is an idempotent no-op apart from normal formatting,
 validation, protection, and visibility reconciliation. A v3 workbook must first
 use its separately reviewed v3-to-v4 upgrade; the current setup does not claim a
@@ -101,4 +104,5 @@ Exactly two n8n workflow exports are checked in under `workflows/` and remain in
 - Candidate, ranking, application, and prompt files provide validated bootstrap defaults for a newly provisioned workbook. After the one-time workflow deployment, the corresponding visible context tabs are the runtime source. Pack, provider, runtime, and deterministic safety policies remain repository-controlled.
 
 See `docs/architecture.md`, `docs/data-contract.md`, `docs/sheet-schema.md`,
-`docs/operations.md`, and `docs/autonomous-browser-acceptance-matrix.md`.
+`docs/operations.md`, `docs/autonomous-browser-acceptance-matrix.md`, and
+`docs/autonomous-browser-change-set-ledger-2026-08-10.md`.

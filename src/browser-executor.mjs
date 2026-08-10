@@ -1,4 +1,17 @@
 import { createHash } from "node:crypto";
+import {
+  constants as FS_CONSTANTS,
+  closeSync,
+  fstatSync,
+  fsyncSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeSync
+} from "node:fs";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import {
   buildApplicationPack,
@@ -40,6 +53,20 @@ const ACTIVE_PRE_SUBMIT_STATES = new Set([
   "generating",
   "filling"
 ]);
+const RESULT_COMMIT_STATES = new Set(["evaluating", "generating", "filling"]);
+const RECONCILIATION_STATES = new Set(["submit_started", "ambiguous"]);
+const MAXIMUM_FORM_FIELDS = 64;
+const MAXIMUM_FORM_INVENTORY_BYTES = 32768;
+const MAXIMUM_CLICK_LEDGER_BYTES = 16777216;
+const CLICK_STORE_MANIFEST_FILE = "manifest.json";
+const CLICK_STORE_LEDGER_FILE = "consumed.ndjson";
+const CLICK_STORE_LOCK_FILE = ".consume.lock";
+const CLICK_STORE_COUNT_WIDTH = 16;
+const APPLY_POINTS_BY_RECOMMENDATION = Object.freeze({
+  low_allocation: 1,
+  normal_allocation: 5,
+  high_allocation: 10
+});
 const SAFE_RESULT_CATEGORIES = new Set([
   "missing_candidate_fact",
   "login_required",
@@ -140,6 +167,14 @@ const SUBMIT_INTENT_CONFIRM_FIELDS = [
   "processing_started_at",
   "state_guard"
 ];
+const SYSTEM_CLAIM_CONFIRM_FIELDS = [
+  "claim_key",
+  "canonical_job_id",
+  "stage",
+  "token",
+  "created_at",
+  "expires_at"
+];
 
 function isPlainObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -163,6 +198,743 @@ function digest(value) {
     .digest("hex");
 }
 
+function parseFormUrl(value, base) {
+  let parsed;
+  try {
+    parsed = base === undefined
+      ? new URL(String(value))
+      : new URL(String(value), base);
+  } catch {
+    throw new Error("Form URLs must be valid and credential-free");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("Form URLs must be valid and credential-free");
+  }
+  return parsed;
+}
+
+function sha256Text(value) {
+  return `sha256:${createHash("sha256").update(String(value)).digest("hex")}`;
+}
+
+function requireClickStoreId(value, kind) {
+  const expected = new RegExp(`^browser-click-${kind}-v1:[a-f0-9]{64}$`);
+  if (!expected.test(String(value || ""))) {
+    throw new Error("Submit click receipt store identity is not provisioned");
+  }
+  return String(value);
+}
+
+function requireClickGenerationId(value) {
+  if (!/^browser-click-generation-v1:[a-f0-9]{64}$/.test(String(value || ""))) {
+    throw new Error("Submit click receipt store generation is not provisioned");
+  }
+  return String(value);
+}
+
+function clickFsIdentity(metadata) {
+  return `fs-object-v1:${metadata.dev}:${metadata.ino}:${metadata.uid}`;
+}
+
+function requireClickFsIdentity(value) {
+  if (!/^fs-object-v1:[0-9]+:[0-9]+:[0-9]+$/.test(String(value || ""))) {
+    throw new Error("Submit click receipt filesystem identity is not provisioned");
+  }
+  return String(value);
+}
+
+function requirePrivateClickObject(metadata, kind, expectedIdentity) {
+  const currentUid = typeof process.getuid === "function"
+    ? String(process.getuid())
+    : "";
+  const expectedMode = kind === "directory" ? 0o700n : 0o600n;
+  const mode = metadata.mode & 0o777n;
+  const typeMatches = kind === "directory"
+    ? metadata.isDirectory()
+    : metadata.isFile();
+  if (
+    !currentUid ||
+    !typeMatches ||
+    metadata.isSymbolicLink() ||
+    String(metadata.uid) !== currentUid ||
+    mode !== expectedMode ||
+    (expectedIdentity && clickFsIdentity(metadata) !== expectedIdentity)
+  ) {
+    throw new Error("invalid private click receipt object");
+  }
+  return clickFsIdentity(metadata);
+}
+
+function clickStoreBindingDigest({
+  directory,
+  directoryIdentity,
+  witnessPath,
+  witnessIdentity,
+  generationId
+}) {
+  return sha256Text([
+    directory,
+    directoryIdentity,
+    witnessPath,
+    witnessIdentity,
+    generationId
+  ].join("\n"));
+}
+
+function clickLedgerCount(value) {
+  const count = Number(value);
+  if (!Number.isSafeInteger(count) || count < 0 || count >= 10 ** CLICK_STORE_COUNT_WIDTH) {
+    throw new Error("click receipt ledger count is invalid");
+  }
+  return String(count).padStart(CLICK_STORE_COUNT_WIDTH, "0");
+}
+
+function clickLedgerHead(value) {
+  return sha256Text(JSON.stringify(stableValue(value)));
+}
+
+function requiredApplyPoints(record) {
+  const value = APPLY_POINTS_BY_RECOMMENDATION[
+    record?.apply_points_recommendation
+  ];
+  if (!Number.isInteger(value)) {
+    throw new Error("Application is not authorized to spend Apply Points");
+  }
+  return value;
+}
+
+function independentClickWitness(directory, witnessPath) {
+  const witnessRelative = relative(directory, witnessPath);
+  return witnessRelative === ".." || witnessRelative.startsWith(`..${sep}`);
+}
+
+function writeAllSync(descriptor, value, position) {
+  const source = Buffer.from(String(value), "utf8");
+  let offset = 0;
+  while (offset < source.length) {
+    const written = writeSync(
+      descriptor,
+      source,
+      offset,
+      source.length - offset,
+      position === undefined ? null : position + offset
+    );
+    if (!Number.isInteger(written) || written < 1) {
+      throw new Error("click receipt durable write did not complete");
+    }
+    offset += written;
+  }
+}
+
+function clickWitnessSource({
+  storeId,
+  ledgerId,
+  generationId,
+  entryCount,
+  ledgerHead,
+  ledgerSha256,
+  updatedAt
+}) {
+  return `${JSON.stringify({
+    schema_version: 1,
+    store_id: storeId,
+    ledger_id: ledgerId,
+    generation_id: generationId,
+    entry_count: clickLedgerCount(entryCount),
+    ledger_head: ledgerHead,
+    ledger_sha256: ledgerSha256,
+    updated_at: requireTimestamp(updatedAt, "click receipt witness update time")
+  })}\n`;
+}
+
+export function browserClickReceiptStoreProvisioning({
+  directory,
+  witness_path,
+  store_id,
+  ledger_id,
+  generation_id,
+  created_at
+}) {
+  const suppliedDirectory = String(directory || "");
+  const suppliedWitnessPath = String(witness_path || "");
+  if (!isAbsolute(suppliedDirectory) || !isAbsolute(suppliedWitnessPath)) {
+    throw new Error("Submit click receipt store path is not safely configured");
+  }
+  let canonicalDirectory;
+  let canonicalWitnessPath;
+  let directoryIdentity;
+  let witnessIdentity;
+  try {
+    const directoryStat = lstatSync(resolve(suppliedDirectory), { bigint: true });
+    directoryIdentity = requirePrivateClickObject(directoryStat, "directory");
+    canonicalDirectory = realpathSync(resolve(suppliedDirectory));
+    const witnessStat = lstatSync(resolve(suppliedWitnessPath), { bigint: true });
+    witnessIdentity = requirePrivateClickObject(witnessStat, "file");
+    if (witnessStat.size !== 0n) throw new Error("witness is not empty");
+    canonicalWitnessPath = realpathSync(resolve(suppliedWitnessPath));
+    if (!independentClickWitness(canonicalDirectory, canonicalWitnessPath)) {
+      throw new Error("witness must be independent");
+    }
+  } catch {
+    throw new Error(
+      "Submit click receipt store and independent witness must already exist privately"
+    );
+  }
+  const generationId = requireClickGenerationId(generation_id);
+  const directoryBindingDigest = clickStoreBindingDigest({
+    directory: canonicalDirectory,
+    directoryIdentity,
+    witnessPath: canonicalWitnessPath,
+    witnessIdentity,
+    generationId
+  });
+  const manifest = {
+    schema_version: 1,
+    store_id: requireClickStoreId(store_id, "store"),
+    ledger_id: requireClickStoreId(ledger_id, "ledger"),
+    generation_id: generationId,
+    directory_identity: directoryIdentity,
+    witness_identity: witnessIdentity,
+    directory_binding_digest: directoryBindingDigest,
+    created_at: requireTimestamp(created_at, "click receipt store creation time")
+  };
+  const ledgerHeader = {
+    schema_version: 1,
+    store_id: manifest.store_id,
+    ledger_id: manifest.ledger_id,
+    generation_id: generationId
+  };
+  const manifestSource = `${JSON.stringify(manifest)}\n`;
+  const ledgerSource = `${JSON.stringify(ledgerHeader)}\n`;
+  const ledgerHead = clickLedgerHead(ledgerHeader);
+  return {
+    directory: canonicalDirectory,
+    witness_path: canonicalWitnessPath,
+    directory_identity: directoryIdentity,
+    witness_identity: witnessIdentity,
+    manifest,
+    manifest_source: manifestSource,
+    manifest_sha256: sha256Text(manifestSource),
+    ledger_source: ledgerSource,
+    witness_source: clickWitnessSource({
+      storeId: manifest.store_id,
+      ledgerId: manifest.ledger_id,
+      generationId,
+      entryCount: 0,
+      ledgerHead,
+      ledgerSha256: sha256Text(ledgerSource),
+      updatedAt: manifest.created_at
+    })
+  };
+}
+
+function readBoundedClickStoreDescriptor(descriptor, maximumBytes, expectedIdentity) {
+  const metadata = fstatSync(descriptor, { bigint: true });
+  requirePrivateClickObject(metadata, "file", expectedIdentity);
+  if (
+    metadata.size < 2n ||
+    metadata.size > BigInt(maximumBytes)
+  ) {
+    throw new Error("invalid click receipt store file");
+  }
+  return readFileSync(descriptor, "utf8");
+}
+
+function consumeSubmitAuthorizationReceipt(
+  receiptStore,
+  authorizationDigest,
+  submissionIdempotencyKey,
+  canonicalJobId,
+  consumedAt
+) {
+  requireExactKeys(
+    receiptStore,
+    [
+      "directory",
+      "witness_path",
+      "store_id",
+      "ledger_id",
+      "generation_id",
+      "manifest_sha256",
+      "directory_binding_digest",
+      "directory_identity",
+      "witness_identity"
+    ],
+    [],
+    "submit click receipt store"
+  );
+  const storeId = requireClickStoreId(receiptStore.store_id, "store");
+  const ledgerId = requireClickStoreId(receiptStore.ledger_id, "ledger");
+  const generationId = requireClickGenerationId(receiptStore.generation_id);
+  const expectedDirectoryIdentity = requireClickFsIdentity(
+    receiptStore.directory_identity
+  );
+  const expectedWitnessIdentity = requireClickFsIdentity(
+    receiptStore.witness_identity
+  );
+  if (!/^sha256:[a-f0-9]{64}$/.test(String(receiptStore.manifest_sha256 || ""))) {
+    throw new Error("Submit click receipt store manifest is not provisioned");
+  }
+  if (
+    !/^sha256:[a-f0-9]{64}$/.test(
+      String(receiptStore.directory_binding_digest || "")
+    )
+  ) {
+    throw new Error("Submit click receipt store binding is not provisioned");
+  }
+  const suppliedDirectory = String(receiptStore.directory || "");
+  const suppliedWitnessPath = String(receiptStore.witness_path || "");
+  if (
+    !isAbsolute(suppliedDirectory) ||
+    !isAbsolute(suppliedWitnessPath) ||
+    !/^[a-f0-9]{64}$/.test(String(authorizationDigest || "")) ||
+    !/^submission-v1:[a-f0-9]{64}$/.test(
+      String(submissionIdempotencyKey || "")
+    ) ||
+    !String(canonicalJobId || "").trim()
+  ) {
+    throw new Error("Submit click receipt storage is not safely configured");
+  }
+
+  let directory;
+  let lockDescriptor;
+  let receiptDescriptor;
+  let ledgerDescriptor;
+  let manifestDescriptor;
+  let witnessDescriptor;
+  let directoryDescriptor;
+  let lockOwned = false;
+  let exclusiveStage = "lock";
+  const noFollow = FS_CONSTANTS.O_NOFOLLOW || 0;
+  const closeDescriptor = (descriptor) => {
+    if (descriptor === undefined) return;
+    try {
+      closeSync(descriptor);
+    } catch {
+      // Existing receipt or lock evidence keeps the authorization fail-closed.
+    }
+  };
+  const releaseLock = () => {
+    if (!lockOwned) return;
+    unlinkSync(join(directory, CLICK_STORE_LOCK_FILE));
+    lockOwned = false;
+    directoryDescriptor = openSync(
+      directory,
+      FS_CONSTANTS.O_RDONLY | (FS_CONSTANTS.O_DIRECTORY || 0) | noFollow
+    );
+    requirePrivateClickObject(
+      fstatSync(directoryDescriptor, { bigint: true }),
+      "directory",
+      expectedDirectoryIdentity
+    );
+    fsyncSync(directoryDescriptor);
+    closeSync(directoryDescriptor);
+    directoryDescriptor = undefined;
+  };
+
+  try {
+    const directoryStat = lstatSync(resolve(suppliedDirectory), { bigint: true });
+    requirePrivateClickObject(
+      directoryStat,
+      "directory",
+      expectedDirectoryIdentity
+    );
+    directory = realpathSync(resolve(suppliedDirectory));
+    const canonicalWitnessPath = realpathSync(resolve(suppliedWitnessPath));
+    const witnessStat = lstatSync(resolve(suppliedWitnessPath), { bigint: true });
+    requirePrivateClickObject(witnessStat, "file", expectedWitnessIdentity);
+    if (!independentClickWitness(directory, canonicalWitnessPath)) {
+      throw new Error("click receipt witness is not independent");
+    }
+    const bindingDigest = clickStoreBindingDigest({
+      directory,
+      directoryIdentity: expectedDirectoryIdentity,
+      witnessPath: canonicalWitnessPath,
+      witnessIdentity: expectedWitnessIdentity,
+      generationId
+    });
+    if (bindingDigest !== receiptStore.directory_binding_digest) {
+      throw new Error("click receipt binding mismatch");
+    }
+    lockDescriptor = openSync(
+      join(directory, CLICK_STORE_LOCK_FILE),
+      FS_CONSTANTS.O_CREAT |
+        FS_CONSTANTS.O_EXCL |
+        FS_CONSTANTS.O_RDWR |
+        noFollow,
+      0o600
+    );
+    lockOwned = true;
+    writeAllSync(lockDescriptor, `${storeId}\n`);
+    fsyncSync(lockDescriptor);
+    closeSync(lockDescriptor);
+    lockDescriptor = undefined;
+    lockDescriptor = openSync(
+      join(directory, CLICK_STORE_LOCK_FILE),
+      FS_CONSTANTS.O_RDONLY | noFollow
+    );
+    if (
+      readBoundedClickStoreDescriptor(lockDescriptor, 512) !== `${storeId}\n`
+    ) {
+      throw new Error("click receipt lock verification failed");
+    }
+    closeSync(lockDescriptor);
+    lockDescriptor = undefined;
+
+    manifestDescriptor = openSync(
+      join(directory, CLICK_STORE_MANIFEST_FILE),
+      FS_CONSTANTS.O_RDONLY | noFollow
+    );
+    const manifestSource = readBoundedClickStoreDescriptor(
+      manifestDescriptor,
+      4096
+    );
+    closeSync(manifestDescriptor);
+    manifestDescriptor = undefined;
+    if (sha256Text(manifestSource) !== receiptStore.manifest_sha256) {
+      throw new Error("click receipt manifest digest mismatch");
+    }
+    let manifest;
+    try {
+      manifest = JSON.parse(manifestSource);
+    } catch {
+      throw new Error("invalid click receipt manifest");
+    }
+    requireExactKeys(
+      manifest,
+      [
+        "schema_version",
+        "store_id",
+        "ledger_id",
+        "generation_id",
+        "directory_identity",
+        "witness_identity",
+        "directory_binding_digest",
+        "created_at"
+      ],
+      [],
+      "submit click receipt manifest"
+    );
+    if (
+      manifest.schema_version !== 1 ||
+      manifest.store_id !== storeId ||
+      manifest.ledger_id !== ledgerId ||
+      manifest.generation_id !== generationId ||
+      manifest.directory_identity !== expectedDirectoryIdentity ||
+      manifest.witness_identity !== expectedWitnessIdentity ||
+      manifest.directory_binding_digest !== bindingDigest ||
+      manifest.directory_binding_digest !==
+        receiptStore.directory_binding_digest ||
+      !validTimestamp(manifest.created_at)
+    ) {
+      throw new Error("click receipt manifest identity mismatch");
+    }
+
+    ledgerDescriptor = openSync(
+      join(directory, CLICK_STORE_LEDGER_FILE),
+      FS_CONSTANTS.O_RDWR | FS_CONSTANTS.O_APPEND | noFollow
+    );
+    const ledgerSource = readBoundedClickStoreDescriptor(
+      ledgerDescriptor,
+      MAXIMUM_CLICK_LEDGER_BYTES
+    );
+    if (!ledgerSource.endsWith("\n")) {
+      throw new Error("click receipt ledger is incomplete");
+    }
+    const ledgerLines = ledgerSource.trimEnd().split("\n");
+    let ledgerHeader;
+    try {
+      ledgerHeader = JSON.parse(ledgerLines[0]);
+    } catch {
+      throw new Error("invalid click receipt ledger header");
+    }
+    requireExactKeys(
+      ledgerHeader,
+      ["schema_version", "store_id", "ledger_id", "generation_id"],
+      [],
+      "submit click receipt ledger header"
+    );
+    if (
+      ledgerHeader.schema_version !== 1 ||
+      ledgerHeader.store_id !== storeId ||
+      ledgerHeader.ledger_id !== ledgerId ||
+      ledgerHeader.generation_id !== generationId
+    ) {
+      throw new Error("click receipt ledger identity mismatch");
+    }
+    const seen = new Set();
+    const seenSubmissionKeys = new Set();
+    const seenJobIdentities = new Set();
+    let ledgerHead = clickLedgerHead(ledgerHeader);
+    let entryCount = 0;
+    for (const source of ledgerLines.slice(1)) {
+      let entry;
+      try {
+        entry = JSON.parse(source);
+      } catch {
+        throw new Error("invalid click receipt ledger entry");
+      }
+      requireExactKeys(
+        entry,
+        [
+          "schema_version",
+          "store_id",
+          "ledger_id",
+          "generation_id",
+          "sequence",
+          "previous_head",
+          "authorization_digest",
+          "submission_idempotency_key",
+          "job_identity_digest",
+          "receipt_digest",
+          "consumed_at",
+          "entry_hash"
+        ],
+        [],
+        "submit click receipt ledger entry"
+      );
+      if (
+        entry.schema_version !== 1 ||
+        entry.store_id !== storeId ||
+        entry.ledger_id !== ledgerId ||
+        entry.generation_id !== generationId ||
+        entry.sequence !== clickLedgerCount(entryCount + 1) ||
+        entry.previous_head !== ledgerHead ||
+        !/^[a-f0-9]{64}$/.test(String(entry.authorization_digest || "")) ||
+        !/^submission-v1:[a-f0-9]{64}$/.test(
+          String(entry.submission_idempotency_key || "")
+        ) ||
+        !/^[a-f0-9]{64}$/.test(String(entry.job_identity_digest || "")) ||
+        !/^[a-f0-9]{64}$/.test(String(entry.receipt_digest || "")) ||
+        !validTimestamp(entry.consumed_at) ||
+        seen.has(entry.authorization_digest) ||
+        seenSubmissionKeys.has(entry.submission_idempotency_key) ||
+        seenJobIdentities.has(entry.job_identity_digest)
+      ) {
+        throw new Error("click receipt ledger entry is invalid or duplicated");
+      }
+      const entryCore = { ...entry };
+      delete entryCore.entry_hash;
+      if (entry.entry_hash !== clickLedgerHead(entryCore)) {
+        throw new Error("click receipt ledger chain is invalid");
+      }
+      seen.add(entry.authorization_digest);
+      seenSubmissionKeys.add(entry.submission_idempotency_key);
+      seenJobIdentities.add(entry.job_identity_digest);
+      ledgerHead = entry.entry_hash;
+      entryCount += 1;
+    }
+    witnessDescriptor = openSync(
+      canonicalWitnessPath,
+      FS_CONSTANTS.O_RDWR | noFollow
+    );
+    const witnessSource = readBoundedClickStoreDescriptor(
+      witnessDescriptor,
+      4096,
+      expectedWitnessIdentity
+    );
+    let witness;
+    try {
+      witness = JSON.parse(witnessSource);
+    } catch {
+      throw new Error("invalid click receipt witness");
+    }
+    requireExactKeys(
+      witness,
+      [
+        "schema_version",
+        "store_id",
+        "ledger_id",
+        "generation_id",
+        "entry_count",
+        "ledger_head",
+        "ledger_sha256",
+        "updated_at"
+      ],
+      [],
+      "submit click receipt witness"
+    );
+    if (
+      witness.schema_version !== 1 ||
+      witness.store_id !== storeId ||
+      witness.ledger_id !== ledgerId ||
+      witness.generation_id !== generationId ||
+      witness.entry_count !== clickLedgerCount(entryCount) ||
+      witness.ledger_head !== ledgerHead ||
+      witness.ledger_sha256 !== sha256Text(ledgerSource) ||
+      !validTimestamp(witness.updated_at)
+    ) {
+      throw new Error("click receipt ledger and witness are inconsistent");
+    }
+    const jobIdentityDigest = digest(String(canonicalJobId));
+    if (
+      seen.has(authorizationDigest) ||
+      seenSubmissionKeys.has(submissionIdempotencyKey) ||
+      seenJobIdentities.has(jobIdentityDigest)
+    ) {
+      throw new Error("Submit click authorization was already consumed");
+    }
+
+    const receipt = {
+      schema_version: 1,
+      store_id: storeId,
+      ledger_id: ledgerId,
+      generation_id: generationId,
+      authorization_digest: authorizationDigest,
+      submission_idempotency_key: submissionIdempotencyKey,
+      job_identity_digest: jobIdentityDigest,
+      consumed_at: requireTimestamp(consumedAt, "submit click consumption time")
+    };
+    const receiptDigest = digest(receipt);
+    exclusiveStage = "receipt";
+    const receiptPath = join(directory, `${jobIdentityDigest}.job.json`);
+    receiptDescriptor = openSync(
+      receiptPath,
+      FS_CONSTANTS.O_CREAT |
+        FS_CONSTANTS.O_EXCL |
+        FS_CONSTANTS.O_WRONLY |
+        noFollow,
+      0o600
+    );
+    const receiptSource = `${JSON.stringify(receipt)}\n`;
+    writeAllSync(receiptDescriptor, receiptSource);
+    fsyncSync(receiptDescriptor);
+    closeSync(receiptDescriptor);
+    receiptDescriptor = undefined;
+    receiptDescriptor = openSync(receiptPath, FS_CONSTANTS.O_RDONLY | noFollow);
+    if (
+      readBoundedClickStoreDescriptor(receiptDescriptor, 4096) !== receiptSource
+    ) {
+      throw new Error("click receipt verification failed");
+    }
+    closeSync(receiptDescriptor);
+    receiptDescriptor = undefined;
+
+    directoryDescriptor = openSync(
+      directory,
+      FS_CONSTANTS.O_RDONLY | (FS_CONSTANTS.O_DIRECTORY || 0) | noFollow
+    );
+    requirePrivateClickObject(
+      fstatSync(directoryDescriptor, { bigint: true }),
+      "directory",
+      expectedDirectoryIdentity
+    );
+    fsyncSync(directoryDescriptor);
+    closeSync(directoryDescriptor);
+    directoryDescriptor = undefined;
+
+    const ledgerEntryCore = {
+      schema_version: 1,
+      store_id: storeId,
+      ledger_id: ledgerId,
+      generation_id: generationId,
+      sequence: clickLedgerCount(entryCount + 1),
+      previous_head: ledgerHead,
+      authorization_digest: authorizationDigest,
+      submission_idempotency_key: submissionIdempotencyKey,
+      job_identity_digest: jobIdentityDigest,
+      receipt_digest: receiptDigest,
+      consumed_at: receipt.consumed_at
+    };
+    const ledgerEntry = {
+      ...ledgerEntryCore,
+      entry_hash: clickLedgerHead(ledgerEntryCore)
+    };
+    const ledgerEntrySource = `${JSON.stringify(ledgerEntry)}\n`;
+    writeAllSync(ledgerDescriptor, ledgerEntrySource);
+    fsyncSync(ledgerDescriptor);
+    closeSync(ledgerDescriptor);
+    ledgerDescriptor = undefined;
+    ledgerDescriptor = openSync(
+      join(directory, CLICK_STORE_LEDGER_FILE),
+      FS_CONSTANTS.O_RDONLY | noFollow
+    );
+    if (
+      readBoundedClickStoreDescriptor(
+        ledgerDescriptor,
+        MAXIMUM_CLICK_LEDGER_BYTES
+      ) !== `${ledgerSource}${ledgerEntrySource}`
+    ) {
+      throw new Error("click receipt ledger verification failed");
+    }
+    closeSync(ledgerDescriptor);
+    ledgerDescriptor = undefined;
+
+    const nextWitnessSource = clickWitnessSource({
+      storeId,
+      ledgerId,
+      generationId,
+      entryCount: entryCount + 1,
+      ledgerHead: ledgerEntry.entry_hash,
+      ledgerSha256: sha256Text(`${ledgerSource}${ledgerEntrySource}`),
+      updatedAt: receipt.consumed_at
+    });
+    if (Buffer.byteLength(nextWitnessSource) !== Buffer.byteLength(witnessSource)) {
+      throw new Error("click receipt witness size changed");
+    }
+    writeAllSync(witnessDescriptor, nextWitnessSource, 0);
+    fsyncSync(witnessDescriptor);
+    requirePrivateClickObject(
+      fstatSync(witnessDescriptor, { bigint: true }),
+      "file",
+      expectedWitnessIdentity
+    );
+    closeSync(witnessDescriptor);
+    witnessDescriptor = undefined;
+    witnessDescriptor = openSync(
+      canonicalWitnessPath,
+      FS_CONSTANTS.O_RDONLY | noFollow
+    );
+    if (
+      readBoundedClickStoreDescriptor(
+        witnessDescriptor,
+        4096,
+        expectedWitnessIdentity
+      ) !== nextWitnessSource
+    ) {
+      throw new Error("click receipt witness verification failed");
+    }
+    closeSync(witnessDescriptor);
+    witnessDescriptor = undefined;
+
+    directoryDescriptor = openSync(directory, "r");
+    requirePrivateClickObject(
+      fstatSync(directoryDescriptor, { bigint: true }),
+      "directory",
+      expectedDirectoryIdentity
+    );
+    fsyncSync(directoryDescriptor);
+    closeSync(directoryDescriptor);
+    directoryDescriptor = undefined;
+    releaseLock();
+    return receipt;
+  } catch (error) {
+    closeDescriptor(lockDescriptor);
+    closeDescriptor(receiptDescriptor);
+    closeDescriptor(ledgerDescriptor);
+    closeDescriptor(manifestDescriptor);
+    closeDescriptor(witnessDescriptor);
+    closeDescriptor(directoryDescriptor);
+    if (lockOwned) {
+      try {
+        releaseLock();
+      } catch {
+        // A retained lock is fail-closed and requires backed-up reconciliation.
+      }
+    }
+    if (
+      error?.message === "Submit click authorization was already consumed" ||
+      (error?.code === "EEXIST" && exclusiveStage === "receipt")
+    ) {
+      throw new Error("Submit click authorization was already consumed");
+    }
+    if (error?.code === "EEXIST" && exclusiveStage === "lock") {
+      throw new Error("Submit click receipt store is busy or requires recovery");
+    }
+    throw new Error("Submit click receipt store is missing, changed, or unsafe");
+  }
+}
+
 function requireExactKeys(value, required, optional = [], label = "payload") {
   if (!isPlainObject(value)) throw new Error(`${label} must be an object`);
   const allowed = new Set([...required, ...optional]);
@@ -170,20 +942,41 @@ function requireExactKeys(value, required, optional = [], label = "payload") {
   const extra = Object.keys(value).filter((key) => !allowed.has(key));
   if (missing.length > 0 || extra.length > 0) {
     throw new Error(
-      `${label} keys are invalid` +
-        `${missing.length ? `; missing: ${missing.join(", ")}` : ""}` +
-        `${extra.length ? `; unsupported: ${extra.join(", ")}` : ""}`
+      `${label} keys are invalid; missing count: ${missing.length}; ` +
+        `unsupported count: ${extra.length}`
     );
   }
 }
 
 function validTimestamp(value) {
-  return Number.isFinite(Date.parse(String(value || "")));
+  const textValue = String(value || "");
+  const parsed = Date.parse(textValue);
+  return (
+    textValue.length === 24 &&
+    Number.isFinite(parsed) &&
+    new Date(parsed).toISOString() === textValue
+  );
 }
 
 function requireTimestamp(value, label) {
   if (!validTimestamp(value)) throw new Error(`${label} must be an ISO timestamp`);
   return String(value);
+}
+
+function requireBrowserRuntime(runtime) {
+  if (
+    !isPlainObject(runtime) ||
+    !Number.isInteger(runtime.claim_lease_ms) ||
+    runtime.claim_lease_ms < 1 ||
+    !isPlainObject(runtime.retry) ||
+    !Number.isInteger(runtime.retry.max_attempts) ||
+    runtime.retry.max_attempts < 1 ||
+    !Number.isInteger(runtime.retry.backoff_ms) ||
+    runtime.retry.backoff_ms < 1
+  ) {
+    throw new Error("Browser runtime retry and lease policy is invalid");
+  }
+  return runtime;
 }
 
 function boundedSafeText(value, maximum = 240) {
@@ -225,13 +1018,23 @@ function requireCurrentGuard(record, label = "record") {
 }
 
 function nextRecord(record, updates, now) {
+  const checkedNow = requireTimestamp(now, "browser record update time");
   const next = {
     ...record,
     ...updates,
     record_version: Number(record.record_version || 0) + 1,
-    updated_at: now
+    updated_at: checkedNow
   };
   return { ...next, state_guard: stateGuard(next) };
+}
+
+function requireNoValidationErrors(errors, label) {
+  if (!Array.isArray(errors) || errors.length === 0) return;
+  // Contract, policy, and model validators may include caller-controlled values
+  // in their detailed diagnostics. The browser/CLI boundary reports only a
+  // bounded category and count so secrets from rows, forms, or messages never
+  // reach stderr.
+  throw new Error(`${label}; failure count: ${errors.length}`);
 }
 
 function requireValidProposedRecord(record, schema) {
@@ -240,9 +1043,7 @@ function requireValidProposedRecord(record, schema) {
     AUTONOMOUS_SOURCE_STORE,
     schema
   );
-  if (errors.length > 0) {
-    throw new Error(`Browser executor proposed an invalid record: ${errors.join("; ")}`);
-  }
+  requireNoValidationErrors(errors, "Browser executor proposed an invalid record");
   return record;
 }
 
@@ -291,7 +1092,37 @@ function requireCurrentConfiguration(record, {
   }
 }
 
-function requireWinningBrowserClaim(record, persistedClaims, now) {
+function requireResultConfiguration(record, configuration) {
+  const expectedContextDigest = browserContextDigest({
+    record,
+    profile: configuration?.profile,
+    rankingPolicy: configuration?.rankingPolicy,
+    applicationPolicy: configuration?.applicationPolicy,
+    packPolicy: configuration?.packPolicy
+  });
+  if (record.browser_context_digest !== expectedContextDigest) {
+    throw new Error("Browser authorization configuration is stale: browser_context_digest");
+  }
+  if (["generating", "filling", "submit_started", "ambiguous"].includes(
+    record.browser_state
+  )) {
+    requireCurrentConfiguration(record, configuration ?? {});
+  }
+}
+
+function expectedBrowserClaimKey(record) {
+  return [
+    "browser_executor",
+    String(record?.canonical_job_id || "")
+      .trim()
+      .normalize("NFKC")
+      .toLocaleLowerCase("en-US"),
+    "application"
+  ].join(":");
+}
+
+function requireWinningBrowserClaim(record, persistedClaims, now, runtime) {
+  const checkedRuntime = requireBrowserRuntime(runtime);
   requireTimestamp(now, "browser authorization now");
   if (
     record.processing_stage !== "browser_executor" ||
@@ -300,12 +1131,19 @@ function requireWinningBrowserClaim(record, persistedClaims, now) {
   ) {
     throw new Error("Browser authorization requires a persisted live claim");
   }
+  const expectedKey = expectedBrowserClaimKey(record);
+  const expectedExpiry = new Date(
+    Date.parse(record.processing_started_at) + checkedRuntime.claim_lease_ms
+  ).toISOString();
   const matching = (Array.isArray(persistedClaims) ? persistedClaims : []).filter(
     (claim) =>
+      claim?.claim_key === expectedKey &&
       claim?.token === record.processing_token &&
+      String(claim?.token || "").endsWith(`:${expectedKey}`) &&
       claim?.canonical_job_id === record.canonical_job_id &&
       claim?.stage === "browser_executor" &&
-      claim?.created_at === record.processing_started_at
+      claim?.created_at === record.processing_started_at &&
+      claim?.expires_at === expectedExpiry
   );
   if (
     matching.length !== 1 ||
@@ -313,6 +1151,18 @@ function requireWinningBrowserClaim(record, persistedClaims, now) {
   ) {
     throw new Error("Browser authorization claim is expired, lost, or not the winner");
   }
+}
+
+function hasAnyLiveBrowserClaim(record, persistedClaims, now) {
+  const expectedKey = expectedBrowserClaimKey(record);
+  const relevant = (Array.isArray(persistedClaims) ? persistedClaims : []).filter(
+    (claim) =>
+      String(claim?.claim_key || "")
+        .trim()
+        .normalize("NFKC")
+        .toLocaleLowerCase("en-US") === expectedKey
+  );
+  return selectWinningSystemClaims(relevant, persistedClaims, now).length > 0;
 }
 
 function oneIdentity(rows, canonicalJobId, label) {
@@ -323,6 +1173,26 @@ function oneIdentity(rows, canonicalJobId, label) {
     throw new Error(`${label} identity is missing or ambiguous`);
   }
   return matches[0];
+}
+
+function requireExactFreshRecord(expected, freshSourceRows, schema, label) {
+  const persisted = oneIdentity(
+    freshSourceRows,
+    expected?.canonical_job_id,
+    label
+  );
+  const mismatches = exactFieldMismatches(expected, persisted, schema?.fields ?? []);
+  if (mismatches.length > 0) {
+    throw new Error(`${label} persistence mismatch: ${mismatches.join(", ")}`);
+  }
+  requireCurrentGuard(persisted, label);
+  const errors = validateRecordStoreContract(
+    persisted,
+    AUTONOMOUS_SOURCE_STORE,
+    schema
+  );
+  requireNoValidationErrors(errors, `${label} record is invalid`);
+  return persisted;
 }
 
 function persistedPack(record, pack) {
@@ -387,8 +1257,9 @@ export function browserFormFingerprint(form, record) {
       "origin",
       "page_url",
       "observed_source_job_id",
-      "action",
-      "method",
+      "effective_action",
+      "effective_method",
+      "submit_control",
       "fields",
       "apply_points",
       "apply_point_options"
@@ -399,36 +1270,55 @@ export function browserFormFingerprint(form, record) {
   if (!record || typeof record !== "object") {
     throw new Error("Form fingerprint requires the claimed job record");
   }
-  const origin = new URL(String(form.origin));
-  const page = new URL(String(form.page_url), origin);
-  const action = new URL(String(form.action), origin);
+  const origin = parseFormUrl(form.origin);
+  const page = parseFormUrl(form.page_url, origin);
+  const action = parseFormUrl(form.effective_action);
+  requireExactKeys(
+    form.submit_control,
+    ["name", "type", "effective_action", "effective_method", "value_digest"],
+    [],
+    "submit control"
+  );
+  const submitAction = parseFormUrl(form.submit_control.effective_action);
   const allowedHosts = new Set(["onlinejobs.ph", "www.onlinejobs.ph"]);
   const sourceJobId = String(record.source_job_id || "");
   const normalizedPage = normalizeCanonicalUrl(page.href);
   const normalizedRecordPage = normalizeCanonicalUrl(record.canonical_url);
-  const actionMatch = action.pathname.match(
-    /^\/jobseekers\/job\/([^/]+)\/apply\/?$/i
-  );
-  const actionSourceJobId = actionMatch?.[1]?.match(/(\d+)$/)?.[1] || "";
+  const expectedActionPath = `/jobseekers/job/${sourceJobId}/apply`;
   if (
     origin.protocol !== "https:" ||
     !allowedHosts.has(origin.hostname) ||
+    origin.pathname !== "/" ||
+    origin.search !== "" ||
+    origin.hash !== "" ||
     page.origin !== origin.origin ||
     action.protocol !== origin.protocol ||
     action.hostname !== origin.hostname ||
+    action.port !== origin.port ||
+    submitAction.href !== action.href ||
     !sourceJobId ||
     String(form.observed_source_job_id) !== sourceJobId ||
     extractOnlineJobsId(normalizedPage) !== sourceJobId ||
     normalizedPage !== normalizedRecordPage ||
-    !actionMatch ||
-    actionSourceJobId !== sourceJobId
+    action.pathname !== expectedActionPath ||
+    action.search !== "" ||
+    action.hash !== ""
   ) {
     throw new Error("Form must match the claimed OnlineJobs.ph job and application action");
   }
-  if (String(form.method).toUpperCase() !== "POST") {
+  if (
+    String(form.effective_method).toUpperCase() !== "POST" ||
+    String(form.submit_control.effective_method).toUpperCase() !== "POST"
+  ) {
     throw new Error("Application form method must be POST");
   }
-  if (!Array.isArray(form.fields) || form.fields.length < 1) {
+  const serializedForm = JSON.stringify(form);
+  if (
+    Buffer.byteLength(serializedForm, "utf8") > MAXIMUM_FORM_INVENTORY_BYTES ||
+    !Array.isArray(form.fields) ||
+    form.fields.length < 1 ||
+    form.fields.length > MAXIMUM_FORM_FIELDS
+  ) {
     throw new Error("Application form must expose a bounded field inventory");
   }
   const fields = form.fields.map((field, index) => {
@@ -438,9 +1328,13 @@ export function browserFormFingerprint(form, record) {
       ["maximum_length", "options_digest"],
       `form field ${index}`
     );
-    const name = String(field.name || "").trim().slice(0, 120);
+    const name = String(field.name || "").trim();
     const type = String(field.type || "").trim().toLowerCase();
-    if (!name || !/^[a-z0-9_.\[\]-]+$/i.test(name)) {
+    const optionsDigest = String(field.options_digest || "");
+    if (typeof field.required !== "boolean") {
+      throw new Error(`Form field ${index} required flag must be boolean`);
+    }
+    if (!name || name.length > 120 || !/^[a-z0-9_.\[\]-]+$/i.test(name)) {
       throw new Error(`Form field ${index} has an invalid name`);
     }
     if (
@@ -456,6 +1350,15 @@ export function browserFormFingerprint(form, record) {
     ) {
       throw new Error(`Form field ${index} type is unsupported`);
     }
+    if (
+      (field.maximum_length !== undefined &&
+        (!Number.isInteger(field.maximum_length) ||
+          field.maximum_length < 0 ||
+          field.maximum_length > 100000)) ||
+      (optionsDigest && !/^[a-f0-9]{64}$/.test(optionsDigest))
+    ) {
+      throw new Error(`Form field ${index} has invalid structural bounds`);
+    }
     return {
       name,
       type,
@@ -463,7 +1366,7 @@ export function browserFormFingerprint(form, record) {
       maximum_length: Number.isInteger(field.maximum_length)
         ? field.maximum_length
         : "",
-      options_digest: String(field.options_digest || "").slice(0, 64)
+      options_digest: optionsDigest
     };
   });
   if (new Set(fields.map((field) => field.name)).size !== fields.length) {
@@ -482,25 +1385,41 @@ export function browserFormFingerprint(form, record) {
       field.required === true &&
       /^[a-f0-9]{64}$/.test(field.options_digest)
   );
-  const unsupportedRequired = fields.filter(
+  const submitFields = fields.filter((field) => field.type === "submit");
+  const submitControlName = String(form.submit_control.name || "").trim();
+  const submitControlType = String(form.submit_control.type || "")
+    .trim()
+    .toLowerCase();
+  const unsupportedInteractive = fields.filter(
     (field) =>
-      field.required &&
       !["hidden", "submit"].includes(field.type) &&
       !["message", "apply_points"].includes(field.name)
   );
   const applyPointOptions = Array.isArray(form.apply_point_options)
     ? [...form.apply_point_options].sort((left, right) => left - right)
     : [];
+  let expectedApplyPoints;
+  try {
+    expectedApplyPoints = requiredApplyPoints(record);
+  } catch {
+    expectedApplyPoints = undefined;
+  }
   if (
     messageFields.length !== 1 ||
     applyPointFields.length !== 1 ||
-    unsupportedRequired.length > 0 ||
+    submitFields.length !== 1 ||
+    submitControlType !== "submit" ||
+    submitFields[0]?.name !== submitControlName ||
+    !/^[a-f0-9]{64}$/.test(String(form.submit_control.value_digest || "")) ||
+    unsupportedInteractive.length > 0 ||
     applyPointOptions.length < 1 ||
     new Set(applyPointOptions).size !== applyPointOptions.length ||
     applyPointOptions.some(
       (value) => !Number.isInteger(value) || value < 1 || value > 100
     ) ||
     !Number.isInteger(form.apply_points) ||
+    !Number.isInteger(expectedApplyPoints) ||
+    form.apply_points !== expectedApplyPoints ||
     form.apply_points < 1 ||
     form.apply_points > 100 ||
     !applyPointOptions.includes(form.apply_points) ||
@@ -512,8 +1431,15 @@ export function browserFormFingerprint(form, record) {
     origin: origin.origin,
     page_url: normalizedPage,
     source_job_id: sourceJobId,
-    action: `${action.pathname}${action.search}`,
-    method: "POST",
+    effective_action: action.href,
+    effective_method: "POST",
+    submit_control: {
+      name: submitControlName,
+      type: submitControlType,
+      effective_action: submitAction.href,
+      effective_method: "POST",
+      value_digest: form.submit_control.value_digest
+    },
     fields: fields.sort((left, right) =>
       `${left.name}:${left.type}`.localeCompare(`${right.name}:${right.type}`)
     ),
@@ -564,13 +1490,14 @@ export function selectAutonomousCandidates(
     minimum_headroom_ms = 0
   } = {}
 ) {
+  now = requireTimestamp(now, "browser selection now");
   if (!isPlainObject(stores)) throw new Error("Business stores must be an object");
   const identityErrors = validateUniqueIdentityAcrossStores(stores, schema, now);
-  if (identityErrors.length > 0) {
-    throw new Error(`Browser selection rejected business stores: ${identityErrors.join("; ")}`);
-  }
+  requireNoValidationErrors(
+    identityErrors,
+    "Browser selection rejected business stores"
+  );
   const nowMs = Date.parse(now);
-  if (!Number.isFinite(nowMs)) throw new Error("Browser selection now is invalid");
   if (
     !Number.isInteger(minimum_headroom_ms) ||
     minimum_headroom_ms < 0 ||
@@ -582,17 +1509,20 @@ export function selectAutonomousCandidates(
   if (!Array.isArray(rows)) throw new Error("Scraped Jobs rows must be an array");
   return rows
     .filter((record) => {
+      if (Object.hasOwn(record, "browser_next_retry_at")) {
+        throw new Error(
+          "Browser selection rejected unsupported browser_next_retry_at alias"
+        );
+      }
       const errors = validateRecordStoreContract(
         record,
         AUTONOMOUS_SOURCE_STORE,
         schema
       );
-      if (errors.length > 0) {
-        throw new Error(`Browser selection rejected invalid row: ${errors.join("; ")}`);
-      }
+      requireNoValidationErrors(errors, "Browser selection rejected invalid row");
       if (record.execution_mode !== "autonomous_chrome") return false;
       if (!DUE_STATES.has(String(record.browser_state || ""))) return false;
-      const retryAt = Date.parse(record.browser_next_retry_at || record.next_retry_at || "");
+      const retryAt = Date.parse(record.next_retry_at || "");
       return !Number.isFinite(retryAt) || retryAt <= nowMs;
     })
     .sort((left, right) => {
@@ -601,24 +1531,107 @@ export function selectAutonomousCandidates(
     });
 }
 
+export function selectAutonomousWork(
+  stores,
+  schema,
+  {
+    now = new Date().toISOString(),
+    deadline_ms = Number.POSITIVE_INFINITY,
+    minimum_headroom_ms = 0,
+    persisted_claims = [],
+    runtime
+  } = {}
+) {
+  const checkedRuntime = requireBrowserRuntime(runtime);
+  now = requireTimestamp(now, "browser selection now");
+  const nowMs = Date.parse(now);
+  const candidates = selectAutonomousCandidates(stores, schema, {
+    now,
+    deadline_ms,
+    minimum_headroom_ms
+  })
+    .filter((record) => Number(record.attempt_count || 0) < checkedRuntime.retry.max_attempts)
+    .map((record) => ({ operation: "claim", record }));
+  if (
+    Number.isFinite(deadline_ms) &&
+    deadline_ms - nowMs < minimum_headroom_ms
+  ) {
+    return [];
+  }
+  const rows = stores[AUTONOMOUS_SOURCE_STORE] ?? [];
+  const recovery = rows
+    .filter((record) => {
+      if (
+        record.execution_mode !== "autonomous_chrome" ||
+        !ACTIVE_PRE_SUBMIT_STATES.has(String(record.browser_state || ""))
+      ) {
+        return false;
+      }
+      const startedAt = Date.parse(record.processing_started_at || "");
+      return (
+        Number.isFinite(startedAt) &&
+        nowMs - startedAt >= checkedRuntime.claim_lease_ms &&
+        !hasAnyLiveBrowserClaim(record, persisted_claims, now)
+      );
+    })
+    .map((record) => ({ operation: "recover", record }));
+  const reconciliation = rows
+    .filter(
+      (record) =>
+        record.execution_mode === "autonomous_chrome" &&
+        RECONCILIATION_STATES.has(String(record.browser_state || ""))
+    )
+    .map((record) => ({ operation: "reconcile", record }));
+  const priority = { reconcile: 0, recover: 1, claim: 2 };
+  return [...reconciliation, ...recovery, ...candidates].sort((left, right) => {
+    const byPriority = priority[left.operation] - priority[right.operation];
+    if (byPriority) return byPriority;
+    const time =
+      Date.parse(left.record.created_at || "") -
+      Date.parse(right.record.created_at || "");
+    return time || String(left.record.canonical_job_id).localeCompare(
+      String(right.record.canonical_job_id)
+    );
+  });
+}
+
 export function planAutonomousClaim(
   record,
   {
     execution_id,
     now = new Date().toISOString(),
-    lease_ms,
-    attempt_id
+    attempt_id,
+    runtime
   }
 ) {
+  const checkedRuntime = requireBrowserRuntime(runtime);
+  now = requireTimestamp(now, "browser claim now");
   assertAutonomous(record);
   requireCurrentGuard(record);
   if (!DUE_STATES.has(String(record.browser_state || ""))) {
     throw new Error("Browser claim requires a queued or retryable row");
   }
-  if (!String(execution_id || "").trim() || !Number.isInteger(lease_ms) || lease_ms < 1) {
-    throw new Error("Browser claim requires execution ID and positive lease");
+  if (!String(execution_id || "").trim()) {
+    throw new Error("Browser claim requires execution ID");
   }
-  requireTimestamp(now, "browser claim now");
+  if (Object.hasOwn(record, "browser_next_retry_at")) {
+    throw new Error("Browser claim rejected unsupported browser_next_retry_at alias");
+  }
+  if (
+    record.browser_state === "retryable" &&
+    (!validTimestamp(record.next_retry_at) ||
+      Date.parse(record.next_retry_at) > Date.parse(now))
+  ) {
+    throw new Error("Browser claim retry backoff has not elapsed");
+  }
+  const priorAttempts = Number(record.attempt_count || 0);
+  if (
+    !Number.isInteger(priorAttempts) ||
+    priorAttempts < 0 ||
+    priorAttempts >= checkedRuntime.retry.max_attempts
+  ) {
+    throw new Error("Browser claim technical retry limit is exhausted");
+  }
   const normalizedAttemptId = String(attempt_id || "").trim() ||
     `attempt-v1:${digest({
       execution_id,
@@ -634,7 +1647,7 @@ export function planAutonomousClaim(
     scope: "application",
     executionId: execution_id,
     now,
-    leaseMs: lease_ms
+    leaseMs: checkedRuntime.claim_lease_ms
   });
   const proposedRecord = nextRecord(
     record,
@@ -642,6 +1655,7 @@ export function planAutonomousClaim(
       browser_state: "claimed",
       browser_attempt_id: normalizedAttemptId,
       browser_job_digest: browserJobDigest(record),
+      attempt_count: priorAttempts + 1,
       processing_stage: "browser_executor",
       processing_token: claim.token,
       processing_started_at: now,
@@ -672,6 +1686,7 @@ export function confirmAutonomousClaim(
   { persisted_claims, fresh_source_rows, schema, now = new Date().toISOString() },
   configuration
 ) {
+  now = requireTimestamp(now, "browser claim confirmation now");
   requireExactKeys(
     plan,
     [
@@ -688,6 +1703,20 @@ export function confirmAutonomousClaim(
   );
   if (plan.protocol_version !== BROWSER_EXECUTOR_PROTOCOL_VERSION) {
     throw new Error("Claim plan protocol is stale");
+  }
+  const exactPersistedClaims = (Array.isArray(persisted_claims)
+    ? persisted_claims
+    : []
+  ).filter(
+    (claim) =>
+      exactFieldMismatches(
+        plan.system_claim,
+        claim,
+        SYSTEM_CLAIM_CONFIRM_FIELDS
+      ).length === 0
+  );
+  if (exactPersistedClaims.length !== 1) {
+    throw new Error("Browser claim persistence is missing, duplicated, or altered");
   }
   const winners = selectWinningSystemClaims(
     [plan.system_claim],
@@ -710,7 +1739,7 @@ export function confirmAutonomousClaim(
   }
   requireCurrentGuard(persisted, "Persisted browser claim");
   const errors = validateRecordStoreContract(persisted, AUTONOMOUS_SOURCE_STORE, schema);
-  if (errors.length > 0) throw new Error(`Persisted browser claim is invalid: ${errors.join("; ")}`);
+  requireNoValidationErrors(errors, "Persisted browser claim is invalid");
   const contextDigest = browserContextDigest({ record: persisted, ...configuration });
   const evaluating = nextRecord(
     persisted,
@@ -748,6 +1777,7 @@ export function validateAutonomousDecision(
   },
   now = new Date().toISOString()
 ) {
+  now = requireTimestamp(now, "browser decision now");
   assertAutonomous(freshRecord);
   requireCurrentGuard(freshRecord);
   if (freshRecord.browser_state !== "evaluating") {
@@ -828,7 +1858,10 @@ export function validateAutonomousDecision(
   );
   const packErrors = validateApplicationPack(pack, profile, packPolicy);
   if (pack.application_pack_status !== "ready" || packErrors.length > 0) {
-    throw new Error(`Autonomous application pack is not ready: ${packErrors.join("; ")}`);
+    requireNoValidationErrors(
+      packErrors.length > 0 ? packErrors : ["not_ready"],
+      "Autonomous application pack is not ready"
+    );
   }
   const message = cleanGeneratedMessage(decision.message || "");
   const messageValidation = validateGeneratedMessage(message, {
@@ -838,9 +1871,15 @@ export function validateAutonomousDecision(
     pack
   });
   if (!messageValidation.valid) {
-    throw new Error(`ChatGPT message is invalid: ${messageValidation.errors.join("; ")}`);
+    requireNoValidationErrors(
+      messageValidation.errors,
+      "ChatGPT message is invalid"
+    );
   }
-  const formFingerprint = browserFormFingerprint(form, freshRecord);
+  const formFingerprint = browserFormFingerprint(
+    form,
+    { ...freshRecord, ...evaluation }
+  );
   const identityRecord = {
     ...freshRecord,
     ...evaluation,
@@ -890,9 +1929,18 @@ export function validateAutonomousDecision(
 export function confirmBrowserReady(
   plannedRecord,
   freshSourceRows,
-  { profile, rankingPolicy, applicationPolicy, packPolicy, persistedClaims },
+  {
+    profile,
+    rankingPolicy,
+    applicationPolicy,
+    packPolicy,
+    persistedClaims,
+    runtime,
+    form
+  },
   now = new Date().toISOString()
 ) {
+  now = requireTimestamp(now, "browser fill authorization now");
   const persisted = oneIdentity(
     freshSourceRows,
     plannedRecord?.canonical_job_id,
@@ -921,7 +1969,7 @@ export function confirmBrowserReady(
   }
   assertAutonomous(persisted);
   requireCurrentGuard(persisted);
-  requireWinningBrowserClaim(persisted, persistedClaims, now);
+  requireWinningBrowserClaim(persisted, persistedClaims, now, runtime);
   requireCurrentConfiguration(persisted, {
     profile,
     rankingPolicy,
@@ -930,6 +1978,21 @@ export function confirmBrowserReady(
   });
   if (!["generating", "filling"].includes(persisted.browser_state)) {
     throw new Error("Browser fill authorization requires generating or filling state");
+  }
+  const currentEvaluation = evaluateJob(
+    persisted,
+    profile,
+    rankingPolicy,
+    now
+  );
+  const authorizedApplyPoints = requiredApplyPoints(currentEvaluation);
+  if (
+    browserFormFingerprint(
+      form,
+      { ...persisted, ...currentEvaluation }
+    ) !== persisted.browser_form_fingerprint
+  ) {
+    throw new Error("Application form changed before fill authorization");
   }
   const pack = buildApplicationPack(
     { ...persisted, user_action: "" },
@@ -948,7 +2011,10 @@ export function confirmBrowserReady(
     pack
   });
   if (!validation.valid) {
-    throw new Error(`Persisted message failed safety: ${validation.errors.join("; ")}`);
+    requireNoValidationErrors(
+      validation.errors,
+      "Persisted message failed safety"
+    );
   }
   if (persisted.browser_state === "generating") {
     const filling = nextRecord(
@@ -974,34 +2040,21 @@ export function confirmBrowserReady(
     canonical_job_id: persisted.canonical_job_id,
     job_digest: persisted.browser_job_digest,
     message: persisted.generated_message,
-    message_digest: digest(persisted.generated_message)
+    message_digest: digest(persisted.generated_message),
+    apply_points: authorizedApplyPoints,
+    apply_points_digest: digest(String(authorizedApplyPoints))
   };
 }
 
-export function planSubmitIntent(
-  freshRecord,
-  { form, field_receipts, now = new Date().toISOString() }
-) {
-  assertAutonomous(freshRecord);
-  requireCurrentGuard(freshRecord);
-  if (freshRecord.browser_state !== "filling") {
-    throw new Error("Submit intent requires filling state");
-  }
-  if (freshRecord.browser_job_digest !== browserJobDigest(freshRecord)) {
-    throw new Error("Job input changed before submit intent");
-  }
-  const formFingerprint = browserFormFingerprint(form, freshRecord);
-  if (formFingerprint !== freshRecord.browser_form_fingerprint) {
-    throw new Error("Application form changed after draft validation");
-  }
-  if (!Array.isArray(field_receipts) || field_receipts.length < 1) {
-    throw new Error("Submit intent requires bounded field reread receipts");
+function requireAuthorizedFieldReceipts(record, form, fieldReceipts) {
+  if (!Array.isArray(fieldReceipts) || fieldReceipts.length < 1) {
+    throw new Error("Submit authorization requires bounded field reread receipts");
   }
   const requiredFields = form.fields
     .filter((field) => field.required && !["hidden", "submit"].includes(field.type))
     .map((field) => field.name);
   const receipts = new Map();
-  for (const [index, receipt] of field_receipts.entries()) {
+  for (const [index, receipt] of fieldReceipts.entries()) {
     requireExactKeys(
       receipt,
       ["name", "value_digest"],
@@ -1023,7 +2076,7 @@ export function planSubmitIntent(
     throw new Error(`Required application fields were not reread: ${missing.join(", ")}`);
   }
   const expectedReceipts = new Map([
-    ["message", digest(freshRecord.generated_message)],
+    ["message", digest(record.generated_message)],
     ["apply_points", digest(String(form.apply_points))]
   ]);
   for (const field of requiredFields) {
@@ -1031,6 +2084,41 @@ export function planSubmitIntent(
       throw new Error(`Reread value does not match the authorized ${field} value`);
     }
   }
+}
+
+export function planSubmitIntent(
+  freshRecord,
+  {
+    form,
+    field_receipts,
+    profile,
+    rankingPolicy,
+    now = new Date().toISOString()
+  }
+) {
+  now = requireTimestamp(now, "browser submit intent now");
+  assertAutonomous(freshRecord);
+  requireCurrentGuard(freshRecord);
+  if (freshRecord.browser_state !== "filling") {
+    throw new Error("Submit intent requires filling state");
+  }
+  if (freshRecord.browser_job_digest !== browserJobDigest(freshRecord)) {
+    throw new Error("Job input changed before submit intent");
+  }
+  const currentEvaluation = evaluateJob(
+    freshRecord,
+    profile,
+    rankingPolicy,
+    now
+  );
+  const formFingerprint = browserFormFingerprint(
+    form,
+    { ...freshRecord, ...currentEvaluation }
+  );
+  if (formFingerprint !== freshRecord.browser_form_fingerprint) {
+    throw new Error("Application form changed after draft validation");
+  }
+  requireAuthorizedFieldReceipts(freshRecord, form, field_receipts);
   const identitySource = {
     ...freshRecord,
     browser_form_fingerprint: formFingerprint
@@ -1074,8 +2162,20 @@ export function planSubmitIntent(
 export function confirmSubmitIntent(
   plan,
   freshSourceRows,
-  { persistedClaims, profile, rankingPolicy, applicationPolicy, packPolicy, now }
+  {
+    persistedClaims,
+    profile,
+    rankingPolicy,
+    applicationPolicy,
+    packPolicy,
+    runtime,
+    receiptStore,
+    form,
+    fieldReceipts,
+    now
+  }
 ) {
+  now = requireTimestamp(now, "browser submit authorization now");
   if (plan?.protocol_version !== BROWSER_EXECUTOR_PROTOCOL_VERSION) {
     throw new Error("Submit intent plan protocol is stale");
   }
@@ -1094,7 +2194,7 @@ export function confirmSubmitIntent(
   }
   assertAutonomous(persisted);
   requireCurrentGuard(persisted);
-  requireWinningBrowserClaim(persisted, persistedClaims, now);
+  requireWinningBrowserClaim(persisted, persistedClaims, now, runtime);
   requireCurrentConfiguration(persisted, {
     profile,
     rankingPolicy,
@@ -1108,6 +2208,27 @@ export function confirmSubmitIntent(
   ) {
     throw new Error("Persisted submit intent is not click-authorizable");
   }
+  if (
+    browserFormFingerprint(
+      form,
+      {
+        ...persisted,
+        ...evaluateJob(persisted, profile, rankingPolicy, now)
+      }
+    ) !==
+    persisted.browser_form_fingerprint
+  ) {
+    throw new Error("Application form changed immediately before submit click");
+  }
+  requireAuthorizedFieldReceipts(persisted, form, fieldReceipts);
+  const authorizationDigest = browserSubmitAuthorizationDigest(persisted);
+  const consumptionReceipt = consumeSubmitAuthorizationReceipt(
+    receiptStore,
+    authorizationDigest,
+    persisted.submission_idempotency_key,
+    persisted.canonical_job_id,
+    now
+  );
   return {
     protocol_version: BROWSER_EXECUTOR_PROTOCOL_VERSION,
     capability: "click_application_submit_once",
@@ -1117,17 +2238,21 @@ export function confirmSubmitIntent(
     form_fingerprint: persisted.browser_form_fingerprint,
     submission_idempotency_key: persisted.submission_idempotency_key,
     submit_started_at: persisted.submission_started_at,
-    authorization_digest: browserSubmitAuthorizationDigest(persisted)
+    authorization_digest: authorizationDigest,
+    consumption_receipt_digest: digest(consumptionReceipt)
   };
 }
 
-export function commitBrowserResult(
+function applyBrowserResult(
   freshRecord,
   result,
   now = new Date().toISOString(),
   schema,
-  confirmationTrust = {}
+  confirmationTrust = {},
+  runtime,
+  allowedSourceStates
 ) {
+  now = requireTimestamp(now, "browser result now");
   assertAutonomous(freshRecord);
   requireCurrentGuard(freshRecord);
   requireExactKeys(
@@ -1146,7 +2271,6 @@ export function commitBrowserResult(
       "confirmation_reference",
       "observed_source_job_id",
       "observed_canonical_url",
-      "retry_at",
       "authorization_digest",
       "confirmation_attestation"
     ],
@@ -1159,27 +2283,27 @@ export function commitBrowserResult(
   ) {
     throw new Error("Browser result identity does not match persisted state");
   }
-  const state = String(result.result || "");
+  const requestedState = String(result.result || "");
   const afterSubmit = ["submit_started", "ambiguous"].includes(freshRecord.browser_state);
   const schemaTransitions = schema?.browser_transitions?.[freshRecord.browser_state];
   if (
     !Array.isArray(schemaTransitions) ||
-    !schemaTransitions.includes(state) ||
-    (!afterSubmit && !ACTIVE_PRE_SUBMIT_STATES.has(freshRecord.browser_state)) ||
-    !RESULT_CATEGORIES[state]
+    !schemaTransitions.includes(requestedState) ||
+    !allowedSourceStates.has(freshRecord.browser_state) ||
+    !RESULT_CATEGORIES[requestedState]
   ) {
     throw new Error("Browser result transition is not allowed from current state");
   }
   const evidence = sanitizeBrowserEvidence(result.evidence);
   if (
-    !RESULT_CATEGORIES[state].has(evidence.category) ||
+    !RESULT_CATEGORIES[requestedState].has(evidence.category) ||
     !evidence.observed_at ||
     Date.parse(evidence.observed_at) > Date.parse(now)
   ) {
     throw new Error("Browser result evidence does not match its lifecycle state");
   }
   if (
-    state !== "confirmed" &&
+    requestedState !== "confirmed" &&
     [
       result.confirmation_kind,
       result.confirmation_reference,
@@ -1190,24 +2314,35 @@ export function commitBrowserResult(
   ) {
     throw new Error("Confirmation identity is valid only for a confirmed result");
   }
+  let state = requestedState;
+  let retryAt = "";
+  if (requestedState === "retryable") {
+    const checkedRuntime = requireBrowserRuntime(runtime);
+    const attempts = Number(freshRecord.attempt_count || 0);
+    if (!Number.isInteger(attempts) || attempts < 1) {
+      throw new Error("Retryable browser result requires a counted attempt");
+    }
+    if (attempts >= checkedRuntime.retry.max_attempts) {
+      state = "blocked";
+    } else {
+      retryAt = new Date(
+        Date.parse(now) + checkedRuntime.retry.backoff_ms
+      ).toISOString();
+    }
+  }
   const updates = {
     browser_state: state,
-    browser_block_category: state === "blocked" ? evidence.category : "",
+    browser_block_category:
+      state === "blocked"
+        ? evidence.category
+        : "",
     error_category: state === "confirmed" ? "" : evidence.category,
     error_summary: state === "confirmed" ? "" : evidence.summary,
     processing_stage: state === "retryable" ? "browser_executor" : "",
     processing_token: "",
     processing_started_at: "",
-    next_retry_at: state === "retryable" ? String(result.retry_at || "") : ""
+    next_retry_at: retryAt
   };
-  if (state === "retryable") {
-    requireTimestamp(result.retry_at, "browser result retry_at");
-    if (Date.parse(result.retry_at) <= Date.parse(now)) {
-      throw new Error("browser result retry_at must be in the future");
-    }
-  } else if (result.retry_at) {
-    throw new Error("retry_at is only valid for a retryable browser result");
-  }
   if (afterSubmit) {
     if (
       result.form_fingerprint !== freshRecord.browser_form_fingerprint ||
@@ -1283,18 +2418,101 @@ export function commitBrowserResult(
   );
 }
 
+export function commitBrowserResult(
+  expectedRecord,
+  result,
+  now,
+  schema,
+  confirmationTrust = {},
+  {
+    freshSourceRows,
+    persistedClaims,
+    configuration,
+    runtime
+  } = {}
+) {
+  now = requireTimestamp(now, "browser result commit now");
+  const persisted = requireExactFreshRecord(
+    expectedRecord,
+    freshSourceRows,
+    schema,
+    "Browser result commit"
+  );
+  requireWinningBrowserClaim(persisted, persistedClaims, now, runtime);
+  requireResultConfiguration(persisted, configuration ?? {});
+  return applyBrowserResult(
+    persisted,
+    result,
+    now,
+    schema,
+    confirmationTrust,
+    runtime,
+    RESULT_COMMIT_STATES
+  );
+}
+
+export function reconcileBrowserResult(
+  expectedRecord,
+  result,
+  now,
+  schema,
+  confirmationTrust = {},
+  { freshSourceRows, configuration } = {}
+) {
+  now = requireTimestamp(now, "browser result reconciliation now");
+  const persisted = requireExactFreshRecord(
+    expectedRecord,
+    freshSourceRows,
+    schema,
+    "Browser result reconciliation"
+  );
+  requireResultConfiguration(persisted, configuration ?? {});
+  return applyBrowserResult(
+    persisted,
+    result,
+    now,
+    schema,
+    confirmationTrust,
+    undefined,
+    RECONCILIATION_STATES
+  );
+}
+
 export function recoverBrowserRecord(
   freshRecord,
-  { now = new Date().toISOString(), retry_at, evidence },
+  {
+    now = new Date().toISOString(),
+    evidence,
+    freshSourceRows,
+    persistedClaims,
+    configuration,
+    runtime
+  },
   schema
 ) {
-  assertAutonomous(freshRecord);
-  requireCurrentGuard(freshRecord);
-  if (["submit_started", "ambiguous", "confirmed"].includes(freshRecord.browser_state)) {
+  now = requireTimestamp(now, "browser recovery now");
+  const checkedRuntime = requireBrowserRuntime(runtime);
+  const persisted = requireExactFreshRecord(
+    freshRecord,
+    freshSourceRows,
+    schema,
+    "Browser recovery"
+  );
+  assertAutonomous(persisted);
+  requireCurrentGuard(persisted);
+  if (["submit_started", "ambiguous", "confirmed"].includes(persisted.browser_state)) {
     throw new Error("Post-submit state requires reconciliation and cannot be retried");
   }
-  if (!ACTIVE_PRE_SUBMIT_STATES.has(freshRecord.browser_state)) {
+  if (!ACTIVE_PRE_SUBMIT_STATES.has(persisted.browser_state)) {
     throw new Error("Browser record is not recoverable");
+  }
+  const startedAt = Date.parse(persisted.processing_started_at || "");
+  if (
+    !Number.isFinite(startedAt) ||
+    Date.parse(now) - startedAt < checkedRuntime.claim_lease_ms ||
+    hasAnyLiveBrowserClaim(persisted, persistedClaims, now)
+  ) {
+    throw new Error("Browser recovery requires an expired or lost claim");
   }
   const sanitized = sanitizeBrowserEvidence(evidence);
   if (!RESULT_CATEGORIES.retryable.has(sanitized.category)) {
@@ -1303,25 +2521,36 @@ export function recoverBrowserRecord(
   if (!sanitized.observed_at || Date.parse(sanitized.observed_at) > Date.parse(now)) {
     throw new Error("Browser recovery requires a current observed_at timestamp");
   }
-  requireTimestamp(retry_at, "browser retry_at");
-  if (Date.parse(retry_at) <= Date.parse(now)) {
-    throw new Error("browser retry_at must be in the future");
-  }
-  if (!schema?.browser_transitions?.[freshRecord.browser_state]?.includes("retryable")) {
+  if (!schema?.browser_transitions?.[persisted.browser_state]?.includes("retryable")) {
     throw new Error("Browser recovery transition is not allowed by the schema");
   }
+  const attempts = Number(persisted.attempt_count || 0);
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    throw new Error("Browser recovery requires a counted attempt");
+  }
+  const retryable = attempts < checkedRuntime.retry.max_attempts;
+  const state = retryable ? "retryable" : "blocked";
+  const contextDigest = persisted.browser_context_digest || browserContextDigest({
+    record: persisted,
+    ...(configuration ?? {})
+  });
   return requireValidProposedRecord(
     nextRecord(
-      freshRecord,
+      persisted,
       {
-        browser_state: "retryable",
+        browser_state: state,
+        browser_context_digest: contextDigest,
         processing_stage: "",
         processing_token: "",
         processing_started_at: "",
-        next_retry_at: retry_at,
+        next_retry_at: retryable
+          ? new Date(
+              Date.parse(now) + checkedRuntime.retry.backoff_ms
+            ).toISOString()
+          : "",
         browser_form_fingerprint: "",
         submission_idempotency_key: "",
-        browser_block_category: "",
+        browser_block_category: retryable ? "" : sanitized.category,
         error_category: sanitized.category,
         error_summary: sanitized.summary
       },

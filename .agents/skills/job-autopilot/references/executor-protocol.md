@@ -9,9 +9,10 @@ credential in arguments, logs, or telemetry.
 
 ## Required order
 
-1. `select`: validate all five stores and global identity ownership; select due
-   explicit `autonomous_chrome` records. Selection has no item/day/date cap and
-   stops only for execution headroom.
+1. `select`: validate all five stores, global identity ownership, and stabilized
+   claims. It returns one operation: `claim` for due work, `recover` for an
+   expired pre-submit claim, or `reconcile` for `submit_started`/`ambiguous`.
+   Selection has no item/day/date cap and stops only for execution headroom.
 2. `plan-claim`: return an append-winner `_System` claim and exact proposed
    source update. This does not expose browser or ChatGPT context.
 3. Persist the `_System` claim and proposed source update through the scheduled
@@ -33,17 +34,34 @@ credential in arguments, logs, or telemetry.
 8. `plan-submit-intent`: supply bounded form inventory and reread-completed field
    receipts. Each receipt contains only a field name and the lowercase SHA-256
    of the UTF-8 JSON string encoding of its exact string value; it must match
-   the authorized message or live per-application Apply Points value. Persist
+   the authorized message or repository-owned deterministic per-application
+   Apply Points value (low 1, normal 5, high 10; never `save_points`). Persist
    the exact `submit_started` row; it returns no click capability.
-9. `confirm-submit-intent`: supply that plan and a fresh exact source reread.
-   Supply the stabilized `_System` claims and current timestamp as well. Only a
-   still-winning claim under exact current profile/policies returns the one-click
-   capability.
-10. `commit-result`: bind result to attempt, job and full configuration context
-    digests, form fingerprint, idempotency key, bounded confirmation evidence,
-    and—only for `confirmed`—the independent adapter's Ed25519 attestation.
-11. `recover`: only for known pre-submit failures. It rejects `submit_started`,
-    `ambiguous`, and `confirmed` states.
+9. `confirm-submit-intent`: supply that plan, a fresh exact source reread, and
+   an immediate second reread of the authorized field values plus the form and
+   chosen submitter effective DOM action/method. Supply the stabilized `_System`
+   claims and current timestamp. Only a
+   still-winning claim under exact current profile/policies can consume the
+   authorization. Before returning the one-click capability, the executor
+   verifies the private pinned store and independent witness identities,
+   manifest, and hash chain, then atomically creates/verifies/fsyncs the
+   canonical-job-keyed receipt and directory before the ledger append, witness
+   advance, and final directory sync named by
+   `JOB_PIPELINE_BROWSER_CLICK_RECEIPT_DIR`. An existing receipt/ledger entry or
+   missing, recreated, moved, unprovisioned, malformed, busy, or changed store
+   fails closed and routes to reconciliation without another click.
+10. `commit-result`: for a pre-submit result, supply a fresh exact source reread
+    and stabilized claims. It requires the current winning claim and current
+    configuration, computes the pinned retry delay, and enforces the technical
+    retry maximum.
+11. `reconcile-result`: only for `submit_started` or `ambiguous`; supply a fresh
+    exact source reread and current configuration. It cannot return a click or
+    retry capability. A `confirmed` result additionally requires the independent
+    adapter's Ed25519 attestation.
+12. `recover`: only for an executor-selected expired/lost pre-submit claim.
+    Supply the fresh exact source row and stabilized claims. The executor
+    computes the retry time or blocks an exhausted attempt; caller-supplied
+    retry times are rejected.
 
 All write-producing operations return an exact `proposed_record`; none accepts
 arbitrary field updates. Persist and reread before using the next capability.
@@ -65,6 +83,20 @@ not contain the attempt ID. `browser_context_digest` binds the exact candidate
 profile plus ranking, application, and pack policies and must remain unchanged
 through fill, click authorization, and result commit.
 
+The click-consumption receipt and ledger contain only schema/store/ledger/
+generation identities, authorization/receipt digests, the stable submission
+key, a digest of canonical job identity, hash-chain metadata, and canonical UTC
+timestamps. The task pins lossless owner/device/inode identities for the private
+store and a separate private witness. The manifest binds both; the witness pins
+the full ledger count, hash-chain head, and file digest. It is advanced and
+fsynced after the ledger and before capability release. A deleted receipt,
+truncated or restored ledger, witness rollback, same-path recreation, permission
+drift, an orphan canonical-job receipt, or duplicate job/submission identity
+fails closed. The witness is never
+restored or rebound. Loss requires task disablement, independent reconciliation,
+and a new generation with new pins. A crash after durability but before the
+click deliberately prefers a missed application over a duplicate.
+
 ## Bounded result envelopes
 
 Use only these category codes: `missing_candidate_fact`, `login_required`,
@@ -75,7 +107,7 @@ Use only these category codes: `missing_candidate_fact`, `login_required`,
 `confirmation_mismatch`. Definitive confirmation uses
 `submission_confirmed` only inside the bounded evidence object.
 
-Every `commit-result` envelope contains `protocol_version`, `attempt_id`,
+Every `commit-result` or `reconcile-result` envelope contains `protocol_version`, `attempt_id`,
 `job_digest`, `result`, and `evidence`. A post-submit result also contains the
 exact `form_fingerprint`, `submission_idempotency_key`, and
 `authorization_digest` returned by `confirm-submit-intent`. `ambiguous` uses

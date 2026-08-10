@@ -21,9 +21,14 @@ test("job-autopilot skill is explicit, Chrome-only, and capability ordered", asy
   assert.match(skill, /CAPTCHA/);
   assert.match(protocol, /select[\s\S]+plan-claim[\s\S]+confirm-claim/);
   assert.match(protocol, /plan-submit-intent[\s\S]+confirm-submit-intent[\s\S]+commit-result/);
+  assert.match(protocol, /reconcile-result[\s\S]+recover/);
+  assert.match(protocol, /fresh exact source reread/i);
+  assert.match(protocol, /technical\s+retry maximum/i);
   assert.match(protocol, /no item\/day\/date cap/);
   assert.match(boundary, /same-origin\s+POST forms/);
   assert.match(boundary, /Never persist raw DOM/);
+  assert.match(boundary, /literal claimed ID/i);
+  assert.match(boundary, /32 KiB[\s\S]+64 fields/i);
   assert.match(metadata, /allow_implicit_invocation: false/);
 });
 
