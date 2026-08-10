@@ -3462,7 +3462,7 @@ test("prompt injection is rejected without persisting the malicious instruction 
   assert.match(prompt, /Build React and TypeScript features/);
 });
 
-test("no instructions is distinct from extraction failure and proof shortfall is explicit", () => {
+test("no instructions is distinct from extraction failure and unrelated jobs use fallback proof", () => {
   const noInstructions = buildApplicationPack(
     {
       job_title: "TypeScript React Developer",
@@ -3510,17 +3510,12 @@ test("no instructions is distinct from extraction failure and proof shortfall is
     shortfallPolicy,
     now
   );
-  assert.ok(
-    shortfall.application_warnings.some(
-      (warning) => warning.code === "proof_shortfall"
-    )
+  assert.equal(shortfall.selected_proof_refs.length, 3);
+  assert.equal(shortfall.application_pack_status, "ready");
+  assert.doesNotMatch(
+    JSON.stringify(shortfall.application_warnings),
+    /proof_shortfall|missing_selected_proof/
   );
-  assert.ok(
-    shortfall.application_warnings.some(
-      (warning) => warning.code === "missing_selected_proof"
-    )
-  );
-  assert.equal(shortfall.application_pack_status, "blocked");
 
   const zeroProofValidation = validateGeneratedMessage(
     `Subject line: Unrelated Specialist Application — John Lester Escarlan
@@ -3545,7 +3540,7 @@ I would welcome a conversation about how my experience fits this role.`,
   assert.equal(zeroProofValidation.valid, false);
   assert.match(
     zeroProofValidation.errors.join("\n"),
-    /selected approved proof/i
+    /unsupported|cross-proof/i
   );
 });
 

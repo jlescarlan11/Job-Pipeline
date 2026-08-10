@@ -246,8 +246,8 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
   assert.ok(system.length < 6000);
   assert.equal(pack.selected_proofs.length, 2);
   assert.equal(groqPolicy.generation.maximum_prompt_proofs, 2);
-  assert.equal(measurement.combined_characters, 4541);
-  assert.equal(measurement.character_based_token_estimate, 1514);
+  assert.equal(measurement.combined_characters, 4816);
+  assert.equal(measurement.character_based_token_estimate, 1606);
   assert.ok(user.includes(pack.selected_proofs[0].reference));
   assert.ok(user.includes(pack.selected_proofs[1].reference));
   assert.doesNotMatch(user, /"label"|"relevance_score"/);
@@ -270,7 +270,7 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
     }
   );
   assert.equal(oversized.length, userBudget);
-  assert.ok(oversized.endsWith("the system prompt."));
+  assert.match(oversized, /the system\s+prompt\.$/);
   assert.equal(
     validateGroqPromptBudget(groqPolicy, system, oversized).valid,
     true
@@ -324,7 +324,7 @@ test("Groq prompt budget compacts canonical evidence and bounds oversized descri
     validateGroqPromptBudget(groqPolicy, system, oversizedMetadata).valid,
     true
   );
-  assert.ok(oversizedMetadata.endsWith("the system prompt."));
+  assert.match(oversizedMetadata, /the system\s+prompt\.$/);
   assert.match(oversizedMetadata, /SELECTED APPROVED PROOFS/);
   assert.doesNotMatch(
     oversizedMetadata,

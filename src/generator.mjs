@@ -349,7 +349,11 @@ function readyRequiredInput(pack) {
     .filter(
       (warning) =>
         warning.review_acknowledged === true &&
-        warning.code !== "screening_question_requires_review"
+        ![
+          "screening_question_requires_review",
+          "missing_required_coverage",
+          "partial_coverage_requires_review"
+        ].includes(warning.code)
     )
     .map((warning) => warning.summary)
     .filter(Boolean);

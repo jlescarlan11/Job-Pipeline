@@ -254,7 +254,8 @@ Use synthetic/disposable source fixtures. Record only pass/fail, bounded categor
   and the responsibilities block does not become a screening question.
 - Coverage: confirm exact evidence is preferred, adjacent evidence records its
   material difference and requires review, and partial or missing mandatory
-  evidence remains non-ready with actionable `required_input`.
+  evidence requires `Proceed` before the closest truthful proof or prospective
+  proposal is positively framed without claiming the missing fact.
 - Prompt and validation: confirm the exact employer subject is the first line,
   all planned answer elements survive prompt compaction and repair, keyword-only
   responses and unsupported frequency/provider claims fail, and required

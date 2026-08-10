@@ -23,7 +23,8 @@ Each successfully generated pack persists:
 - one versioned message plan containing the exact resolved subject, required
   answer elements, proof references, transparent adjacent framing, approved
   URLs, formats, and manual actions;
-- at most three relevant `experience:<id>` or `projects:<id>` proof references;
+- at most two relevant or deterministic fallback `experience:<id>` or
+  `projects:<id>` proof references;
 - sanitized warnings with explicit unresolved or acknowledged state;
 - the validated application message;
 - pack, coverage, message-plan, profile, application-policy, and pack-policy
@@ -45,11 +46,12 @@ Coverage is deterministic and technology-agnostic. `exact` means the active
 profile directly supports the requested fact. `adjacent` means approved
 evidence is relevant but has a material difference that must be stated, such
 as a Groq-based agentic workflow answering a Claude-workflow request.
-`partial` and `missing` cannot become ready. `manual_action` records a required
-external step or an allowed alternative such as supplying an approved project
-URL. Exact evidence outranks adjacent evidence, and every reference resolves
-back to the active canonical profile rather than duplicating candidate facts
-inside the row.
+`partial` and `missing` require review. After `Proceed`, the generator answers
+non-sensitive requests by positively framing the closest selected proof,
+transferable strengths, or a prospective proposal without claiming the missing
+fact. Unsupported technologies remain unnamed and unsupported frequency is
+softened to approved tool usage. `manual_action` records a required external
+step or an allowed alternative such as supplying an approved project URL.
 
 ## Readiness
 
@@ -68,11 +70,11 @@ so an otherwise valid draft cannot silently skip a required answer.
 `review_required` means the candidate must interpret an ambiguous instruction,
 answer a screening question, resolve conflicting subject requirements, approve
 a transparent adjacent strategy, or accept a proof
-shortfall. Partial or missing mandatory coverage is not acknowledgeable.
+shortfall, or positive framing for partial or missing non-sensitive coverage.
+Those approved gaps remain auditable and cannot authorize an unsupported fact.
 `blocked` marks extraction truncation or overflow, a durable JSON-budget
-overflow, a required attachment/test/external form, unsupported evidence,
-rejected unsafe instruction, no relevant approved candidate proof, or an
-unavailable/insufficient description.
+overflow, an unresolved required attachment/test/external form or unsafe
+instruction, or an unavailable/insufficient description.
 When detailed extracted state cannot fit the Sheet contract, the pipeline
 persists a minimal `application_state_exceeds_persistence_limit` blocked pack
 instead of attempting an oversized or silently incomplete write. Extraction
@@ -92,8 +94,9 @@ A record enters To Apply immediately after a final `Proceed` decision, with
 only a commit with a `ready` pack and a message that passes the shared content
 and provenance gate may set `prep_status=message_ready`. Internal
 `review_required` maps to `review_needed` only before final review. After
-`Proceed`, answerable questions are prepared in place; sensitive candidate
-choices become `needs_input`, and attachments, tests, or employer tasks become
+`Proceed`, answerable questions—including approved missing or partial items—are
+prepared in place; sensitive candidate choices become `needs_input`, and
+attachments, tests, or employer tasks become
 `external_steps`. A proceeded record never returns to review solely because
 preparation is incomplete. Unsafe instructions remain excluded from prompts.
 An unavailable/insufficient description is not acknowledgeable and cannot
@@ -103,8 +106,9 @@ question, external action, and submission.
 A `ready` pack must contain current coverage and message-plan versions, one
 consistent plan entry per mandatory requirement, all required canonical proof
 references, and no unresolved partial or missing mandatory coverage. Review
-resolution may authorize only the recorded transparent adjacent strategy; it
-cannot remove the material difference or authorize an unsupported claim.
+resolution may authorize only the recorded positive-framing or transparent
+adjacent strategy; it cannot remove a material difference or authorize an
+unsupported claim.
 
 Question extraction requires candidate-directed language such as `you` or
 `your` and excludes known rhetorical section headings. This prevents headings

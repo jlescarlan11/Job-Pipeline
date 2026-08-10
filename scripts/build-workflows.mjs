@@ -2114,7 +2114,7 @@ return { json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "evaluator_generator",
-      workflowContractVersion: "2026-08-09/v1",
+      workflowContractVersion: "2026-08-10/v1",
       legacyStateGuardCompatibility: false,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
@@ -4935,7 +4935,7 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-09/v1",
+      workflowContractVersion: "2026-08-10/v1",
       legacyStateGuardCompatibility: false,
       businessRowRelocationMode: "copy_confirm_delete_only",
       alertPolicyVersion: alertPolicy.policy_version,

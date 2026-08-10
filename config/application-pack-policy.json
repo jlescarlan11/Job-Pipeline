@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-08-03/v1",
-  "pack_version": "2026-08-03/v1",
+  "policy_version": "2026-08-10/v1",
+  "pack_version": "2026-08-10/v1",
   "candidate_profile_version": "2026-07-29",
-  "application_policy_version": "2026-08-09",
+  "application_policy_version": "2026-08-10",
   "minimum_preferred_proofs": 2,
   "maximum_proofs": 2,
   "maximum_instructions": 20,
@@ -18,8 +18,8 @@
     "application_message_plan": 20000,
     "application_warnings": 12000
   },
-  "coverage_contract_version": "2026-08-03/v1",
-  "message_plan_version": "2026-08-03/v1",
+  "coverage_contract_version": "2026-08-10/v1",
+  "message_plan_version": "2026-08-10/v1",
   "coverage_classifications": [
     "exact",
     "adjacent",
@@ -35,6 +35,8 @@
       "conflicting_subject_instructions",
       "unsafe_instruction_rejected",
       "adjacent_coverage_requires_review",
+      "partial_coverage_requires_review",
+      "missing_required_coverage",
       "unsupported_external_action",
       "unsupported_required_evidence"
     ],

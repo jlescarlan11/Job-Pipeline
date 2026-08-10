@@ -2937,7 +2937,7 @@ export function selectApplicationProofs(job, profile, packPolicy, requirementCov
   const tokens = proofTokens(jobText);
   const matchedSkills = knownSkillsInText(jobText, profile);
   const allRanked = proofCandidates(profile)
-    .map((proof) => {
+    .map((proof, profileOrder) => {
       const proofText = normalizeText(proof.text);
       const proofTokenSet = proofTokens(proofText);
       const tokenOverlap = [...tokens].filter((token) => proofTokenSet.has(token)).length;
@@ -2948,12 +2948,14 @@ export function selectApplicationProofs(job, profile, packPolicy, requirementCov
         ...proof,
         score: skillOverlap * 20 + Math.min(tokenOverlap, 20),
         skill_overlap: skillOverlap,
-        token_overlap: tokenOverlap
+        token_overlap: tokenOverlap,
+        profile_order: profileOrder
       };
     })
     .sort(
       (left, right) =>
         right.score - left.score ||
+        left.profile_order - right.profile_order ||
         left.reference.localeCompare(right.reference)
     );
   const toSelectedProof = (proof) => ({
@@ -2982,10 +2984,15 @@ export function selectApplicationProofs(job, profile, packPolicy, requirementCov
   const byReference = new Map(
     allRanked.map((proof) => [proof.reference, toSelectedProof(proof)])
   );
-  return [
+  const relevant = [
     ...mandatoryReferences.map((reference) => byReference.get(reference)).filter(Boolean),
     ...ranked.filter((proof) => !mandatoryReferences.includes(proof.reference))
-  ].slice(0, packPolicy.maximum_proofs);
+  ];
+  const relevantReferences = new Set(relevant.map((proof) => proof.reference));
+  const fallback = allRanked
+    .filter((proof) => !relevantReferences.has(proof.reference))
+    .map(toSelectedProof);
+  return [...relevant, ...fallback].slice(0, packPolicy.maximum_proofs);
 }
 
 export function validateApplicationPackPolicy(packPolicy, profile, applicationPolicy) {
@@ -3422,6 +3429,16 @@ function applicationPackPersistenceErrors(pack, packPolicy) {
         ? []
         : [`${field} exceeds its durable JSON limit`];
     }
+  );
+}
+
+function coverageWarningAcknowledged(pack, coverage, warningCodes) {
+  const codes = new Set(Array.isArray(warningCodes) ? warningCodes : [warningCodes]);
+  return (pack?.application_warnings ?? []).some(
+    (warning) =>
+      codes.has(warning.code) &&
+      warning.coverage_id === coverage.id &&
+      warning.review_acknowledged === true
   );
 }
 
@@ -4191,7 +4208,22 @@ export function validateApplicationPack(pack, profile, packPolicy) {
       if (
         pack.application_pack_status === "ready" &&
         requirement.required &&
-        ["missing", "partial"].includes(requirement.disposition)
+        ["missing", "partial"].includes(requirement.disposition) &&
+        coverage.some((item) =>
+          item.classification === "missing"
+            ? !coverageWarningAcknowledged(
+                pack,
+                item,
+                "missing_required_coverage"
+              )
+            : item.classification === "partial"
+              ? !coverageWarningAcknowledged(
+                  pack,
+                  item,
+                  "partial_coverage_requires_review"
+                )
+              : false
+        )
       ) {
         errors.push(
           `a ready pack cannot contain unresolved mandatory coverage: ${requirement.requirement_id}`
@@ -5082,13 +5114,24 @@ function screeningQuestionKeywords(question) {
     );
 }
 
-function screeningAnswerErrors(message, pack) {
+function screeningAnswerErrors(
+  message,
+  pack,
+  { positiveFramingOnly = false } = {}
+) {
   const normalizedMessage = normalizeText(message).toLowerCase();
   const errors = [];
   const questions = (pack?.screening_questions ?? []).filter(
     (question) =>
       question?.answer_status === "answer_in_message" &&
-      question?.review_acknowledged === true
+      question?.review_acknowledged === true &&
+      (!positiveFramingOnly ||
+        (pack?.requirement_coverage ?? []).some(
+          (coverage) =>
+            coverage.requirement_id === question.id &&
+            coverage.classification === "missing" &&
+            ["frequency", "response"].includes(coverage.element_kind)
+        ))
   );
   for (const question of questions) {
     const id = String(question?.id || "unknown");
@@ -5113,7 +5156,7 @@ const UNSUPPORTED_FREQUENCY_PATTERN =
 const MATERIAL_CLAIM_PATTERN =
   /\b(?:hipaa|pci|soc\s*2|gdpr|compliant|patient|billing|evaluation frameworks?|safety evaluations?|safety guardrails?|agent reliability|edge-case behavior|accuracy)\b/gi;
 const CLAIM_SCAFFOLD_TOKENS = new Set([
-  "adjacent", "also", "are", "aspects", "direct", "draft",
+  "adjacent", "ai", "also", "are", "aspects", "coolest", "direct", "draft",
   "drafts", "durable", "gave", "guarded", "integration",
   "incident", "integrations", "involved", "issue", "its", "message", "most", "one",
   "orchestrate", "orchestration", "patterns", "rather", "state",
@@ -5123,7 +5166,9 @@ const CLAIM_SCAFFOLD_TOKENS = new Set([
 const CANDIDATE_OWNERSHIP_PATTERN =
   /\bi(?:'ve| have)?\s+(?:build|built|create|created|develop|developed|deliver|delivered|implement|implemented|design|designed|automate|automated|resolve|resolved|fix|fixed|diagnose|diagnosed|write|wrote|author|authored|maintain|maintained|ship|shipped|integrate|integrated|use|used|add|added|rebuild|rebuilt)\b/i;
 const NON_MATERIAL_CONVERSATION_PATTERN =
-  /^i\s+(?:can|would be happy to)\s+(?:walk through|discuss|share|explain)\b/i;
+  /^(?:i\s+(?:can|would be happy to)\s+(?:walk through|discuss|share|explain)\b|(?:this|these|that)\b[^.!?]{0,160}\b(?:fit|right person|contribut(?:e|ion))\b)/i;
+const PROSPECTIVE_FRAMING_PATTERN =
+  /^(?:for\b[^.!?]{0,100},\s*)?i\s+would\s+(?:improve|prioritize|focus|strengthen|add|refine|make)\b/i;
 
 function groundingRoots(token) {
   const normalized = String(token || "")
@@ -5239,7 +5284,7 @@ function messageBodySentences(message) {
 }
 
 const CLAIM_CLAUSE_BOUNDARY =
-  /\s*;\s*|\bthat\s+(?=(?:collect|collects|generate|generates|archive|archives)\b)|,\s+(?=(?:and|but|while)\s+)|,\s+(?=(?:and\s+)?(?:the\s+)?[A-Za-z0-9.+#-]+(?:\s+[A-Za-z0-9.+#-]+){0,2}\s+API\s+(?:to|for)\b)|\s+(?:and|but)\s+(?=(?:i|we|it|they|this|that|the|is|are|was|were|has|have|build|built|maintain|maintained|diagnose|diagnosed|resolve|resolved|fix|fixed|create|created|develop|developed|deliver|delivered|implement|implemented|design|designed|automate|automated|write|wrote|author|authored|ship|shipped|integrate|integrated|add|added|rebuild|rebuilt|collect|collects|generate|generated|generates|archive|archives|restore|restored|reduce|reduced)\b)/i;
+  /\s*;\s*|\bthat\s+(?=(?:collect|collects|generate|generates|archive|archives)\b)|,\s+(?=(?:and|but|while)\s+)|,\s+(?:and\s+)?(?=(?:collect|collects|generate|generated|generates|archive|archived|archives|restore|restored|reduce|reduced|remove|removed|save|saved|write|writes|wrote)\b)|,\s+(?=(?:and\s+)?(?:the\s+)?[A-Za-z0-9.+#-]+(?:\s+[A-Za-z0-9.+#-]+){0,2}\s+API\s+(?:to|for)\b)|\s+(?:and|but)\s+(?=(?:i|we|it|they|this|that|the|is|are|was|were|has|have|build|built|maintain|maintained|diagnose|diagnosed|resolve|resolved|fix|fixed|create|created|develop|developed|deliver|delivered|implement|implemented|design|designed|automate|automated|write|wrote|author|authored|ship|shipped|integrate|integrated|add|added|rebuild|rebuilt|collect|collects|generate|generated|generates|archive|archives|restore|restored|reduce|reduced)\b)/i;
 
 function claimClauses(value) {
   return normalizeText(value)
@@ -5504,8 +5549,24 @@ function requirementCoverageErrors(message, pack, profile) {
   for (const requirement of pack?.message_plan?.requirements ?? []) {
     if (!requirement.required) continue;
     if (requirement.disposition === "missing") {
-      errors.push(`mandatory requirement lacks approved evidence: ${requirement.requirement_id}`);
-      continue;
+      const unresolved = (pack?.requirement_coverage ?? [])
+        .filter(
+          (coverage) =>
+            coverage.requirement_id === requirement.requirement_id &&
+            coverage.classification === "missing"
+        )
+        .some(
+          (coverage) =>
+            !coverageWarningAcknowledged(
+              pack,
+              coverage,
+              "missing_required_coverage"
+            )
+        );
+      if (unresolved) {
+        errors.push(`mandatory requirement lacks approved evidence: ${requirement.requirement_id}`);
+        continue;
+      }
     }
     if (requirement.disposition === "manual_action") continue;
     if (
@@ -5692,7 +5753,10 @@ function claimGroundingErrors(message, pack, profile) {
     models: proofGroundingModels(proof, profile)
   }));
   for (const sentence of messageBodySentences(message)) {
-    if (NON_MATERIAL_CONVERSATION_PATTERN.test(sentence)) {
+    if (
+      NON_MATERIAL_CONVERSATION_PATTERN.test(sentence) ||
+      PROSPECTIVE_FRAMING_PATTERN.test(sentence)
+    ) {
       continue;
     }
     const allowedAdjacentRoots = adjacentRootsAllowedInSentence(sentence, pack);
@@ -5899,6 +5963,12 @@ export function validateGeneratedMessage(message, { job, profile, policy, pack }
   INTERNAL_CONTEXT_PATTERN.lastIndex = 0;
   if (!(pack?.requirement_coverage?.length > 0)) {
     errors.push(...screeningAnswerErrors(rawMessage, pack));
+  } else {
+    errors.push(
+      ...screeningAnswerErrors(rawMessage, pack, {
+        positiveFramingOnly: true
+      })
+    );
   }
   errors.push(...requirementCoverageErrors(rawMessage, pack, profile));
   errors.push(...claimGroundingErrors(rawMessage, pack, profile));

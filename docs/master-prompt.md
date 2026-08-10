@@ -46,9 +46,10 @@ The system message instructs Groq to:
    claims.
 6. Follow the high-priority requirement-aware message plan before using the
    description as supporting role context.
-7. Answer every planned employer request from selected evidence, state every
-   approved adjacent difference truthfully, and leave external actions and
-   sensitive commitments manual.
+7. Answer every planned employer request from selected evidence, positively
+   frame approved missing or partial items without claiming unknown facts,
+   state every approved adjacent difference truthfully, and leave external
+   actions and sensitive commitments manual.
 8. Target at most 260 total words, use one or two selected proofs, return only
    plain text, and preserve manual submission.
 
@@ -63,8 +64,10 @@ excluded. Before the description, it includes a versioned compact message plan
 with the exact resolved first-line subject, required answer elements, proof
 references, material adjacent differences, format and count constraints,
 approved URLs, and manual actions. After approval, it includes
-profile-answerable screening questions under an explicit answer-required
-section. It does not add new candidate facts. Prompt compaction may shorten
+approved screening questions under an explicit answer-required section. A
+missing or partial item uses the closest proof, transferable strengths, or a
+prospective proposal without inventing history, unsupported skills, or
+frequency. Prompt compaction may shorten
 lower-priority description context but must retain every required plan element
 and proof; if the complete plan cannot fit, generation fails closed before a
 provider request.
@@ -72,8 +75,9 @@ provider request.
 Only a deterministically `ready` application pack reaches Groq. An unapproved
 `review_required` pack makes no provider call and maps to visible
 `review_needed`. A persisted `Approve` may turn only allow-listed warnings into
-auditable follow-up state. Profile-answerable questions enter the initial and
-repair prompts; questions requesting salary, availability, schedules, time
+auditable follow-up state. Approved non-sensitive questions enter the initial
+and repair prompts even when coverage is partial or missing; questions
+requesting salary, availability, schedules, time
 zones, start dates, phone details, or work authorization remain manual. Unsafe
 employer segments remain removed from the prompt, and deterministic
 proof/message validation remains mandatory. An unavailable or insufficient

@@ -83,14 +83,15 @@ policy:
 - a permanent source HTTP 404/410 becomes `unavailable` and is archived;
 - temporary provider, network, or validation failures become retryable `error`, never `skip`.
 
-`Proceed` in `To Review` is a final resolution of the stable `review_case_id`. Alerter & Mover copies the complete row directly to `To Apply` with `review_decision=proceed` and `prep_status=pending`, confirms it, then deletes the unchanged review source. Generator reads both Scraped Jobs and To Apply under one global five-item cap and prepares the proceeded record in place. Candidate-directed, profile-answerable questions enter the bounded generation/repair prompts; sensitive commitments become `needs_input`, and attachments, tests, uploads, or other employer actions become `external_steps`. Neither state is treated as an application submission. An unchanged paused input guard is not reselected; a relevant input/version advance permits one new claim. `Reject` moves directly to Archive. Legacy `Approve` and `Deny` are accepted only as migration aliases; a looped v3 Scraped Jobs alias has one guarded copy-confirm-delete exit and cannot be reproduced by a v4 action.
+`Proceed` in `To Review` is a final resolution of the stable `review_case_id`. Alerter & Mover copies the complete row directly to `To Apply` with `review_decision=proceed` and `prep_status=pending`, confirms it, then deletes the unchanged review source. Generator reads both Scraped Jobs and To Apply under one global five-item cap and prepares the proceeded record in place. Candidate-directed non-sensitive questions enter the bounded generation/repair prompts; missing or partial coverage is positively framed from approved proofs without inventing facts. Sensitive commitments become `needs_input`, and attachments, tests, uploads, or other employer actions become `external_steps`. Neither state is treated as an application submission. An unchanged paused input guard is not reselected; a relevant input/version advance permits one new claim. `Reject` moves directly to Archive. Legacy `Approve` and `Deny` are accepted only as migration aliases; a looped v3 Scraped Jobs alias has one guarded copy-confirm-delete exit and cannot be reproduced by a v4 action.
 
 The application domain converts structured employer instructions into a
 versioned requirement-coverage contract and a deterministic message plan
 before any provider call. Exact evidence is preferred; materially adjacent
 evidence records the requested and actual capability and requires review plus
-transparent prose. Partial or missing mandatory coverage cannot be approved
-into readiness. The plan is prompt-priority context and survives compaction;
+transparent prose. `Proceed` may approve positive framing for partial or
+missing non-sensitive coverage, but never the missing fact itself. The plan is
+prompt-priority context and survives compaction;
 failure to retain all required elements fails closed.
 
 The model path permits one initial `openai/gpt-oss-120b` request per candidate. If deterministic message validation rejects that draft, it permits exactly one delayed `openai/gpt-oss-20b` repair containing the complete rejected draft, every validation error, and only the compact proof/instruction context needed to validate the repaired message. The full job description is not resent. The repaired draft must pass the same pack and message gates; there is no third request or automatic HTTP retry.

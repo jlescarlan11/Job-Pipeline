@@ -1,8 +1,8 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-08-09/v1",
+  "policy_version": "2026-08-10/v1",
   "deployment_scope": "self_hosted_regular",
-  "verified_on": "2026-08-09",
+  "verified_on": "2026-08-10",
   "official_sources": [
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/control-concurrency",
     "https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/manage-execution-data",
@@ -80,11 +80,11 @@
     "storage_version": "2026-08-04-preparation-lifecycle-v4",
     "pipeline_contract_digest": "pipeline-v1:038ef670",
     "candidate_profile_version": "2026-07-29",
-    "application_policy_version": "2026-08-09",
-    "application_pack_policy_version": "2026-08-03/v1",
-    "application_pack_version": "2026-08-03/v1",
-    "coverage_contract_version": "2026-08-03/v1",
-    "message_plan_version": "2026-08-03/v1"
+    "application_policy_version": "2026-08-10",
+    "application_pack_policy_version": "2026-08-10/v1",
+    "application_pack_version": "2026-08-10/v1",
+    "coverage_contract_version": "2026-08-10/v1",
+    "message_plan_version": "2026-08-10/v1"
   },
   "workflow_cutover": {
     "schema_version": 3,
@@ -126,7 +126,7 @@
       {
         "role": "evaluator_generator",
         "target_workflow_id": "TRUqD9atneyDyMNx",
-        "artifact_digest": "sha256:b4ca6b45dd1648a2ee5e36cee0aa1a4062cf8aae4047035c648b16bf9034e0b7",
+        "artifact_digest": "sha256:a6183a1b79bd771b10671c81af975ffc622b7324d20f22ac1a4bb3d498b1ab79",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 480,
         "schedule_expressions": [
@@ -150,7 +150,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:f6416f71d9a0530c0a3aaac9eb548b2f1b4fa3dfe7181ed619f92c47aba525a0",
+        "artifact_digest": "sha256:ad218d5f6a8dec2686a0989f3dd17dd3b693db9d5c4ffd727610859f79a4cace",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [

@@ -73,6 +73,14 @@ I also delivered five production features using C# and ASP.NET Core MVC within a
 
 I would welcome a conversation about how my experience fits this role.`;
 
+const positiveFramingValidMessage = `Subject line: AI Workflow Builder Application — John Lester Escarlan
+
+Hi there,
+
+The AI tools I use most in my automation work are n8n, Groq API, and Google Sheets API. The coolest AI system I have built is Job Pipeline, a three-workflow automation that collects job listings, generates tailored application messages through Groq API, and archives processed results in Google Sheets. For my current AI workflow, I would improve the feedback on generated results while retaining its prompt validation, deduplication, and rate-limit-aware batching. This hands-on automation work and my experience maintaining production web applications are why I am the right person to contribute in this role.
+
+I would welcome a conversation about how my experience fits this role.`;
+
 function recordFromDescription(
   id,
   {
@@ -280,7 +288,7 @@ test("paused preparation resumes only after a guarded material-input version adv
   const pending = proceedForPreparation(recordFromDescription(3270, {
     html: null,
     description:
-      "Build infrastructure automation. Please describe verified Terraform experience."
+      "Build infrastructure automation. What is your availability and when can you start?"
   }));
   const claimed = claim(pending, "generation", "To Apply");
   const prepared = prepareApplicationGeneration(
@@ -299,7 +307,7 @@ test("paused preparation resumes only after a guarded material-input version adv
     now,
     "To Apply"
   );
-  assert.equal(paused.prep_status, "needs_input");
+  assert.equal(paused.prep_status, "external_steps");
   assert.deepEqual(
     selectGeneratorCandidate(
       { "Scraped Jobs": [], "To Apply": [paused] },
@@ -680,21 +688,19 @@ test("unsafe or incomplete application packs never call the provider", () => {
   );
 });
 
-test("proceeded missing and partial coverage remain needs-input preparation outcomes", () => {
+test("Proceed positively frames missing and partial coverage through generation", () => {
   const cases = [
     {
       id: 3060,
       description:
         "Build infrastructure automation for customers. Please describe your experience using Terraform.",
-      warning: "missing_required_coverage",
-      requiredInput: /Terraform/
+      warning: "missing_required_coverage"
     },
     {
       id: 3061,
       description:
-        "Build customer products. Please describe a production e-commerce project you built.",
-      warning: "partial_coverage_requires_review",
-      requiredInput: /partially covers|Production status/i
+        "Build customer products. Please describe a production project you built.",
+      warning: "partial_coverage_requires_review"
     }
   ];
   for (const entry of cases) {
@@ -711,15 +717,14 @@ test("proceeded missing and partial coverage remain needs-input preparation outc
       groqPolicy,
       now
     );
-    assert.equal(prepared.provider_required, false);
-    assert.equal(prepared.record.pipeline_status, "ready_to_apply");
-    assert.equal(prepared.record.prep_status, "needs_input");
-    assert.equal(prepared.record.error_category, "");
-    assert.match(prepared.record.required_input, entry.requiredInput);
+    assert.equal(prepared.provider_required, true);
+    assert.equal(prepared.pack.application_pack_status, "ready");
+    assert.match(prepared.system_message, /positively frame/i);
+    assert.match(prepared.user_message, /positively frame missing or partial/i);
     assert.ok(
       prepared.pack.application_warnings.some(
         (warning) =>
-          warning.code === entry.warning && warning.review_acknowledged !== true
+          warning.code === entry.warning && warning.review_acknowledged === true
       )
     );
   }
@@ -745,12 +750,8 @@ test("proceeded missing and partial coverage remain needs-input preparation outc
     groqPolicy,
     now
   );
-  assert.equal(stalePrepared.provider_required, false);
-  assert.equal(stalePrepared.record.generated_message, "");
-  assert.equal(stalePrepared.record.message_validation_status, "");
-  assert.equal(stalePrepared.record.message_profile_version, "");
-  assert.equal(stalePrepared.record.message_policy_version, "");
-  assert.equal(stalePrepared.record.generated_at, "");
+  assert.equal(stalePrepared.provider_required, true);
+  assert.doesNotMatch(stalePrepared.user_message, new RegExp(validMessage));
 });
 
 test("Proceed sanitizes unsafe instructions without returning to review", () => {
@@ -907,6 +908,54 @@ test("Proceed sends profile-answerable screening questions into message generati
   );
   assert.equal(committed.pipeline_status, "ready_to_apply");
   assert.equal(committed.user_action, "");
+});
+
+test("Proceed answers open-ended screening questions with positive truthful framing", () => {
+  const approved = proceedForPreparation(recordFromDescription(3056, {
+    html: null,
+    title: "AI Workflow Builder",
+    status: "review_needed",
+    description: [
+      "What AI tools do you use every day?",
+      "What's the coolest thing you've ever built with AI?",
+      "What would you improve about your current AI workflow?",
+      "Why do you think you're the right person for this role?"
+    ].join("\n")
+  }));
+  const claimed = claim(approved, "generation", "To Apply");
+  const prepared = prepareApplicationGeneration(
+    claimed,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    groqPolicy,
+    now
+  );
+
+  assert.equal(prepared.provider_required, true);
+  assert.equal(prepared.pack.application_pack_status, "ready");
+  assert.ok(prepared.pack.selected_proof_refs.includes("projects:job-pipeline"));
+  assert.ok(
+    prepared.pack.application_warnings
+      .filter((warning) => warning.code === "missing_required_coverage")
+      .every((warning) => warning.review_acknowledged === true)
+  );
+  assert.match(prepared.system_message, /closest proof or as a future proposal/i);
+  assert.match(prepared.user_message, /What AI tools do you use every day\?/);
+
+  const proposed = applyValidatedGeneration(
+    claimed,
+    prepared.pack,
+    positiveFramingValidMessage,
+    profile,
+    applicationPolicy,
+    packPolicy,
+    now
+  );
+  assert.equal(proposed.prep_status, "message_ready");
+  assert.equal(proposed.required_input, "");
+  assert.equal(proposed.generated_message, positiveFramingValidMessage);
+  assert.doesNotMatch(proposed.generated_message, /\bdaily\b|every day/i);
 });
 
 test("human-only employer actions become bounded external steps without provider work", () => {
