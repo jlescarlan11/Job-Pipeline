@@ -84,9 +84,9 @@
     }
   },
   "provenance": {
-    "prompt_digest": "sha256:2af34d768e8410475bd07cef215ecdf47abfb3bd3b01f57fe328e2ecbbee51b8",
-    "skill_bundle_digest": "sha256:567cf7961c0b32bab3233a6ff8d10bd6152ddacd4597e850206be331d91c7bbc",
-    "protocol_bundle_digest": "sha256:565858207190072ccf6dffd54875e1175886a12d042a5f5a587e50afd4b3919b",
+    "prompt_digest": "sha256:0bd8d46c9566629b15909e1ac83c189defe3081db217034785f58823e5ecb69e",
+    "skill_bundle_digest": "sha256:27e57355a070e302de57bc7f737d4744147e110e64571eda239f8dc7c72cf166",
+    "protocol_bundle_digest": "sha256:01689b26c90d985779106ea8037665d7c0c8abc13228980d817ba036b3d535ee",
     "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
     "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
     "application_policy_digest": "sha256:4d295387f4620c3432dfde33c5d4e010872b2bad87b42546bea68183ab7165bb",

@@ -21,8 +21,9 @@ raise it, and it is not a daily limit.
   Chrome plugin.
 - Workbook setup, candidate context, policies, task descriptor, skill, and
   executor protocol all match their pinned versions and digests.
-- An independent application-history adapter holds an Ed25519 private key and
-  the task receives only its pinned public verification key and key ID.
+- A separate scheduled application-history adapter holds an Ed25519 private
+  key. The browser-executor run receives only its pinned public verification
+  key and key ID and cannot invoke the signer.
 - The two n8n workflows and browser task are activated only through the guarded
   cutover runbook. This source change does not activate them.
 
@@ -49,7 +50,10 @@ operations in this order:
    advances/fsyncs the witness before it can return a capability. Click once
    only with that first job/submission consumption capability; replay, rollback,
    permission drift, or store/witness loss fails closed into reconciliation
-10. obtain the independent account-history attestation and `reconcile-result`
+10. persist a bounded ambiguous post-click result and stop
+11. in the separate adapter run, verify OnlineJobs Job Applications / Sent and
+    its exact `First contacted for Job` link, attest the bounded observation,
+    and pass the signed result to `reconcile-result`
 
 Every write is an exact guarded row proposal. There is no generic write command.
 The browser task never moves rows between business stores.
@@ -86,7 +90,8 @@ another capability. A crash after receipt creation is reconciled and never
 retried as a click. The checked-in task keeps these identities `unprovisioned`,
 so source validation cannot authorize a real click.
 
-The executor never accepts self-attested success. A `confirmed` result must
+The executor never accepts self-attested success. The submission run cannot
+invoke the adapter. A `confirmed` result must
 carry a valid independent adapter signature over the exact attempt, job and
 configuration context, form, submit identity, observed job identity, reference,
 and timestamp. Without it, the result remains ambiguous.
@@ -102,12 +107,28 @@ origin only for the test, and exercise every case in
 `tests/fixtures/onlinejobs/replay.json`. Fixture mode must never use production
 workbook writes or a real submit control.
 
+## Runtime provisioning
+
+The checked-in task remains inert. Provision a private runtime overlay from a
+new click-store binding with:
+
+```sh
+npm run provision:browser-runtime -- \
+  "/absolute/private/runtime/browser-runtime-v1" \
+  "/absolute/private/runtime/browser-click-v1/binding.json"
+```
+
+This creates a one-time Ed25519 adapter identity, a public-only provisioned
+browser-task overlay, and a private binding file. The executor receives the
+overlay, public key, click-store directory, and witness paths. Only the separate
+confirmation-adapter run receives `adapter-private-key.pem`. Never copy the
+private-key path into the executor automation or n8n.
+
 ## Capability gate
 
 Repository tests prove the protocol and sanitized fixture behavior, but they do
-not prove unattended final-submit behavior in the installed Chrome/product/site
-combination, and no trusted attestation adapter/public key has been provisioned
-by this source-only change. Production activation remains blocked until an
+not prove unattended final-submit behavior in every future Chrome/product/site
+version. Production activation remains blocked until an
 authorized live window verifies the intended profile, site allowlist, adapter
 confirmation behavior, one exact real submission, ambiguous reconciliation,
 and rollback evidence.

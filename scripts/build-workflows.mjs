@@ -126,6 +126,10 @@ if (!applicationPromptTemplates) {
 }
 const confirmationCryptoCore =
   'const { createHash, createPublicKey, verify: verifySignature } = require("crypto");';
+const browserAttestationKeyIdEnvironmentVariable =
+  "JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID";
+const browserAttestationPublicKeyDigestEnvironmentVariable =
+  "JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY_SPKI_SHA256";
 const movementCore = `${confirmationCryptoCore}\n${await bundledCore(
   "src/contracts.mjs",
   "src/browser-confirmation-attestation.mjs",
@@ -2630,8 +2634,8 @@ const plan = planAlerterMoverPhases(
     movementPerRunCap: RUNTIME.movement_per_run_cap,
     confirmationTrust: {
       publicKey: $env.${browserTask.confirmation_attestation.public_key_environment_variable},
-      keyId: ${JSON.stringify(browserTask.confirmation_attestation.key_id)},
-      publicKeySpkiSha256: ${JSON.stringify(browserTask.confirmation_attestation.public_key_spki_sha256)}
+      keyId: $env.${browserAttestationKeyIdEnvironmentVariable},
+      publicKeySpkiSha256: $env.${browserAttestationPublicKeyDigestEnvironmentVariable}
     }
   }
 );
@@ -3064,8 +3068,8 @@ const result = confirmMoveDeletions(
   SCHEMA,
   {
     publicKey: $env.${browserTask.confirmation_attestation.public_key_environment_variable},
-    keyId: ${JSON.stringify(browserTask.confirmation_attestation.key_id)},
-    publicKeySpkiSha256: ${JSON.stringify(browserTask.confirmation_attestation.public_key_spki_sha256)}
+    keyId: $env.${browserAttestationKeyIdEnvironmentVariable},
+    publicKeySpkiSha256: $env.${browserAttestationPublicKeyDigestEnvironmentVariable}
   }
 );
 console.log(JSON.stringify({

@@ -53,12 +53,15 @@ const browserSkillBundle = await Promise.all(
 const browserProtocolBundle = await Promise.all(
   [
     "../AGENTS.md",
+    "../src/browser-confirmation-adapter.mjs",
     "../src/browser-confirmation-attestation.mjs",
     "../src/browser-executor.mjs",
+    "../src/browser-task-runtime.mjs",
     "../src/contracts.mjs",
     "../src/evaluation.mjs",
     "../src/profile.mjs",
     "../src/system-claims.mjs",
+    "../scripts/browser-confirmation-adapter.mjs",
     "../scripts/browser-executor.mjs"
   ].map(
     async (path) => ({ path, content: await loadText(path) })

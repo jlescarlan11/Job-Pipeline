@@ -61,7 +61,41 @@ credential in arguments, logs, or telemetry.
 12. `recover`: only for an executor-selected expired/lost pre-submit claim.
     Supply the fresh exact source row and stabilized claims. The executor
     computes the retry time or blocks an exhausted attempt; caller-supplied
-    retry times are rejected.
+   retry times are rejected.
+
+## Independent confirmation-adapter role
+
+The submission task and confirmation-adapter task are separate scheduled runs.
+The submission task never receives the adapter private-key path and never calls
+the adapter CLI. After a possible click it persists an `ambiguous` result and
+stops. The adapter task never opens an application form, fills fields, or
+clicks submit.
+
+For one `submit_started` or `ambiguous` record, the adapter opens OnlineJobs
+**Job Applications / Sent**, finds the application conversation, and opens
+that conversation read-only. It accepts evidence only when the conversation's
+**First contacted for Job** link normalizes to the record's exact canonical URL
+and source job ID. The bounded observation supplied on stdin to
+`browser-confirmation-adapter attest` has exactly these keys:
+
+```json
+{
+  "record": "<exact fresh post-submit record>",
+  "observation": {
+    "thread_reference": "message/conversation/<opaque-id>",
+    "observed_source_job_id": "<exact source job id>",
+    "observed_canonical_url": "<exact canonical job URL from the history link>",
+    "observed_at": "<current ISO-8601 observation time>"
+  }
+}
+```
+
+The adapter process validates the provisioned public trust root against its
+private key, constructs the complete bounded confirmation result, and signs the
+immutable witness. The adapter task passes that result directly to
+`reconcile-result`; it never edits confirmation fields itself. A missing,
+duplicate, stale, wrong-job, unsigned, or ambiguous history record leaves the
+row unchanged and never authorizes another click.
 
 All write-producing operations return an exact `proposed_record`; none accepts
 arbitrary field updates. Persist and reread before using the next capability.

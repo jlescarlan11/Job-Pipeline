@@ -75,12 +75,14 @@ job receipt after a crash, store/witness loss, rollback, recreation, permission
 drift, or identity/path drift fails closed. Replay is reconciliation-only and
 cannot authorize another click.
 
-After the possible click, accept confirmation only when the independent
-application-history adapter verifies the signed-in account record and signs the
-exact source job ID, canonical job URL, reference digest, time, configuration
-context, and immutable submit authorization. The browser task holds only the
-verification key. Navigation, page text, or an unsigned model-authored result
-is ambiguous.
+After the possible click, the executor does not inspect account history and
+cannot invoke the signer. A separate confirmation-adapter run opens OnlineJobs
+Job Applications / Sent read-only and accepts only a conversation whose `First
+contacted for Job` link normalizes to the exact persisted source job ID and
+canonical URL. It signs the thread reference, observation time, configuration
+context, and immutable submit authorization. The executor holds only the
+verification key. Navigation, page text, email replies, or an unsigned
+model-authored result is ambiguous.
 
 If an unexpected product confirmation appears before any possible submit click,
 do not interact with it and record `blocked` / `unsupported_external_step`. If

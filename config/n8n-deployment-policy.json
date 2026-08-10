@@ -127,7 +127,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:6d03162d58a071248ffb208f97da48a571923c75d76b3e6b61d7a450d2afaab9",
+        "artifact_digest": "sha256:6541ca2bd0941dab5b93b9d4b0dbd7366ef7dff575bd24f312525e17efac0f1f",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [
@@ -151,9 +151,9 @@
     "scheduled_task": {
       "role": "browser_executor",
       "contract_version": "2026-08-10/browser-task-v1",
-      "artifact_digest": "sha256:12dc9783df7001619e6da0cd904416120af206ae90bdff28d657d9882daf6555",
+      "artifact_digest": "sha256:bdda7a7760869533738261d5ef8b7e5f87b24d5e0c0c52bb3c6b42286c83f0a1",
       "prompt_version": "2026-08-10/browser-task-prompt-v1",
-      "prompt_digest": "sha256:2af34d768e8410475bd07cef215ecdf47abfb3bd3b01f57fe328e2ecbbee51b8",
+      "prompt_digest": "sha256:0bd8d46c9566629b15909e1ac83c189defe3081db217034785f58823e5ecb69e",
       "skill_name": "job-autopilot",
       "skill_version": "job-autopilot-v1",
       "skill_path": ".agents/skills/job-autopilot/SKILL.md",
@@ -169,8 +169,8 @@
       "continuation_mode": "technical_headroom_next_schedule",
       "retry_max_attempts": 3,
       "retry_backoff_ms": 300000,
-      "skill_bundle_digest": "sha256:567cf7961c0b32bab3233a6ff8d10bd6152ddacd4597e850206be331d91c7bbc",
-      "protocol_bundle_digest": "sha256:565858207190072ccf6dffd54875e1175886a12d042a5f5a587e50afd4b3919b",
+      "skill_bundle_digest": "sha256:27e57355a070e302de57bc7f737d4744147e110e64571eda239f8dc7c72cf166",
+      "protocol_bundle_digest": "sha256:01689b26c90d985779106ea8037665d7c0c8abc13228980d817ba036b3d535ee",
       "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
       "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
       "application_policy_digest": "sha256:4d295387f4620c3432dfde33c5d4e010872b2bad87b42546bea68183ab7165bb",

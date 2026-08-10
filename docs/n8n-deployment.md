@@ -36,8 +36,9 @@ The scheduled-task contract additionally requires:
 
 - explicit `job-autopilot` skill invocation;
 - the installed Chrome plugin URI `plugin://chrome@openai-bundled`;
-- a signed-in Chrome profile and an independent account-history attestation
-  adapter whose private key is unavailable to the task;
+- a signed-in Chrome profile plus separate browser-executor and independent
+  account-history-adapter runs; the executor never receives the adapter private
+  key or invokes its signer;
 - an OnlineJobs.ph host allowlist;
 - the selected local project root;
 - the authoritative Main and Configuration workbook bindings; and
@@ -83,6 +84,13 @@ The production-context validator requires:
 - `JOB_PIPELINE_SLACK_WEBHOOK_URL`;
 - `JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID`; and
 - `N8N_RUNNERS_AUTH_TOKEN`.
+
+Alerter & Mover additionally reads the public verification values
+`JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY`,
+`JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID`, and
+`JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY_SPKI_SHA256`. The generated
+workflow never embeds a production key identity or digest. Missing or mismatched
+values fail closed before an autonomous confirmed row can move.
 
 Set `NODE_FUNCTION_ALLOW_BUILTIN=crypto` exactly. The generated Alerter & Mover
 uses that single built-in to verify the persisted Ed25519 confirmation receipt
@@ -144,6 +152,21 @@ the exact production pins. It never edits the inert checked-in task contract,
 never overwrites a generation, and does not activate the scheduled task. Back
 up the new generation before activation; never restore or rebind its witness
 after loss.
+
+Provision the paired public runtime overlay and independent adapter signing
+identity into a different new private root:
+
+```sh
+npm run provision:browser-runtime -- \
+  "/absolute/private/runtime/browser-runtime-v1" \
+  "/absolute/private/runtime/browser-click-v1/binding.json"
+```
+
+The generated `browser-task.json` contains only public verification and click
+pins. Give the browser-executor automation that task path, public-key path,
+click directory, and witness path. Give `adapter-private-key.pem` only to the
+separate confirmation-adapter automation. Register both automations paused;
+the adapter prompt is `docs/browser-confirmation-adapter-task-prompt.md`.
 
 ## Live cutover boundary
 

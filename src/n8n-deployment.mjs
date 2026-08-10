@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { browserConfirmationPublicKeyDigest } from "./browser-confirmation-attestation.mjs";
+
 import {
   minuteIntervalExecutionMinutes,
   minuteIntervalScheduleRules,
@@ -910,6 +912,9 @@ export function validateN8nDeploymentEnvironment(policy, environment) {
     "JOB_PIPELINE_REVIEW_URL",
     "JOB_PIPELINE_SLACK_WEBHOOK_URL",
     "JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID",
+    "JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY",
+    "JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID",
+    "JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY_SPKI_SHA256",
     "N8N_RUNNERS_AUTH_TOKEN"
   ]) {
     if (!String(environment?.[key] || "").trim()) {
@@ -923,6 +928,26 @@ export function validateN8nDeploymentEnvironment(policy, environment) {
   ].filter((value) => String(value || "").trim());
   if (new Set(workbookIds).size !== workbookIds.length) {
     errors.push("queue, configuration, and old workbook identifiers must differ");
+  }
+  if (
+    environment?.JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID &&
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,119}$/.test(
+      environment.JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID
+    )
+  ) {
+    errors.push("JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID is invalid");
+  }
+  if (
+    environment?.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY &&
+    (browserConfirmationPublicKeyDigest(
+      environment.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY
+    ) !==
+      environment?.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY_SPKI_SHA256 ||
+      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(
+        environment.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY
+      ))
+  ) {
+    errors.push("browser attestation public trust binding is invalid");
   }
   if (
     environment?.JOB_PIPELINE_REVIEW_URL &&

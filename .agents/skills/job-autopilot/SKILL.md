@@ -25,13 +25,18 @@ before inspecting or changing a form.
 3. Require an allowlisted `https://onlinejobs.ph` or
    `https://www.onlinejobs.ph` job/application page. Do not expand site
    permissions or navigate to an employer-controlled form.
-4. Run `select` with the stabilized claim rows. If it returns `recover`, persist
+4. Determine the scheduled role before touching Chrome. The browser executor
+   may claim, evaluate, fill, and submit but must never invoke the confirmation
+   signer. The independent confirmation adapter may inspect only Job
+   Applications / Sent history and reconcile a post-submit record; it must
+   never open an application form, fill a field, or click submit.
+5. Run `select` with the stabilized claim rows. If it returns `recover`, persist
    only the executor's bounded expired-claim recovery proposal. If it returns
    `reconcile`, inspect account history and run only `reconcile-result`; never
    claim or click again. For `claim`, run `plan-claim` and `confirm-claim` in
    order. Do not expose context until the claim is the stabilized winner and the
    exact source row has been reread.
-5. Keep generated messages, descriptions, page text, form values, cookies,
+6. Keep generated messages, descriptions, page text, form values, cookies,
    credentials, and screenshots out of logs and operational summaries.
 
 ## Process one claimed record
@@ -85,12 +90,17 @@ before inspecting or changing a form.
    reconciliation without another click. Never restore or rebind the witness;
    after loss, disable the task, reconcile independently, and rotate the store
    generation and task pins. Record the bounded blocker instead.
-9. Reconcile using the independent application-history adapter for the exact
-   source job ID and canonical URL. Run `reconcile-result` with the adapter's
-   Ed25519 attestation over the immutable submit witness. The task never has
-   the private signing key. Visible browser text or model-authored evidence
-   alone cannot declare success; without a valid attestation, persist
-   `ambiguous` and do not retry blindly.
+9. After the possible click, the browser-executor task persists `ambiguous` /
+   `submission_uncertain` and stops. It must not open Job Applications / Sent,
+   invoke `browser-confirmation-adapter`, or receive the private signing key.
+   The separate confirmation-adapter run reads the exact post-submit row,
+   observes OnlineJobs Job Applications / Sent, opens only the matching
+   conversation, and requires its `First contacted for Job` link to normalize
+   to the persisted canonical URL and source job ID. It passes only the bounded
+   thread reference, exact job identity, and observation time to the adapter,
+   then runs `reconcile-result` with the returned Ed25519 attestation. Visible
+   browser text or model-authored evidence alone cannot declare success;
+   without a valid attestation, leave the record ambiguous and never retry it.
 
 ## Stop and classify
 

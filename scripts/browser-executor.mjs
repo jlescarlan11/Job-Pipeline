@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
+import { isAbsolute } from "node:path";
 
 import {
   commitBrowserResult,
@@ -16,6 +17,7 @@ import {
 import {
   browserConfirmationPublicKeyDigest
 } from "../src/browser-confirmation-attestation.mjs";
+import { assertProvisionedBrowserTask } from "../src/browser-task-runtime.mjs";
 
 const COMMANDS = new Set([
   "select",
@@ -72,7 +74,7 @@ async function loadJson(relativePath) {
   );
 }
 
-const [schema, profile, rankingPolicy, applicationPolicy, packPolicy, browserTask] =
+const [schema, profile, rankingPolicy, applicationPolicy, packPolicy, sourceBrowserTask] =
   await Promise.all([
     loadJson("../config/pipeline-schema.json"),
     loadJson("../config/candidate-profile.json"),
@@ -81,6 +83,27 @@ const [schema, profile, rankingPolicy, applicationPolicy, packPolicy, browserTas
     loadJson("../config/application-pack-policy.json"),
     loadJson("../config/browser-executor-task.json")
   ]);
+const publicKeyEnvironmentVariable =
+  sourceBrowserTask.confirmation_attestation.public_key_environment_variable;
+const publicKeyFileEnvironmentVariable = `${publicKeyEnvironmentVariable}_FILE`;
+const publicKeyPath = process.env[publicKeyFileEnvironmentVariable] || "";
+if (publicKeyPath && !isAbsolute(publicKeyPath)) {
+  throw new Error("Browser attestation public-key path must be absolute");
+}
+const confirmationPublicKey = publicKeyPath
+  ? await readFile(publicKeyPath, "utf8")
+  : process.env[publicKeyEnvironmentVariable] || "";
+const runtimeTaskPath = process.env.JOB_PIPELINE_BROWSER_TASK_CONFIG_PATH || "";
+if (runtimeTaskPath && !isAbsolute(runtimeTaskPath)) {
+  throw new Error("Browser runtime task path must be absolute");
+}
+const browserTask = runtimeTaskPath
+  ? assertProvisionedBrowserTask(
+      sourceBrowserTask,
+      JSON.parse(await readFile(runtimeTaskPath, "utf8")),
+      confirmationPublicKey
+    )
+  : sourceBrowserTask;
 const configuration = {
   profile,
   rankingPolicy,
@@ -230,8 +253,7 @@ switch (command) {
       "now"
     ]);
     {
-      const publicKey =
-        process.env.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY || "";
+      const publicKey = confirmationPublicKey;
       const expectedPublicKeyDigest =
         browserTask.confirmation_attestation.public_key_spki_sha256;
       const publicKeyIsPinned =
@@ -262,8 +284,7 @@ switch (command) {
   case "reconcile-result":
     exactInput(input, ["fresh_record", "fresh_source_rows", "result", "now"]);
     {
-      const publicKey =
-        process.env.JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY || "";
+      const publicKey = confirmationPublicKey;
       const expectedPublicKeyDigest =
         browserTask.confirmation_attestation.public_key_spki_sha256;
       const publicKeyIsPinned =

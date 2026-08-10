@@ -7,6 +7,11 @@ the next due Job Pipeline browser attempt from this local project. Use only the
 versioned browser-executor operations and the authoritative candidate and
 application context returned by them.
 
+Locate exactly one provisioned `run-browser-executor.zsh` below
+`~/Library/Application Support/Job-Pipeline/` and use it for every executor
+operation. Stop if it is missing or ambiguous. Do not read the private runtime
+binding, adapter launcher, or adapter private key.
+
 Continue while eligible work exists and the runtime reports enough technical
 headroom. Do not count applications by day and do not enforce a daily, date
 bucket, or per-run application quota. Technical headroom defers unfinished due
@@ -29,11 +34,12 @@ and first-job/submission consumption proof, and reconcile a definitive result.
 Never reuse an authorization, restore/rebind a witness, or blindly resubmit an
 ambiguous attempt.
 
-Treat a result as confirmed only when the separately trusted application-history
-adapter returns a valid Ed25519 attestation for the exact immutable witness.
-The task must never receive the adapter private key. If the adapter or its
-configured verification key is unavailable, record the post-click outcome as
-ambiguous and stop; page text or the model's own observation is not confirmation.
+After a possible final click, persist the exact bounded ambiguous result and
+stop. Do not open Job Applications / Sent, invoke the confirmation-adapter CLI,
+or receive its private-key path. A separate scheduled confirmation-adapter run
+is the only role allowed to observe account history and request a signature for
+the exact immutable witness. Page text or this task's own observation is not
+confirmation.
 
 Do not move a business row. Do not use a generic Sheet write. Do not reveal or
 log a generated application message, job description, full DOM, screenshot,

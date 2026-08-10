@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
@@ -11,6 +12,7 @@ import {
   validateN8nDeploymentPolicy
 } from "../src/n8n-deployment.mjs";
 import { workflowDeploymentDigest } from "../src/workflow-cutover.mjs";
+import { browserConfirmationPublicKeyDigest } from "../src/browser-confirmation-attestation.mjs";
 
 const loadJson = async (path) =>
   JSON.parse(await readFile(new URL(path, import.meta.url)));
@@ -49,12 +51,15 @@ const browserSkillBundle = await Promise.all(
 const browserProtocolBundle = await Promise.all(
   [
     "../AGENTS.md",
+    "../src/browser-confirmation-adapter.mjs",
     "../src/browser-confirmation-attestation.mjs",
     "../src/browser-executor.mjs",
+    "../src/browser-task-runtime.mjs",
     "../src/contracts.mjs",
     "../src/evaluation.mjs",
     "../src/profile.mjs",
     "../src/system-claims.mjs",
+    "../scripts/browser-confirmation-adapter.mjs",
     "../scripts/browser-executor.mjs"
   ].map(
     async (path) => ({
@@ -219,6 +224,23 @@ test("scheduled task policy pins its source contract, prompt, and runtime", () =
   );
 });
 
+test("Alerter & Mover reads provisioned confirmation trust from public runtime bindings", () => {
+  const alerter = generatedWorkflows.find(
+    (workflow) => workflow.meta?.workflowRole === "alerter_mover"
+  );
+  const serialized = JSON.stringify(alerter);
+  assert.match(serialized, /JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY/);
+  assert.match(serialized, /JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID/);
+  assert.match(
+    serialized,
+    /JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY_SPKI_SHA256/
+  );
+  assert.doesNotMatch(
+    serialized,
+    /keyId:\s*["']unprovisioned|publicKeySpkiSha256:\s*["']unprovisioned/
+  );
+});
+
 test("application compatibility rejects a structurally stale pipeline schema", () => {
   const staleSchema = structuredClone(pipelineSchema);
   staleSchema.fields = staleSchema.fields.filter(
@@ -234,6 +256,10 @@ test("application compatibility rejects a structurally stale pipeline schema", (
 });
 
 test("production environment requires exact runtime values and separate workbooks", () => {
+  const attestationPublicKey = generateKeyPairSync("ed25519").publicKey.export({
+    type: "spki",
+    format: "pem"
+  });
   const environment = {
     ...policy.environment,
     JOB_PIPELINE_SPREADSHEET_ID: "new-workbook",
@@ -244,6 +270,10 @@ test("production environment requires exact runtime values and separate workbook
     JOB_PIPELINE_SLACK_WEBHOOK_URL:
       "https://hooks.slack.com/services/T00000000/B00000000/abc123XYZ789token",
     JOB_PIPELINE_ALERT_RECEIPT_TABLE_ID: "receipt-table-id",
+    JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY: attestationPublicKey,
+    JOB_PIPELINE_BROWSER_ATTESTATION_KEY_ID: "onlinejobs-history-adapter-v1",
+    JOB_PIPELINE_BROWSER_ATTESTATION_PUBLIC_KEY_SPKI_SHA256:
+      browserConfirmationPublicKeyDigest(attestationPublicKey),
     N8N_RUNNERS_AUTH_TOKEN: "present-but-never-logged",
     N8N_PUBLIC_API_URL: "http://127.0.0.1:5678/api/v1"
   };
