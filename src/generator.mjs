@@ -52,16 +52,40 @@ function isLegacyPreparationRecord(record) {
   );
 }
 
-function stageForCandidate(record, sourceStore) {
+const APPLICATION_COMPATIBILITY_FIELDS = [
+  "application_pack_policy_version",
+  "application_pack_version",
+  "coverage_contract_version",
+  "message_plan_version"
+];
+
+function hasStaleApplicationCompatibility(record, applicationCompatibility) {
+  const expected = APPLICATION_COMPATIBILITY_FIELDS.map((field) =>
+    String(applicationCompatibility?.[field] || "").trim()
+  );
+  const persisted = APPLICATION_COMPATIBILITY_FIELDS.map((field) =>
+    String(record?.[field] || "").trim()
+  );
+  return (
+    expected.every(Boolean) &&
+    persisted.every(Boolean) &&
+    expected.some((value, index) => value !== persisted[index])
+  );
+}
+
+function stageForCandidate(record, sourceStore, applicationCompatibility) {
   if (sourceStore === "To Apply") {
+    const resumablePolicyUpgrade =
+      record.prep_status === "needs_input" &&
+      hasStaleApplicationCompatibility(record, applicationCompatibility);
     if (
       record.pipeline_status === "ready_to_apply" &&
       record.user_action === "" &&
       (record.review_decision === "proceed" ||
         isLegacyPreparationRecord(record)) &&
-      ["pending", "preparing", "repair_pending", "preparation_error"].includes(
+      (["pending", "preparing", "repair_pending", "preparation_error"].includes(
         record.prep_status
-      )
+      ) || resumablePolicyUpgrade)
     ) {
       return "generation";
     }
@@ -83,7 +107,8 @@ export function selectGeneratorCandidate(
   rowsOrStores,
   schema,
   runtime,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
+  applicationCompatibility = {}
 ) {
   const stores = Array.isArray(rowsOrStores)
     ? { "Scraped Jobs": rowsOrStores }
@@ -131,7 +156,11 @@ export function selectGeneratorCandidate(
           continue;
         }
       }
-      const stage = stageForCandidate(record, sourceStore);
+      const stage = stageForCandidate(
+        record,
+        sourceStore,
+        applicationCompatibility
+      );
       if (!stage) continue;
       if (
         sourceStore === "To Apply" &&

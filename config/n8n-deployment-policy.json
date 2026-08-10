@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "policy_version": "2026-08-10/v2",
+  "policy_version": "2026-08-10/v3",
   "deployment_scope": "self_hosted_regular",
   "verified_on": "2026-08-10",
   "official_sources": [
@@ -81,10 +81,10 @@
     "pipeline_contract_digest": "pipeline-v1:038ef670",
     "candidate_profile_version": "2026-07-29",
     "application_policy_version": "2026-08-10",
-    "application_pack_policy_version": "2026-08-10/v2",
-    "application_pack_version": "2026-08-10/v2",
-    "coverage_contract_version": "2026-08-10/v2",
-    "message_plan_version": "2026-08-10/v2"
+    "application_pack_policy_version": "2026-08-10/v3",
+    "application_pack_version": "2026-08-10/v3",
+    "coverage_contract_version": "2026-08-10/v3",
+    "message_plan_version": "2026-08-10/v3"
   },
   "workflow_cutover": {
     "schema_version": 3,
@@ -126,7 +126,7 @@
       {
         "role": "evaluator_generator",
         "target_workflow_id": "TRUqD9atneyDyMNx",
-        "artifact_digest": "sha256:e68e478d8b1ec83ced446156f03b19d52d681d342c673cb84dfaa43b3a6a3097",
+        "artifact_digest": "sha256:75103dca7328ce6d30b809144dd5867f6fbf473503ee41e43d31b8aa8b1c69f5",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 480,
         "schedule_expressions": [
@@ -150,7 +150,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:05e366e5d787a32a5c0f3800b9294ddcd2980b04a64715a695456bcaa13fe676",
+        "artifact_digest": "sha256:772cba3ab732f5a47a9c01d7f27cad5efdb3a10ea462e92ba27d0a59c74d7edb",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [

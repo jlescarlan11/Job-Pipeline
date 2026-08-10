@@ -1164,7 +1164,7 @@ test("requirement-aware Generator accounting covers implementation and honest li
   assert.match(deployment, /application compatibility unit/i);
   assert.match(deployment, /Cutover evidence schema v3/i);
   assert.match(requirementAwareVerification, /287 tests: 275 pass/);
-  assert.equal(deploymentPolicy.policy_version, "2026-08-10/v2");
+  assert.equal(deploymentPolicy.policy_version, "2026-08-10/v3");
   assert.equal(deploymentPolicy.workflow_cutover.schema_version, 3);
   assert.equal(
     deploymentPolicy.workbook_binding.deployment_mode,
@@ -1172,7 +1172,7 @@ test("requirement-aware Generator accounting covers implementation and honest li
   );
   assert.equal(
     deploymentPolicy.application_compatibility.coverage_contract_version,
-    "2026-08-10/v2"
+    "2026-08-10/v3"
   );
 });
 

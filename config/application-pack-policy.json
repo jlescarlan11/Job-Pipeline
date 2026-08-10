@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-08-10/v2",
-  "pack_version": "2026-08-10/v2",
+  "policy_version": "2026-08-10/v3",
+  "pack_version": "2026-08-10/v3",
   "candidate_profile_version": "2026-07-29",
   "application_policy_version": "2026-08-10",
   "minimum_preferred_proofs": 2,
@@ -18,8 +18,8 @@
     "application_message_plan": 20000,
     "application_warnings": 12000
   },
-  "coverage_contract_version": "2026-08-10/v2",
-  "message_plan_version": "2026-08-10/v2",
+  "coverage_contract_version": "2026-08-10/v3",
+  "message_plan_version": "2026-08-10/v3",
   "coverage_classifications": [
     "exact",
     "adjacent",

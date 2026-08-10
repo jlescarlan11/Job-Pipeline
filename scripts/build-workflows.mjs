@@ -1194,6 +1194,12 @@ function buildGenerator() {
   const generatorSourceSheet =
     "={{ $('Confirm Generator System Claim').item.json.candidate.source_store }}";
   const config = runtime.generator;
+  const applicationCompatibility = {
+    application_pack_policy_version: packPolicy.policy_version,
+    application_pack_version: packPolicy.pack_version,
+    coverage_contract_version: packPolicy.coverage_contract_version,
+    message_plan_version: packPolicy.message_plan_version
+  };
   const nodes = [
     scheduleNode("generator", [-6000, 240], config),
     ...contextSnapshotNodes(
@@ -1215,6 +1221,7 @@ function buildGenerator() {
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const RUNTIME = ${JSON.stringify(config)};
+const APPLICATION_COMPATIBILITY = ${JSON.stringify(applicationCompatibility)};
 const now = new Date().toISOString();
 const scrapedRows = ($('Aggregate Scraped Jobs').all()[0]?.json.scraped_rows || [])
   .filter((row) => row && Object.keys(row).length)
@@ -1225,7 +1232,7 @@ const toApplyRows = ($input.first().json.to_apply_rows || [])
 const selected = selectGeneratorCandidate({
   'Scraped Jobs': scrapedRows,
   'To Apply': toApplyRows
-}, SCHEMA, RUNTIME, now);
+}, SCHEMA, RUNTIME, now, APPLICATION_COMPATIBILITY);
 return selected.map(({ record, stage, source_store }, selectionIndex) => ({
   json: {
     candidate_record: record,
@@ -1320,6 +1327,7 @@ return { json: {
       `${generatorCore}
 const SCHEMA = ${JSON.stringify(schema)};
 const RUNTIME = ${JSON.stringify(config)};
+const APPLICATION_COMPATIBILITY = ${JSON.stringify(applicationCompatibility)};
 const candidate = $('Confirm Generator System Claim').item.json.candidate;
 try {
   const matches = ($json.fresh_rows || [])
@@ -1338,7 +1346,8 @@ try {
     { [candidate.source_store]: matches },
     SCHEMA,
     RUNTIME,
-    new Date().toISOString()
+    new Date().toISOString(),
+    APPLICATION_COMPATIBILITY
   );
   if (
     current.length !== 1 ||
@@ -2114,7 +2123,7 @@ return { json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "evaluator_generator",
-      workflowContractVersion: "2026-08-10/v2",
+      workflowContractVersion: "2026-08-10/v3",
       legacyStateGuardCompatibility: false,
       pipelineSchemaVersion: schema.storage_version,
       candidateProfileSource: "Candidate, Skills, Experience, Projects, Education, Awards",
@@ -4935,7 +4944,7 @@ return [{ json: {
     meta: {
       templateCredsSetupCompleted: false,
       workflowRole: "alerter_mover",
-      workflowContractVersion: "2026-08-10/v2",
+      workflowContractVersion: "2026-08-10/v3",
       legacyStateGuardCompatibility: false,
       businessRowRelocationMode: "copy_confirm_delete_only",
       alertPolicyVersion: alertPolicy.policy_version,

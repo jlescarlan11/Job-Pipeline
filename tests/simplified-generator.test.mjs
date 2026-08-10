@@ -351,6 +351,74 @@ test("paused preparation resumes only after a guarded material-input version adv
   assert.equal(candidate.stage, "generation");
 });
 
+test("approved needs-input preparation resumes once after an application policy upgrade", () => {
+  const approved = proceedForPreparation(recordFromDescription(3272, {
+    html: null,
+    description:
+      "Build AI workflows. What AI tools do you use and why are you right for this role?"
+  }));
+  const paused = {
+    ...approved,
+    prep_status: "needs_input",
+    required_input: "Provide the requested screening-question response.",
+    application_pack_status: "blocked",
+    application_pack_policy_version: "2026-08-10/v1",
+    application_pack_version: "2026-08-10/v1",
+    coverage_contract_version: "2026-08-10/v1",
+    message_plan_version: "2026-08-10/v1"
+  };
+  paused.preparation_input_guard = preparationInputGuard(paused);
+  paused.state_guard = stateGuard(paused);
+  const stores = { "Scraped Jobs": [], "To Apply": [paused] };
+
+  assert.deepEqual(
+    selectGeneratorCandidate(stores, schema, runtime, now),
+    []
+  );
+  assert.deepEqual(
+    selectGeneratorCandidate(stores, schema, runtime, now, {
+      application_pack_policy_version: "2026-08-10/v1",
+      application_pack_version: "2026-08-10/v1",
+      coverage_contract_version: "2026-08-10/v1",
+      message_plan_version: "2026-08-10/v1"
+    }),
+    []
+  );
+
+  const [candidate] = selectGeneratorCandidate(
+    stores,
+    schema,
+    runtime,
+    now,
+    {
+      application_pack_policy_version: packPolicy.policy_version,
+      application_pack_version: packPolicy.pack_version,
+      coverage_contract_version: packPolicy.coverage_contract_version,
+      message_plan_version: packPolicy.message_plan_version
+    }
+  );
+  assert.equal(candidate.source_store, "To Apply");
+  assert.equal(candidate.stage, "generation");
+
+  const external = { ...paused, prep_status: "external_steps" };
+  external.state_guard = stateGuard(external);
+  assert.deepEqual(
+    selectGeneratorCandidate(
+      { "Scraped Jobs": [], "To Apply": [external] },
+      schema,
+      runtime,
+      now,
+      {
+        application_pack_policy_version: packPolicy.policy_version,
+        application_pack_version: packPolicy.pack_version,
+        coverage_contract_version: packPolicy.coverage_contract_version,
+        message_plan_version: packPolicy.message_plan_version
+      }
+    ),
+    []
+  );
+});
+
 test("an expired To Apply preparation claim is recoverable without stranding the row", () => {
   const pending = proceedForPreparation(recordFromDescription(3271));
   const preparing = claim(pending, "generation", "To Apply");
