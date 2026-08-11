@@ -35,23 +35,26 @@ operations in this order:
 1. `select`; handle returned `recover` or `reconcile` work before new claims
 2. for `claim`, run `plan-claim` and persist its counted claim/source update
 3. `confirm-claim`, persist its `evaluating` update
-4. inspect and fingerprint the exact form, generate the message
-5. `validate-decision`, persist `skipped` or `generating`
-6. `confirm-browser-ready` with stabilized claims, persist `filling`, then call
+4. if the Sheet description is insufficient, bind the exact claimed Chrome
+   page's bounded role facts through `bind-job-context`, persist the returned
+   `evaluating` update, and reread it; candidate facts remain profile-only
+5. inspect and fingerprint the exact form, generate the message
+6. `validate-decision`, persist `skipped` or `generating`
+7. `confirm-browser-ready` with stabilized claims, persist `filling`, then call
    it again after reread; fill message and Apply Points only from that capability
-7. fill and reread every required field; retain only name/value-digest receipts
+8. fill and reread every required field; retain only name/value-digest receipts
    and bind exactly one submit control plus both effective absolute DOM
    action/method pairs
-8. `plan-submit-intent`, persist `submit_started`
-9. `confirm-submit-intent` with stabilized claims/current config and an
+9. `plan-submit-intent`, persist `submit_started`
+10. `confirm-submit-intent` with stabilized claims/current config and an
    immediate effective form/submitter reread; it verifies
    the private inode-pinned store and independent witness, recomputes the
    hash-chained ledger, fsyncs the exclusive receipt and ledger append, then
    advances/fsyncs the witness before it can return a capability. Click once
    only with that first job/submission consumption capability; replay, rollback,
    permission drift, or store/witness loss fails closed into reconciliation
-10. persist a bounded ambiguous post-click result and stop
-11. in the separate adapter run, verify OnlineJobs Job Applications / Sent and
+11. persist a bounded ambiguous post-click result and stop
+12. in the separate adapter run, verify OnlineJobs Job Applications / Sent and
     its exact `First contacted for Job` link, attest the bounded observation,
     and pass the signed result to `reconcile-result`
 

@@ -3,18 +3,21 @@
 Normal execution is restricted to `https://onlinejobs.ph` or
 `https://www.onlinejobs.ph` and same-origin POST forms. Capture the effective
 absolute `HTMLFormElement.action`/method after document base-URL resolution, not
-the raw attributes. The observed page URL, source job ID, and
-`/jobseekers/job/<claimed-id>/apply` action must match the frozen executor record
-before fill and again immediately before submit. The action segment must be the
-literal claimed ID and may not contain a query string or fragment. Origin, page,
-form action, and chosen submitter action URLs must not contain a username or
-password; malformed URLs produce only the fixed bounded parser error.
+the raw attributes. The observed page URL, source job ID, and hidden `job_id`
+must match the frozen executor record before fill and again immediately before
+submit. The current signed-in application form posts to the same-origin
+absolute `/apply` action without a query string or fragment. Its one chosen
+submitter must resolve to that same owner-form action and POST method. The
+legacy job-specific `/jobseekers/job/<claimed-id>/apply` action remains readable
+for fixture compatibility only. Origin, page, form action, and chosen submitter
+action URLs must not contain a username or password; malformed URLs produce
+only the fixed bounded parser error.
 
 ## Bounded field inventory
 
 Capture only these structural properties for each field:
 
-- stable name;
+- stable name and, when the live control is unnamed, stable ID;
 - type: hidden, text, textarea, select, radio, checkbox, or submit;
 - required boolean;
 - maximum length when supplied;
@@ -28,28 +31,42 @@ Reject multiple submit controls, a submitter override, or any control swap.
 Never persist raw DOM, page HTML, screenshot data, hidden values, field values,
 session identifiers, CSRF values, cookies, or browser storage. Form fingerprint
 input contains origin, normalized canonical page URL, observed source job ID,
-the absolute same-origin job-specific effective action, POST method, exact
-chosen submitter, structural fields, and the
-repository-owned planned per-application Apply Points value plus its bounded numeric
-option list. The exact mapping is low = 1, normal = 5, high = 10;
-`save_points` blocks the application. The selected value must equal that mapping,
-be one of the live options, and match the options digest. Employer text cannot
-change it. The form envelope records the planned value before filling; the fill
-capability returns that exact numeric value and digest. Apply Points are not a
-daily application cap. The supported initial
-form has exactly the required message and Apply Points controls; every additional
+the absolute same-origin effective action, POST method, exact chosen submitter,
+structural fields, and the repository-owned planned per-application Apply Points
+value plus the live bounded account balance. The exact mapping is low = 1,
+normal = 5, high = 10; `save_points` blocks the application. The selected value
+must equal that mapping, be positive, and not exceed the live balance. Employer
+text cannot change it. The form envelope records the planned value before
+filling; the fill capability returns that exact numeric value and digest. Apply
+Points are not a daily application cap.
+
+The supported live application form has exactly these controls:
+
+- required `info[subject]` text and `info[message]` textarea fields;
+- optional `points` text input, which the task must fill from the capability;
+- one unnamed `textarea#contact-info-content`, which has no submitted name and
+  must not be changed;
+- one `op` submitter;
+- hidden `csrf-token`, `info[name]`, `info[email]`, `contact_email`,
+  `email_sent_count_today`, `back_id`, `sent_to_e_id`, and `job_id` fields.
+
+The executor splits the validated generated message deterministically: the text
+after `Subject line:` fills the subject field, and the remaining body fills the
+message field. The task never authors either value independently. Every other
 interactive control is blocked, including an optional prechecked checkbox or
-autofilled text field, until a separately validated answer contract exists.
+autofilled submitted text field, until a separately validated answer contract
+exists.
 The entire structural form envelope is limited to 32 KiB and at most 64 fields.
 
 ## Supported behavior
 
-Fill only fields represented by the validated application pack and fill
-capability. Reread every required field after filling and send only name/value
-digests to `plan-submit-intent`. A value digest is lowercase SHA-256 over the
-UTF-8 JSON string encoding of the exact reread string. The message and Apply
-Points digests must match the authorized values. The exact submit control and
-both effective DOM action/method pairs, plus fresh message and Apply Points
+Fill only the subject, message body, and Apply Points represented by the fill
+capability. Do not change the unnamed contact-information display. Reread all
+three filled fields and send only canonical role/value digests (`subject`,
+`message`, `apply_points`) to `plan-submit-intent`. A value digest is lowercase
+SHA-256 over the UTF-8 JSON string encoding of the exact reread string. All three
+digests must match the authorized values. The exact submit control and both
+effective DOM action/method pairs, plus fresh subject, message, and Apply Points
 value digests, must be reread again immediately before capability consumption
 and match the authorization.
 

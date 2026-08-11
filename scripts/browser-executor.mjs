@@ -4,6 +4,7 @@ import { isAbsolute } from "node:path";
 
 import {
   commitBrowserResult,
+  bindObservedJobContext,
   confirmAutonomousClaim,
   confirmBrowserReady,
   confirmSubmitIntent,
@@ -11,6 +12,7 @@ import {
   planSubmitIntent,
   reconcileBrowserResult,
   recoverBrowserRecord,
+  normalizeBrowserSheetRecord,
   selectAutonomousWork,
   validateAutonomousDecision
 } from "../src/browser-executor.mjs";
@@ -23,6 +25,7 @@ const COMMANDS = new Set([
   "select",
   "plan-claim",
   "confirm-claim",
+  "bind-job-context",
   "validate-decision",
   "confirm-browser-ready",
   "plan-submit-intent",
@@ -111,6 +114,28 @@ const configuration = {
   packPolicy
 };
 const input = await readStandardInput();
+const normalizationNow = input.now || new Date().toISOString();
+
+function normalizeSheetRecord(record) {
+  return normalizeBrowserSheetRecord(record, schema, normalizationNow);
+}
+
+function normalizeSheetRows(rows) {
+  return Array.isArray(rows) ? rows.map(normalizeSheetRecord) : rows;
+}
+
+function normalizeSheetStores(stores) {
+  if (!stores || typeof stores !== "object" || Array.isArray(stores)) {
+    return stores;
+  }
+  return Object.fromEntries(
+    Object.entries(stores).map(([store, rows]) => [
+      store,
+      normalizeSheetRows(rows)
+    ])
+  );
+}
+
 let output;
 
 switch (command) {
@@ -121,7 +146,7 @@ switch (command) {
       ["now", "deadline_ms", "minimum_headroom_ms"]
     );
     {
-      const work = selectAutonomousWork(input.stores, schema, {
+      const work = selectAutonomousWork(normalizeSheetStores(input.stores), schema, {
         now: input.now,
         deadline_ms: input.deadline_ms,
         minimum_headroom_ms: input.minimum_headroom_ms,
@@ -143,7 +168,7 @@ switch (command) {
       ["record", "execution_id", "now"],
       ["attempt_id"]
     );
-    output = planAutonomousClaim(input.record, {
+    output = planAutonomousClaim(normalizeSheetRecord(input.record), {
       execution_id: input.execution_id,
       now: input.now,
       attempt_id: input.attempt_id,
@@ -156,17 +181,36 @@ switch (command) {
       input.plan,
       {
         persisted_claims: input.persisted_claims,
-        fresh_source_rows: input.fresh_source_rows,
+        fresh_source_rows: normalizeSheetRows(input.fresh_source_rows),
         schema,
         now: input.now
       },
       configuration
     );
     break;
+  case "bind-job-context":
+    exactInput(input, [
+      "fresh_record",
+      "persisted_claims",
+      "observation",
+      "now"
+    ]);
+    output = bindObservedJobContext(
+      normalizeSheetRecord(input.fresh_record),
+      input.observation,
+      {
+        ...configuration,
+        persistedClaims: input.persisted_claims,
+        runtime: browserTask.runtime,
+        schema
+      },
+      input.now
+    );
+    break;
   case "validate-decision":
     exactInput(input, ["fresh_record", "decision", "context_digest", "form", "now"]);
     output = validateAutonomousDecision(
-      input.fresh_record,
+      normalizeSheetRecord(input.fresh_record),
       input.decision,
       {
         ...configuration,
@@ -186,7 +230,7 @@ switch (command) {
     ]);
     output = confirmBrowserReady(
       input.planned_record,
-      input.fresh_source_rows,
+      normalizeSheetRows(input.fresh_source_rows),
       {
         ...configuration,
         persistedClaims: input.persisted_claims,
@@ -198,7 +242,7 @@ switch (command) {
     break;
   case "plan-submit-intent":
     exactInput(input, ["fresh_record", "form", "field_receipts", "now"]);
-    output = planSubmitIntent(input.fresh_record, {
+    output = planSubmitIntent(normalizeSheetRecord(input.fresh_record), {
       form: input.form,
       field_receipts: input.field_receipts,
       profile,
@@ -215,34 +259,38 @@ switch (command) {
       "field_receipts",
       "now"
     ]);
-    output = confirmSubmitIntent(input.plan, input.fresh_source_rows, {
-      ...configuration,
-      persistedClaims: input.persisted_claims,
-      runtime: browserTask.runtime,
-      receiptStore: {
-        directory:
-          process.env[
-            browserTask.click_consumption.directory_environment_variable
-          ] || "",
-        witness_path:
-          process.env[
-            browserTask.click_consumption.witness_file_environment_variable
-          ] || "",
-        store_id: browserTask.click_consumption.store_id,
-        ledger_id: browserTask.click_consumption.ledger_id,
-        generation_id: browserTask.click_consumption.generation_id,
-        manifest_sha256: browserTask.click_consumption.manifest_sha256,
-        directory_binding_digest:
-          browserTask.click_consumption.directory_binding_digest,
-        directory_identity:
-          browserTask.click_consumption.directory_identity,
-        witness_identity:
-          browserTask.click_consumption.witness_identity
-      },
-      form: input.form,
-      fieldReceipts: input.field_receipts,
-      now: input.now
-    });
+    output = confirmSubmitIntent(
+      input.plan,
+      normalizeSheetRows(input.fresh_source_rows),
+      {
+        ...configuration,
+        persistedClaims: input.persisted_claims,
+        runtime: browserTask.runtime,
+        receiptStore: {
+          directory:
+            process.env[
+              browserTask.click_consumption.directory_environment_variable
+            ] || "",
+          witness_path:
+            process.env[
+              browserTask.click_consumption.witness_file_environment_variable
+            ] || "",
+          store_id: browserTask.click_consumption.store_id,
+          ledger_id: browserTask.click_consumption.ledger_id,
+          generation_id: browserTask.click_consumption.generation_id,
+          manifest_sha256: browserTask.click_consumption.manifest_sha256,
+          directory_binding_digest:
+            browserTask.click_consumption.directory_binding_digest,
+          directory_identity:
+            browserTask.click_consumption.directory_identity,
+          witness_identity:
+            browserTask.click_consumption.witness_identity
+        },
+        form: input.form,
+        fieldReceipts: input.field_receipts,
+        now: input.now
+      }
+    );
     break;
   case "commit-result":
     exactInput(input, [
@@ -262,7 +310,7 @@ switch (command) {
           expectedPublicKeyDigest;
     output = {
       proposed_record: commitBrowserResult(
-        input.fresh_record,
+        normalizeSheetRecord(input.fresh_record),
         input.result,
         input.now,
         schema,
@@ -272,7 +320,7 @@ switch (command) {
           publicKeySpkiSha256: expectedPublicKeyDigest
         },
         {
-          freshSourceRows: input.fresh_source_rows,
+          freshSourceRows: normalizeSheetRows(input.fresh_source_rows),
           persistedClaims: input.persisted_claims,
           configuration,
           runtime: browserTask.runtime
@@ -292,7 +340,7 @@ switch (command) {
         browserConfirmationPublicKeyDigest(publicKey) === expectedPublicKeyDigest;
       output = {
         proposed_record: reconcileBrowserResult(
-          input.fresh_record,
+          normalizeSheetRecord(input.fresh_record),
           input.result,
           input.now,
           schema,
@@ -302,7 +350,7 @@ switch (command) {
             publicKeySpkiSha256: expectedPublicKeyDigest
           },
           {
-            freshSourceRows: input.fresh_source_rows,
+            freshSourceRows: normalizeSheetRows(input.fresh_source_rows),
             configuration
           }
         )
@@ -318,10 +366,10 @@ switch (command) {
       "evidence"
     ]);
     output = {
-      proposed_record: recoverBrowserRecord(input.fresh_record, {
+      proposed_record: recoverBrowserRecord(normalizeSheetRecord(input.fresh_record), {
         now: input.now,
         evidence: input.evidence,
-        freshSourceRows: input.fresh_source_rows,
+        freshSourceRows: normalizeSheetRows(input.fresh_source_rows),
         persistedClaims: input.persisted_claims,
         configuration,
         runtime: browserTask.runtime

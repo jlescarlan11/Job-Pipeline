@@ -722,7 +722,10 @@ export function normalizeLegacyRecord(input, schema, now = new Date().toISOStrin
   record.review_decision = record.review_decision || "";
   record.prep_status =
     record.prep_status ||
-    (record.pipeline_status === "ready_to_apply" ? "preparation_error" : "");
+    (record.execution_mode !== "autonomous_chrome" &&
+    record.pipeline_status === "ready_to_apply"
+      ? "preparation_error"
+      : "");
   record.preparation_input_guard = record.preparation_input_guard || "";
   record.review_approval_note = record.review_approval_note || "";
   record.review_approval_guard = record.review_approval_guard || "";

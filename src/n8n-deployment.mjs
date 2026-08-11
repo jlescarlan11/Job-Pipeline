@@ -643,6 +643,7 @@ export function validateN8nDeploymentPolicy(
     "select",
     "plan-claim",
     "confirm-claim",
+    "bind-job-context",
     "validate-decision",
     "confirm-browser-ready",
     "plan-submit-intent",

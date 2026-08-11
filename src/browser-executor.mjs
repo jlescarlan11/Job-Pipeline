@@ -25,6 +25,7 @@ import {
   browserSubmitAuthorizationDigest,
   extractOnlineJobsId,
   normalizeCanonicalUrl,
+  normalizeLegacyRecord,
   stateGuard,
   stateGuardMatches,
   submissionIdempotencyKey as contractSubmissionIdempotencyKey,
@@ -137,6 +138,25 @@ const CLAIM_CONFIRM_FIELDS = [
   "record_version",
   "execution_mode",
   "automation_contract_version",
+  "browser_state",
+  "browser_attempt_id",
+  "browser_job_digest",
+  "browser_context_digest",
+  "processing_stage",
+  "processing_token",
+  "processing_started_at",
+  "state_guard",
+  "user_action",
+  "notes"
+];
+const LIVE_JOB_CONTEXT_CONFIRM_FIELDS = [
+  "canonical_job_id",
+  "record_version",
+  "canonical_url",
+  "job_title",
+  "company",
+  "job_description",
+  "salary_text",
   "browser_state",
   "browser_attempt_id",
   "browser_job_digest",
@@ -1228,6 +1248,191 @@ function boundedContextJob(record, packPolicy = {}) {
   );
 }
 
+function observedText(value, label, maximum, { required = false } = {}) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} must be text`);
+  }
+  const normalized = value
+    .normalize("NFKC")
+    .replace(/[\u200b-\u200d\u2060\ufeff]/gi, "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, " ")
+    .split("\n")
+    .map((line) => line.replace(/[\t\v\f\u00a0 ]+/g, " ").trim())
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if ((required && !normalized) || normalized.length > maximum) {
+    throw new Error(`${label} is missing or exceeds its bounded length`);
+  }
+  return normalized;
+}
+
+function comparableObservedText(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/[\u200b-\u200d\u2060\ufeff]/gi, "")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLocaleLowerCase("en-US");
+}
+
+/**
+ * Binds role facts observed in Chrome to the already claimed OnlineJobs job.
+ * The page is authoritative only for job facts; it can never supply candidate
+ * claims, policy, form controls, or execution instructions.
+ */
+export function bindObservedJobContext(
+  freshRecord,
+  observation,
+  {
+    profile,
+    rankingPolicy,
+    applicationPolicy,
+    packPolicy,
+    persistedClaims,
+    runtime,
+    schema
+  },
+  now = new Date().toISOString()
+) {
+  now = requireTimestamp(now, "live job context observation time");
+  assertAutonomous(freshRecord);
+  requireCurrentGuard(freshRecord, "Live job context source");
+  if (freshRecord.browser_state !== "evaluating") {
+    throw new Error("Live job context requires a persisted evaluating row");
+  }
+  requireWinningBrowserClaim(freshRecord, persistedClaims, now, runtime);
+  if (freshRecord.browser_job_digest !== browserJobDigest(freshRecord)) {
+    throw new Error("Job input changed before live context binding");
+  }
+  const currentContextDigest = browserContextDigest({
+    record: freshRecord,
+    profile,
+    rankingPolicy,
+    applicationPolicy,
+    packPolicy
+  });
+  if (freshRecord.browser_context_digest !== currentContextDigest) {
+    throw new Error("Autonomous context changed before live context binding");
+  }
+  requireExactKeys(
+    observation,
+    [
+      "page_url",
+      "source_job_id",
+      "job_title",
+      "company",
+      "job_description",
+      "salary_text"
+    ],
+    [],
+    "live job observation"
+  );
+  const observedPage = normalizeCanonicalUrl(observation.page_url);
+  const expectedPage = normalizeCanonicalUrl(freshRecord.canonical_url);
+  const sourceJobId = String(observation.source_job_id || "");
+  if (
+    !sourceJobId ||
+    sourceJobId !== String(freshRecord.source_job_id || "") ||
+    extractOnlineJobsId(observedPage) !== sourceJobId ||
+    observedPage !== expectedPage
+  ) {
+    throw new Error("Live job observation does not match the claimed job");
+  }
+  const jobTitle = observedText(
+    observation.job_title,
+    "Observed job title",
+    500,
+    { required: true }
+  );
+  if (
+    comparableObservedText(jobTitle) !==
+    comparableObservedText(freshRecord.job_title)
+  ) {
+    throw new Error("Observed job title changed after the browser claim");
+  }
+  const maximumDescription = Math.min(
+    Math.max(Number(packPolicy?.maximum_description_characters) || 0, 40) * 2,
+    100000
+  );
+  const jobDescription = observedText(
+    observation.job_description,
+    "Observed job description",
+    maximumDescription,
+    { required: true }
+  );
+  if (comparableObservedText(jobDescription).length < 40) {
+    throw new Error("Observed job description is insufficient for autonomous evaluation");
+  }
+  const company = observedText(observation.company, "Observed company", 500);
+  const salaryText = observedText(
+    observation.salary_text,
+    "Observed salary",
+    1000
+  );
+  for (const [label, persistedValue, observedValue] of [
+    ["company", freshRecord.company, company],
+    ["salary", freshRecord.salary_text, salaryText]
+  ]) {
+    if (
+      comparableObservedText(persistedValue) &&
+      comparableObservedText(observedValue) &&
+      comparableObservedText(persistedValue) !==
+        comparableObservedText(observedValue)
+    ) {
+      throw new Error(`Observed ${label} changed after the browser claim`);
+    }
+  }
+  const enriched = {
+    ...freshRecord,
+    company: String(freshRecord.company || "").trim() || company,
+    job_description: jobDescription,
+    salary_text: String(freshRecord.salary_text || "").trim() || salaryText
+  };
+  enriched.browser_job_digest = browserJobDigest(enriched);
+  enriched.browser_context_digest = browserContextDigest({
+    record: enriched,
+    profile,
+    rankingPolicy,
+    applicationPolicy,
+    packPolicy
+  });
+  const proposedRecord = nextRecord(
+    freshRecord,
+    {
+      company: enriched.company,
+      job_description: enriched.job_description,
+      salary_text: enriched.salary_text,
+      browser_job_digest: enriched.browser_job_digest,
+      browser_context_digest: enriched.browser_context_digest
+    },
+    now
+  );
+  requireValidProposedRecord(proposedRecord, schema);
+  return {
+    protocol_version: BROWSER_EXECUTOR_PROTOCOL_VERSION,
+    attempt_id: proposedRecord.browser_attempt_id,
+    context_digest: proposedRecord.browser_context_digest,
+    job_digest: proposedRecord.browser_job_digest,
+    proposed_record: proposedRecord,
+    confirm_fields: LIVE_JOB_CONTEXT_CONFIRM_FIELDS,
+    job: boundedContextJob(proposedRecord, packPolicy),
+    profile,
+    ranking_policy: rankingPolicy,
+    application_policy: applicationPolicy,
+    pack_policy: packPolicy,
+    telemetry: {
+      event: "live_job_context_bound",
+      canonical_job_id: proposedRecord.canonical_job_id,
+      attempt_id: proposedRecord.browser_attempt_id,
+      job_digest: proposedRecord.browser_job_digest,
+      context_digest: proposedRecord.browser_context_digest
+    }
+  };
+}
+
 export function browserJobDigest(record) {
   return contractBrowserJobDigest(record);
 }
@@ -1261,10 +1466,9 @@ export function browserFormFingerprint(form, record) {
       "effective_method",
       "submit_control",
       "fields",
-      "apply_points",
-      "apply_point_options"
+      "apply_points"
     ],
-    [],
+    ["apply_point_options", "apply_points_balance"],
     "form fingerprint input"
   );
   if (!record || typeof record !== "object") {
@@ -1285,6 +1489,8 @@ export function browserFormFingerprint(form, record) {
   const normalizedPage = normalizeCanonicalUrl(page.href);
   const normalizedRecordPage = normalizeCanonicalUrl(record.canonical_url);
   const expectedActionPath = `/jobseekers/job/${sourceJobId}/apply`;
+  const supportedActionPath =
+    action.pathname === expectedActionPath || action.pathname === "/apply";
   if (
     origin.protocol !== "https:" ||
     !allowedHosts.has(origin.hostname) ||
@@ -1300,7 +1506,7 @@ export function browserFormFingerprint(form, record) {
     String(form.observed_source_job_id) !== sourceJobId ||
     extractOnlineJobsId(normalizedPage) !== sourceJobId ||
     normalizedPage !== normalizedRecordPage ||
-    action.pathname !== expectedActionPath ||
+    !supportedActionPath ||
     action.search !== "" ||
     action.hash !== ""
   ) {
@@ -1325,16 +1531,24 @@ export function browserFormFingerprint(form, record) {
     requireExactKeys(
       field,
       ["name", "type", "required"],
-      ["maximum_length", "options_digest"],
+      ["id", "maximum_length", "options_digest"],
       `form field ${index}`
     );
     const name = String(field.name || "").trim();
+    const id = String(field.id || "").trim();
     const type = String(field.type || "").trim().toLowerCase();
     const optionsDigest = String(field.options_digest || "");
     if (typeof field.required !== "boolean") {
       throw new Error(`Form field ${index} required flag must be boolean`);
     }
-    if (!name || name.length > 120 || !/^[a-z0-9_.\[\]-]+$/i.test(name)) {
+    const unnamedContactDisplay =
+      !name && id === "contact-info-content" && type === "textarea";
+    if (
+      (!unnamedContactDisplay &&
+        (!name || name.length > 120 || !/^[a-z0-9_.\[\]-]+$/i.test(name))) ||
+      id.length > 120 ||
+      (id && !/^[a-z0-9_.:-]+$/i.test(id))
+    ) {
       throw new Error(`Form field ${index} has an invalid name`);
     }
     if (
@@ -1361,6 +1575,7 @@ export function browserFormFingerprint(form, record) {
     }
     return {
       name,
+      id,
       type,
       required: field.required === true,
       maximum_length: Number.isInteger(field.maximum_length)
@@ -1369,21 +1584,38 @@ export function browserFormFingerprint(form, record) {
       options_digest: optionsDigest
     };
   });
-  if (new Set(fields.map((field) => field.name)).size !== fields.length) {
+  const namedFields = fields.filter((field) => field.name);
+  if (new Set(namedFields.map((field) => field.name)).size !== namedFields.length) {
     throw new Error("Application form contains duplicate field names");
   }
   const messageFields = fields.filter(
     (field) =>
-      field.name === "message" &&
+      ["message", "info[message]"].includes(field.name) &&
       field.type === "textarea" &&
+      field.required === true
+  );
+  const subjectFields = fields.filter(
+    (field) =>
+      ["subject", "info[subject]"].includes(field.name) &&
+      field.type === "text" &&
       field.required === true
   );
   const applyPointFields = fields.filter(
     (field) =>
-      field.name === "apply_points" &&
-      field.type === "select" &&
-      field.required === true &&
-      /^[a-f0-9]{64}$/.test(field.options_digest)
+      (field.name === "apply_points" &&
+        field.type === "select" &&
+        field.required === true &&
+        /^[a-f0-9]{64}$/.test(field.options_digest)) ||
+      (field.name === "points" &&
+        field.type === "text" &&
+        field.required === false)
+  );
+  const contactDisplayFields = fields.filter(
+    (field) =>
+      !field.name &&
+      field.id === "contact-info-content" &&
+      field.type === "textarea" &&
+      field.required === false
   );
   const submitFields = fields.filter((field) => field.type === "submit");
   const submitControlName = String(form.submit_control.name || "").trim();
@@ -1393,11 +1625,52 @@ export function browserFormFingerprint(form, record) {
   const unsupportedInteractive = fields.filter(
     (field) =>
       !["hidden", "submit"].includes(field.type) &&
-      !["message", "apply_points"].includes(field.name)
+      !messageFields.includes(field) &&
+      !subjectFields.includes(field) &&
+      !applyPointFields.includes(field) &&
+      !contactDisplayFields.includes(field)
   );
   const applyPointOptions = Array.isArray(form.apply_point_options)
     ? [...form.apply_point_options].sort((left, right) => left - right)
     : [];
+  const applyPointsBalance = Number(form.apply_points_balance);
+  const liveGenericForm = action.pathname === "/apply";
+  const expectedLiveHiddenFields = [
+    "back_id",
+    "contact_email",
+    "csrf-token",
+    "email_sent_count_today",
+    "info[email]",
+    "info[name]",
+    "job_id",
+    "sent_to_e_id"
+  ];
+  const liveHiddenFields = fields
+    .filter((field) => field.type === "hidden")
+    .map((field) => field.name)
+    .sort();
+  const liveFieldContractMatches =
+    !liveGenericForm ||
+    (subjectFields.length === 1 &&
+      contactDisplayFields.length === 1 &&
+      applyPointFields[0]?.name === "points" &&
+      submitControlName === "op" &&
+      JSON.stringify(liveHiddenFields) ===
+        JSON.stringify(expectedLiveHiddenFields));
+  const legacyApplyPointsMatch =
+    !liveGenericForm &&
+    applyPointOptions.length >= 1 &&
+    new Set(applyPointOptions).size === applyPointOptions.length &&
+    applyPointOptions.every(
+      (value) => Number.isInteger(value) && value >= 1 && value <= 100
+    ) &&
+    applyPointOptions.includes(form.apply_points) &&
+    applyPointFields[0]?.options_digest === digest(applyPointOptions);
+  const liveApplyPointsMatch =
+    liveGenericForm &&
+    Number.isInteger(applyPointsBalance) &&
+    applyPointsBalance >= form.apply_points &&
+    applyPointsBalance <= 10000;
   let expectedApplyPoints;
   try {
     expectedApplyPoints = requiredApplyPoints(record);
@@ -1407,23 +1680,18 @@ export function browserFormFingerprint(form, record) {
   if (
     messageFields.length !== 1 ||
     applyPointFields.length !== 1 ||
+    !liveFieldContractMatches ||
     submitFields.length !== 1 ||
     submitControlType !== "submit" ||
     submitFields[0]?.name !== submitControlName ||
     !/^[a-f0-9]{64}$/.test(String(form.submit_control.value_digest || "")) ||
     unsupportedInteractive.length > 0 ||
-    applyPointOptions.length < 1 ||
-    new Set(applyPointOptions).size !== applyPointOptions.length ||
-    applyPointOptions.some(
-      (value) => !Number.isInteger(value) || value < 1 || value > 100
-    ) ||
     !Number.isInteger(form.apply_points) ||
     !Number.isInteger(expectedApplyPoints) ||
     form.apply_points !== expectedApplyPoints ||
     form.apply_points < 1 ||
     form.apply_points > 100 ||
-    !applyPointOptions.includes(form.apply_points) ||
-    applyPointFields[0]?.options_digest !== digest(applyPointOptions)
+    (!legacyApplyPointsMatch && !liveApplyPointsMatch)
   ) {
     throw new Error("Application form fields or live Apply Points are unsupported");
   }
@@ -1441,10 +1709,13 @@ export function browserFormFingerprint(form, record) {
       value_digest: form.submit_control.value_digest
     },
     fields: fields.sort((left, right) =>
-      `${left.name}:${left.type}`.localeCompare(`${right.name}:${right.type}`)
+      `${left.name}:${left.id}:${left.type}`.localeCompare(
+        `${right.name}:${right.id}:${right.type}`
+      )
     ),
     apply_points: form.apply_points,
-    apply_point_options: applyPointOptions
+    apply_point_options: applyPointOptions,
+    apply_points_balance: liveGenericForm ? applyPointsBalance : ""
   };
   return `form-v1:${digest(normalized)}`;
 }
@@ -1453,6 +1724,43 @@ export function submissionIdempotencyKey(record) {
   const key = contractSubmissionIdempotencyKey(record);
   if (!key) throw new Error("Submission identity is incomplete");
   return key;
+}
+
+function separateSubjectApplicationValues(generatedMessage) {
+  const lines = String(generatedMessage || "").split(/\r?\n/);
+  const firstLine = String(lines.shift() || "").trim();
+  const subjectMatch = /^Subject line:\s*(.+)$/i.exec(firstLine);
+  while (lines.length > 0 && !String(lines[0]).trim()) lines.shift();
+  const message = lines.join("\n").trim();
+  const subject = String(subjectMatch?.[1] || "").trim();
+  if (
+    !subject ||
+    subject.length > 255 ||
+    !message ||
+    message.length > 4000
+  ) {
+    throw new Error("Generated application cannot be split into subject and message");
+  }
+  return { subject, message };
+}
+
+function formUsesSeparateSubject(form) {
+  return (form?.fields ?? []).some((field) =>
+    ["subject", "info[subject]"].includes(String(field?.name || ""))
+  );
+}
+
+function authorizedApplicationValues(record, form, applyPoints) {
+  if (!formUsesSeparateSubject(form)) {
+    return {
+      message: record.generated_message,
+      apply_points: String(applyPoints)
+    };
+  }
+  return {
+    ...separateSubjectApplicationValues(record.generated_message),
+    apply_points: String(applyPoints)
+  };
 }
 
 export function sanitizeBrowserEvidence(input = {}) {
@@ -1479,6 +1787,25 @@ export function sanitizeBrowserEvidence(input = {}) {
       ? input.reference_digest
       : ""
   };
+}
+
+export function normalizeBrowserSheetRecord(
+  input,
+  schema,
+  now = new Date().toISOString()
+) {
+  const rawExecutionMode = String(input?.execution_mode ?? "").trim();
+  const normalized = normalizeLegacyRecord(input, schema, now);
+  if (rawExecutionMode !== "autonomous_chrome") return normalized;
+
+  // Storage normalization may parse JSON arrays and numeric cells, but it
+  // must never repair or reinterpret browser-authorizing semantic fields.
+  // Invalid autonomous status/action values therefore still fail closed.
+  normalized.execution_mode = rawExecutionMode;
+  normalized.pipeline_status = input?.pipeline_status ?? "";
+  normalized.user_action = input?.user_action ?? "";
+  normalized.prep_status = input?.prep_status ?? "";
+  return normalized;
 }
 
 export function selectAutonomousCandidates(
@@ -1508,7 +1835,13 @@ export function selectAutonomousCandidates(
   const rows = stores[AUTONOMOUS_SOURCE_STORE] ?? [];
   if (!Array.isArray(rows)) throw new Error("Scraped Jobs rows must be an array");
   return rows
+    .map((record) => normalizeBrowserSheetRecord(record, schema, now))
     .filter((record) => {
+      // Legacy/manual compatibility rows are not browser candidates. Their
+      // historical field shape must not prevent an unrelated autonomous row
+      // from reaching Chrome; global canonical identity checks still include
+      // every business-store row above.
+      if (record.execution_mode !== "autonomous_chrome") return false;
       if (Object.hasOwn(record, "browser_next_retry_at")) {
         throw new Error(
           "Browser selection rejected unsupported browser_next_retry_at alias"
@@ -1520,7 +1853,6 @@ export function selectAutonomousCandidates(
         schema
       );
       requireNoValidationErrors(errors, "Browser selection rejected invalid row");
-      if (record.execution_mode !== "autonomous_chrome") return false;
       if (!DUE_STATES.has(String(record.browser_state || ""))) return false;
       const retryAt = Date.parse(record.next_retry_at || "");
       return !Number.isFinite(retryAt) || retryAt <= nowMs;
@@ -1558,7 +1890,9 @@ export function selectAutonomousWork(
   ) {
     return [];
   }
-  const rows = stores[AUTONOMOUS_SOURCE_STORE] ?? [];
+  const rows = (stores[AUTONOMOUS_SOURCE_STORE] ?? []).map((record) =>
+    normalizeBrowserSheetRecord(record, schema, now)
+  );
   const recovery = rows
     .filter((record) => {
       if (
@@ -2033,14 +2367,25 @@ export function confirmBrowserReady(
       }
     };
   }
+  const authorizedValues = authorizedApplicationValues(
+    persisted,
+    form,
+    authorizedApplyPoints
+  );
   return {
     protocol_version: BROWSER_EXECUTOR_PROTOCOL_VERSION,
     capability: "fill_application_form",
     attempt_id: persisted.browser_attempt_id,
     canonical_job_id: persisted.canonical_job_id,
     job_digest: persisted.browser_job_digest,
-    message: persisted.generated_message,
-    message_digest: digest(persisted.generated_message),
+    ...(authorizedValues.subject
+      ? {
+          subject: authorizedValues.subject,
+          subject_digest: digest(authorizedValues.subject)
+        }
+      : {}),
+    message: authorizedValues.message,
+    message_digest: digest(authorizedValues.message),
     apply_points: authorizedApplyPoints,
     apply_points_digest: digest(String(authorizedApplyPoints))
   };
@@ -2050,9 +2395,11 @@ function requireAuthorizedFieldReceipts(record, form, fieldReceipts) {
   if (!Array.isArray(fieldReceipts) || fieldReceipts.length < 1) {
     throw new Error("Submit authorization requires bounded field reread receipts");
   }
-  const requiredFields = form.fields
-    .filter((field) => field.required && !["hidden", "submit"].includes(field.type))
-    .map((field) => field.name);
+  const requiredFields = [
+    ...(formUsesSeparateSubject(form) ? ["subject"] : []),
+    "message",
+    "apply_points"
+  ];
   const receipts = new Map();
   for (const [index, receipt] of fieldReceipts.entries()) {
     requireExactKeys(
@@ -2075,10 +2422,14 @@ function requireAuthorizedFieldReceipts(record, form, fieldReceipts) {
   if (missing.length > 0) {
     throw new Error(`Required application fields were not reread: ${missing.join(", ")}`);
   }
-  const expectedReceipts = new Map([
-    ["message", digest(record.generated_message)],
-    ["apply_points", digest(String(form.apply_points))]
-  ]);
+  const authorizedValues = authorizedApplicationValues(
+    record,
+    form,
+    form.apply_points
+  );
+  const expectedReceipts = new Map(
+    requiredFields.map((field) => [field, digest(authorizedValues[field])])
+  );
   for (const field of requiredFields) {
     if (receipts.get(field) !== expectedReceipts.get(field)) {
       throw new Error(`Reread value does not match the authorized ${field} value`);

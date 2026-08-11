@@ -105,7 +105,7 @@
       {
         "role": "scraper",
         "target_workflow_id": "qxPbOzNs5StaPY8B",
-        "artifact_digest": "sha256:63d34bae6947ec8af42a49ea06eb4a6349a5296c006895e9bf35674b11f0d7e7",
+        "artifact_digest": "sha256:837d4c763fd3721505ec589da3550a9cd16845b8eff2112dc8cb65eb680e6835",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 900,
         "schedule_expressions": [
@@ -127,7 +127,7 @@
       {
         "role": "alerter_mover",
         "target_workflow_id": "QO6OLK3pHetgGIGq",
-        "artifact_digest": "sha256:6541ca2bd0941dab5b93b9d4b0dbd7366ef7dff575bd24f312525e17efac0f1f",
+        "artifact_digest": "sha256:91b964cca854513ba0e9e8f1d66a7a9249b20d97ed044f24d90dc215d1691238",
         "timezone": "Asia/Manila",
         "execution_timeout_seconds": 300,
         "schedule_expressions": [
@@ -151,9 +151,9 @@
     "scheduled_task": {
       "role": "browser_executor",
       "contract_version": "2026-08-10/browser-task-v1",
-      "artifact_digest": "sha256:bdda7a7760869533738261d5ef8b7e5f87b24d5e0c0c52bb3c6b42286c83f0a1",
+      "artifact_digest": "sha256:c1dedeeb137fc5daa954aa2076d896975ba3eec261a1a1b4c3a3173014d134f0",
       "prompt_version": "2026-08-10/browser-task-prompt-v1",
-      "prompt_digest": "sha256:0bd8d46c9566629b15909e1ac83c189defe3081db217034785f58823e5ecb69e",
+      "prompt_digest": "sha256:9f57d98fd4ec216938a836203a2eee5dc5af298286fca95b805985d0cec3eb3b",
       "skill_name": "job-autopilot",
       "skill_version": "job-autopilot-v1",
       "skill_path": ".agents/skills/job-autopilot/SKILL.md",
@@ -169,8 +169,8 @@
       "continuation_mode": "technical_headroom_next_schedule",
       "retry_max_attempts": 3,
       "retry_backoff_ms": 300000,
-      "skill_bundle_digest": "sha256:27e57355a070e302de57bc7f737d4744147e110e64571eda239f8dc7c72cf166",
-      "protocol_bundle_digest": "sha256:01689b26c90d985779106ea8037665d7c0c8abc13228980d817ba036b3d535ee",
+      "skill_bundle_digest": "sha256:f3d556fdcaef01c049be051a9dbd714ab71006f063c1e998b2aba8f3eea9f950",
+      "protocol_bundle_digest": "sha256:b09cc528cd5c9ca9de5aadca3a515a9878f15422263f26daed994cf3ccc383fb",
       "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
       "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
       "application_policy_digest": "sha256:4d295387f4620c3432dfde33c5d4e010872b2bad87b42546bea68183ab7165bb",

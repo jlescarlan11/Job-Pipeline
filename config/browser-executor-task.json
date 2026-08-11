@@ -59,6 +59,7 @@
       "select",
       "plan-claim",
       "confirm-claim",
+      "bind-job-context",
       "validate-decision",
       "confirm-browser-ready",
       "plan-submit-intent",
@@ -84,9 +85,9 @@
     }
   },
   "provenance": {
-    "prompt_digest": "sha256:0bd8d46c9566629b15909e1ac83c189defe3081db217034785f58823e5ecb69e",
-    "skill_bundle_digest": "sha256:27e57355a070e302de57bc7f737d4744147e110e64571eda239f8dc7c72cf166",
-    "protocol_bundle_digest": "sha256:01689b26c90d985779106ea8037665d7c0c8abc13228980d817ba036b3d535ee",
+    "prompt_digest": "sha256:9f57d98fd4ec216938a836203a2eee5dc5af298286fca95b805985d0cec3eb3b",
+    "skill_bundle_digest": "sha256:f3d556fdcaef01c049be051a9dbd714ab71006f063c1e998b2aba8f3eea9f950",
+    "protocol_bundle_digest": "sha256:b09cc528cd5c9ca9de5aadca3a515a9878f15422263f26daed994cf3ccc383fb",
     "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
     "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
     "application_policy_digest": "sha256:4d295387f4620c3432dfde33c5d4e010872b2bad87b42546bea68183ab7165bb",

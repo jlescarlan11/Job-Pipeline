@@ -20,6 +20,7 @@ import test from "node:test";
 import {
   BROWSER_AUTOMATION_CONTRACT_VERSION,
   BROWSER_EXECUTOR_PROTOCOL_VERSION,
+  bindObservedJobContext,
   browserClickReceiptStoreProvisioning,
   browserContextDigest,
   browserFormFingerprint,
@@ -197,6 +198,53 @@ const formFor = (sourceJobId) => ({
       `https://www.onlinejobs.ph/jobseekers/job/${sourceJobId}/apply`
   }
 });
+const liveFormFor = (sourceJobId) => ({
+  origin: "https://www.onlinejobs.ph",
+  page_url:
+    `https://www.onlinejobs.ph/jobseekers/job/example-${sourceJobId}`,
+  observed_source_job_id: sourceJobId,
+  effective_action: "https://www.onlinejobs.ph/apply",
+  effective_method: "POST",
+  submit_control: {
+    name: "op",
+    type: "submit",
+    effective_action: "https://www.onlinejobs.ph/apply",
+    effective_method: "POST",
+    value_digest: valueDigest("SEND EMAIL")
+  },
+  fields: [
+    { name: "csrf-token", type: "hidden", required: false },
+    { name: "info[name]", type: "hidden", required: false },
+    { name: "info[email]", type: "hidden", required: false },
+    {
+      name: "info[subject]",
+      id: "subject",
+      type: "text",
+      required: true
+    },
+    {
+      name: "info[message]",
+      id: "message",
+      type: "textarea",
+      required: true
+    },
+    {
+      name: "",
+      id: "contact-info-content",
+      type: "textarea",
+      required: false
+    },
+    { name: "points", type: "text", required: false },
+    { name: "op", type: "submit", required: false },
+    { name: "contact_email", type: "hidden", required: false },
+    { name: "email_sent_count_today", type: "hidden", required: false },
+    { name: "back_id", type: "hidden", required: false },
+    { name: "sent_to_e_id", type: "hidden", required: false },
+    { name: "job_id", type: "hidden", required: false }
+  ],
+  apply_points: 5,
+  apply_points_balance: 55
+});
 const validMessage = `Subject line: Full-Stack TypeScript Developer Application — John Lester Escarlan
 
 Hi there,
@@ -208,6 +256,13 @@ I would welcome a conversation about how my experience fits this role.
 LinkedIn: https://linkedin.com/in/john-lester-escarlan
 GitHub: https://github.com/jlescarlan11
 Portfolio: https://johnlesterescarlan.pro`;
+const validApplicationSubject =
+  "Full-Stack TypeScript Developer Application — John Lester Escarlan";
+const validApplicationBody = validMessage
+  .split(/\r?\n/)
+  .slice(1)
+  .join("\n")
+  .trim();
 
 function autonomousRecord(id = "9001", overrides = {}) {
   const raw = normalizeLegacyRecord(
@@ -627,6 +682,122 @@ test("claim context is disclosed only after append-winner and exact reread", () 
       },
       configuration
     )
+  );
+});
+
+test("claimed Chrome observations can complete missing role context without supplying candidate facts", () => {
+  const record = autonomousRecord("9002", {
+    company: "",
+    job_description: "",
+    salary_text: ""
+  });
+  const claim = planAutonomousClaim(record, {
+    execution_id: "execution-live-context",
+    attempt_id: `attempt-v1:${"3".repeat(64)}`,
+    now,
+    runtime: browserRuntime
+  });
+  const persistedClaims = [{ ...claim.system_claim, row_number: 2 }];
+  const confirmed = confirmAutonomousClaim(
+    claim,
+    {
+      persisted_claims: persistedClaims,
+      fresh_source_rows: [claim.proposed_record],
+      schema,
+      now
+    },
+    configuration
+  );
+  const observation = {
+    page_url: record.canonical_url,
+    source_job_id: record.source_job_id,
+    job_title: record.job_title,
+    company: "Example Company",
+    job_description:
+      "Build and maintain React and TypeScript features with Node.js APIs and PostgreSQL for a production web application.",
+    salary_text: "$1,000 per month"
+  };
+  const bound = bindObservedJobContext(
+    confirmed.proposed_record,
+    observation,
+    {
+      ...configuration,
+      persistedClaims,
+      runtime: browserRuntime,
+      schema
+    },
+    "2026-08-10T02:01:00.000Z"
+  );
+  assert.equal(bound.proposed_record.browser_state, "evaluating");
+  assert.equal(bound.proposed_record.company, observation.company);
+  assert.equal(bound.proposed_record.job_description, observation.job_description);
+  assert.equal(bound.proposed_record.salary_text, observation.salary_text);
+  assert.notEqual(bound.job_digest, confirmed.job_digest);
+  assert.notEqual(bound.context_digest, confirmed.context_digest);
+  assert.equal(bound.job.job_description, observation.job_description);
+  assert.deepEqual(Object.keys(bound.telemetry).sort(), [
+    "attempt_id",
+    "canonical_job_id",
+    "context_digest",
+    "event",
+    "job_digest"
+  ]);
+
+  const validated = validateAutonomousDecision(
+    bound.proposed_record,
+    {
+      protocol_version: BROWSER_EXECUTOR_PROTOCOL_VERSION,
+      attempt_id: bound.attempt_id,
+      context_digest: bound.context_digest,
+      decision: "apply",
+      reason_code: "recommended",
+      message: validMessage
+    },
+    {
+      ...configuration,
+      context_digest: bound.context_digest,
+      form: formFor("9002")
+    },
+    "2026-08-10T02:02:00.000Z"
+  );
+  assert.equal(validated.outcome, "generate_validated");
+
+  for (const altered of [
+    { page_url: "https://www.onlinejobs.ph/jobseekers/job/example-9999" },
+    { source_job_id: "9999" },
+    { job_title: "Different Job" },
+    { job_description: "Too short" }
+  ]) {
+    assert.throws(
+      () =>
+        bindObservedJobContext(
+          confirmed.proposed_record,
+          { ...observation, ...altered },
+          {
+            ...configuration,
+            persistedClaims,
+            runtime: browserRuntime,
+            schema
+          },
+          "2026-08-10T02:01:00.000Z"
+        ),
+      /claimed job|title changed|insufficient/
+    );
+  }
+  assert.throws(
+    () =>
+      bindObservedJobContext(
+        confirmed.proposed_record,
+        { ...observation, candidate_skill: "invented" },
+        {
+          ...configuration,
+          persistedClaims,
+          runtime: browserRuntime,
+          schema
+        },
+        "2026-08-10T02:01:00.000Z"
+      ),
+    /unsupported count: 1/
   );
 });
 
@@ -1902,6 +2073,42 @@ test("executor rejects wrong-job forms and illegal terminal recovery", () => {
 });
 
 test("form fingerprints and evidence fail closed without leaking secrets", () => {
+  const observedLiveForm = liveFormFor("9001");
+  const liveFilling = fillingRecord();
+  liveFilling.browser_form_fingerprint = browserFormFingerprint(
+    observedLiveForm,
+    liveFilling
+  );
+  liveFilling.submission_idempotency_key = submissionIdempotencyKey(liveFilling);
+  liveFilling.state_guard = stateGuard(liveFilling);
+  assert.match(
+    liveFilling.browser_form_fingerprint,
+    /^form-v1:/
+  );
+  assert.equal(
+    planSubmitIntent(liveFilling, {
+      form: observedLiveForm,
+      field_receipts: [
+        { name: "subject", value_digest: valueDigest(validApplicationSubject) },
+        { name: "message", value_digest: valueDigest(validApplicationBody) },
+        { name: "apply_points", value_digest: valueDigest("5") }
+      ],
+      now
+    }).proposed_record.browser_state,
+    "submit_started"
+  );
+  assert.throws(
+    () =>
+      planSubmitIntent(liveFilling, {
+        form: observedLiveForm,
+        field_receipts: [
+          { name: "message", value_digest: valueDigest(validApplicationBody) },
+          { name: "apply_points", value_digest: valueDigest("5") }
+        ],
+        now
+      }),
+    /Required application fields were not reread: subject/
+  );
   assert.match(
     browserFormFingerprint({
       ...form,
@@ -2117,6 +2324,59 @@ test("CLI accepts only strict stdin operations and selects one record at a time"
     recovery_count: 0,
     reconciliation_count: 0
   });
+
+  const rawCandidate = autonomousRecord("9900");
+  const sheetShapedCandidate = Object.fromEntries(
+    Object.entries(rawCandidate).map(([field, value]) => {
+      if (
+        (schema.string_list_fields.includes(field) ||
+          schema.json_array_fields.includes(field)) &&
+        Array.isArray(value)
+      ) {
+        return [field, JSON.stringify(value)];
+      }
+      if (["number", "integer"].includes(schema.field_rules[field]?.type)) {
+        return [field, String(value)];
+      }
+      return [field, value === "" ? null : value];
+    })
+  );
+  const legacyCompatibilityRow = {
+    ...sheetShapedCandidate,
+    source_job_id: "9899",
+    canonical_job_id: "onlinejobs.ph:9899",
+    canonical_url:
+      "https://www.onlinejobs.ph/jobseekers/job/example-9899",
+    execution_mode: null,
+    automation_contract_version: null,
+    browser_state: null,
+    browser_job_digest: null
+  };
+  const normalizedSelection = spawnSync(process.execPath, [script, "select"], {
+    input: JSON.stringify({
+      stores: {
+        ...stores,
+        "Scraped Jobs": [legacyCompatibilityRow, sheetShapedCandidate]
+      },
+      persisted_claims: [],
+      now
+    }),
+    encoding: "utf8"
+  });
+  assert.equal(normalizedSelection.status, 0, normalizedSelection.stderr);
+  const normalizedSelectionOutput = JSON.parse(normalizedSelection.stdout);
+  assert.equal(
+    normalizedSelectionOutput.candidate.canonical_job_id,
+    rawCandidate.canonical_job_id
+  );
+  assert.equal(normalizedSelectionOutput.candidate.record_version, 1);
+  assert.deepEqual(
+    normalizedSelectionOutput.candidate.matched_keywords,
+    rawCandidate.matched_keywords
+  );
+  assert.equal(normalizedSelectionOutput.operation, "claim");
+  assert.equal(normalizedSelectionOutput.due_count, 1);
+
   const invalid = spawnSync(process.execPath, [script, "select"], {
     input: JSON.stringify({
       stores,
