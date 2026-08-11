@@ -3062,8 +3062,8 @@ export function validateApplicationPackPolicy(packPolicy, profile, applicationPo
   const autonomousResolution = packPolicy.autonomous_resolution;
   const expectedAutonomousResolution = {
     ready_and_answerable: "apply",
-    low_fit: "skip",
-    deterministically_unsupported: "skip",
+    low_fit: "apply",
+    deterministically_unsupported: "apply",
     missing_required_candidate_fact: "blocked",
     unsafe_external_action: "blocked",
     ambiguous_instruction: "blocked"
@@ -3072,7 +3072,7 @@ export function validateApplicationPackPolicy(packPolicy, profile, applicationPo
     JSON.stringify(autonomousResolution) !==
     JSON.stringify(expectedAutonomousResolution)
   ) {
-    errors.push("autonomous_resolution must define deterministic apply, skip, and block outcomes");
+    errors.push("autonomous_resolution must define apply-by-default and bounded block outcomes");
   }
   if (
     JSON.stringify(packPolicy.coverage_classifications) !==

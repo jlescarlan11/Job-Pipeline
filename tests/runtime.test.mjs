@@ -78,7 +78,7 @@ test("execution retention settings keep failures and manual smoke only", () => {
 test("weekly counts distinguish the external browser task from n8n runs", () => {
   assert.deepEqual(scheduledRunsPerWeek(runtime), {
     scraper: 42,
-    browser_executor: 112,
+    browser_executor: 672,
     alerter_mover: 672
   });
   assert.deepEqual(n8nScheduledRunsPerWeek(runtime), {

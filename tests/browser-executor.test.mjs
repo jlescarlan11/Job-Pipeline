@@ -801,12 +801,8 @@ test("claimed Chrome observations can complete missing role context without supp
   );
 });
 
-test("low-fit work is skipped deterministically and ambiguous jobs cannot be model-skipped", () => {
-  const lowFit = autonomousRecord("9201", {
-    job_title: "Senior Medical Director",
-    job_description:
-      "Must hold a medical degree and ten years of clinical leadership experience directing hospital programs."
-  });
+test("apply-by-default rejects model skips and permits truthfully framed low-ranked work", () => {
+  const lowFit = autonomousRecord("9201");
   const evaluating = {
     ...lowFit,
     browser_state: "evaluating",
@@ -818,79 +814,69 @@ test("low-fit work is skipped deterministically and ambiguous jobs cannot be mod
   };
   evaluating.browser_job_digest = browserJobDigest(evaluating);
   evaluating.state_guard = stateGuard(evaluating);
+  const strictRankingPolicy = {
+    ...rankingPolicy,
+    qualification: {
+      ...rankingPolicy.qualification,
+      recommended_minimum: 99
+    }
+  };
   const context = browserContextDigest({
     record: evaluating,
     profile,
-    rankingPolicy,
+    rankingPolicy: strictRankingPolicy,
     applicationPolicy,
     packPolicy
   });
   evaluating.browser_context_digest = context;
   evaluating.state_guard = stateGuard(evaluating);
+  assert.throws(
+    () =>
+      validateAutonomousDecision(
+        evaluating,
+        {
+          protocol_version: BROWSER_EXECUTOR_PROTOCOL_VERSION,
+          attempt_id: evaluating.browser_attempt_id,
+          context_digest: context,
+          decision: "skip",
+          reason_code: "model_preference"
+        },
+        {
+          profile,
+          rankingPolicy: strictRankingPolicy,
+          applicationPolicy,
+          packPolicy,
+          context_digest: context,
+          form: formFor("9201")
+        },
+        now
+      ),
+    /Apply-by-default policy does not authorize this skip/
+  );
   const result = validateAutonomousDecision(
     evaluating,
     {
       protocol_version: BROWSER_EXECUTOR_PROTOCOL_VERSION,
       attempt_id: evaluating.browser_attempt_id,
       context_digest: context,
-      decision: "skip",
-      reason_code: "deterministically_unsupported"
+      decision: "apply",
+      reason_code: "truthful_transferable_fit",
+      message: validMessage
     },
     {
       profile,
-      rankingPolicy,
+      rankingPolicy: strictRankingPolicy,
       applicationPolicy,
       packPolicy,
       context_digest: context,
-      form: formFor("9250")
+      form: formFor("9201")
     },
     now
   );
-  assert.equal(result.proposed_record.browser_state, "skipped");
-  assert.equal(result.proposed_record.user_action, "");
-
-  const ambiguous = autonomousRecord("9202", {
-    job_description: "Build React products. ".repeat(3000),
-    browser_state: "evaluating",
-    browser_attempt_id: `attempt-v1:${"4".repeat(64)}`,
-    processing_stage: "browser_executor",
-    processing_token:
-      "execution-browser:browser_executor:onlinejobs.ph:9202:application",
-    processing_started_at: now
-  });
-  ambiguous.browser_job_digest = browserJobDigest(ambiguous);
-  ambiguous.state_guard = stateGuard(ambiguous);
-  const ambiguousContext = browserContextDigest({
-    record: ambiguous,
-    profile,
-    rankingPolicy,
-    applicationPolicy,
-    packPolicy
-  });
-  ambiguous.browser_context_digest = ambiguousContext;
-  ambiguous.state_guard = stateGuard(ambiguous);
-  assert.throws(
-    () =>
-      validateAutonomousDecision(
-        ambiguous,
-        {
-          protocol_version: BROWSER_EXECUTOR_PROTOCOL_VERSION,
-          attempt_id: ambiguous.browser_attempt_id,
-          context_digest: ambiguousContext,
-          decision: "skip",
-          reason_code: "model_preference"
-        },
-        {
-          profile,
-          rankingPolicy,
-          applicationPolicy,
-          packPolicy,
-          context_digest: ambiguousContext,
-          form: formFor("9250")
-        },
-        now
-      ),
-    /cannot skip an eligible or ambiguous job/
+  assert.equal(result.outcome, "generate_validated");
+  assert.notEqual(
+    result.proposed_record.apply_points_recommendation,
+    "save_points"
   );
 });
 

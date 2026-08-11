@@ -17,6 +17,13 @@ headroom. Do not count applications by day and do not enforce a daily, date
 bucket, or per-run application quota. Technical headroom defers unfinished due
 work to the next scheduled run without making it ineligible.
 
+Use truthful apply-by-default behavior for every active claimed posting. A low
+rank, hard skill gap, or unfamiliar requested tool is not permission to skip;
+frame the closest approved experience as transferable without claiming the
+missing fact. Stop only when the posting is unavailable or the executor cannot
+construct a truthful application because of a required fact, unsafe instruction,
+external action, form, login, challenge, or other bounded safety blocker.
+
 Honor the operation returned by selection. Recover only an expired pre-submit
 claim with the executor-computed backoff. Reconcile `submit_started` or
 `ambiguous` from independent account history without claiming or clicking
@@ -36,6 +43,12 @@ independent witness, canonical-job-keyed exclusive receipt, hash-chained ledger,
 and first-job/submission consumption proof, and reconcile a definitive result.
 Never reuse an authorization, restore/rebind a witness, or blindly resubmit an
 ambiguous attempt.
+
+If the first `validate-decision` call rejects only the generated message before
+any proposal is persisted, rewrite it once using shorter one-proof-per-sentence
+claims and transferable framing, then retry the same operation. Never combine
+details from separate proofs into one invented project claim. After a second
+message rejection, commit the bounded blocker and continue on a later run.
 
 After a possible final click, persist the exact bounded ambiguous result and
 stop. Do not open Job Applications / Sent, invoke the confirmation-adapter CLI,

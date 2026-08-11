@@ -104,7 +104,7 @@ test("deployment policy matches the mixed runtime and n8n-only capacity", () => 
     scheduled_runs_per_week: 714,
     runs_by_role: { scraper: 42, alerter_mover: 672 }
   });
-  assert.equal(policy.execution_retention.browser_task_runs_per_week, 112);
+  assert.equal(policy.execution_retention.browser_task_runs_per_week, 672);
   assert.equal(
     policy.capacity.execution_serialization_mode,
     "bounded_two_slot_with_stabilized_claims"

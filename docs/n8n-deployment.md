@@ -53,7 +53,7 @@ when the operator requests it and it runs that same guarded path.
 All roles use `Asia/Manila` and staggered schedules:
 
 - Scraper: every 240 minutes, offset 8, timeout 900 seconds;
-- browser executor: every 90 minutes, offset 2, timeout 480 seconds; and
+- browser executor: every 15 minutes, offset 2, timeout 480 seconds; and
 - Alerter & Mover: every 15 minutes, offset 10, timeout 300 seconds.
 
 The browser attempt requires 120 seconds of technical headroom. Remaining due
@@ -64,7 +64,7 @@ no daily application cap.
 n8n itself produces 714 scheduled executions per week: 42 Scraper and 672
 Alerter & Mover. Its timeout-weighted demand is 0.3958, and concurrency 2
 admits the maximum scheduled n8n overlap. The external browser task produces
-112 scheduled opportunities per week and is counted separately. Fourteen days
+672 scheduled opportunities per week and is counted separately. Fourteen days
 (336 hours)
 of all-failure n8n retention is 1,428 executions, below the 10,000 pruning cap.
 

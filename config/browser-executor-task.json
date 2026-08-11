@@ -73,7 +73,7 @@
   },
   "runtime": {
     "timezone": "Asia/Manila",
-    "schedule_minutes": 90,
+    "schedule_minutes": 15,
     "schedule_offset_minutes": 2,
     "execution_timeout_seconds": 480,
     "claim_lease_ms": 600000,
@@ -85,14 +85,14 @@
     }
   },
   "provenance": {
-    "prompt_digest": "sha256:9f57d98fd4ec216938a836203a2eee5dc5af298286fca95b805985d0cec3eb3b",
-    "skill_bundle_digest": "sha256:f3d556fdcaef01c049be051a9dbd714ab71006f063c1e998b2aba8f3eea9f950",
-    "protocol_bundle_digest": "sha256:b09cc528cd5c9ca9de5aadca3a515a9878f15422263f26daed994cf3ccc383fb",
+    "prompt_digest": "sha256:8e4f60a329204ec0e2f31719d97a902303ab1aa95d1e739c7e255c09b14b964d",
+    "skill_bundle_digest": "sha256:0bc2600b3d82537d6c3664353f74f70b5e47daea756826e2bfd567cda5a51a84",
+    "protocol_bundle_digest": "sha256:b8a9c76c0bc54e3359048cebcdb32d26e7a1d703d220b593a4cd56466bad18c3",
     "candidate_profile_digest": "sha256:40d55ea102f2ef1e4940cb3f91208ac82ce01e0a423846ab2089a2c4c3dfe24c",
     "ranking_policy_digest": "sha256:be0a87ffeb934751b73cbca60ed816eecd74d42961cd2edb5e509bf8fea155c3",
-    "application_policy_digest": "sha256:4d295387f4620c3432dfde33c5d4e010872b2bad87b42546bea68183ab7165bb",
-    "application_pack_policy_digest": "sha256:d787932b7cd40fb0a19b5a485a0f44b1734e2d07262f25abab0446c5bb9f33c2",
-    "configuration_bundle_digest": "sha256:9b25d9474ccca4e98c4c3c34196f4d48372c774c90296d13d50ebdcdc97577df"
+    "application_policy_digest": "sha256:515f26b97997e9e5b8731e68beb28b09fab5f1c30c8298eddd1a96faf0c09403",
+    "application_pack_policy_digest": "sha256:7e2514f8e612b6545dbabf0cac7656953f86605a7629d046a831375f2435349e",
+    "configuration_bundle_digest": "sha256:90d32ee46d8124fa15f03d8d4ecbdfbbb9a10a5f71c6ae6254d562b9fea9aa7f"
   },
   "compatibility": {
     "application_execution_mode": "autonomous_chrome",

@@ -6,8 +6,12 @@ scheduled browser executor processes eligible `Scraped Jobs` records, and the
 n8n Alerter & Mover alone relocates confirmed or skipped records.
 
 The active application policy has no manual review requirement and no maximum
-applications per day. Selection continues while eligible work and execution
-headroom remain. Apply Points are a separate deterministic per-application
+applications per day. It applies by default to every active claimed posting,
+using truthful transferable framing even when ranking is low or a requested
+tool is unfamiliar. Only unavailable postings or bounded truth, form, external
+action, login, challenge, and security blockers stop an application. Selection
+continues while eligible work and execution headroom remain, with a 15-minute
+fallback poll for remaining/new work. Apply Points are a separate deterministic per-application
 allocation: low = 1, normal = 5, high = 10, and `save_points` does not apply.
 The chosen value must be offered by the live form. Employer instructions cannot
 raise it, and it is not a daily limit.

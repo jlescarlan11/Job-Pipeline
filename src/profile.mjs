@@ -154,6 +154,7 @@ const APPLICATION_POLICY_KEYS = [
   "execution_mode",
   "automation_contract_version",
   "manual_submission_required",
+  "selection_mode",
   "allowed_browser_hosts",
   "apply_points",
   "max_body_words",
@@ -355,6 +356,9 @@ export function validateApplicationPolicy(policy, profile) {
   ) {
     errors.push("manual_submission_required contradicts execution_mode");
   }
+  if (policy.selection_mode !== "truthful_apply_by_default") {
+    errors.push("selection_mode must be truthful_apply_by_default");
+  }
   for (const key of dailyApplicationLimitKeys(policy)) {
     errors.push(`daily application limit field is unsupported: ${key}`);
   }
@@ -374,7 +378,7 @@ export function validateApplicationPolicy(policy, profile) {
         normal_allocation: 5,
         high_allocation: 10
       },
-      save_points_behavior: "do_not_apply",
+      save_points_behavior: "use_low_allocation",
       maximum_per_application: 10
     })
   ) {
@@ -458,8 +462,8 @@ export function validateAutonomousResolutionPolicy(
   }
   const expected = {
     ready_and_answerable: "apply",
-    low_fit: "skip",
-    deterministically_unsupported: "skip",
+    low_fit: "apply",
+    deterministically_unsupported: "apply",
     missing_required_candidate_fact: "blocked",
     unsafe_external_action: "blocked",
     ambiguous_instruction: "blocked"

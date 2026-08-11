@@ -247,6 +247,7 @@ switch (command) {
       field_receipts: input.field_receipts,
       profile,
       rankingPolicy,
+      applicationPolicy,
       now: input.now
     });
     break;

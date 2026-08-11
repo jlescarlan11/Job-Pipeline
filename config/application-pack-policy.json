@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "policy_version": "2026-08-10/v4",
+  "policy_version": "2026-08-11/v5",
   "pack_version": "2026-08-10/v4",
   "candidate_profile_version": "2026-07-29",
-  "application_policy_version": "2026-08-10/autonomous-v1",
+  "application_policy_version": "2026-08-11/autonomous-v2",
   "minimum_preferred_proofs": 2,
   "maximum_proofs": 2,
   "maximum_instructions": 20,
@@ -22,8 +22,8 @@
   "message_plan_version": "2026-08-10/v4",
   "autonomous_resolution": {
     "ready_and_answerable": "apply",
-    "low_fit": "skip",
-    "deterministically_unsupported": "skip",
+    "low_fit": "apply",
+    "deterministically_unsupported": "apply",
     "missing_required_candidate_fact": "blocked",
     "unsafe_external_action": "blocked",
     "ambiguous_instruction": "blocked"

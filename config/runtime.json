@@ -21,7 +21,7 @@
   },
   "browser_executor": {
     "role_type": "codex_scheduled_task",
-    "schedule_minutes": 90,
+    "schedule_minutes": 15,
     "schedule_offset_minutes": 2,
     "execution_timeout_seconds": 480,
     "claim_lease_ms": 600000,

@@ -323,6 +323,53 @@ function requiredApplyPoints(record) {
   return value;
 }
 
+function truthfulApplyByDefault(applicationPolicy) {
+  return (
+    applicationPolicy?.selection_mode === "truthful_apply_by_default" &&
+    applicationPolicy?.apply_points?.save_points_behavior ===
+      "use_low_allocation"
+  );
+}
+
+function autonomousEvaluation(
+  job,
+  profile,
+  rankingPolicy,
+  applicationPolicy,
+  now
+) {
+  const evaluation = evaluateJob(job, profile, rankingPolicy, now);
+  if (
+    truthfulApplyByDefault(applicationPolicy) &&
+    !["unavailable", "unscorable"].includes(evaluation.match_decision) &&
+    evaluation.apply_points_recommendation === "save_points"
+  ) {
+    return {
+      ...evaluation,
+      apply_points_recommendation: "low_allocation"
+    };
+  }
+  return evaluation;
+}
+
+function autonomousResolutionKey(evaluation) {
+  if (evaluation.match_decision === "unavailable") return "unavailable";
+  if (evaluation.match_decision === "unscorable") {
+    return "missing_required_candidate_fact";
+  }
+  if (
+    (evaluation.requirement_gap_details ?? []).some(
+      (gap) => gap.classification === "hard"
+    )
+  ) {
+    return "deterministically_unsupported";
+  }
+  if (evaluation.match_decision === "recommended") {
+    return "ready_and_answerable";
+  }
+  return "low_fit";
+}
+
 function independentClickWitness(directory, witnessPath) {
   const witnessRelative = relative(directory, witnessPath);
   return witnessRelative === ".." || witnessRelative.startsWith(`..${sep}`);
@@ -2150,10 +2197,21 @@ export function validateAutonomousDecision(
   if (freshRecord.browser_job_digest !== browserJobDigest(freshRecord)) {
     throw new Error("Job input changed after the browser claim");
   }
-  const evaluation = evaluateJob(freshRecord, profile, rankingPolicy, now);
+  const evaluation = autonomousEvaluation(
+    freshRecord,
+    profile,
+    rankingPolicy,
+    applicationPolicy,
+    now
+  );
+  const resolutionKey = autonomousResolutionKey(evaluation);
+  const resolutionAction =
+    resolutionKey === "unavailable"
+      ? "skip"
+      : packPolicy?.autonomous_resolution?.[resolutionKey];
   if (decision.decision === "skip") {
-    if (!["not_recommended", "unavailable"].includes(evaluation.match_decision)) {
-      throw new Error("ChatGPT cannot skip an eligible or ambiguous job");
+    if (resolutionAction !== "skip") {
+      throw new Error("Apply-by-default policy does not authorize this skip");
     }
     const skipped = nextRecord(
       freshRecord,
@@ -2180,8 +2238,8 @@ export function validateAutonomousDecision(
       }
     };
   }
-  if (evaluation.match_decision !== "recommended") {
-    throw new Error("Only deterministically recommended jobs may be applied to");
+  if (resolutionAction !== "apply") {
+    throw new Error("Job facts do not authorize a truthful autonomous application");
   }
   const pack = buildApplicationPack(
     { ...freshRecord, ...evaluation, user_action: "" },
@@ -2313,10 +2371,11 @@ export function confirmBrowserReady(
   if (!["generating", "filling"].includes(persisted.browser_state)) {
     throw new Error("Browser fill authorization requires generating or filling state");
   }
-  const currentEvaluation = evaluateJob(
+  const currentEvaluation = autonomousEvaluation(
     persisted,
     profile,
     rankingPolicy,
+    applicationPolicy,
     now
   );
   const authorizedApplyPoints = requiredApplyPoints(currentEvaluation);
@@ -2444,6 +2503,7 @@ export function planSubmitIntent(
     field_receipts,
     profile,
     rankingPolicy,
+    applicationPolicy,
     now = new Date().toISOString()
   }
 ) {
@@ -2456,10 +2516,11 @@ export function planSubmitIntent(
   if (freshRecord.browser_job_digest !== browserJobDigest(freshRecord)) {
     throw new Error("Job input changed before submit intent");
   }
-  const currentEvaluation = evaluateJob(
+  const currentEvaluation = autonomousEvaluation(
     freshRecord,
     profile,
     rankingPolicy,
+    applicationPolicy,
     now
   );
   const formFingerprint = browserFormFingerprint(
@@ -2564,7 +2625,13 @@ export function confirmSubmitIntent(
       form,
       {
         ...persisted,
-        ...evaluateJob(persisted, profile, rankingPolicy, now)
+        ...autonomousEvaluation(
+          persisted,
+          profile,
+          rankingPolicy,
+          applicationPolicy,
+          now
+        )
       }
     ) !==
     persisted.browser_form_fingerprint

@@ -199,13 +199,13 @@ executions and omits successful production payloads/progress.
 | Role | Schedule | Timeout | Claim lease |
 | --- | ---: | ---: | ---: |
 | Scraper | 240 min, offset 8 | 900 s | 1,200 s |
-| Browser Executor (scheduled Codex) | 90 min, offset 2 | 480 s | 600 s |
+| Browser Executor (scheduled Codex) | 15 min, offset 2 | 480 s | 600 s |
 | Alerter & Mover | 15 min, offset 10 | 300 s | 360 s |
 
 The two n8n roles produce 714 scheduled executions per week and have
 timeout-weighted demand of 0.3958 execution slots. Production uses a bounded
 two-slot n8n limit; a one-week simulation finds a maximum n8n overlap of two.
-The browser task contributes 112 separate scheduled opportunities per week.
+The browser task contributes 672 separate scheduled opportunities per week.
 Its 120-second minimum attempt headroom leaves unfinished due records eligible
 for the next run. There is no per-run application quota, daily application cap,
 daily counter, or Groq capacity in the active path. Append-winner claims plus
